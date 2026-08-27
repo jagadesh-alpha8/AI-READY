@@ -1,0 +1,5185 @@
+openapi: 3.0.3
+info:
+  title: AIOS Discovery Sprint API
+  version: 1.0.0
+  description: Backend API for AI Readiness Discovery Sprint platform
+paths:
+  /api/v1/auth/change-password:
+    post:
+      operationId: v1_auth_change_password_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: Password changed
+  /api/v1/auth/change-password/:
+    post:
+      operationId: v1_auth_change_password_create_2
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: Password changed
+  /api/v1/auth/login:
+    post:
+      operationId: v1_auth_login_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Login'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Login'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+          description: ''
+  /api/v1/auth/login/:
+    post:
+      operationId: v1_auth_login_create_2
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Login'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Login'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+          description: ''
+  /api/v1/auth/logout:
+    post:
+      operationId: v1_auth_logout_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Logout'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Logout'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Logout'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: Logged out
+  /api/v1/auth/logout/:
+    post:
+      operationId: v1_auth_logout_create_2
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Logout'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Logout'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Logout'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: Logged out
+  /api/v1/auth/me:
+    get:
+      operationId: v1_auth_me_retrieve
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/v1/auth/me/:
+    get:
+      operationId: v1_auth_me_retrieve_2
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/v1/auth/refresh:
+    post:
+      operationId: v1_auth_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/auth/refresh/:
+    post:
+      operationId: v1_auth_refresh_create_2
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/dashboard:
+    get:
+      operationId: v1_dashboard_retrieve
+      description: |-
+        GET /api/v1/dashboard/ -- the summary tiles + accessible sprint list
+        a signed-in user's dashboard needs, computed live from real rows (never
+        mock/placeholder values). Scoped by the same institution-access rule as
+        every other endpoint (apps.accounts.permissions): cross-institution
+        roles (super_admin, consultant) see the whole platform; everyone else
+        is confined to their own institution.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/dashboard/:
+    get:
+      operationId: v1_dashboard_retrieve_2
+      description: |-
+        GET /api/v1/dashboard/ -- the summary tiles + accessible sprint list
+        a signed-in user's dashboard needs, computed live from real rows (never
+        mock/placeholder values). Scoped by the same institution-access rule as
+        every other endpoint (apps.accounts.permissions): cross-institution
+        roles (super_admin, consultant) see the whole platform; everyone else
+        is confined to their own institution.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/documents/{id}:
+    get:
+      operationId: v1_documents_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+    put:
+      operationId: v1_documents_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Document'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Document'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+    patch:
+      operationId: v1_documents_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDocument'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDocument'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDocument'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+    delete:
+      operationId: v1_documents_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/documents/{id}/:
+    get:
+      operationId: v1_documents_retrieve_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+    put:
+      operationId: v1_documents_update_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Document'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Document'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+    patch:
+      operationId: v1_documents_partial_update_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDocument'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDocument'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDocument'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+    delete:
+      operationId: v1_documents_destroy_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/documents/{id}/download:
+    get:
+      operationId: v1_documents_download_retrieve
+      description: |-
+        Streams the file through Django's storage backend, gated on the same
+        institution-membership check as everything else -- never a raw,
+        unauthenticated media URL.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+          description: The document file.
+  /api/v1/documents/{id}/download/:
+    get:
+      operationId: v1_documents_download_retrieve_2
+      description: |-
+        Streams the file through Django's storage backend, gated on the same
+        institution-membership check as everything else -- never a raw,
+        unauthenticated media URL.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+          description: The document file.
+  /api/v1/extraction-jobs/{id}:
+    get:
+      operationId: v1_extraction_jobs_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractionJob'
+          description: ''
+  /api/v1/extraction-jobs/{id}/:
+    get:
+      operationId: v1_extraction_jobs_retrieve_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractionJob'
+          description: ''
+  /api/v1/facts/{id}:
+    get:
+      operationId: v1_facts_retrieve
+      description: |-
+        Read-only. A fact's value/status only ever changes through the
+        confirm/correct/reject/request-evidence actions below, so every change
+        is captured in FactReviewHistory -- there's no generic PATCH here to
+        bypass that.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractedFactDetail'
+          description: ''
+  /api/v1/facts/{id}/:
+    get:
+      operationId: v1_facts_retrieve_2
+      description: |-
+        Read-only. A fact's value/status only ever changes through the
+        confirm/correct/reject/request-evidence actions below, so every change
+        is captured in FactReviewHistory -- there's no generic PATCH here to
+        bypass that.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractedFactDetail'
+          description: ''
+  /api/v1/facts/{id}/confirm:
+    post:
+      operationId: v1_facts_confirm_create
+      description: |-
+        Shared plumbing for the four review actions: look up + authorize the
+        fact, validate the action's payload, record a FactReviewHistory entry
+        capturing the value as it stood *before* this action, then apply the
+        status change (and, for correct, the value change).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactConfirm'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FactConfirm'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FactConfirm'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractedFactDetail'
+          description: ''
+  /api/v1/facts/{id}/confirm/:
+    post:
+      operationId: v1_facts_confirm_create_2
+      description: |-
+        Shared plumbing for the four review actions: look up + authorize the
+        fact, validate the action's payload, record a FactReviewHistory entry
+        capturing the value as it stood *before* this action, then apply the
+        status change (and, for correct, the value change).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactConfirm'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FactConfirm'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FactConfirm'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractedFactDetail'
+          description: ''
+  /api/v1/facts/{id}/correct:
+    post:
+      operationId: v1_facts_correct_create
+      description: |-
+        Shared plumbing for the four review actions: look up + authorize the
+        fact, validate the action's payload, record a FactReviewHistory entry
+        capturing the value as it stood *before* this action, then apply the
+        status change (and, for correct, the value change).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactCorrect'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FactCorrect'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FactCorrect'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractedFactDetail'
+          description: ''
+  /api/v1/facts/{id}/correct/:
+    post:
+      operationId: v1_facts_correct_create_2
+      description: |-
+        Shared plumbing for the four review actions: look up + authorize the
+        fact, validate the action's payload, record a FactReviewHistory entry
+        capturing the value as it stood *before* this action, then apply the
+        status change (and, for correct, the value change).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactCorrect'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FactCorrect'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FactCorrect'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractedFactDetail'
+          description: ''
+  /api/v1/facts/{id}/reject:
+    post:
+      operationId: v1_facts_reject_create
+      description: |-
+        Shared plumbing for the four review actions: look up + authorize the
+        fact, validate the action's payload, record a FactReviewHistory entry
+        capturing the value as it stood *before* this action, then apply the
+        status change (and, for correct, the value change).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactReject'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FactReject'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FactReject'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractedFactDetail'
+          description: ''
+  /api/v1/facts/{id}/reject/:
+    post:
+      operationId: v1_facts_reject_create_2
+      description: |-
+        Shared plumbing for the four review actions: look up + authorize the
+        fact, validate the action's payload, record a FactReviewHistory entry
+        capturing the value as it stood *before* this action, then apply the
+        status change (and, for correct, the value change).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactReject'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FactReject'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FactReject'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractedFactDetail'
+          description: ''
+  /api/v1/facts/{id}/request-evidence:
+    post:
+      operationId: v1_facts_request_evidence_create
+      description: |-
+        Shared plumbing for the four review actions: look up + authorize the
+        fact, validate the action's payload, record a FactReviewHistory entry
+        capturing the value as it stood *before* this action, then apply the
+        status change (and, for correct, the value change).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactEvidenceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FactEvidenceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FactEvidenceRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractedFactDetail'
+          description: ''
+  /api/v1/facts/{id}/request-evidence/:
+    post:
+      operationId: v1_facts_request_evidence_create_2
+      description: |-
+        Shared plumbing for the four review actions: look up + authorize the
+        fact, validate the action's payload, record a FactReviewHistory entry
+        capturing the value as it stood *before* this action, then apply the
+        status change (and, for correct, the value change).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactEvidenceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FactEvidenceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FactEvidenceRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractedFactDetail'
+          description: ''
+  /api/v1/gaps/{id}:
+    get:
+      operationId: v1_gaps_retrieve
+      description: |-
+        Read-only. A gap's status only ever changes through the resolve/
+        mark-unavailable/skip actions below, which also record who and when.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GapItem'
+          description: ''
+  /api/v1/gaps/{id}/:
+    get:
+      operationId: v1_gaps_retrieve_2
+      description: |-
+        Read-only. A gap's status only ever changes through the resolve/
+        mark-unavailable/skip actions below, which also record who and when.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GapItem'
+          description: ''
+  /api/v1/gaps/{id}/mark-unavailable:
+    post:
+      operationId: v1_gaps_mark_unavailable_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GapMarkUnavailable'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GapMarkUnavailable'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GapMarkUnavailable'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GapItem'
+          description: ''
+  /api/v1/gaps/{id}/mark-unavailable/:
+    post:
+      operationId: v1_gaps_mark_unavailable_create_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GapMarkUnavailable'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GapMarkUnavailable'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GapMarkUnavailable'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GapItem'
+          description: ''
+  /api/v1/gaps/{id}/resolve:
+    post:
+      operationId: v1_gaps_resolve_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GapResolve'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GapResolve'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GapResolve'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GapItem'
+          description: ''
+  /api/v1/gaps/{id}/resolve/:
+    post:
+      operationId: v1_gaps_resolve_create_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GapResolve'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GapResolve'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GapResolve'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GapItem'
+          description: ''
+  /api/v1/gaps/{id}/skip:
+    post:
+      operationId: v1_gaps_skip_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GapSkip'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GapSkip'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GapSkip'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GapItem'
+          description: ''
+  /api/v1/gaps/{id}/skip/:
+    post:
+      operationId: v1_gaps_skip_create_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GapSkip'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GapSkip'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GapSkip'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GapItem'
+          description: ''
+  /api/v1/institutions:
+    get:
+      operationId: v1_institutions_list
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedInstitutionList'
+          description: ''
+    post:
+      operationId: v1_institutions_create
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Institution'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Institution'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Institution'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Institution'
+          description: ''
+  /api/v1/institutions/:
+    get:
+      operationId: v1_institutions_list_2
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedInstitutionList'
+          description: ''
+    post:
+      operationId: v1_institutions_create_2
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Institution'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Institution'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Institution'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Institution'
+          description: ''
+  /api/v1/institutions/{id}:
+    get:
+      operationId: v1_institutions_retrieve
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Institution'
+          description: ''
+    put:
+      operationId: v1_institutions_update
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Institution'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Institution'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Institution'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Institution'
+          description: ''
+    patch:
+      operationId: v1_institutions_partial_update
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedInstitution'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedInstitution'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedInstitution'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Institution'
+          description: ''
+    delete:
+      operationId: v1_institutions_destroy
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/institutions/{id}/:
+    get:
+      operationId: v1_institutions_retrieve_2
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Institution'
+          description: ''
+    put:
+      operationId: v1_institutions_update_2
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Institution'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Institution'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Institution'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Institution'
+          description: ''
+    patch:
+      operationId: v1_institutions_partial_update_2
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedInstitution'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedInstitution'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedInstitution'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Institution'
+          description: ''
+    delete:
+      operationId: v1_institutions_destroy_2
+      description: |-
+        CRUD for institutions, scoped to the ones a user is authorized to see.
+
+        Cross-institution roles (super_admin, consultant) see every institution;
+        everyone else only sees the one on their own profile. Deletion is a soft
+        delete (is_active=False) so existing sprints keep a valid institution
+        reference.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/recommendations/{id}:
+    get:
+      operationId: v1_recommendations_retrieve
+      description: |-
+        GET any authorized viewer; PATCH is narrower -- only InGage
+        consultants (CanEditRecommendation), not every role that can view.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recommendation'
+          description: ''
+    put:
+      operationId: v1_recommendations_update
+      description: |-
+        GET any authorized viewer; PATCH is narrower -- only InGage
+        consultants (CanEditRecommendation), not every role that can view.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Recommendation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Recommendation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Recommendation'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recommendation'
+          description: ''
+    patch:
+      operationId: v1_recommendations_partial_update
+      description: |-
+        GET any authorized viewer; PATCH is narrower -- only InGage
+        consultants (CanEditRecommendation), not every role that can view.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedRecommendationUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedRecommendationUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedRecommendationUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationUpdate'
+          description: ''
+  /api/v1/recommendations/{id}/:
+    get:
+      operationId: v1_recommendations_retrieve_2
+      description: |-
+        GET any authorized viewer; PATCH is narrower -- only InGage
+        consultants (CanEditRecommendation), not every role that can view.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recommendation'
+          description: ''
+    put:
+      operationId: v1_recommendations_update_2
+      description: |-
+        GET any authorized viewer; PATCH is narrower -- only InGage
+        consultants (CanEditRecommendation), not every role that can view.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Recommendation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Recommendation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Recommendation'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recommendation'
+          description: ''
+    patch:
+      operationId: v1_recommendations_partial_update_2
+      description: |-
+        GET any authorized viewer; PATCH is narrower -- only InGage
+        consultants (CanEditRecommendation), not every role that can view.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedRecommendationUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedRecommendationUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedRecommendationUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationUpdate'
+          description: ''
+  /api/v1/reports/{id}:
+    get:
+      operationId: v1_reports_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+          description: ''
+  /api/v1/reports/{id}/:
+    get:
+      operationId: v1_reports_retrieve_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+          description: ''
+  /api/v1/reports/{id}/download:
+    get:
+      operationId: v1_reports_download_retrieve
+      description: |-
+        Streams the report's rendered PDF (default) or DOCX (?file=docx)
+        file, gated on the same institution-membership check as document
+        downloads (apps.documents.views.DocumentDownloadView) -- never a raw,
+        unauthenticated media URL.
+
+        Deliberately `?file=` rather than `?format=`: DRF reserves `format` as
+        its own content-negotiation query parameter (URL_FORMAT_OVERRIDE), so
+        `?format=docx` would be intercepted by DRF's renderer selection before
+        ever reaching this view instead of picking the DOCX file.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+          description: The rendered PDF/DOCX file.
+  /api/v1/reports/{id}/download/:
+    get:
+      operationId: v1_reports_download_retrieve_2
+      description: |-
+        Streams the report's rendered PDF (default) or DOCX (?file=docx)
+        file, gated on the same institution-membership check as document
+        downloads (apps.documents.views.DocumentDownloadView) -- never a raw,
+        unauthenticated media URL.
+
+        Deliberately `?file=` rather than `?format=`: DRF reserves `format` as
+        its own content-negotiation query parameter (URL_FORMAT_OVERRIDE), so
+        `?format=docx` would be intercepted by DRF's renderer selection before
+        ever reaching this view instead of picking the DOCX file.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+          description: The rendered PDF/DOCX file.
+  /api/v1/scoring/config:
+    get:
+      operationId: v1_scoring_config_list
+      description: |-
+        The live, database-backed scoring configuration: every active pillar
+        and its criteria, with current weights -- what actually drives the
+        engine, not a hardcoded snapshot of it.
+      parameters:
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PillarConfig'
+          description: ''
+  /api/v1/sprints:
+    get:
+      operationId: v1_sprints_list
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSprintList'
+          description: ''
+    post:
+      operationId: v1_sprints_create
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sprint'
+          description: ''
+  /api/v1/sprints/:
+    get:
+      operationId: v1_sprints_list_2
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSprintList'
+          description: ''
+    post:
+      operationId: v1_sprints_create_2
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sprint'
+          description: ''
+  /api/v1/sprints/{id}:
+    get:
+      operationId: v1_sprints_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sprint'
+          description: ''
+    put:
+      operationId: v1_sprints_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sprint'
+          description: ''
+    patch:
+      operationId: v1_sprints_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSprint'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSprint'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSprint'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sprint'
+          description: ''
+    delete:
+      operationId: v1_sprints_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/sprints/{id}/:
+    get:
+      operationId: v1_sprints_retrieve_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sprint'
+          description: ''
+    put:
+      operationId: v1_sprints_update_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Sprint'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sprint'
+          description: ''
+    patch:
+      operationId: v1_sprints_partial_update_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSprint'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSprint'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSprint'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sprint'
+          description: ''
+    delete:
+      operationId: v1_sprints_destroy_2
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/sprints/{id}/overview:
+    get:
+      operationId: v1_sprints_overview_retrieve
+      description: Everything the dashboard / sprint-overview screen needs, in one
+        call.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sprint'
+          description: ''
+  /api/v1/sprints/{id}/overview/:
+    get:
+      operationId: v1_sprints_overview_retrieve_2
+      description: Everything the dashboard / sprint-overview screen needs, in one
+        call.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sprint'
+          description: ''
+  /api/v1/sprints/{sprint_id}/documents:
+    get:
+      operationId: v1_sprints_documents_list
+      description: 'Read-only: documents are only ever created through the upload
+        endpoint.'
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Document'
+          description: ''
+  /api/v1/sprints/{sprint_id}/documents/:
+    get:
+      operationId: v1_sprints_documents_list_2
+      description: 'Read-only: documents are only ever created through the upload
+        endpoint.'
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Document'
+          description: ''
+  /api/v1/sprints/{sprint_id}/extraction-jobs:
+    get:
+      operationId: v1_sprints_extraction_jobs_list
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExtractionJob'
+          description: ''
+    post:
+      operationId: v1_sprints_extraction_jobs_create
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExtractionJob'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ExtractionJob'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ExtractionJob'
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractionJob'
+          description: ''
+  /api/v1/sprints/{sprint_id}/extraction-jobs/:
+    get:
+      operationId: v1_sprints_extraction_jobs_list_2
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExtractionJob'
+          description: ''
+    post:
+      operationId: v1_sprints_extraction_jobs_create_2
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExtractionJob'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ExtractionJob'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ExtractionJob'
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractionJob'
+          description: ''
+  /api/v1/sprints/{sprint_id}/facts:
+    get:
+      operationId: v1_sprints_facts_list
+      description: 'Read-only: facts are only ever created by the extraction pipeline.'
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedExtractedFactList'
+          description: ''
+  /api/v1/sprints/{sprint_id}/facts/:
+    get:
+      operationId: v1_sprints_facts_list_2
+      description: 'Read-only: facts are only ever created by the extraction pipeline.'
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedExtractedFactList'
+          description: ''
+  /api/v1/sprints/{sprint_id}/gaps:
+    get:
+      operationId: v1_sprints_gaps_list
+      description: |-
+        Read-only: gaps are only ever created by the automatic generation
+        services in apps.gaps.services, never by a generic client POST.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedGapItemList'
+          description: ''
+  /api/v1/sprints/{sprint_id}/gaps/:
+    get:
+      operationId: v1_sprints_gaps_list_2
+      description: |-
+        Read-only: gaps are only ever created by the automatic generation
+        services in apps.gaps.services, never by a generic client POST.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedGapItemList'
+          description: ''
+  /api/v1/sprints/{sprint_id}/recommendations:
+    get:
+      operationId: v1_sprints_recommendations_list
+      description: |-
+        GET the sprint's current recommendations. POST also still runs the
+        engine here (in addition to the dedicated .../generate/ endpoint below)
+        since that's the URL the existing, unmodified frontend already posts to
+        for its "Generate Recommendations" button.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Recommendation'
+          description: ''
+    post:
+      operationId: v1_sprints_recommendations_create
+      description: |-
+        GET the sprint's current recommendations. POST also still runs the
+        engine here (in addition to the dedicated .../generate/ endpoint below)
+        since that's the URL the existing, unmodified frontend already posts to
+        for its "Generate Recommendations" button.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Recommendation'
+          description: ''
+  /api/v1/sprints/{sprint_id}/recommendations/:
+    get:
+      operationId: v1_sprints_recommendations_list_2
+      description: |-
+        GET the sprint's current recommendations. POST also still runs the
+        engine here (in addition to the dedicated .../generate/ endpoint below)
+        since that's the URL the existing, unmodified frontend already posts to
+        for its "Generate Recommendations" button.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Recommendation'
+          description: ''
+    post:
+      operationId: v1_sprints_recommendations_create_2
+      description: |-
+        GET the sprint's current recommendations. POST also still runs the
+        engine here (in addition to the dedicated .../generate/ endpoint below)
+        since that's the URL the existing, unmodified frontend already posts to
+        for its "Generate Recommendations" button.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Recommendation'
+          description: ''
+  /api/v1/sprints/{sprint_id}/recommendations/generate:
+    post:
+      operationId: v1_sprints_recommendations_generate_create
+      description: |-
+        POST /sprints/{sprint_id}/recommendations/generate/ -- runs the
+        recommendation engine against the sprint's current gap/fact/score data.
+        Same action as SprintRecommendationListView.post; a dedicated URL for
+        callers that want "generate" to be explicit rather than overloading the
+        list endpoint's POST verb.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Recommendation'
+          description: ''
+  /api/v1/sprints/{sprint_id}/recommendations/generate/:
+    post:
+      operationId: v1_sprints_recommendations_generate_create_2
+      description: |-
+        POST /sprints/{sprint_id}/recommendations/generate/ -- runs the
+        recommendation engine against the sprint's current gap/fact/score data.
+        Same action as SprintRecommendationListView.post; a dedicated URL for
+        callers that want "generate" to be explicit rather than overloading the
+        list endpoint's POST verb.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Recommendation'
+          description: ''
+  /api/v1/sprints/{sprint_id}/reports:
+    get:
+      operationId: v1_sprints_reports_list
+      description: |-
+        GET the sprint's report history (version-descending). POST also
+        triggers generation here, in addition to the dedicated .../generate/
+        endpoint below, since that's the URL the existing, unmodified
+        frontend's ReportPreviewExport.tsx already posts to.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReportList'
+          description: ''
+    post:
+      operationId: v1_sprints_reports_create
+      description: |-
+        GET the sprint's report history (version-descending). POST also
+        triggers generation here, in addition to the dedicated .../generate/
+        endpoint below, since that's the URL the existing, unmodified
+        frontend's ReportPreviewExport.tsx already posts to.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+          description: ''
+  /api/v1/sprints/{sprint_id}/reports/:
+    get:
+      operationId: v1_sprints_reports_list_2
+      description: |-
+        GET the sprint's report history (version-descending). POST also
+        triggers generation here, in addition to the dedicated .../generate/
+        endpoint below, since that's the URL the existing, unmodified
+        frontend's ReportPreviewExport.tsx already posts to.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReportList'
+          description: ''
+    post:
+      operationId: v1_sprints_reports_create_2
+      description: |-
+        GET the sprint's report history (version-descending). POST also
+        triggers generation here, in addition to the dedicated .../generate/
+        endpoint below, since that's the URL the existing, unmodified
+        frontend's ReportPreviewExport.tsx already posts to.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+          description: ''
+  /api/v1/sprints/{sprint_id}/reports/generate:
+    post:
+      operationId: v1_sprints_reports_generate_create
+      description: |-
+        POST /sprints/{sprint_id}/reports/generate/ -- creates a new report
+        at the sprint's next version number and dispatches generation
+        asynchronously via Celery. The response's `status` (draft/generating in
+        a real deployment, likely already ready/failed under
+        CELERY_TASK_ALWAYS_EAGER) is what a caller polls GET
+        .../reports/{id}/ to track.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+          description: ''
+  /api/v1/sprints/{sprint_id}/reports/generate/:
+    post:
+      operationId: v1_sprints_reports_generate_create_2
+      description: |-
+        POST /sprints/{sprint_id}/reports/generate/ -- creates a new report
+        at the sprint's next version number and dispatches generation
+        asynchronously via Celery. The response's `status` (draft/generating in
+        a real deployment, likely already ready/failed under
+        CELERY_TASK_ALWAYS_EAGER) is what a caller polls GET
+        .../reports/{id}/ to track.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+          description: ''
+  /api/v1/sprints/{sprint_id}/score:
+    get:
+      operationId: v1_sprints_score_retrieve
+      description: |-
+        GET returns the sprint's current, explainable CRI score -- computing
+        it once, on first access, if the sprint has never been scored. POST
+        forces a fresh recalculation from the sprint's current fact/gap data.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SprintScore'
+          description: ''
+    post:
+      operationId: v1_sprints_score_create
+      description: |-
+        GET returns the sprint's current, explainable CRI score -- computing
+        it once, on first access, if the sprint has never been scored. POST
+        forces a fresh recalculation from the sprint's current fact/gap data.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SprintScore'
+          description: ''
+  /api/v1/sprints/{sprint_id}/score/:
+    get:
+      operationId: v1_sprints_score_retrieve_2
+      description: |-
+        GET returns the sprint's current, explainable CRI score -- computing
+        it once, on first access, if the sprint has never been scored. POST
+        forces a fresh recalculation from the sprint's current fact/gap data.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SprintScore'
+          description: ''
+    post:
+      operationId: v1_sprints_score_create_2
+      description: |-
+        GET returns the sprint's current, explainable CRI score -- computing
+        it once, on first access, if the sprint has never been scored. POST
+        forces a fresh recalculation from the sprint's current fact/gap data.
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SprintScore'
+          description: ''
+  /api/v1/sprints/{sprint_id}/score/history:
+    get:
+      operationId: v1_sprints_score_history_list
+      description: |-
+        The audit trail of every past scoring run for a sprint, most recent
+        first -- each entry is frozen as of when it ran (see
+        ScoringRun.pillar_snapshot), unlike GET .../score/ which always reflects
+        the latest run's PillarScore rows.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedScoringRunList'
+          description: ''
+  /api/v1/sprints/{sprint_id}/score/history/:
+    get:
+      operationId: v1_sprints_score_history_list_2
+      description: |-
+        The audit trail of every past scoring run for a sprint, most recent
+        first -- each entry is frozen as of when it ran (see
+        ScoringRun.pillar_snapshot), unlike GET .../score/ which always reflects
+        the latest run's PillarScore rows.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedScoringRunList'
+          description: ''
+  /api/v1/sprints/{sprint_id}/upload-file:
+    post:
+      operationId: v1_sprints_upload_file_create
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/v1/sprints/{sprint_id}/upload-file/:
+    post:
+      operationId: v1_sprints_upload_file_create_2
+      parameters:
+      - in: path
+        name: sprint_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+components:
+  schemas:
+    ActionEnum:
+      enum:
+      - confirmed
+      - corrected
+      - rejected
+      - evidence_requested
+      type: string
+      description: |-
+        * `confirmed` - Confirmed
+        * `corrected` - Corrected
+        * `rejected` - Rejected
+        * `evidence_requested` - Evidence Requested
+    ChangePassword:
+      type: object
+      properties:
+        old_password:
+          type: string
+          writeOnly: true
+        new_password:
+          type: string
+          writeOnly: true
+      required:
+      - new_password
+      - old_password
+    CurrentStepEnum:
+      enum:
+      - classifying_documents
+      - reading_pages
+      - extracting_facts
+      - mapping_audit_fields
+      - detecting_gaps
+      - checking_conflicts
+      - preparing_review_workspace
+      type: string
+      description: |-
+        * `classifying_documents` - Classifying Documents
+        * `reading_pages` - Reading Pages
+        * `extracting_facts` - Extracting Facts
+        * `mapping_audit_fields` - Mapping Audit Fields
+        * `detecting_gaps` - Detecting Gaps
+        * `checking_conflicts` - Checking Conflicts
+        * `preparing_review_workspace` - Preparing Review Workspace
+    DataTypeEnum:
+      enum:
+      - string
+      - number
+      - percentage
+      - boolean
+      - date
+      - currency
+      - list
+      type: string
+      description: |-
+        * `string` - String
+        * `number` - Number
+        * `percentage` - Percentage
+        * `boolean` - Boolean
+        * `date` - Date
+        * `currency` - Currency
+        * `list` - List
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        sprint_id:
+          type: string
+          format: uuid
+          readOnly: true
+        document_type:
+          type: string
+          pattern: ^[a-z][a-z0-9_]*$
+          maxLength: 100
+        document_type_label:
+          type: string
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        original_filename:
+          type: string
+          readOnly: true
+        mime_type:
+          type: string
+          readOnly: true
+        file_size:
+          type: integer
+          readOnly: true
+          nullable: true
+        file_size_display:
+          type: string
+          readOnly: true
+        checksum:
+          type: string
+          readOnly: true
+          description: SHA-256 hex digest
+        download_url:
+          type: string
+          readOnly: true
+        has_file:
+          type: string
+          readOnly: true
+        uploaded_by:
+          type: string
+          format: uuid
+          readOnly: true
+        owner_role:
+          type: string
+          maxLength: 50
+        status:
+          $ref: '#/components/schemas/DocumentStatusEnum'
+        page_count:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          nullable: true
+        quality_score:
+          type: number
+          format: double
+          nullable: true
+        ocr_required:
+          type: boolean
+        ocr_warnings: {}
+        processing_status:
+          type: string
+          maxLength: 100
+        uploaded_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        processed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - checksum
+      - created_at
+      - document_type
+      - document_type_label
+      - download_url
+      - file_size
+      - file_size_display
+      - has_file
+      - id
+      - mime_type
+      - original_filename
+      - processed_at
+      - sprint_id
+      - updated_at
+      - uploaded_at
+      - uploaded_by
+    DocumentStatusEnum:
+      enum:
+      - pending
+      - uploaded
+      - processing
+      - processed
+      - failed
+      - rejected
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `uploaded` - Uploaded
+        * `processing` - Processing
+        * `processed` - Processed
+        * `failed` - Failed
+        * `rejected` - Rejected
+    DocumentUpload:
+      type: object
+      properties:
+        file:
+          type: string
+          format: uri
+        document_type:
+          type: string
+          pattern: ^[a-z][a-z0-9_]*$
+          maxLength: 100
+        title:
+          type: string
+          default: ''
+          maxLength: 255
+        owner_role:
+          type: string
+          default: ''
+          maxLength: 50
+      required:
+      - document_type
+      - file
+    ExtractedFact:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        sprint_id:
+          type: string
+          format: uuid
+          readOnly: true
+        document_id:
+          type: string
+          format: uuid
+          readOnly: true
+        field_name:
+          type: string
+          readOnly: true
+        field_key:
+          type: string
+          readOnly: true
+        audit_field_id:
+          type: string
+          readOnly: true
+        value:
+          readOnly: true
+          nullable: true
+        value_json:
+          readOnly: true
+        normalized_value:
+          readOnly: true
+          nullable: true
+        data_type:
+          allOf:
+          - $ref: '#/components/schemas/DataTypeEnum'
+          readOnly: true
+        pillar:
+          allOf:
+          - $ref: '#/components/schemas/PillarEnum'
+          readOnly: true
+        pillar_label:
+          type: string
+          readOnly: true
+        owner_role:
+          type: string
+          readOnly: true
+        source_document_id:
+          type: string
+          format: uuid
+          readOnly: true
+        source_page:
+          type: string
+          readOnly: true
+        source_snippet:
+          type: string
+          readOnly: true
+        confidence_score:
+          type: number
+          format: double
+          readOnly: true
+        confidence:
+          type: number
+          format: double
+          readOnly: true
+        confidence_reason:
+          type: string
+          readOnly: true
+        extraction_method:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusD43Enum'
+          readOnly: true
+        reviewed_by:
+          type: string
+          format: uuid
+          readOnly: true
+        reviewed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - audit_field_id
+      - confidence
+      - confidence_reason
+      - confidence_score
+      - created_at
+      - data_type
+      - document_id
+      - extraction_method
+      - field_key
+      - field_name
+      - id
+      - normalized_value
+      - owner_role
+      - pillar
+      - pillar_label
+      - reviewed_at
+      - reviewed_by
+      - source_document_id
+      - source_page
+      - source_snippet
+      - sprint_id
+      - status
+      - updated_at
+      - value
+      - value_json
+    ExtractedFactDetail:
+      type: object
+      description: |-
+        Same as ExtractedFactSerializer, plus the full audit trail -- used for
+        the single-fact GET and returned after every review action so a caller
+        can see the new history entry immediately.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        sprint_id:
+          type: string
+          format: uuid
+          readOnly: true
+        document_id:
+          type: string
+          format: uuid
+          readOnly: true
+        field_name:
+          type: string
+          readOnly: true
+        field_key:
+          type: string
+          readOnly: true
+        audit_field_id:
+          type: string
+          readOnly: true
+        value:
+          readOnly: true
+          nullable: true
+        value_json:
+          readOnly: true
+        normalized_value:
+          readOnly: true
+          nullable: true
+        data_type:
+          allOf:
+          - $ref: '#/components/schemas/DataTypeEnum'
+          readOnly: true
+        pillar:
+          allOf:
+          - $ref: '#/components/schemas/PillarEnum'
+          readOnly: true
+        pillar_label:
+          type: string
+          readOnly: true
+        owner_role:
+          type: string
+          readOnly: true
+        source_document_id:
+          type: string
+          format: uuid
+          readOnly: true
+        source_page:
+          type: string
+          readOnly: true
+        source_snippet:
+          type: string
+          readOnly: true
+        confidence_score:
+          type: number
+          format: double
+          readOnly: true
+        confidence:
+          type: number
+          format: double
+          readOnly: true
+        confidence_reason:
+          type: string
+          readOnly: true
+        extraction_method:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusD43Enum'
+          readOnly: true
+        reviewed_by:
+          type: string
+          format: uuid
+          readOnly: true
+        reviewed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        review_history:
+          type: array
+          items:
+            $ref: '#/components/schemas/FactReviewHistory'
+          readOnly: true
+      required:
+      - audit_field_id
+      - confidence
+      - confidence_reason
+      - confidence_score
+      - created_at
+      - data_type
+      - document_id
+      - extraction_method
+      - field_key
+      - field_name
+      - id
+      - normalized_value
+      - owner_role
+      - pillar
+      - pillar_label
+      - review_history
+      - reviewed_at
+      - reviewed_by
+      - source_document_id
+      - source_page
+      - source_snippet
+      - sprint_id
+      - status
+      - updated_at
+      - value
+      - value_json
+    ExtractionJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        sprint_id:
+          type: string
+          format: uuid
+          readOnly: true
+        document_id:
+          type: string
+          format: uuid
+          readOnly: true
+        document_filename:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ExtractionJobStatusEnum'
+          readOnly: true
+        current_step:
+          allOf:
+          - $ref: '#/components/schemas/CurrentStepEnum'
+          readOnly: true
+        current_step_label:
+          type: string
+          readOnly: true
+        progress_percentage:
+          type: integer
+          readOnly: true
+        started_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        error_message:
+          type: string
+          readOnly: true
+        retry_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - completed_at
+      - created_at
+      - current_step
+      - current_step_label
+      - document_filename
+      - document_id
+      - error_message
+      - id
+      - progress_percentage
+      - retry_count
+      - sprint_id
+      - started_at
+      - status
+      - updated_at
+    ExtractionJobStatusEnum:
+      enum:
+      - pending
+      - running
+      - retrying
+      - completed
+      - failed
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `running` - Running
+        * `retrying` - Retrying
+        * `completed` - Completed
+        * `failed` - Failed
+    FactConfirm:
+      type: object
+      description: |-
+        Shared `reason` field for every review action. Also accepts `comment`
+        as an alias -- the existing (unmodified) frontend's FactsReview.tsx
+        sends `comment`, not `reason`.
+      properties:
+        reason:
+          type: string
+          default: ''
+        comment:
+          type: string
+          default: ''
+    FactCorrect:
+      type: object
+      description: |-
+        `new_value` is the canonical field; `corrected_value` is accepted as
+        an alias for the same reason as `comment` above (the existing frontend
+        sends `corrected_value`).
+      properties:
+        reason:
+          type: string
+          default: ''
+        comment:
+          type: string
+          default: ''
+        new_value:
+          nullable: true
+        corrected_value:
+          nullable: true
+    FactEvidenceRequest:
+      type: object
+      description: |-
+        Shared `reason` field for every review action. Also accepts `comment`
+        as an alias -- the existing (unmodified) frontend's FactsReview.tsx
+        sends `comment`, not `reason`.
+      properties:
+        reason:
+          type: string
+          default: ''
+        comment:
+          type: string
+          default: ''
+    FactReject:
+      type: object
+      description: |-
+        Shared `reason` field for every review action. Also accepts `comment`
+        as an alias -- the existing (unmodified) frontend's FactsReview.tsx
+        sends `comment`, not `reason`.
+      properties:
+        reason:
+          type: string
+          default: ''
+        comment:
+          type: string
+          default: ''
+    FactReviewHistory:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        action:
+          allOf:
+          - $ref: '#/components/schemas/ActionEnum'
+          readOnly: true
+        original_value:
+          readOnly: true
+          nullable: true
+        new_value:
+          readOnly: true
+          nullable: true
+        user:
+          type: string
+          format: uuid
+          readOnly: true
+        user_name:
+          type: string
+          readOnly: true
+        reason:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - action
+      - created_at
+      - id
+      - new_value
+      - original_value
+      - reason
+      - user
+      - user_name
+    GapItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        sprint_id:
+          type: string
+          format: uuid
+          readOnly: true
+        gap_type:
+          allOf:
+          - $ref: '#/components/schemas/GapTypeEnum'
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        pillar:
+          allOf:
+          - $ref: '#/components/schemas/PillarEnum'
+          readOnly: true
+        pillar_label:
+          type: string
+          readOnly: true
+        priority:
+          allOf:
+          - $ref: '#/components/schemas/PriorityEnum'
+          readOnly: true
+        source_fact_id:
+          type: string
+          format: uuid
+          readOnly: true
+        related_document_id:
+          type: string
+          format: uuid
+          readOnly: true
+        owner_role:
+          type: string
+          readOnly: true
+        audit_field_id:
+          type: string
+          readOnly: true
+        score_impact:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/GapItemStatusEnum'
+          readOnly: true
+          default: open
+        resolution:
+          type: string
+          readOnly: true
+        resolved_by:
+          type: string
+          format: uuid
+          readOnly: true
+        resolved_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - audit_field_id
+      - created_at
+      - description
+      - gap_type
+      - id
+      - owner_role
+      - pillar
+      - pillar_label
+      - priority
+      - related_document_id
+      - resolution
+      - resolved_at
+      - resolved_by
+      - score_impact
+      - source_fact_id
+      - sprint_id
+      - status
+      - title
+      - updated_at
+    GapItemStatusEnum:
+      enum:
+      - open
+      - in_progress
+      - resolved
+      - unavailable
+      - skipped
+      type: string
+      description: |-
+        * `open` - Open
+        * `in_progress` - In Progress
+        * `resolved` - Resolved
+        * `unavailable` - Unavailable
+        * `skipped` - Skipped
+    GapMarkUnavailable:
+      type: object
+      description: |-
+        Shared `resolution` field for every gap action. Also accepts `value`
+        as an alias -- the existing (unmodified) frontend's GapDashboard.tsx
+        sends `value`, not `resolution`.
+      properties:
+        resolution:
+          type: string
+          default: ''
+        value:
+          type: string
+          default: ''
+    GapResolve:
+      type: object
+      description: |-
+        Shared `resolution` field for every gap action. Also accepts `value`
+        as an alias -- the existing (unmodified) frontend's GapDashboard.tsx
+        sends `value`, not `resolution`.
+      properties:
+        resolution:
+          type: string
+          default: ''
+        value:
+          type: string
+          default: ''
+    GapSkip:
+      type: object
+      description: |-
+        Shared `resolution` field for every gap action. Also accepts `value`
+        as an alias -- the existing (unmodified) frontend's GapDashboard.tsx
+        sends `value`, not `resolution`.
+      properties:
+        resolution:
+          type: string
+          default: ''
+        value:
+          type: string
+          default: ''
+    GapTypeEnum:
+      enum:
+      - missing_document
+      - unconfirmed_fact
+      - conflict
+      - stale_data
+      - low_confidence
+      type: string
+      description: |-
+        * `missing_document` - Missing Document
+        * `unconfirmed_fact` - Unconfirmed Fact
+        * `conflict` - Conflict
+        * `stale_data` - Stale Data
+        * `low_confidence` - Low Confidence
+    Institution:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        short_name:
+          type: string
+          maxLength: 50
+        institution_type:
+          type: string
+          maxLength: 255
+        university_affiliation:
+          type: string
+          maxLength: 255
+        affiliation:
+          type: string
+        website_url:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 200
+          - type: string
+            maxLength: 0
+        location:
+          type: string
+          maxLength: 255
+        city:
+          type: string
+          maxLength: 120
+        state:
+          type: string
+          maxLength: 120
+        country:
+          type: string
+          maxLength: 120
+        accreditation_details:
+          type: string
+        accreditation_status:
+          type: string
+        contact_email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        contact_phone:
+          oneOf:
+          - type: string
+            pattern: ^\+?[0-9 ()-]{7,20}$
+            maxLength: 20
+          - type: string
+            maxLength: 0
+        is_active:
+          type: boolean
+        sprint_count:
+          type: string
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - created_by
+      - id
+      - name
+      - sprint_count
+      - updated_at
+    Login:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - password
+    LoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+      required:
+      - access_token
+      - refresh_token
+      - user
+    Logout:
+      type: object
+      properties:
+        refresh:
+          type: string
+      required:
+      - refresh
+    ModeEnum:
+      enum:
+      - quick_cri
+      - verified_cri
+      - full_digital_twin
+      type: string
+      description: |-
+        * `quick_cri` - Quick CRI
+        * `verified_cri` - Verified CRI
+        * `full_digital_twin` - Full Digital Twin
+    PaginatedExtractedFactList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtractedFact'
+    PaginatedGapItemList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/GapItem'
+    PaginatedInstitutionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Institution'
+    PaginatedScoringRunList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScoringRun'
+    PaginatedSprintList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sprint'
+    PatchedDocument:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        sprint_id:
+          type: string
+          format: uuid
+          readOnly: true
+        document_type:
+          type: string
+          pattern: ^[a-z][a-z0-9_]*$
+          maxLength: 100
+        document_type_label:
+          type: string
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        original_filename:
+          type: string
+          readOnly: true
+        mime_type:
+          type: string
+          readOnly: true
+        file_size:
+          type: integer
+          readOnly: true
+          nullable: true
+        file_size_display:
+          type: string
+          readOnly: true
+        checksum:
+          type: string
+          readOnly: true
+          description: SHA-256 hex digest
+        download_url:
+          type: string
+          readOnly: true
+        has_file:
+          type: string
+          readOnly: true
+        uploaded_by:
+          type: string
+          format: uuid
+          readOnly: true
+        owner_role:
+          type: string
+          maxLength: 50
+        status:
+          $ref: '#/components/schemas/DocumentStatusEnum'
+        page_count:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          nullable: true
+        quality_score:
+          type: number
+          format: double
+          nullable: true
+        ocr_required:
+          type: boolean
+        ocr_warnings: {}
+        processing_status:
+          type: string
+          maxLength: 100
+        uploaded_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        processed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedInstitution:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        short_name:
+          type: string
+          maxLength: 50
+        institution_type:
+          type: string
+          maxLength: 255
+        university_affiliation:
+          type: string
+          maxLength: 255
+        affiliation:
+          type: string
+        website_url:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 200
+          - type: string
+            maxLength: 0
+        location:
+          type: string
+          maxLength: 255
+        city:
+          type: string
+          maxLength: 120
+        state:
+          type: string
+          maxLength: 120
+        country:
+          type: string
+          maxLength: 120
+        accreditation_details:
+          type: string
+        accreditation_status:
+          type: string
+        contact_email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        contact_phone:
+          oneOf:
+          - type: string
+            pattern: ^\+?[0-9 ()-]{7,20}$
+            maxLength: 20
+          - type: string
+            maxLength: 0
+        is_active:
+          type: boolean
+        sprint_count:
+          type: string
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedRecommendationUpdate:
+      type: object
+      description: |-
+        PATCH shape for consultant edits -- only the fields a consultant is
+        meant to adjust after reviewing a generated recommendation; the
+        trigger/evidence linkage (source_gap, supporting_facts, pillar,
+        owner_role) stays as the engine generated it.
+      properties:
+        title:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        priority:
+          $ref: '#/components/schemas/PriorityEnum'
+        timeline:
+          type: string
+          maxLength: 100
+        expected_cri_lift:
+          type: number
+          format: double
+          maximum: 100
+          minimum: 0
+        support_offering:
+          type: string
+        consultant_notes:
+          type: string
+        status:
+          $ref: '#/components/schemas/StatusDe4Enum'
+    PatchedSprint:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        institution_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 255
+        sprint_code:
+          type: string
+          readOnly: true
+        mode:
+          $ref: '#/components/schemas/ModeEnum'
+        sprint_mode:
+          $ref: '#/components/schemas/SprintModeEnum'
+        status:
+          $ref: '#/components/schemas/SprintStatusEnum'
+        academic_year:
+          type: string
+          maxLength: 20
+        description:
+          type: string
+        start_date:
+          type: string
+          format: date
+          nullable: true
+        target_completion_date:
+          type: string
+          format: date
+          nullable: true
+        completion_percentage:
+          type: integer
+          maximum: 100
+          minimum: 0
+        overall_cri:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        confidence_score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PillarConfig:
+      type: object
+      description: |-
+        The `/api/v1/scoring/config` payload -- the live, database-backed
+        scoring configuration (as opposed to a hardcoded weights dict).
+      properties:
+        key:
+          type: string
+          maxLength: 64
+          pattern: ^[-a-zA-Z0-9_]+$
+        name:
+          type: string
+          maxLength: 150
+        description:
+          type: string
+        weight:
+          type: number
+          format: double
+          maximum: 1
+          minimum: 0
+        display_order:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        is_active:
+          type: boolean
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/PillarCriterionConfig'
+          readOnly: true
+      required:
+      - criteria
+      - key
+      - name
+      - weight
+    PillarCriterionConfig:
+      type: object
+      properties:
+        key:
+          type: string
+          maxLength: 64
+          pattern: ^[-a-zA-Z0-9_]+$
+        name:
+          type: string
+          maxLength: 150
+        description:
+          type: string
+        weight:
+          type: number
+          format: double
+          maximum: 1
+          minimum: 0
+        fact_field_keys: {}
+        is_active:
+          type: boolean
+      required:
+      - key
+      - name
+      - weight
+    PillarEnum:
+      enum:
+      - governance_strategy
+      - curriculum_academic_readiness
+      - faculty_ai_capability
+      - student_ai_readiness
+      - infrastructure_digital_capability
+      - research_innovation
+      - industry_placement
+      - evidence_quality
+      type: string
+      description: |-
+        * `governance_strategy` - Governance & Strategy
+        * `curriculum_academic_readiness` - Curriculum & Academic Readiness
+        * `faculty_ai_capability` - Faculty AI Capability
+        * `student_ai_readiness` - Student AI Readiness
+        * `infrastructure_digital_capability` - Infrastructure & Digital Capability
+        * `research_innovation` - Research & Innovation
+        * `industry_placement` - Industry & Placement Outcomes
+        * `evidence_quality` - Evidence Quality & Data Confidence
+    PillarScore:
+      type: object
+      properties:
+        pillar:
+          type: string
+          readOnly: true
+        label:
+          type: string
+          readOnly: true
+        weight:
+          type: number
+          format: double
+          readOnly: true
+        raw_score:
+          type: number
+          format: double
+        weighted_score:
+          type: number
+          format: double
+        confidence_score:
+          type: number
+          format: double
+        score:
+          type: number
+          format: double
+          readOnly: true
+        confidence:
+          type: number
+          format: double
+          readOnly: true
+        status:
+          $ref: '#/components/schemas/Status652Enum'
+        evidence_count:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        gap_count:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        calculation_version:
+          type: string
+          maxLength: 64
+        calculated_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - confidence
+      - label
+      - pillar
+      - score
+      - weight
+    PillarSummary:
+      type: object
+      description: |-
+        Lightweight per-pillar shape for the strengths/weaknesses lists --
+        just enough to label and rank them, not the full PillarScore payload.
+      properties:
+        pillar:
+          type: string
+          readOnly: true
+        label:
+          type: string
+          readOnly: true
+        raw_score:
+          type: number
+          format: double
+        status:
+          $ref: '#/components/schemas/Status652Enum'
+      required:
+      - label
+      - pillar
+    PriorityEnum:
+      enum:
+      - blocking
+      - high
+      - medium
+      - optional
+      type: string
+      description: |-
+        * `blocking` - Blocking
+        * `high` - High
+        * `medium` - Medium
+        * `optional` - Optional
+    Recommendation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        sprint_id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        trigger_gap:
+          type: string
+          readOnly: true
+        source_gap:
+          type: string
+          format: uuid
+          readOnly: true
+        supporting_facts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtractedFact'
+          readOnly: true
+        pillar:
+          allOf:
+          - $ref: '#/components/schemas/PillarEnum'
+          readOnly: true
+        pillar_label:
+          type: string
+          readOnly: true
+        owner_role:
+          type: string
+          readOnly: true
+        priority:
+          $ref: '#/components/schemas/PriorityEnum'
+        timeline:
+          type: string
+          maxLength: 100
+        expected_cri_lift:
+          type: number
+          format: double
+          maximum: 100
+          minimum: 0
+        support_offering:
+          type: string
+        consultant_notes:
+          type: string
+        status:
+          $ref: '#/components/schemas/StatusDe4Enum'
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        recommendation_text:
+          type: string
+          readOnly: true
+        edited_text:
+          type: string
+          readOnly: true
+        expected_score_lift:
+          type: number
+          format: double
+          readOnly: true
+      required:
+      - created_at
+      - created_by
+      - description
+      - edited_text
+      - expected_score_lift
+      - id
+      - owner_role
+      - pillar
+      - pillar_label
+      - recommendation_text
+      - source_gap
+      - sprint_id
+      - supporting_facts
+      - title
+      - trigger_gap
+      - updated_at
+      - updated_by
+    RecommendationUpdate:
+      type: object
+      description: |-
+        PATCH shape for consultant edits -- only the fields a consultant is
+        meant to adjust after reviewing a generated recommendation; the
+        trigger/evidence linkage (source_gap, supporting_facts, pillar,
+        owner_role) stays as the engine generated it.
+      properties:
+        title:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        priority:
+          $ref: '#/components/schemas/PriorityEnum'
+        timeline:
+          type: string
+          maxLength: 100
+        expected_cri_lift:
+          type: number
+          format: double
+          maximum: 100
+          minimum: 0
+        support_offering:
+          type: string
+        consultant_notes:
+          type: string
+        status:
+          $ref: '#/components/schemas/StatusDe4Enum'
+      required:
+      - description
+      - title
+    Report:
+      type: object
+      description: |-
+        Output-only -- reports are never created/edited through this
+        serializer (see apps.reports.views/tasks), so no read_only_fields
+        bookkeeping is needed.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        sprint_id:
+          type: string
+          format: uuid
+          readOnly: true
+        version:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        status:
+          $ref: '#/components/schemas/StatusC42Enum'
+        executive_summary:
+          type: string
+        overall_cri:
+          type: number
+          format: double
+        confidence_score:
+          type: number
+          format: double
+        generated_at:
+          type: string
+          format: date-time
+          nullable: true
+        generated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        pdf_available:
+          type: string
+          readOnly: true
+        docx_available:
+          type: string
+          readOnly: true
+        report_data: {}
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - docx_available
+      - generated_by
+      - id
+      - pdf_available
+      - sprint_id
+      - updated_at
+      - version
+    ReportList:
+      type: object
+      description: |-
+        Same shape as ReportSerializer but without the (potentially large)
+        `report_data` blob -- what GET .../reports/ (list) returns; GET
+        .../reports/{id}/ (detail) uses the full serializer.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        sprint_id:
+          type: string
+          format: uuid
+          readOnly: true
+        version:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        status:
+          $ref: '#/components/schemas/StatusC42Enum'
+        executive_summary:
+          type: string
+        overall_cri:
+          type: number
+          format: double
+        confidence_score:
+          type: number
+          format: double
+        generated_at:
+          type: string
+          format: date-time
+          nullable: true
+        generated_by:
+          type: string
+          format: uuid
+          readOnly: true
+        pdf_available:
+          type: string
+          readOnly: true
+        docx_available:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - docx_available
+      - generated_by
+      - id
+      - pdf_available
+      - sprint_id
+      - updated_at
+      - version
+    RoleEnum:
+      enum:
+      - super_admin
+      - consultant
+      - institution_admin
+      - iqac_coordinator
+      - registrar
+      - hod
+      - hr_officer
+      - lab_admin
+      - placement_officer
+      - faculty
+      - viewer
+      type: string
+      description: |-
+        * `super_admin` - Super Admin
+        * `consultant` - InGage Consultant
+        * `institution_admin` - Institution Admin
+        * `iqac_coordinator` - IQAC Coordinator
+        * `registrar` - Registrar
+        * `hod` - Head of Department
+        * `hr_officer` - HR Officer
+        * `lab_admin` - Lab Admin
+        * `placement_officer` - Placement Officer
+        * `faculty` - Faculty
+        * `viewer` - Viewer
+    ScoringRun:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        calculation_version:
+          type: string
+          maxLength: 64
+        overall_cri:
+          type: number
+          format: double
+        overall_confidence:
+          type: number
+          format: double
+        evidence_count:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        gap_count:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        pillar_snapshot: {}
+        triggered_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - calculation_version
+      - created_at
+      - id
+      - triggered_by
+    Sprint:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        institution_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 255
+        sprint_code:
+          type: string
+          readOnly: true
+        mode:
+          $ref: '#/components/schemas/ModeEnum'
+        sprint_mode:
+          $ref: '#/components/schemas/SprintModeEnum'
+        status:
+          $ref: '#/components/schemas/SprintStatusEnum'
+        academic_year:
+          type: string
+          maxLength: 20
+        description:
+          type: string
+        start_date:
+          type: string
+          format: date
+          nullable: true
+        target_completion_date:
+          type: string
+          format: date
+          nullable: true
+        completion_percentage:
+          type: integer
+          maximum: 100
+          minimum: 0
+        overall_cri:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        confidence_score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - confidence_score
+      - created_at
+      - created_by
+      - id
+      - institution_id
+      - overall_cri
+      - sprint_code
+      - updated_at
+    SprintModeEnum:
+      enum:
+      - quick_cri
+      - verified_cri
+      - full_digital_twin
+      type: string
+      description: |-
+        * `quick_cri` - Quick CRI
+        * `verified_cri` - Verified CRI
+        * `full_digital_twin` - Full Digital Twin
+    SprintScore:
+      type: object
+      description: |-
+        The composed GET/POST .../score/ response -- not a ModelSerializer,
+        since it's assembled from a live PillarScore queryset plus read-only
+        evidence/gap aggregates rather than one model instance. See
+        apps.scoring.services.cri_engine.build_score_snapshot.
+      properties:
+        sprint_id:
+          type: string
+          readOnly: true
+        overall_cri:
+          type: number
+          format: double
+          readOnly: true
+        overall_confidence:
+          type: number
+          format: double
+          readOnly: true
+        cri_score:
+          type: number
+          format: double
+          readOnly: true
+        cri_confidence:
+          type: number
+          format: double
+          readOnly: true
+        calculation_version:
+          type: string
+          readOnly: true
+        calculated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        pillar_scores:
+          type: array
+          items:
+            $ref: '#/components/schemas/PillarScore'
+          readOnly: true
+        strengths:
+          type: array
+          items:
+            $ref: '#/components/schemas/PillarSummary'
+          readOnly: true
+        weaknesses:
+          type: array
+          items:
+            $ref: '#/components/schemas/PillarSummary'
+          readOnly: true
+        evidence_metrics:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        unresolved_blocking_gaps:
+          type: array
+          items:
+            $ref: '#/components/schemas/GapItem'
+          readOnly: true
+      required:
+      - calculated_at
+      - calculation_version
+      - cri_confidence
+      - cri_score
+      - evidence_metrics
+      - overall_confidence
+      - overall_cri
+      - pillar_scores
+      - sprint_id
+      - strengths
+      - unresolved_blocking_gaps
+      - weaknesses
+    SprintStatusEnum:
+      enum:
+      - draft
+      - collecting
+      - processing
+      - reviewing
+      - scoring
+      - report_ready
+      - completed
+      - archived
+      type: string
+      description: |-
+        * `draft` - Draft
+        * `collecting` - Collecting
+        * `processing` - Processing
+        * `reviewing` - Reviewing
+        * `scoring` - Scoring
+        * `report_ready` - Report Ready
+        * `completed` - Completed
+        * `archived` - Archived
+    Status652Enum:
+      enum:
+      - not_started
+      - at_risk
+      - developing
+      - strong
+      type: string
+      description: |-
+        * `not_started` - Not Started
+        * `at_risk` - At Risk
+        * `developing` - Developing
+        * `strong` - Strong
+    StatusC42Enum:
+      enum:
+      - draft
+      - generating
+      - ready
+      - failed
+      type: string
+      description: |-
+        * `draft` - Draft
+        * `generating` - Generating
+        * `ready` - Ready
+        * `failed` - Failed
+    StatusD43Enum:
+      enum:
+      - extracted
+      - confirmed
+      - corrected
+      - rejected
+      - evidence_requested
+      type: string
+      description: |-
+        * `extracted` - Extracted
+        * `confirmed` - Confirmed
+        * `corrected` - Corrected
+        * `rejected` - Rejected
+        * `evidence_requested` - Evidence Requested
+    StatusDe4Enum:
+      enum:
+      - draft
+      - accepted
+      - edited
+      - hidden
+      - completed
+      type: string
+      description: |-
+        * `draft` - Draft
+        * `accepted` - Accepted
+        * `edited` - Edited
+        * `hidden` - Hidden
+        * `completed` - Completed
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          writeOnly: true
+      required:
+      - access
+      - refresh
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        institution_id:
+          type: string
+          format: uuid
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        first_name:
+          type: string
+          readOnly: true
+        last_name:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        phone:
+          type: string
+          readOnly: true
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+        department_name:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+        is_staff:
+          type: boolean
+          readOnly: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - date_joined
+      - department_name
+      - email
+      - first_name
+      - id
+      - institution_id
+      - is_active
+      - is_staff
+      - last_name
+      - name
+      - phone
+      - role
+      - updated_at
+      - username
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

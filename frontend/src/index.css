@@ -1,0 +1,179 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ---- Light theme (default) ---- */
+    --color-brand-50: 247 251 238;
+    --color-brand-100: 240 247 220;
+    --color-brand-500: 141 182 0;
+    --color-brand-600: 122 159 0;
+    --color-brand-700: 99 130 0;
+    --color-brand-800: 95 122 0;
+
+    --color-ink-900: 52 51 53;
+    --color-ink-700: 54 65 83;
+    --color-ink-600: 74 85 101;
+    --color-ink-500: 106 114 130;
+    --color-ink-400: 153 161 175;
+
+    --color-line-100: 243 244 246;
+    --color-line-200: 229 231 235;
+    --color-line-300: 209 213 220;
+
+    --color-surface: 249 250 251;
+    --color-card: 255 255 255;
+    --color-on-brand: 52 51 53;
+
+    --color-success: 0 130 54;
+    --color-success-bg: 240 253 244;
+    --color-success-line: 185 248 207;
+    --color-success-solid: 0 130 54;
+
+    --color-warning: 166 95 0;
+    --color-warning-bg: 254 249 194;
+    --color-warning-line: 255 223 32;
+    --color-warning-solid: 166 95 0;
+
+    --color-danger: 193 0 7;
+    --color-danger-bg: 254 242 242;
+    --color-danger-line: 255 162 162;
+    --color-danger-solid: 212 24 61;
+
+    --color-info: 20 71 230;
+    --color-info-bg: 239 246 255;
+    --color-info-line: 190 219 255;
+    --color-info-solid: 20 71 230;
+
+    --color-accent: 130 0 219;
+    --color-accent-bg: 243 232 255;
+    --color-accent-line: 233 212 255;
+    --color-accent-solid: 130 0 219;
+  }
+
+  .dark {
+    /* ---- Dark theme ----
+       Brand green (500/600/700) and every "-solid" token (used for white
+       text on a filled button) stay identical to light mode on purpose --
+       the fill needs to stay vivid/dark enough for its fixed foreground in
+       both themes. Everything else -- ink, line, surface, the semantic
+       DEFAULTs used as text/icon color -- gets its own dark value. */
+    --color-brand-50: 23 34 8;
+    --color-brand-100: 30 44 10;
+    --color-brand-800: 141 182 0; /* accessible green text = brand-500 itself on a dark ground */
+
+    --color-ink-900: 245 244 242;
+    --color-ink-700: 214 211 209;
+    --color-ink-600: 174 170 167;
+    --color-ink-500: 134 130 127;
+    --color-ink-400: 96 92 89;
+
+    --color-line-100: 34 32 36;
+    --color-line-200: 50 47 51;
+    --color-line-300: 74 70 74;
+
+    --color-surface: 18 17 19;
+    --color-card: 28 27 30;
+
+    --color-success: 52 211 153;
+    --color-success-bg: 15 42 29;
+    --color-success-line: 28 74 49;
+
+    --color-warning: 251 191 36;
+    --color-warning-bg: 46 33 7;
+    --color-warning-line: 92 68 19;
+
+    --color-danger: 248 113 113;
+    --color-danger-bg: 46 18 20;
+    --color-danger-line: 92 37 41;
+
+    --color-info: 96 165 250;
+    --color-info-bg: 16 32 61;
+    --color-info-line: 30 58 110;
+
+    --color-accent: 192 132 252;
+    --color-accent-bg: 38 18 58;
+    --color-accent-line: 75 36 112;
+  }
+
+  body {
+    @apply bg-surface text-ink-700 font-sans selection:bg-brand-100 selection:text-brand-800 transition-colors duration-150;
+  }
+  ::-webkit-scrollbar { @apply w-2.5 h-2.5; }
+  ::-webkit-scrollbar-thumb { @apply bg-line-300 rounded-full; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
+}
+
+@layer components {
+  /* ---- Cards ----
+     Kept the original class names (glass-card / glass-card-hover) so every
+     existing page picks up theme changes without touching each call site's
+     markup. */
+  .glass-card {
+    @apply bg-card border border-line-200 rounded-xl shadow-card;
+  }
+  .glass-card-hover {
+    @apply glass-card transition-all duration-200 hover:shadow-popover hover:-translate-y-0.5;
+  }
+
+  /* ---- Buttons ---- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 text-sm font-semibold rounded-lg px-4 py-2.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-card focus-visible:ring-brand-500;
+  }
+  .btn-primary {
+    @apply btn bg-brand-500 text-on-brand shadow-card hover:brightness-95 active:brightness-95 active:shadow-inner;
+  }
+  .btn-secondary {
+    @apply btn bg-line-200 text-ink-900 hover:bg-line-300;
+  }
+  .btn-outline {
+    @apply btn bg-transparent border-2 border-brand-500 text-brand-800 hover:bg-brand-50;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-ink-700 hover:bg-line-100;
+  }
+  .btn-danger {
+    @apply btn bg-danger-solid text-white hover:brightness-95;
+  }
+  .btn-sm { @apply text-xs px-3 py-1.5 rounded-md gap-1.5; }
+  .btn-icon { @apply p-2 rounded-md text-ink-500 hover:text-ink-900 hover:bg-line-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed; }
+
+  /* ---- Forms ---- */
+  .label {
+    @apply block text-sm font-semibold text-ink-900 mb-1.5;
+  }
+  .input {
+    @apply w-full px-3.5 py-2.5 bg-card border-2 border-line-200 rounded-lg text-sm text-ink-900 placeholder-ink-400 transition-colors focus:outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 disabled:bg-surface disabled:text-ink-400 disabled:cursor-not-allowed;
+  }
+  .input-error { @apply border-danger-solid focus:border-danger-solid focus:ring-danger-solid/10; }
+
+  /* ---- Badges ---- */
+  .badge {
+    @apply inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full border uppercase tracking-wide whitespace-nowrap leading-none;
+  }
+  .badge-brand { @apply badge bg-brand-500/10 text-brand-800 border-brand-500/40; }
+  .badge-success { @apply badge bg-success-bg text-success border-success-line; }
+  .badge-warning { @apply badge bg-warning-bg text-warning border-warning-line; }
+  .badge-danger { @apply badge bg-danger-bg text-danger border-danger-line; }
+  .badge-info { @apply badge bg-info-bg text-info border-info-line; }
+  .badge-accent { @apply badge bg-accent-bg text-accent border-accent-line; }
+  .badge-neutral { @apply badge bg-line-100 text-ink-600 border-line-300; }
+
+  /* ---- Tables ----
+     .table-shell scrolls horizontally on its own so the page body never
+     does -- the fix for "no unwanted horizontal scrolling" on narrow
+     viewports. */
+  .table-shell { @apply w-full overflow-x-auto rounded-lg border border-line-200; }
+  .table-base { @apply w-full text-left text-sm border-collapse min-w-[640px]; }
+  .table-base thead th { @apply py-3 px-4 text-[11px] font-bold uppercase tracking-wide text-ink-500 bg-surface border-b border-line-200 whitespace-nowrap; }
+  .table-base tbody td { @apply py-3.5 px-4 border-b border-line-100 align-top text-ink-700; }
+  .table-base tbody tr:last-child td { @apply border-b-0; }
+  .table-base tbody tr { @apply transition-colors hover:bg-surface; }
+
+  /* ---- Section eyebrow (small card/table title) ---- */
+  .eyebrow { @apply text-sm font-bold text-ink-900; }
+
+  /* ---- Empty / inline panel ---- */
+  .panel-muted { @apply text-center py-8 px-4 bg-surface rounded-lg border border-line-200; }
+}
