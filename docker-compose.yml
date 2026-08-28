@@ -1,0 +1,71 @@
+# Production compose file -- run on the deploy server, not for local dev.
+# Images are pulled from GHCR (built by .github/workflows/ci-cd.yml), never
+# built on the VM itself. Requires a `.env` file next to this one -- copy
+# `.env.production.example` and fill in real values.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  backend:
+    image: ghcr.io/jagadesh-alpha8/ai-ready-backend:latest
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - media_data:/app/media
+      - static_data:/app/staticfiles
+    command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"]
+
+  celery:
+    image: ghcr.io/jagadesh-alpha8/ai-ready-backend:latest
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      backend:
+        condition: service_started
+    volumes:
+      - media_data:/app/media
+    command: ["celery", "-A", "config", "worker", "-l", "info", "--concurrency=2"]
+
+  frontend:
+    image: ghcr.io/jagadesh-alpha8/ai-ready-frontend:latest
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    volumes:
+      - static_data:/usr/share/nginx/html/static:ro
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_data:
+  static_data:

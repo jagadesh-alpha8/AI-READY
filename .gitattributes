@@ -1,0 +1,4 @@
+# docker-entrypoint.sh is executed inside a Linux container -- CRLF line
+# endings there break the shebang ("bad interpreter"). Force LF regardless
+# of the checking-out machine's core.autocrlf setting.
+*.sh text eol=lf

@@ -155,3 +155,8 @@ cython_debug/
 
 # VS Code
 .vscode/
+
+# Redis dump / local e2e scratch files (may contain live tokens)
+*.rdb
+.e2e_*
+celery_worker.log

@@ -1,0 +1,13 @@
+# Redis dump (regenerated locally, never part of the app)
+dump.rdb
+*.rdb
+
+# Root-level env file for docker-compose on the deploy server
+.env
+.env.production
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
