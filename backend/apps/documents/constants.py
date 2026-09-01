@@ -49,3 +49,36 @@ OCR_REQUIRED_EXTENSIONS = {'.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg'}
 
 def humanize_document_type(document_type):
     return DOCUMENT_TYPE_LABELS.get(document_type, document_type.replace('_', ' ').strip().title())
+
+
+#: Mirrors frontend/src/pages/documents/UploadDataPack.tsx's REQUIRED_CHECKLIST
+#: (slug, label, owner) EXACTLY -- these slugs are intentionally different
+#: from DOCUMENT_TYPES/REQUIRED_DOCUMENT_TYPES above (e.g. 'aqar_report' vs
+#: 'aqar'); that divergence already exists between this backend and the
+#: frontend checklist and is out of scope to fix here. Keep this list in sync
+#: with UploadDataPack.tsx BY HAND if that checklist ever changes -- there is
+#: no shared source of truth between the two today.
+#: `keywords`: lowercase substrings checked against a Drive filename
+#: (case-insensitive) by apps.documents.drive_import.classify_filename().
+DRIVE_IMPORT_CHECKLIST = [
+    {'type': 'naac_ssr', 'label': 'NAAC SSR / Latest Self-Study Report', 'owner': 'IQAC_COORDINATOR',
+     'keywords': ['ssr', 'self study', 'self-study', 'naac']},
+    {'type': 'aqar_report', 'label': 'AQAR / Annual Quality Assurance Report', 'owner': 'IQAC_COORDINATOR',
+     'keywords': ['aqar', 'annual quality']},
+    {'type': 'aicte_approval', 'label': 'AICTE Approval / University Affiliation', 'owner': 'REGISTRAR',
+     'keywords': ['aicte', 'affiliation', 'approval']},
+    {'type': 'faculty_master', 'label': 'Faculty Master List & Qualifications', 'owner': 'HR_OFFICER',
+     'keywords': ['faculty', 'qualification']},
+    {'type': 'student_strength', 'label': 'Student Enrolment & Strength Report', 'owner': 'REGISTRAR',
+     'keywords': ['enrolment', 'enrollment', 'student strength', 'admission']},
+    {'type': 'placement_report', 'label': 'Placement & Industry Internship Report', 'owner': 'PLACEMENT_OFFICER',
+     'keywords': ['placement', 'internship']},
+    {'type': 'syllabi_curriculum', 'label': 'Syllabi & BOS Curriculum Minutes', 'owner': 'HOD',
+     'keywords': ['syllabus', 'syllabi', 'curriculum', 'bos']},
+    {'type': 'lab_inventory', 'label': 'Lab Infrastructure & Software Inventory', 'owner': 'LAB_ADMIN',
+     'keywords': ['lab inventory', 'laboratory', 'equipment']},
+    {'type': 'research_publications', 'label': 'Research Publications & Patents Log', 'owner': 'RESEARCH_CELL',
+     'keywords': ['research', 'publication', 'patent']},
+    {'type': 'ai_policy_doc', 'label': 'Institutional AI Strategy & Policy', 'owner': 'INSTITUTION_ADMIN',
+     'keywords': ['ai policy', 'ai strategy']},
+]

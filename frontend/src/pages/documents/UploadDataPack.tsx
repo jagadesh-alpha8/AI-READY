@@ -1,12 +1,21 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { deleteDocument, listSprintDocuments, uploadDocument } from '../../api/documents';
 import { startExtraction } from '../../api/extraction';
+import { listDriveImportJobs, startDriveImport } from '../../api/driveImport';
 import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
-import type { SprintDocument } from '../../types';
-import { Upload, CheckCircle2, AlertCircle, Play, File, Trash2 } from 'lucide-react';
+import {
+  ACTIVE_DRIVE_IMPORT_STATUSES,
+  type DriveImportChecklistResult,
+  type DriveImportJob,
+  type DriveImportSkippedFile,
+  type SprintDocument,
+} from '../../types';
+import { Upload, CheckCircle2, AlertCircle, Play, File, Trash2, Link2, Loader2 } from 'lucide-react';
+
+const POLL_INTERVAL_MS = 3000; // matches AIProcessingMonitor.tsx
 
 const REQUIRED_CHECKLIST = [
   { type: 'naac_ssr', label: 'NAAC SSR / Latest Self-Study Report', cat: 'Required Core', owner: 'IQAC_COORDINATOR' },
@@ -34,6 +43,14 @@ export const UploadDataPack: React.FC = () => {
   } = useApiResource<SprintDocument[]>(() => listSprintDocuments(sprintId!), [sprintId], isRealSprint);
   const documents = documentsData || [];
 
+  const { data: driveJobsData, refetch: refetchDriveJobs } = useApiResource<DriveImportJob[]>(
+    () => listDriveImportJobs(sprintId!),
+    [sprintId],
+    isRealSprint,
+  );
+  const driveJobs = driveJobsData || [];
+  const latestDriveJob = driveJobs[0]; // API orders -created_at, same convention as extraction jobs
+
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [extractionError, setExtractionError] = useState('');
@@ -41,6 +58,10 @@ export const UploadDataPack: React.FC = () => {
   const [selectedOwner, setSelectedOwner] = useState('IQAC_COORDINATOR');
   const [dragActive, setDragActive] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<'upload' | 'drive'>('upload');
+  const [driveUrl, setDriveUrl] = useState('');
+  const [driveSubmitting, setDriveSubmitting] = useState(false);
+  const [driveError, setDriveError] = useState('');
 
   const handleFileUpload = async (file: File) => {
     if (!isRealSprint) {
@@ -74,6 +95,44 @@ export const UploadDataPack: React.FC = () => {
       setDeletingId(null);
     }
   };
+
+  const handleStartDriveImport = async () => {
+    if (!isRealSprint) {
+      setDriveError('No active sprint is selected. Set up a sprint first, then come back to import.');
+      return;
+    }
+    if (!driveUrl.trim()) {
+      setDriveError('Paste a Google Drive folder link first.');
+      return;
+    }
+    setDriveSubmitting(true);
+    setDriveError('');
+    try {
+      await startDriveImport(sprintId!, driveUrl.trim());
+      refetchDriveJobs();
+    } catch (err) {
+      setDriveError(getErrorMessage(err, 'Failed to start the Drive import.'));
+    } finally {
+      setDriveSubmitting(false);
+    }
+  };
+
+  // Poll while the latest Drive import job is still in flight.
+  useEffect(() => {
+    if (!latestDriveJob || !ACTIVE_DRIVE_IMPORT_STATUSES.includes(latestDriveJob.status)) return;
+    const timer = setInterval(refetchDriveJobs, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestDriveJob?.status, refetchDriveJobs]);
+
+  // Once the job completes, refresh the checklist + document table with no
+  // manual action needed -- DRIVE_IMPORT_CHECKLIST slugs on the backend
+  // equal REQUIRED_CHECKLIST slugs here, so newly-imported documents show
+  // up as "found" for free.
+  useEffect(() => {
+    if (latestDriveJob?.status === 'completed') refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestDriveJob?.status, latestDriveJob?.id]);
 
   const handleStartExtraction = async () => {
     if (!isRealSprint) {
@@ -175,46 +234,88 @@ export const UploadDataPack: React.FC = () => {
         {/* Right: Drag and Drop Upload Area */}
         <div className="lg:col-span-7 glass-card p-5 sm:p-6 flex flex-col justify-between space-y-4">
           <div>
-            <h2 className="eyebrow mb-2">Upload Selected Document</h2>
-            <p className="text-sm text-ink-500 mb-4">
-              Uploading as <span className="font-semibold text-brand-800">{REQUIRED_CHECKLIST.find((c) => c.type === selectedType)?.label}</span> (Owner: <span className="font-semibold text-ink-700">{selectedOwner}</span>)
-            </p>
-
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragActive(false);
-                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                  handleFileUpload(e.dataTransfer.files[0]);
-                }
-              }}
-              className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all ${
-                dragActive ? 'border-brand-500 bg-brand-50' : 'border-line-300 bg-surface hover:border-line-300/80'
-              }`}
-            >
-              <div className="w-12 h-12 rounded-full bg-brand-500/10 flex items-center justify-center mx-auto text-brand-800 mb-3">
-                <Upload className="w-6 h-6" />
+            <h2 className="eyebrow mb-2">Data Source</h2>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div
+                onClick={() => setDataSource('upload')}
+                className={`p-3 rounded-xl border-2 cursor-pointer transition-all text-center ${
+                  dataSource === 'upload'
+                    ? 'bg-brand-50 border-brand-500 shadow-card'
+                    : 'bg-card border-line-200 hover:border-line-300'
+                }`}
+              >
+                <span className="text-sm font-bold text-ink-900">Upload Files</span>
               </div>
-              <p className="text-sm font-semibold text-ink-900">
-                Drag and drop PDF, DOCX, XLSX, CSV, or ZIP files here
-              </p>
-              <p className="text-xs text-ink-500 mt-1 mb-4">Maximum file size: 50MB per document</p>
+              <div
+                onClick={() => setDataSource('drive')}
+                className={`p-3 rounded-xl border-2 cursor-pointer transition-all text-center ${
+                  dataSource === 'drive'
+                    ? 'bg-brand-50 border-brand-500 shadow-card'
+                    : 'bg-card border-line-200 hover:border-line-300'
+                }`}
+              >
+                <span className="text-sm font-bold text-ink-900 flex items-center justify-center gap-1.5">
+                  <Link2 className="w-4 h-4" /> Google Drive
+                </span>
+              </div>
+            </div>
 
-              <label className="btn-primary btn-sm cursor-pointer inline-flex">
-                <span>{uploading ? 'Uploading File...' : 'Browse Files'}</span>
-                <input
-                  type="file"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      handleFileUpload(e.target.files[0]);
+            {dataSource === 'upload' && (
+              <div>
+                <h2 className="eyebrow mb-2">Upload Selected Document</h2>
+                <p className="text-sm text-ink-500 mb-4">
+                  Uploading as <span className="font-semibold text-brand-800">{REQUIRED_CHECKLIST.find((c) => c.type === selectedType)?.label}</span> (Owner: <span className="font-semibold text-ink-700">{selectedOwner}</span>)
+                </p>
+
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragActive(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      handleFileUpload(e.dataTransfer.files[0]);
                     }
                   }}
-                />
-              </label>
-            </div>
+                  className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all ${
+                    dragActive ? 'border-brand-500 bg-brand-50' : 'border-line-300 bg-surface hover:border-line-300/80'
+                  }`}
+                >
+                  <div className="w-12 h-12 rounded-full bg-brand-500/10 flex items-center justify-center mx-auto text-brand-800 mb-3">
+                    <Upload className="w-6 h-6" />
+                  </div>
+                  <p className="text-sm font-semibold text-ink-900">
+                    Drag and drop PDF, DOCX, XLSX, CSV, or ZIP files here
+                  </p>
+                  <p className="text-xs text-ink-500 mt-1 mb-4">Maximum file size: 50MB per document</p>
+
+                  <label className="btn-primary btn-sm cursor-pointer inline-flex">
+                    <span>{uploading ? 'Uploading File...' : 'Browse Files'}</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          handleFileUpload(e.target.files[0]);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {dataSource === 'drive' && (
+              <DriveImportPanel
+                driveUrl={driveUrl}
+                setDriveUrl={setDriveUrl}
+                driveSubmitting={driveSubmitting}
+                driveError={driveError}
+                setDriveError={setDriveError}
+                latestDriveJob={latestDriveJob}
+                onStart={handleStartDriveImport}
+              />
+            )}
           </div>
 
           {/* Quick Mock Files Upload Button for Instant Demo */}
@@ -309,6 +410,125 @@ export const UploadDataPack: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const DRIVE_STATUS_LABELS: Record<string, string> = {
+  pending: 'Queued…',
+  scanning: 'Scanning folder…',
+  downloading: 'Downloading matched files…',
+};
+
+const DriveImportPanel: React.FC<{
+  driveUrl: string;
+  setDriveUrl: (value: string) => void;
+  driveSubmitting: boolean;
+  driveError: string;
+  setDriveError: (value: string) => void;
+  latestDriveJob: DriveImportJob | undefined;
+  onStart: () => void;
+}> = ({ driveUrl, setDriveUrl, driveSubmitting, driveError, setDriveError, latestDriveJob, onStart }) => {
+  const jobActive = !!latestDriveJob && ACTIVE_DRIVE_IMPORT_STATUSES.includes(latestDriveJob.status);
+  const unmatchedFiles = (latestDriveJob?.results?.unmatched_files as string[] | undefined) || [];
+  const skippedFiles = (latestDriveJob?.results?.skipped_files as DriveImportSkippedFile[] | undefined) || [];
+
+  return (
+    <div>
+      <h2 className="eyebrow mb-2">Import From Google Drive</h2>
+      <p className="text-sm text-ink-500 mb-4">
+        Paste a folder link and the system scans it, downloads whatever matches the required checklist, and
+        imports it automatically — no manual file selection needed.
+      </p>
+
+      <div className="space-y-3">
+        <div>
+          <input
+            type="text"
+            value={driveUrl}
+            onChange={(e) => setDriveUrl(e.target.value)}
+            placeholder="https://drive.google.com/drive/folders/..."
+            disabled={driveSubmitting || jobActive}
+            className="input w-full"
+          />
+          <p className="text-xs text-ink-500 mt-1.5">
+            Folder must be shared as <span className="font-semibold">"Anyone with the link — Viewer"</span>.
+          </p>
+        </div>
+
+        <button onClick={onStart} disabled={driveSubmitting || jobActive} className="btn-primary btn-sm">
+          <Link2 className="w-4 h-4" />
+          <span>{driveSubmitting ? 'Starting…' : 'Scan & Import'}</span>
+        </button>
+
+        {driveError && <InlineError message={driveError} onDismiss={() => setDriveError('')} />}
+
+        {latestDriveJob && (
+          <div className="p-4 bg-surface rounded-xl border border-line-200 space-y-3">
+            {jobActive && (
+              <div className="flex items-center gap-2 text-sm">
+                <Loader2 className="w-4 h-4 text-brand-800 animate-spin" />
+                <span className="badge-brand">{DRIVE_STATUS_LABELS[latestDriveJob.status] || latestDriveJob.status}</span>
+              </div>
+            )}
+
+            {latestDriveJob.status === 'failed' && (
+              <div className="flex items-start gap-2 text-sm">
+                <span className="badge-danger shrink-0">Failed</span>
+                <span className="text-ink-700">{latestDriveJob.error_message}</span>
+              </div>
+            )}
+
+            {latestDriveJob.status === 'completed' && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="badge-success">
+                    Scanned {latestDriveJob.files_scanned} files, imported {latestDriveJob.files_imported}
+                  </span>
+                </div>
+
+                <div className="space-y-1.5">
+                  {REQUIRED_CHECKLIST.map((item) => {
+                    const result = latestDriveJob.results[item.type] as DriveImportChecklistResult | undefined;
+                    const found = result?.status === 'found';
+                    return (
+                      <div key={item.type} className="flex items-center gap-2 text-xs">
+                        {found ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5 text-warning shrink-0" />
+                        )}
+                        <span className={found ? 'text-ink-700' : 'text-ink-500'}>{item.label}</span>
+                        {found && result?.filename && (
+                          <span className="text-ink-400 truncate">— {result.filename}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {unmatchedFiles.length > 0 && (
+                  <div className="text-xs text-ink-500">
+                    <p className="font-semibold text-ink-600 mb-1">Found in folder but not matched:</p>
+                    {unmatchedFiles.map((name) => (
+                      <p key={name} className="truncate">{name}</p>
+                    ))}
+                  </div>
+                )}
+
+                {skippedFiles.length > 0 && (
+                  <div className="text-xs text-ink-500">
+                    <p className="font-semibold text-ink-600 mb-1">Matched but could not be imported:</p>
+                    {skippedFiles.map((skipped) => (
+                      <p key={skipped.filename} className="truncate">{skipped.filename} — {skipped.reason}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

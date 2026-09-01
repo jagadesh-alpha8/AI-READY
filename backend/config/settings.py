@@ -282,6 +282,29 @@ RUN_OPENAI_INTEGRATION_TESTS = os.getenv('RUN_OPENAI_INTEGRATION_TESTS', 'false'
 EXTRACTION_MAX_RETRIES = int(os.getenv('EXTRACTION_MAX_RETRIES', 3))
 EXTRACTION_RETRY_BACKOFF_SECONDS = int(os.getenv('EXTRACTION_RETRY_BACKOFF_SECONDS', 30))
 
+# apps.documents's Google Drive Link data source (Screen 2 "Upload Data
+# Pack"): a single server-side Drive REST v3 API key -- no OAuth client, no
+# per-institution token storage. Institutions must share their Drive folder
+# as "Anyone with the link -- Viewer" for this key to be able to list/
+# download its contents. Deliberately left unset-safe here, same reasoning
+# as AI_API_KEY above -- the Celery task raises a clear, job-level
+# error_message if it's missing when actually used.
+GOOGLE_DRIVE_API_KEY = os.getenv('GOOGLE_DRIVE_API_KEY', '')
+
+# Hard cap on how many files one drive-import job will list/consider, so a
+# huge or misconfigured folder can't make one job page through Drive
+# indefinitely. Subfolders are scanned recursively (breadth-first);
+# GOOGLE_DRIVE_IMPORT_MAX_FOLDERS separately caps how many folders total get
+# walked, guarding against a deeply-nested or unexpectedly wide tree.
+GOOGLE_DRIVE_IMPORT_MAX_FILES = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_FILES', 200))
+GOOGLE_DRIVE_IMPORT_MAX_FOLDERS = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_FOLDERS', 200))
+
+# Retry policy for transient Drive API failures (network hiccups, 5xx),
+# mirrors EXTRACTION_MAX_RETRIES/EXTRACTION_RETRY_BACKOFF_SECONDS but kept as
+# its own knob since it's an unrelated task/queue.
+GOOGLE_DRIVE_IMPORT_MAX_RETRIES = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_RETRIES', 3))
+GOOGLE_DRIVE_IMPORT_RETRY_BACKOFF_SECONDS = int(os.getenv('GOOGLE_DRIVE_IMPORT_RETRY_BACKOFF_SECONDS', 15))
+
 # Logging: without this, module-level `logging.getLogger(__name__)` calls in
 # apps.* (extraction's pipeline/task logging in particular) fall back to
 # Python's silent last-resort handler and never appear anywhere.

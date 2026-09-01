@@ -61,3 +61,38 @@ class Document(models.Model):
 
     def __str__(self):
         return self.title or self.original_filename or str(self.id)
+
+
+class DriveImportJob(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        SCANNING = 'scanning', 'Scanning'
+        DOWNLOADING = 'downloading', 'Downloading'
+        COMPLETED = 'completed', 'Completed'
+        FAILED = 'failed', 'Failed'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.ForeignKey('sprints.Sprint', on_delete=models.CASCADE, related_name='drive_import_jobs')
+    drive_url = models.URLField(max_length=500)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    # {"<DRIVE_IMPORT_CHECKLIST type>": {"status": "found"|"missing", "filename":
+    # str|None, "document_id": str|None}, ..., "unmatched_files": [str, ...],
+    # "skipped_files": [{"filename": str, "reason": str}, ...]}
+    results = models.JSONField(default=dict, blank=True)
+    files_scanned = models.PositiveIntegerField(default=0)
+    files_imported = models.PositiveIntegerField(default=0)
+    error_message = models.TextField(blank=True)
+    celery_task_id = models.CharField(max_length=255, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'DriveImportJob({self.id}) — {self.status}'

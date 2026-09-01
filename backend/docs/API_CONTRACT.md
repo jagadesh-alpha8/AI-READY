@@ -180,6 +180,40 @@ Everything a sprint-detail dashboard screen needs in one call — avoids the fro
 
 ---
 
+## 4a. Google Drive Import Jobs (`/api/v1/sprints/{sprint_id}/drive-import-jobs`)
+
+Screen 2 "Upload Data Pack"'s **Google Drive** data source. No OAuth: the server holds one Drive REST v3 API key (`GOOGLE_DRIVE_API_KEY`), so the institution must share the target folder as "Anyone with the link — Viewer". A job recursively scans the folder (including subfolders, breadth-first, bounded by `GOOGLE_DRIVE_IMPORT_MAX_FILES`/`GOOGLE_DRIVE_IMPORT_MAX_FOLDERS`), classifies filenames against `apps.documents.constants.DRIVE_IMPORT_CHECKLIST` (mirrors `UploadDataPack.tsx`'s `REQUIRED_CHECKLIST` slugs exactly), and imports matches through the same `create_document_from_file()` path as `POST /upload-file` — imported documents appear in the regular Documents list/checklist with no extra step.
+
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| GET | `/sprints/{sprint_id}/drive-import-jobs` | any authenticated, institution-scoped | newest first |
+| POST | `/sprints/{sprint_id}/drive-import-jobs` | any authenticated, institution-scoped | dispatches an async Celery job |
+
+### `POST /sprints/{sprint_id}/drive-import-jobs`
+- **Request body**: `{"drive_url": str}` — a Drive folder link (`.../drive/folders/<id>`, `.../drive/u/0/folders/<id>`, or a bare folder ID).
+- **Response `201`**: DriveImportJob object, `status` still `pending`/`scanning`.
+- **Errors**: `400` if the URL isn't a recognizable Drive folder link/ID.
+- A single file's failure (unsupported type, validation reject) doesn't fail the job — it's recorded in `results.skipped_files` and the rest continue. A folder that isn't publicly link-shared, or that has no files, fails the whole job with an actionable `error_message`.
+
+**Response body** (DriveImportJob object):
+```json
+{
+  "id": "uuid", "sprint_id": "uuid", "drive_url": str,
+  "status": "pending|scanning|downloading|completed|failed",
+  "results": {
+    "<checklist_type>": {"status": "found|missing", "filename": str|null, "document_id": "uuid|null"},
+    "...": "...",
+    "unmatched_files": [str, ...],
+    "skipped_files": [{"filename": str, "reason": str}, ...]
+  },
+  "files_scanned": int, "files_imported": int, "error_message": str,
+  "created_by": "uuid|null", "started_at": "iso8601|null", "completed_at": "iso8601|null",
+  "created_at": "iso8601", "updated_at": "iso8601"
+}
+```
+
+---
+
 ## 5. Extraction Jobs (`/api/v1/sprints/{sprint_id}/extraction-jobs`, `/api/v1/extraction-jobs`)
 
 | Method | Path | Permission | Notes |

@@ -5,7 +5,9 @@ from django.template.defaultfilters import filesizeformat
 from rest_framework import serializers
 
 from .constants import ALLOWED_UPLOAD_EXTENSIONS, humanize_document_type
-from .models import Document, document_type_validator
+from .drive_import import parse_drive_folder_id
+from .exceptions import DriveImportError
+from .models import Document, DriveImportJob, document_type_validator
 from .utils import compute_file_checksum, humanize_filename
 
 
@@ -89,3 +91,31 @@ class DocumentUploadSerializer(serializers.Serializer):
         if not attrs.get('title'):
             attrs['title'] = humanize_filename(file_obj.name)
         return attrs
+
+
+class DriveImportJobSerializer(serializers.ModelSerializer):
+    sprint_id = serializers.PrimaryKeyRelatedField(source='sprint', read_only=True)
+    created_by = serializers.PrimaryKeyRelatedField(read_only=True)
+
+    class Meta:
+        model = DriveImportJob
+        fields = [
+            'id', 'sprint_id', 'drive_url', 'status', 'results', 'files_scanned',
+            'files_imported', 'error_message', 'created_by', 'started_at',
+            'completed_at', 'created_at', 'updated_at',
+        ]
+        read_only_fields = fields
+
+
+class DriveImportJobCreateSerializer(serializers.Serializer):
+    """Request body for POST /sprints/{id}/drive-import-jobs. Validates the
+    URL is at least parseable to a folder ID up front (400 immediately)
+    rather than only discovering a bad link once the Celery task runs."""
+    drive_url = serializers.CharField(max_length=500)
+
+    def validate_drive_url(self, value):
+        try:
+            parse_drive_folder_id(value)
+        except DriveImportError as exc:
+            raise serializers.ValidationError(str(exc))
+        return value.strip()

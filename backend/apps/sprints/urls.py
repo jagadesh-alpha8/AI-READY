@@ -1,6 +1,10 @@
 from django.urls import path
 
-from apps.documents.views import SprintDocumentListView, SprintDocumentUploadView
+from apps.documents.views import (
+    SprintDocumentListView,
+    SprintDocumentUploadView,
+    SprintDriveImportJobListCreateView,
+)
 from apps.extraction.views import SprintExtractionJobListCreateView
 from apps.facts.views import SprintFactListView
 from apps.gaps.views import SprintGapListView
@@ -54,6 +58,16 @@ urlpatterns = [
         '/<uuid:sprint_id>/extraction-jobs/',
         SprintExtractionJobListCreateView.as_view(),
         name='sprint-extraction-jobs-slash',
+    ),
+    path(
+        '/<uuid:sprint_id>/drive-import-jobs',
+        SprintDriveImportJobListCreateView.as_view(),
+        name='sprint-drive-import-jobs',
+    ),
+    path(
+        '/<uuid:sprint_id>/drive-import-jobs/',
+        SprintDriveImportJobListCreateView.as_view(),
+        name='sprint-drive-import-jobs-slash',
     ),
     path('/<uuid:sprint_id>/facts', SprintFactListView.as_view(), name='sprint-facts'),
     path('/<uuid:sprint_id>/facts/', SprintFactListView.as_view(), name='sprint-facts-slash'),

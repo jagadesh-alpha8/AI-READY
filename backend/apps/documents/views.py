@@ -1,6 +1,7 @@
-import mimetypes
+import logging
 import os
 
+from celery.exceptions import Retry as CeleryRetry
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -8,6 +9,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import generics
 from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
@@ -16,11 +18,18 @@ from rest_framework.views import APIView
 from apps.accounts.models import User
 from apps.accounts.permissions import IsInstitutionMember
 from apps.sprints.access import get_authorized_sprint
-from apps.sprints.models import Sprint
 
-from .constants import OCR_REQUIRED_EXTENSIONS
-from .models import Document
-from .serializers import DocumentSerializer, DocumentUploadSerializer
+from .models import Document, DriveImportJob
+from .serializers import (
+    DocumentSerializer,
+    DocumentUploadSerializer,
+    DriveImportJobCreateSerializer,
+    DriveImportJobSerializer,
+)
+from .services import DocumentValidationError, create_document_from_file
+from .tasks import run_drive_import_job
+
+logger = logging.getLogger(__name__)
 
 #: Roles that may manage (edit/delete) a document someone else uploaded.
 #: Anyone who isn't a read-only viewer can still edit their *own* upload;
@@ -46,12 +55,6 @@ class CanManageDocument(BasePermission):
         return is_owner or user.role != User.Role.VIEWER
 
 
-def _mark_sprint_collecting(sprint):
-    if sprint.status == Sprint.Status.DRAFT:
-        sprint.status = Sprint.Status.COLLECTING
-        sprint.save(update_fields=['status', 'updated_at'])
-
-
 class SprintDocumentListView(generics.ListAPIView):
     """Read-only: documents are only ever created through the upload endpoint."""
     serializer_class = DocumentSerializer
@@ -67,31 +70,61 @@ class SprintDocumentUploadView(APIView):
     @extend_schema(request=DocumentUploadSerializer, responses=DocumentSerializer)
     def post(self, request, sprint_id):
         sprint = get_authorized_sprint(request.user, sprint_id)
-        upload = DocumentUploadSerializer(data=request.data, context={'sprint': sprint})
-        upload.is_valid(raise_exception=True)
-        data = upload.validated_data
-        file_obj = data['file']
-
-        ext = os.path.splitext(file_obj.name)[1].lower()
-        mime_type = file_obj.content_type or mimetypes.guess_type(file_obj.name)[0] or 'application/octet-stream'
-
-        document = Document.objects.create(
-            sprint=sprint,
-            document_type=data['document_type'],
-            title=data['title'],
-            owner_role=data['owner_role'],
-            original_filename=file_obj.name,
-            file=file_obj,
-            mime_type=mime_type,
-            file_size=file_obj.size,
-            checksum=data['checksum'],
-            ocr_required=ext in OCR_REQUIRED_EXTENSIONS,
-            status=Document.Status.UPLOADED,
-            uploaded_by=request.user,
-            uploaded_at=timezone.now(),
-        )
-        _mark_sprint_collecting(sprint)
+        try:
+            document = create_document_from_file(
+                sprint=sprint,
+                file_obj=request.data.get('file'),
+                document_type=request.data.get('document_type', ''),
+                owner_role=request.data.get('owner_role', ''),
+                title=request.data.get('title', ''),
+                uploaded_by=request.user,
+            )
+        except DocumentValidationError as exc:
+            raise DRFValidationError(exc.errors)
         return Response(DocumentSerializer(document, context={'request': request}).data, status=201)
+
+
+class SprintDriveImportJobListCreateView(generics.ListCreateAPIView):
+    """Google Drive Link data source for Screen 2 "Upload Data Pack": scans a
+    publicly link-shared Drive folder, classifies its files against the
+    required checklist, and imports matches through the same
+    create_document_from_file() path as a manual upload -- see
+    apps.documents.tasks.run_drive_import_job."""
+    serializer_class = DriveImportJobSerializer
+
+    def get_queryset(self):
+        get_authorized_sprint(self.request.user, self.kwargs['sprint_id'])
+        return DriveImportJob.objects.filter(sprint_id=self.kwargs['sprint_id'])
+
+    @extend_schema(request=DriveImportJobCreateSerializer, responses=DriveImportJobSerializer)
+    def create(self, request, *args, **kwargs):
+        sprint = get_authorized_sprint(request.user, self.kwargs['sprint_id'])
+        body = DriveImportJobCreateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+
+        job = DriveImportJob.objects.create(
+            sprint=sprint, drive_url=body.validated_data['drive_url'], created_by=request.user,
+        )
+        try:
+            result = run_drive_import_job.delay(str(job.id))
+            job.celery_task_id = result.id
+            job.save(update_fields=['celery_task_id'])
+            # With CELERY_TASK_ALWAYS_EAGER, the line above just ran the task
+            # inline against a separately-fetched row -- reload so the
+            # response reflects what actually happened.
+            job.refresh_from_db()
+        except CeleryRetry:
+            # Only reachable with CELERY_TASK_ALWAYS_EAGER (tests), where
+            # .delay() runs the task inline and it already recorded the
+            # retry before raising this.
+            job.refresh_from_db()
+        except Exception as exc:
+            logger.error('documents.drive_import.dispatch.broker_unreachable job_id=%s error=%s', job.id, exc)
+            job.status = DriveImportJob.Status.FAILED
+            job.error_message = f'Could not reach the Celery broker: {exc}'
+            job.completed_at = timezone.now()
+            job.save(update_fields=['status', 'error_message', 'completed_at', 'updated_at'])
+        return Response(DriveImportJobSerializer(job).data, status=201)
 
 
 class DocumentDetailView(generics.RetrieveUpdateDestroyAPIView):
