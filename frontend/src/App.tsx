@@ -6,6 +6,7 @@ import { AppShell } from './layouts/AppShell';
 
 import { Login } from './pages/auth/Login';
 import { Dashboard } from './pages/dashboard/Dashboard';
+import { InstitutionDNA } from './pages/institutions/InstitutionDNA';
 import { SprintSetup } from './pages/sprints/SprintSetup';
 import { UploadDataPack } from './pages/documents/UploadDataPack';
 import { AIProcessingMonitor } from './pages/documents/AIProcessingMonitor';
@@ -48,6 +49,7 @@ function AppRoutes() {
       <Route path="/login" element={<LoginRoute />} />
 
       <Route path="/dashboard" element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
+      <Route path="/institution-dna" element={<ProtectedLayout><InstitutionDNA /></ProtectedLayout>} />
       <Route path="/sprint/setup" element={<ProtectedLayout><SprintSetup /></ProtectedLayout>} />
       <Route path="/sprint/:sprintId/upload" element={<ProtectedLayout><UploadDataPack /></ProtectedLayout>} />
       <Route path="/sprint/:sprintId/monitor" element={<ProtectedLayout><AIProcessingMonitor /></ProtectedLayout>} />

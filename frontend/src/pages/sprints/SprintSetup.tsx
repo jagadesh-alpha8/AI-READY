@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listInstitutions, createInstitution } from '../../api/institutions';
+import { listInstitutions } from '../../api/institutions';
 import { createSprint } from '../../api/sprints';
 import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import { InlineError } from '../../components/ApiStates';
 import type { Institution, SprintMode } from '../../types';
-import { Building, Sparkles, ArrowRight } from 'lucide-react';
+import { Building, Sparkles, ArrowRight, Info } from 'lucide-react';
 
 export const SprintSetup: React.FC = () => {
   const navigate = useNavigate();
@@ -14,14 +14,10 @@ export const SprintSetup: React.FC = () => {
   const institutions = institutionsData || [];
   const [selectedInstId, setSelectedInstId] = useState('');
 
-  // Institution Create Form state
-  const [instName, setInstName] = useState('M. Kumarasamy College of Engineering');
-  const [instType, setInstType] = useState('Autonomous Engineering College');
-  const [city, setCity] = useState('Karur');
-  const [state, setState] = useState('Tamil Nadu');
-  const [website, setWebsite] = useState('https://mkce.ac.in');
-  const [affiliation, setAffiliation] = useState('Anna University');
-  const [accreditation, setAccreditation] = useState('NAAC A+ / NBA Accredited');
+  // Institutions are no longer created here. They are owned by the Institution
+  // DNA module, so this screen only ever *selects* one — which keeps a single
+  // place responsible for institutional master data instead of two forms that
+  // can disagree about it.
 
   // Sprint Form state
   const [sprintMode, setSprintMode] = useState<SprintMode>('verified_cri');
@@ -38,28 +34,16 @@ export const SprintSetup: React.FC = () => {
 
   const handleCreateSprint = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedInstId) {
+      setError('Select an institution before creating a sprint.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      let instId = selectedInstId;
-
-      // Create institution if none selected
-      if (!instId) {
-        const instRes = await createInstitution({
-          name: instName,
-          institution_type: instType,
-          city,
-          state,
-          website_url: website,
-          affiliation,
-          accreditation_status: accreditation,
-        });
-        instId = instRes.data.id;
-      }
-
       // Create discovery sprint
       const sprintRes = await createSprint({
-        institution_id: instId,
+        institution_id: selectedInstId,
         sprint_mode: sprintMode,
         academic_year: academicYear,
       });
@@ -97,12 +81,13 @@ export const SprintSetup: React.FC = () => {
             <Building className="w-4 h-4 text-brand-800" /> Institution Profile
           </h2>
 
-          {institutions.length > 0 && (
+          {institutions.length > 0 ? (
             <div>
-              <label className="label">Select Existing Institution</label>
+              <label className="label">Select Institution</label>
               <select
                 value={selectedInstId}
                 onChange={(e) => setSelectedInstId(e.target.value)}
+                required
                 className="input"
               >
                 {institutions.map((inst) => (
@@ -110,54 +95,19 @@ export const SprintSetup: React.FC = () => {
                     {inst.name} ({inst.city}, {inst.state}) - {inst.institution_type}
                   </option>
                 ))}
-                <option value="">+ Create New Institution Profile</option>
               </select>
+              <p className="mt-2 flex items-start gap-1.5 text-xs text-ink-500">
+                <Info className="w-3.5 h-3.5 shrink-0 mt-px" />
+                <span>Institution details are maintained in Institution DNA.</span>
+              </p>
             </div>
-          )}
-
-          {(!selectedInstId || institutions.length === 0) && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-              <div>
-                <label className="label">Institution Name *</label>
-                <input
-                  type="text"
-                  value={instName}
-                  onChange={(e) => setInstName(e.target.value)}
-                  required
-                  className="input"
-                />
-              </div>
-
-              <div>
-                <label className="label">Institution Type *</label>
-                <input
-                  type="text"
-                  value={instType}
-                  onChange={(e) => setInstType(e.target.value)}
-                  required
-                  className="input"
-                />
-              </div>
-
-              <div>
-                <label className="label">City</label>
-                <input
-                  type="text"
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  className="input"
-                />
-              </div>
-
-              <div>
-                <label className="label">State</label>
-                <input
-                  type="text"
-                  value={state}
-                  onChange={(e) => setState(e.target.value)}
-                  className="input"
-                />
-              </div>
+          ) : (
+            <div className="flex items-start gap-2.5 p-3 rounded-lg bg-surface border border-line-200 text-sm text-ink-600">
+              <Info className="w-4 h-4 shrink-0 mt-0.5 text-ink-500" />
+              <span>
+                No institutions are set up yet. Add one in <strong>Institution DNA</strong> before
+                starting a discovery sprint.
+              </span>
             </div>
           )}
         </div>
@@ -241,7 +191,7 @@ export const SprintSetup: React.FC = () => {
           <button type="button" onClick={() => navigate('/dashboard')} className="btn-secondary">
             Cancel
           </button>
-          <button type="submit" disabled={loading} className="btn-primary">
+          <button type="submit" disabled={loading || !selectedInstId} className="btn-primary">
             <span>{loading ? 'Initializing Sprint...' : 'Create Sprint & Upload Pack'}</span>
             <ArrowRight className="w-4 h-4" />
           </button>

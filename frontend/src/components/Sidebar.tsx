@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Gauge, Building2, ShieldCheck, Layers, Target, ListChecks, Bot, Bell,
   Network, ClipboardCheck, Settings, CalendarDays,
   FolderPlus, Upload, Activity, FileSearch, AlertCircle, CheckSquare,
-  BarChart3, Lock, Sparkles, FileText,
-  ChevronDown, ChevronRight, X,
+  BarChart3, Lock, Sparkles, FileText, X,
 } from 'lucide-react';
 
 type LucideIcon = typeof Gauge;
@@ -29,7 +28,7 @@ interface NavModule {
   /** Direct route — only for a live module with no children. */
   to?: string;
   exact?: boolean;
-  /** Sub-steps. A module with children expands instead of navigating. */
+  /** Sub-steps, always rendered beneath the module — nothing here collapses. */
   children?: NavChild[];
   /** Caption shown above the children when expanded. */
   childrenCaption?: string;
@@ -62,7 +61,8 @@ function buildModules(sprintId: string): NavModule[] {
       key: 'institution-dna',
       label: 'Institution DNA',
       icon: Building2,
-      status: 'planned',
+      status: 'live',
+      to: '/institution-dna',
     },
     {
       key: 'ai-readiness-audit',
@@ -107,19 +107,9 @@ export const Sidebar: React.FC<{
   const modules = buildModules(sprintId);
   const { pathname } = useLocation();
 
-  // The audit group opens itself whenever the current route is one of its
-  // steps, so a deep link or a redirect never lands the user on a screen whose
-  // menu entry is collapsed out of sight.
+  // Only used to highlight the parent module while one of its steps is open.
+  // Nothing collapses: every menu entry stays visible at all times.
   const onAuditRoute = pathname.startsWith('/sprint');
-  const [expanded, setExpanded] = useState<string | null>(
-    onAuditRoute ? 'ai-readiness-audit' : null,
-  );
-
-  useEffect(() => {
-    if (onAuditRoute) {
-      setExpanded('ai-readiness-audit');
-    }
-  }, [onAuditRoute]);
 
   return (
     <>
@@ -210,57 +200,48 @@ export const Sidebar: React.FC<{
                 }
 
                 // --- Live module with sub-steps (AI Readiness Audit).
-                const isOpen = expanded === module.key;
+                // The module row is a heading, not a control: it owns no route
+                // of its own, and its steps are always listed below it.
                 return (
                   <div key={module.key}>
-                    <button
-                      type="button"
-                      onClick={() => setExpanded(isOpen ? null : module.key)}
-                      aria-expanded={isOpen}
-                      className={`${ROW_BASE} ${
+                    <div
+                      className={`${ROW_BASE} select-none ${
                         onAuditRoute
                           ? 'bg-brand-50 text-brand-800 border-brand-500 font-semibold'
-                          : 'text-ink-600 border-transparent hover:text-ink-900 hover:bg-surface'
+                          : 'text-ink-900 border-transparent font-semibold'
                       }`}
                     >
                       <Icon className="w-4 h-4 shrink-0" />
                       <span className="truncate">{module.label}</span>
-                      {isOpen ? (
-                        <ChevronDown className="w-4 h-4 shrink-0 ml-auto" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 shrink-0 ml-auto" />
-                      )}
-                    </button>
+                    </div>
 
-                    {isOpen && (
-                      <div className="mt-1 ml-4 pl-3 border-l border-line-200 space-y-0.5">
-                        {module.childrenCaption && (
-                          <p className="text-[10px] font-bold text-ink-500 uppercase tracking-wide px-2 pt-1 pb-1.5">
-                            {module.childrenCaption}
-                          </p>
-                        )}
-                        {module.children.map((child) => {
-                          const ChildIcon = child.icon;
-                          return (
-                            <NavLink
-                              key={child.to}
-                              to={child.to}
-                              onClick={onClose}
-                              className={({ isActive }) =>
-                                `flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
-                                  isActive
-                                    ? 'bg-brand-50 text-brand-800 font-semibold'
-                                    : 'text-ink-600 hover:text-ink-900 hover:bg-surface'
-                                }`
-                              }
-                            >
-                              <ChildIcon className="w-3.5 h-3.5 shrink-0" />
-                              <span className="truncate">{child.label}</span>
-                            </NavLink>
-                          );
-                        })}
-                      </div>
-                    )}
+                    <div className="mt-1 ml-4 pl-3 border-l border-line-200 space-y-0.5">
+                      {module.childrenCaption && (
+                        <p className="text-[10px] font-bold text-ink-500 uppercase tracking-wide px-2 pt-1 pb-1.5">
+                          {module.childrenCaption}
+                        </p>
+                      )}
+                      {module.children.map((child) => {
+                        const ChildIcon = child.icon;
+                        return (
+                          <NavLink
+                            key={child.to}
+                            to={child.to}
+                            onClick={onClose}
+                            className={({ isActive }) =>
+                              `flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+                                isActive
+                                  ? 'bg-brand-50 text-brand-800 font-semibold'
+                                  : 'text-ink-600 hover:text-ink-900 hover:bg-surface'
+                              }`
+                            }
+                          >
+                            <ChildIcon className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">{child.label}</span>
+                          </NavLink>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
