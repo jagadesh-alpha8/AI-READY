@@ -41,6 +41,11 @@ const TABS = [
   { key: 'systems', label: 'Systems & IT' },
 ] as const;
 
+/** Temporarily disabled — the tab button is hidden while this is false.
+ * SystemsTab and its route through TABS are untouched, so re-enabling is
+ * just flipping this back to true. */
+const SYSTEMS_TAB_ENABLED = false;
+
 type TabKey = (typeof TABS)[number]['key'];
 
 /** Mirrors Institution.DigitalMaturity on the backend. */
@@ -130,7 +135,7 @@ export const InstitutionDNA: React.FC = () => {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {TABS.map((item) => (
+        {TABS.filter((item) => SYSTEMS_TAB_ENABLED || item.key !== 'systems').map((item) => (
           <button
             key={item.key}
             type="button"

@@ -59,7 +59,7 @@ export const Login: React.FC = () => {
           AIOS AI Readiness Discovery Sprint Platform
         </h1>
         <p className="mt-2 text-sm text-ink-500 max-w-xl mx-auto">
-          24-48 Hour Fast-Track Discovery Platform for Higher Education Institutions by InGage Technologies.
+          Fast-Track Discovery Platform for Higher Education Institutions by InGage Technologies.
         </p>
       </div>
 

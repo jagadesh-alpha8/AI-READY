@@ -144,7 +144,7 @@ export const SprintSetup: React.FC = () => {
                 <span className="text-xs font-bold text-brand-800">Verified CRI</span>
                 <span className="text-[10px] font-extrabold bg-brand-500 text-on-brand px-1.5 py-0.5 rounded">RECOMMENDED</span>
               </div>
-              <p className="text-sm font-semibold text-ink-900 mt-1">24-48 Hours Discovery</p>
+              <p className="text-sm font-semibold text-ink-900 mt-1">Verified Discovery</p>
               <p className="text-xs text-ink-500 mt-2">15-25 Documents | 80-90% Confidence | Formal baseline &amp; transformation proposal</p>
             </div>
 

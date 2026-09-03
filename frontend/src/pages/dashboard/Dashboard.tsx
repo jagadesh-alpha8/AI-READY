@@ -81,7 +81,7 @@ export const Dashboard: React.FC = () => {
             <span className="text-xs font-bold uppercase tracking-wide text-brand-800">AIOS Platform</span>
             <h1 className="text-2xl sm:text-3xl font-bold text-ink-900 tracking-tight mt-1 text-balance">AI Readiness Discovery Sprints</h1>
             <p className="text-sm text-ink-600 mt-1.5 max-w-2xl">
-              Execute 24-48 hour fast-track AI readiness audits across governance, curriculum, faculty capability, student readiness, labs, research, and placements.
+              Execute fast-track AI readiness audits across governance, curriculum, faculty capability, student readiness, labs, research, and placements.
             </p>
           </div>
           <button onClick={() => navigate('/sprint/setup')} className="btn-primary shrink-0">
@@ -99,7 +99,7 @@ export const Dashboard: React.FC = () => {
             <Play className="w-4 h-4 text-brand-800" />
           </div>
           <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{dashboard ? dashboard.active_sprints : '—'}</p>
-          <span className="text-xs text-brand-800 mt-1 inline-block font-medium">24-48h Discovery Mode</span>
+          <span className="text-xs text-brand-800 mt-1 inline-block font-medium">Discovery Mode</span>
         </div>
 
         <div className="glass-card p-5">

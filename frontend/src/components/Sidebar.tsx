@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Gauge, Building2, ShieldCheck, Layers, Target, ListChecks, Bot, Bell,
-  Network, ClipboardCheck, Settings, CalendarDays,
+  Network, ClipboardCheck, Settings, CalendarDays, PieChart,
   FolderPlus, Upload, Activity, FileSearch, AlertCircle, CheckSquare,
   BarChart3, Lock, Sparkles, FileText, X,
 } from 'lucide-react';
@@ -37,10 +37,10 @@ interface NavModule {
 /**
  * The platform's module list, matching the approved product plan.
  *
- * Only Dashboard and AI Readiness Audit are built. AI Readiness Audit owns the
- * ten-step discovery sprint that used to be the whole sidebar. Evidence
- * Intelligence is the next module in the plan, so it is labelled distinctly
- * from the ones queued behind it.
+ * Dashboard, Institution DNA, AI Readiness Audit, and Status Dashboard are
+ * built. AI Readiness Audit owns the ten-step discovery sprint that used to
+ * be the whole sidebar. Evidence Intelligence is the next module in the
+ * plan, so it is labelled distinctly from the ones queued behind it.
  *
  * No notification badges are rendered here. The plan mock shows counts against
  * three modules, but nothing in this app produces them yet, and a hardcoded
@@ -49,6 +49,7 @@ interface NavModule {
  */
 function buildModules(sprintId: string): NavModule[] {
   return [
+    { key: 'status-dashboard', label: 'Status Dashboard', icon: PieChart, status: 'live', to: '/status-dashboard' },
     {
       key: 'dashboard',
       label: 'Dashboard',
@@ -69,7 +70,7 @@ function buildModules(sprintId: string): NavModule[] {
       label: 'AI Readiness Audit',
       icon: ShieldCheck,
       status: 'live',
-      childrenCaption: 'Sprint steps · 24–48h',
+      childrenCaption: 'Sprint steps',
       children: [
         { to: '/sprint/setup', label: '1. Sprint Setup', icon: FolderPlus },
         { to: `/sprint/${sprintId}/upload`, label: '2. Upload Data Pack', icon: Upload },
@@ -251,7 +252,7 @@ export const Sidebar: React.FC<{
 
         <div className="p-3 bg-surface rounded-xl border border-line-200 text-xs">
           <p className="font-semibold text-ink-900">Target Completion</p>
-          <p className="text-ink-500 mt-0.5">24-48 Hours Fast-Track Discovery</p>
+          <p className="text-ink-500 mt-0.5">Fast-Track Discovery</p>
           <div className="w-full bg-line-200 h-1.5 rounded-full mt-2 overflow-hidden">
             <div className="bg-brand-500 h-full w-2/3 rounded-full"></div>
           </div>
