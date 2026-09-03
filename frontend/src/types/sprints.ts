@@ -34,7 +34,9 @@ export interface Sprint {
 
 export interface CreateSprintPayload {
   institution_id: string;
-  sprint_mode: SprintMode;
+  /** Optional — the backend falls back to Sprint.mode's model default. The
+   * setup screen no longer sends it, since the platform runs one method. */
+  sprint_mode?: SprintMode;
   academic_year?: string;
   name?: string;
 }

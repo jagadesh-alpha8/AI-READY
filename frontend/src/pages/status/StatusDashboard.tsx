@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Gauge, Building2, ShieldCheck, Layers, Target, ListChecks, Bot, Bell,
-  Network, ClipboardCheck, Settings, CalendarDays, PieChart, AlertTriangle,
+  Network, ClipboardCheck, Settings, PieChart, AlertTriangle,
 } from 'lucide-react';
 
 type LucideIcon = typeof Gauge;
@@ -36,9 +36,10 @@ const PLAN_MODULES: PlanModule[] = [
   { label: 'Compliance Mapping', icon: Network, status: 'planned', note: 'Not started.' },
   { label: 'UAT Readiness', icon: ClipboardCheck, status: 'planned', note: 'Not started.' },
   { label: 'Admin / Settings', icon: Settings, status: 'planned', note: 'Not started.' },
-  { label: 'Build Timeline', icon: CalendarDays, status: 'planned', note: 'Not started.' },
-  { label: 'Status Dashboard', icon: PieChart, status: 'live', note: 'This page.' },
 ];
+// This page itself is deliberately absent from the list above: it reports on
+// the product plan rather than being a module of it, and counting itself
+// would inflate every "modules live" figure below.
 
 const AUDIT_STEPS: { label: string; pct: number; note: string }[] = [
   { label: '1. Sprint Setup', pct: 100, note: 'Full lifecycle state machine.' },
@@ -55,7 +56,7 @@ const AUDIT_STEPS: { label: string; pct: number; note: string }[] = [
 
 const OPS_READINESS: { label: string; pct: number; note: string }[] = [
   { label: 'Production Security Hardening', pct: 40, note: 'Placeholder secret keys, demo credentials, no HTTPS, no rate-limiting.' },
-  { label: 'Automated Testing & QA', pct: 70, note: '481 backend tests; zero frontend tests.' },
+  { label: 'Automated Testing & QA', pct: 70, note: '498 backend tests; zero frontend tests.' },
   { label: 'Deployment & Infrastructure', pct: 80, note: 'Docker + CI/CD live; no monitoring or backups yet.' },
 ];
 
@@ -69,7 +70,7 @@ const ACTIVITY: { date: string; title: string; desc: string }[] = [
 
 const BUILD_QUEUE = [
   'Evidence Intelligence', 'Transformation Plan', 'Goals & Tasks', 'AI Copilot',
-  'Reminders', 'Compliance Mapping', 'UAT Readiness', 'Admin / Settings', 'Build Timeline',
+  'Reminders', 'Compliance Mapping', 'UAT Readiness', 'Admin / Settings',
 ];
 
 function depthTone(pct: number): { bar: string; text: string; badge: string } {
@@ -97,6 +98,9 @@ function ProgressBar({ pct }: { pct: number }) {
 export const StatusDashboard: React.FC = () => {
   const liveCount = PLAN_MODULES.filter((m) => m.status === 'live').length;
   const planPct = Math.round((liveCount / PLAN_MODULES.length) * 100);
+  // Derived rather than written into the copy: the module list moves, and a
+  // hand-typed "9 modules not started" silently goes stale the first time it does.
+  const notStartedCount = PLAN_MODULES.filter((m) => m.status !== 'live').length;
   const auditPct = Math.round(AUDIT_STEPS.reduce((s, x) => s + x.pct, 0) / AUDIT_STEPS.length);
 
   return (
@@ -108,8 +112,8 @@ export const StatusDashboard: React.FC = () => {
           Project Status Dashboard
         </h1>
         <p className="text-sm text-ink-600 mt-1.5 max-w-2xl">
-          Built against the approved 12-module product plan, taken directly from the app's own navigation menu.
-          Report date: {REPORT_DATE}.
+          Built against the approved {PLAN_MODULES.length}-module product plan, taken directly from the app's
+          own navigation menu. Report date: {REPORT_DATE}.
         </p>
       </div>
 
@@ -132,7 +136,9 @@ export const StatusDashboard: React.FC = () => {
             <Gauge className="w-4 h-4 text-info" />
           </div>
           <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{planPct}%</p>
-          <span className="text-xs text-info mt-1 inline-block font-medium">9 modules not started</span>
+          <span className="text-xs text-info mt-1 inline-block font-medium">
+            {notStartedCount} modules not started
+          </span>
         </div>
 
         <div className="glass-card p-5">
@@ -141,14 +147,15 @@ export const StatusDashboard: React.FC = () => {
             <ShieldCheck className="w-4 h-4 text-success" />
           </div>
           <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{auditPct}%</p>
-          <span className="text-xs text-success mt-1 inline-block font-medium">AI Readiness Audit · 481 backend tests</span>
+          <span className="text-xs text-success mt-1 inline-block font-medium">AI Readiness Audit · 498 backend tests</span>
         </div>
       </div>
 
       <div className="panel-muted text-left px-5 py-4">
         <p className="text-sm text-ink-700">
           <span className="font-semibold text-ink-900">Reading this dashboard: </span>
-          "Plan coverage" counts modules in the approved 12-module roadmap — most are simply not started yet.
+          "Plan coverage" counts modules in the approved {PLAN_MODULES.length}-module roadmap — most are simply
+          not started yet.
           "Flagship module depth" is a different question: of the one module that IS built (the discovery-sprint
           engine), how solid is it. Both numbers are real; neither substitutes for the other.
         </p>

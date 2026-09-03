@@ -1,12 +1,27 @@
 # AIOS Discovery Sprint — Project Workflow & Technical Report
 
 > **Scope.** Every statement below was traced through the actual repository at
-> `D:\AI READY` (branch `main`, HEAD `8742ea7 "google drive added"`). Where a
-> capability is commonly expected but genuinely absent, this report says
-> **"Not found in the codebase"** rather than guessing. No secret values are
-> reproduced.
+> `D:\AI READY` (branch `main`, HEAD `aab8e2f "status dashbaord add"`, plus the
+> uncommitted working tree). Where a capability is commonly expected but
+> genuinely absent, this report says **"Not found in the codebase"** rather than
+> guessing. No secret values are reproduced.
 >
 > **Status legend:** `[IMPLEMENTED]` · `[PARTIAL]` · `[PLANNED]` · `[DEAD/UNUSED]`
+>
+> ### What changed since this report was first written
+>
+> First written at `8742ea7`. Three things have landed since, and every affected
+> section below has been updated rather than appended to:
+>
+> | Change | Effect on this report |
+> |---|---|
+> | **Navigation rebuilt** around the 12-module product plan | §2, §4.3, §4.8, §19 — the app is no longer a bare 10-screen wizard; those ten steps are now one module among several |
+> | **Institution DNA** module built (3 new models, 3 nested sub-resources, new page) | §1, §3, §4, §5, §6, §7, §8, §19, §23 |
+> | **Project Status Dashboard** page added | §1, §4, §19, §25 |
+> | **Sprint Setup narrowed** — no longer creates institutions, no sprint-mode picker | §2.3, §3.3, §7 |
+>
+> Backend test count moved **481 → 498** with the Institution DNA suite;
+> migrations **20 → 21**.
 
 ---
 
@@ -135,6 +150,7 @@ of "sees everything", consumed by `apps/accounts/permissions.py`.
 |---|---|---|---|
 | 1 | JWT auth (login / refresh / logout-blacklist / me / change-password) | `accounts` | `[IMPLEMENTED]` |
 | 2 | Institution CRUD | `institutions` | `[IMPLEMENTED]` |
+| 2a | **Institution DNA** — profile + leadership + departments + IT systems + digital-maturity rating | `institutions` | `[IMPLEMENTED]` |
 | 3 | Sprint lifecycle state machine (10 statuses) + one-call overview | `sprints` | `[IMPLEMENTED]` |
 | 4 | Document upload: allowlist, 50 MB cap, SHA-256 dedupe, secure download | `documents` | `[IMPLEMENTED]` |
 | 5 | Google Drive folder import (recursive, checklist-matched) | `documents` | `[IMPLEMENTED]` |
@@ -148,6 +164,7 @@ of "sees everything", consumed by `apps/accounts/permissions.py`.
 | 13 | Recommendation generation (3 generators) + consultant editing | `recommendations` | `[IMPLEMENTED]` |
 | 14 | Versioned report generation → PDF (fpdf2) + DOCX (python-docx) | `reports` | `[IMPLEMENTED]` |
 | 15 | Cross-sprint dashboard with live metrics | `dashboard` | `[IMPLEMENTED]` |
+| 15a | **Project Status Dashboard** — build-progress report against the 11-module plan | frontend only | `[IMPLEMENTED]` — hand-maintained data, see §25 |
 | 16 | OpenAPI schema / Swagger / ReDoc | `config` | `[IMPLEMENTED]` |
 | 17 | Celery Beat / scheduled tasks | — | **Not found in the codebase** (deliberately — see §11) |
 | 18 | User registration / self-signup | — | **Not found in the codebase** — accounts are seeded or created in Django admin |
@@ -173,7 +190,7 @@ GitHub Actions CI/CD, nginx 1.27-alpine (SPA + reverse proxy), deployed to a
 ```mermaid
 graph TB
     subgraph Browser["User's browser"]
-        SPA["React 18 SPA<br/>(Vite build, 10-screen wizard)"]
+        SPA["React 18 SPA<br/>(Vite build, 12 screens)"]
     end
 
     subgraph VM["GCP VM — /opt/ai-ready — docker compose"]
@@ -229,8 +246,31 @@ graph TB
 
 # 2. Complete project workflow
 
-The application is a **linear 10-screen wizard** driven by a sprint's status. The
-sidebar (`frontend/src/components/Sidebar.tsx`) literally numbers the steps.
+The **AI Readiness Audit** is a **linear 10-step wizard** driven by a sprint's
+status, and it is the flow this section traces end to end.
+
+It is no longer the whole application, though. Since the navigation rebuild, the
+sidebar (`frontend/src/components/Sidebar.tsx`) presents the approved product
+plan in two groups, and those ten numbered steps sit *inside* one of its modules:
+
+```text
+WORK COMPLETION
+  Project Status Dashboard          ← build-progress report (frontend only)
+
+PLATFORM MODULES
+  Dashboard                         ← live
+  Institution DNA                   ← live
+  AI Readiness Audit                ← live; owns the 10 steps below
+     1. Sprint Setup ... 10. Report & Export
+  Evidence Intelligence             ← next in the plan; inert
+  Transformation Plan               ← planned; inert
+  Goals & Tasks · AI Copilot · Reminders
+  Compliance Mapping · UAT Readiness · Admin / Settings
+```
+
+Only the four `live` entries are navigable. The rest render dimmed and
+`aria-disabled`, so the full platform shape stays visible without offering dead
+links. Nothing collapses — every step is always on screen.
 
 ## 2.1 The sprint state machine
 
@@ -360,10 +400,10 @@ sequenceDiagram
 
 | Dimension | Detail |
 |---|---|
-| **1. User does** | Picks an institution (or creates one), names the sprint, chooses mode (`quick_cri` / `verified_cri` / `full_digital_twin`), academic year, dates |
-| **2. Frontend** | `pages/sprints/SprintSetup.tsx` (252 lines) |
-| **3–5. API** | `POST /api/v1/sprints` (also `GET /institutions`, `POST /institutions`) |
-| **6. Request** | `{institution, name, mode, academic_year, description, start_date, target_completion_date}` |
+| **1. User does** | **Selects** an existing institution and sets the academic year. That is the whole form now — see the two narrowings below |
+| **2. Frontend** | `pages/sprints/SprintSetup.tsx` (~150 lines) |
+| **3–5. API** | `POST /api/v1/sprints` (plus `GET /institutions` to populate the select) |
+| **6. Request** | `{institution_id, academic_year}` |
 | **7. Auth** | Bearer JWT required; `CanManageSprint` → write requires `super_admin`/`consultant`/`institution_admin` |
 | **8. Controller** | `apps/sprints/views.py::SprintViewSet.create` → `perform_create` |
 | **9. Business logic** | `user_can_access_institution()` re-checked at create time; `Sprint.save()` auto-assigns `sprint_code = SPR-<first 8 of UUID, uppercased>` |
@@ -373,6 +413,21 @@ sequenceDiagram
 | **14. Response** | `201` + `SprintSerializer` |
 | **15. Frontend use** | Navigates to `/sprint/{id}/upload` |
 | **16. User sees** | The Upload Data Pack screen, with the sprint code in the sidebar |
+
+**Two deliberate narrowings to this screen:**
+
+1. **It no longer creates institutions.** The inline "create new institution
+   profile" form is gone; institutions are owned by Institution DNA, so one place
+   is responsible for institutional master data rather than two forms that can
+   disagree. With no institutions on record the screen says so and disables
+   submit, instead of quietly offering a create form.
+2. **There is no sprint-mode picker.** The three cards (Quick CRI / Verified CRI /
+   Full Digital Twin) were removed — the platform runs one discovery method. The
+   frontend now omits `sprint_mode` from the payload entirely rather than
+   hardcoding a value, so `Sprint.mode`'s model default (`verified_cri`) is the
+   single place that decides it. `sprint_mode` was already `required=False` on
+   `SprintSerializer`, so no backend change was needed. The `SprintMode` enum and
+   the `mode` column both remain, unused by the UI.
 
 ### Step 2 — Upload the data pack
 
@@ -506,6 +561,65 @@ sequenceDiagram
   returns `403` (via `IsInstitutionMember`) rather than `404` — the same pattern
   is used in `SprintViewSet`.
 
+## 3.2a Institution DNA
+
+**Purpose:** The institutional baseline every discovery sprint is measured
+against — who the institution is, who leads it, what departments it has, and what
+IT estate it runs. Previously this lived nowhere; the sprint-setup form captured a
+handful of fields and nothing else.
+
+**User flow:** open **Institution DNA** → pick an institution (a selector appears
+only when more than one is accessible) → work three tabs:
+
+| Tab | Contents |
+|---|---|
+| **Institution Profile** | Name, type, location, accreditation, student/faculty counts, derived department & programme counts, leadership list, priority tags |
+| **Departments** | One card per department: head, faculty / students / programmes |
+| **Systems & IT** | Digital-maturity level (1–5) with its rubric description, the systems list with `Legacy` / `Manual` tags, and a current-AI-usage note |
+
+**Frontend:** `pages/institutions/InstitutionDNA.tsx` (~1 050 lines) — the page
+plus three tab components, an inline `Field`, a priority-tag editor, a leadership
+card, and a department stat tile.
+
+**API:** `GET /institutions/{id}` (detail serializer) · `PATCH /institutions/{id}`
+· `GET|POST /institutions/{id}/{leaders,departments,systems}` ·
+`GET|PATCH|DELETE` on each `/{id}` beneath those. See §7.
+
+**Backend:** `apps/institutions/` — `models.py`, `serializers.py`, `views.py`,
+`constants.py`, `urls.py`, migration `0003`.
+
+**Database:** `institutions_institution` gained `student_count`, `faculty_count`,
+`priorities` (JSON), `digital_maturity_level`, `current_ai_usage`. Three new
+tables: `institutions_institutionleader`, `institutions_department`,
+`institutions_institutionsystem`. See §6.
+
+**External services:** none.
+
+**Processing / design decisions worth knowing:**
+
+- **Derived vs. stored counts.** Department and programme counts are *computed*
+  from the department rows (`department_count`, `program_count` on the detail
+  serializer) and are read-only in the UI, labelled `DERIVED`. Student and
+  faculty totals are *stored* on the institution, because an institution's
+  official total legitimately differs from the sum of whichever departments have
+  been entered so far — reporting a partial sum as the total would be wrong
+  rather than merely incomplete.
+- **Leader initials are derived** from the name in the serializer, never stored, so
+  they cannot go stale when a name is corrected.
+- **The maturity rubric is a constant, the level is data.** `constants.py` holds
+  the five level descriptions; the level itself is a column. Same split
+  `apps.scoring.constants` makes between pillar keys and pillar weights.
+- **One access check covers all three sub-resources.** They are nested under
+  `/institutions/{institution_id}/…`, and `InstitutionScopedMixin` resolves and
+  authorizes the institution once, scoping every queryset to it — which is what
+  makes an id from another institution a `404` on the route rather than something
+  each view has to check for.
+
+**Output:** the institution's full profile, editable in place by the roles in §8.
+
+**Dependencies:** requires an `Institution` to exist. Sprint Setup now depends on
+this module for institution creation.
+
 ## 3.3 Sprint management
 
 **Purpose:** The unit of work. Everything else hangs off a sprint.
@@ -599,6 +713,7 @@ FKs fans out the join and inflates results.
 ```mermaid
 graph LR
     AUTH[Authentication] --> INST[Institutions]
+    INST --> DNA[Institution DNA]
     INST --> SPR[Sprints]
     SPR --> DOC[Documents / Drive import]
     DOC --> EXT[AI Extraction]
@@ -614,7 +729,14 @@ graph LR
     REC --> REP
     SPR --> DASH[Dashboard]
     SCORE --> DASH
+    DNA -.->|"supplies the institution<br/>Sprint Setup selects"| SPR
 ```
+
+Institution DNA sits alongside the audit rather than inside it: it holds the
+institution's standing baseline, which every sprint is then measured against.
+Sprint Setup depends on it for institution creation, but the audit pipeline does
+not read DNA records — connecting the two (for example, checking an extracted
+faculty count against the recorded one) is not implemented.
 ---
 
 # 4. Frontend architecture
@@ -632,7 +754,7 @@ Dev server: `vite --host 0.0.0.0 --port 3000`, with a proxy sending `/api` →
 ```
 frontend/src/
 ├── main.tsx              # ReactDOM.createRoot bootstrap
-├── App.tsx               # Router + all 12 routes, ProtectedLayout
+├── App.tsx               # Router + all 14 route entries, ProtectedLayout
 ├── api/                  # 14 axios modules, one per backend domain
 │   └── client.ts         # the shared axios instance + interceptors
 ├── context/
@@ -641,7 +763,7 @@ frontend/src/
 ├── hooks/useApiResource.ts   # the single data-fetching hook
 ├── layouts/AppShell.tsx      # Navbar + Sidebar + content
 ├── components/           # Navbar, Sidebar, ApiStates
-├── pages/                # 12 screens across 8 folders
+├── pages/                # 14 screens across 11 folders
 ├── types/                # 12 type modules, re-exported by types/index.ts
 ├── utils/errors.ts       # getErrorMessage + humanizeExtractionError
 └── index.css             # Tailwind + design tokens
@@ -656,6 +778,8 @@ a static top-level import, so the whole app ships as one bundle.
 |---|---|---|
 | `/login` | `LoginRoute` — redirects to `/dashboard` if a session exists | `Login` |
 | `/dashboard` | `ProtectedLayout` | `Dashboard` |
+| `/status-dashboard` | `ProtectedLayout` | `StatusDashboard` — "Project Status Dashboard" |
+| `/institution-dna` | `ProtectedLayout` | `InstitutionDNA` |
 | `/sprint/setup` | `ProtectedLayout` | `SprintSetup` |
 | `/sprint/:sprintId/upload` | `ProtectedLayout` | `UploadDataPack` |
 | `/sprint/:sprintId/monitor` | `ProtectedLayout` | `AIProcessingMonitor` |
@@ -750,7 +874,9 @@ to `/login` (guarding against a redirect loop when already there).
 |---|---|---|---|
 | `pages/auth/Login.tsx` (147) | Sign in | `POST /auth/login` | Ships an **11-persona quick-login list with a hardcoded password** — see §17 |
 | `pages/dashboard/Dashboard.tsx` (231) | Cross-sprint overview | `GET /dashboard` | Renders 7 metric tiles + sprint cards |
-| `pages/sprints/SprintSetup.tsx` (252) | Screen 1 | `GET/POST /institutions`, `POST /sprints`, `GET /sprints` | Creates institution inline if needed |
+| `pages/status/StatusDashboard.tsx` (~300) | Build-progress report | — | **No API calls.** Every figure is a module-level constant; the headline counts are derived from that list rather than typed. See §25 |
+| `pages/institutions/InstitutionDNA.tsx` (~1 050) | Institution DNA, 3 tabs | `GET/PATCH /institutions/{id}`, `+/leaders`, `+/departments`, `+/systems` | Derived vs. stored counts; write actions offered only to the roles in §8 |
+| `pages/sprints/SprintSetup.tsx` (~150) | Audit step 1 | `GET /institutions`, `POST /sprints` | **Selects** an institution — no longer creates one, and no mode picker |
 | `pages/documents/UploadDataPack.tsx` (537) | Screen 2 | `GET/POST /sprints/{id}/documents`, `upload-file`, `drive-import-jobs`, `DELETE /documents/{id}` | Holds `REQUIRED_CHECKLIST`, the frontend twin of `DRIVE_IMPORT_CHECKLIST` — **kept in sync by hand** |
 | `pages/documents/AIProcessingMonitor.tsx` (256) | Screen 3 | `GET/POST /sprints/{id}/extraction-jobs`, cancel, `DELETE` | 3 s polling; `humanizeExtractionError` |
 | `pages/facts/FactsReview.tsx` (249) | Screen 4 | `GET /sprints/{id}/facts`, 4 fact actions | Filter by status/pillar/confidence |
@@ -760,7 +886,7 @@ to `/login` (guarding against a redirect loop when already there).
 | `pages/scoring/BaselineApproval.tsx` (352) | Screen 8 | `GET /baseline`, approve, approve-provisional, return | Disables approve when `can_approve === false` |
 | `pages/recommendations/RecommendationsReview.tsx` (200) | Screen 9 | `GET/POST recommendations`, `PATCH /recommendations/{id}` | Renders `trigger_gap` as the citation |
 | `pages/reports/ReportPreviewExport.tsx` (247) | Screen 10 | `GET/POST reports`, `GET /reports/{id}/download` | 3 s polling until `ready`; blob download |
-| `components/Sidebar.tsx` (94) | Wizard nav | — | The numbered 1–10 step list |
+| `components/Sidebar.tsx` (~250) | Whole-platform nav | — | Two groups (Work Completion / Platform Modules); the 10 audit steps nest under AI Readiness Audit and never collapse; unbuilt modules render dimmed + `aria-disabled` rather than as dead links |
 | `components/Navbar.tsx` (66) | User menu | — | Uses `user.name` from the serializer |
 | `components/ApiStates.tsx` (53) | Loading/error/empty | — | Shared across every page |
 | `layouts/AppShell.tsx` (25) | Chrome | — | Navbar + Sidebar + `activeSprintId` |
@@ -812,7 +938,7 @@ backend/
 │   ├── wsgi.py / asgi.py
 ├── apps/
 │   ├── accounts/          models, serializers, views, tokens, permissions, management/commands/seed_demo_users
-│   ├── institutions/      models, serializers, views, filters
+│   ├── institutions/      models (Institution + Leader/Department/System), serializers, views, constants, filters
 │   ├── sprints/           models (state machine), views (+overview), access.py, filters
 │   ├── documents/         models, serializers, views, services, tasks, drive_import, constants, utils, exceptions
 │   ├── extraction/        models, serializers, views, tasks, exceptions, services/ (11 modules)
@@ -833,7 +959,7 @@ backend/
 |---|---|---|---|
 | `config` | Project wiring | `settings.py`, `urls.py`, `celery.py`, `pagination.py` | Settings, root routing, Celery app, opt-in pagination |
 | `accounts` | Identity + authorization | `models.py`, `permissions.py` (190 L), `tokens.py`, `management/commands/seed_demo_users.py` (163 L) | Custom `User`, 11 roles, **all reusable permission classes and the institution-scoping helpers** |
-| `institutions` | Tenant | `models.py`, `views.py` | Institution CRUD, `is_active` soft delete |
+| `institutions` | Tenant **+ Institution DNA** | `models.py` (4 models), `serializers.py`, `views.py`, `constants.py`, `urls.py` | Institution CRUD with `is_active` soft delete; leadership, departments and IT systems as nested sub-resources; the digital-maturity rubric |
 | `sprints` | Workflow spine | `models.py` (124 L, state machine), `views.py` (130 L), `access.py`, `urls.py` (144 L) | Sprint lifecycle, one-call overview, **composes every nested `/sprints/<id>/…` route** |
 | `documents` | Evidence intake | `services.py`, `tasks.py` (154 L), `drive_import.py` (157 L), `constants.py` (84 L) | Upload validation, checksum dedupe, Drive import, authenticated download |
 | `extraction` | The AI pipeline | `services/` (11 modules, ~1 700 L), `tasks.py` (114 L) | 7-stage pipeline, provider-agnostic AI, retry policy |
@@ -895,7 +1021,17 @@ graph TD
 | `CanManageRecommendations` | `super_admin`, `consultant`, `institution_admin`, `iqac_coordinator` |
 | `CanEditRecommendation` | **`super_admin`, `consultant` only** |
 | `CanManageDocument` (in `documents/views.py`) | owner always; DELETE also needs `super_admin`/`consultant`/`institution_admin`/`iqac_coordinator` |
+| `CanManageInstitution` (in `institutions/views.py`) | writes: `super_admin`, `consultant`, `institution_admin`; **DELETE: `super_admin`, `consultant` only** |
+| `CanManageInstitutionDna` (in `institutions/views.py`) | `super_admin`, `consultant`, `institution_admin` — **including DELETE** |
 | `IsSuperAdmin` / `IsConsultant` / `IsInstitutionAdmin` | single-role gates (defined; used sparingly) |
+
+The last two look redundant but are not, and the difference is deliberate:
+`CanManageInstitution` restricts DELETE to platform staff because deleting an
+*institution* orphans every sprint hanging off it. Removing one department row or
+one IT system is an ordinary correction to a list the institution admin maintains,
+so `CanManageInstitutionDna` lets DELETE follow the same rule as any other write.
+Reusing the stricter class for the sub-resources left institution admins able to
+add and edit departments but not remove them — caught by a test, not by review.
 
 All of these return `True` for `SAFE_METHODS`, so **reading is open to any
 authenticated user within their institution scope**.
@@ -935,7 +1071,7 @@ development currently runs. `conn_max_age=600` (10-minute persistent connections
 **Every model uses a UUID4 primary key** (`models.UUIDField(primary_key=True,
 default=uuid.uuid4, editable=False)`), except Django's own built-ins.
 
-**20 migrations** across 11 apps, including one data migration
+**21 migrations** across 11 apps, including one data migration
 (`scoring/0002_seed_pillars.py`) that seeds the eight pillars.
 
 ## 6.1 Model-by-model reference
@@ -949,9 +1085,30 @@ default=uuid.uuid4, editable=False)`), except Django's own built-ins.
 - **Meta:** `ordering = ['email']`.
 
 ### `institutions.Institution` — `institutions_institution`
-- **Purpose:** the tenant.
+- **Purpose:** the tenant, and (since Institution DNA) the institutional baseline record.
 - **Key fields:** `name`, `short_name`, `institution_type`, `university_affiliation`, `website_url`, `location`, `city`, `state`, `country` (default `'India'`), `accreditation_details`, `contact_email`, `contact_phone`, `is_active`.
+- **Institution DNA fields:** `student_count`, `faculty_count` (both nullable — an unset count reads as "not recorded", never as zero), `priorities` (JSON list of labels), `digital_maturity_level` (1–5 `IntegerChoices`, nullable), `current_ai_usage` (text).
 - **FK:** `created_by → User` (`SET_NULL`, `related_name='created_institutions'`).
+- **Not stored:** department and programme counts. Both are derived in `InstitutionDetailSerializer` from the department rows, so a stored copy cannot drift.
+
+### `institutions.InstitutionLeader` — `institutions_institutionleader`
+- **Purpose:** one named person on the institution's leadership list.
+- **Key fields:** `name`, `role`, `email`, `display_order`.
+- **FK:** `institution` (`CASCADE`, `related_name='leaders'`).
+- **Notable:** deliberately **not** a link to `accounts.User` — the Director named here is a fact about the org chart, and recording them must not depend on whether they hold a login. `initials` is derived in the serializer, never stored.
+- **Meta:** `ordering = ['display_order', 'name']`.
+
+### `institutions.Department` — `institutions_department`
+- **Purpose:** an academic department and the headcounts it reports for itself.
+- **Key fields:** `name`, `head_name`, `faculty_count`, `student_count`, `program_count`, `display_order`.
+- **FK:** `institution` (`CASCADE`, `related_name='departments'`).
+- **Constraint:** `UniqueConstraint(['institution', 'name'], name='unique_department_name_per_institution')`. The serializer additionally rejects duplicates **case-insensitively**, so the DB constraint never surfaces as a 500.
+
+### `institutions.InstitutionSystem` — `institutions_institutionsystem`
+- **Purpose:** one system in the institution's current IT estate.
+- **Key fields:** `name`, `tag` (`legacy` | `manual` | blank), `notes`, `display_order`.
+- **FK:** `institution` (`CASCADE`, `related_name='systems'`).
+- **Notable:** `tag` marks the two states that matter to an AI-readiness assessment — a legacy system and a still-manual process are both obstacles. It is not a general-purpose category field.
 
 ### `sprints.Sprint` — `sprints_sprint`
 - **Purpose:** one discovery engagement; the spine every other record hangs off.
@@ -1045,6 +1202,9 @@ default=uuid.uuid4, editable=False)`), except Django's own built-ins.
 erDiagram
     INSTITUTION ||--o{ USER : "employs"
     INSTITUTION ||--o{ SPRINT : "runs"
+    INSTITUTION ||--o{ INSTITUTION_LEADER : "is led by"
+    INSTITUTION ||--o{ DEPARTMENT : "is organised into"
+    INSTITUTION ||--o{ INSTITUTION_SYSTEM : "runs IT"
     USER ||--o{ INSTITUTION : "created_by"
     USER ||--o{ SPRINT : "created_by"
 
@@ -1103,6 +1263,7 @@ criteria* are configuration (DB rows).
 | `unique_together (sprint, pillar)` | `scoring_pillarscore` | One current score per pillar per sprint |
 | `unique_report_version_per_sprint` | `reports_report` | Version numbers never reused |
 | `scoring_run` FK `on_delete=PROTECT` | `scoring_baseline` | An approved baseline's run cannot be deleted |
+| `unique_department_name_per_institution` | `institutions_department` | No two departments share a name within one institution |
 
 **No explicit `db_index` beyond `checksum`, and no composite indexes.** Foreign keys
 get Django's automatic indexes. On a large deployment the hot filters —
@@ -1197,9 +1358,35 @@ and `backend/docs/openapi.yaml`.
 
 | Method | Endpoint | Purpose | Auth | Notes |
 |---|---|---|---|---|
-| GET | `/institutions` | List | JWT | Scoped by `get_accessible_institution_ids` |
-| POST | `/institutions` | Create | JWT | |
-| GET/PUT/PATCH/DELETE | `/institutions/{id}` | Detail | JWT + `IsInstitutionMember` | Unscoped queryset → out-of-scope gives **403**, not 404 |
+| GET | `/institutions` | List | JWT | Scoped by `get_accessible_institution_ids`. Returns the **lean** serializer — no leaders, no derived counts |
+| POST | `/institutions` | Create | `CanManageInstitution` | |
+| GET | `/institutions/{id}` | Detail | JWT + `IsInstitutionMember` | Returns `InstitutionDetailSerializer`: adds `leaders[]`, `department_count`, `program_count`, `digital_maturity_label`, `digital_maturity_description` |
+| PUT/PATCH | `/institutions/{id}` | Update | `CanManageInstitution` | Also how the DNA profile and the Systems & IT assessment are saved |
+| DELETE | `/institutions/{id}` | Soft delete | `super_admin` / `consultant` only | Sets `is_active=False` so existing sprints keep a valid reference |
+
+Out-of-scope detail requests give **403**, not 404 — the queryset is deliberately
+unscoped for detail actions so an authorization failure isn't masked as "missing".
+
+### Institution DNA sub-resources — `/api/v1/institutions/{institution_id}/…`
+
+All three follow the identical shape. `InstitutionScopedMixin` resolves and
+authorizes the parent institution once, and scopes every queryset to it — so an id
+belonging to another institution is a **404 on this route**, not a leak.
+
+| Method | Endpoint | Purpose | Auth |
+|---|---|---|---|
+| GET / POST | `…/leaders` | List / add a leadership entry | read: any member · write: `CanManageInstitutionDna` |
+| GET / PATCH / DELETE | `…/leaders/{id}` | One leader | same |
+| GET / POST | `…/departments` | List / add a department | same |
+| GET / PATCH / DELETE | `…/departments/{id}` | One department | same |
+| GET / POST | `…/systems` | List / add an IT system | same |
+| GET / PATCH / DELETE | `…/systems/{id}` | One system | same |
+
+**Validation worth noting:** a duplicate department name is rejected
+case-insensitively by the serializer (`400`), rather than being left to the
+database's unique constraint; an unknown system `tag` is a `400`; and
+`priorities` on the institution PATCH is cleaned of blanks and duplicates before
+it is stored.
 
 ### Sprints — `/api/v1/sprints`
 
@@ -2068,7 +2255,7 @@ flowchart LR
 
     subgraph CI["CI/CD"]
         direction TB
-        T1["backend-test<br/>python 3.12 · pip install development.txt<br/>python manage.py test (481 tests)"]
+        T1["backend-test<br/>python 3.12 · pip install development.txt<br/>python manage.py test (498 tests)"]
         T2["frontend-build<br/>node 20 · npm ci · npm run build"]
         T3["build-and-push<br/>buildx → GHCR<br/>tags: latest + git SHA<br/>cache-from/to: type=gha"]
         T4["deploy<br/>appleboy/ssh-action → GCP VM"]
@@ -2377,7 +2564,7 @@ source produces an honest empty section, never placeholder text.
 | 13 | **CORS is explicitly allowlisted** (`CORS_ALLOWED_ORIGINS`), not `CORS_ALLOW_ALL_ORIGINS`. |
 | 14 | **Immutable audit trails** — `FactReviewHistory`, `BaselineDecisionHistory`, `ScoringRun.pillar_snapshot`, `Report.version`, and the `PROTECT` FK on `Baseline.scoring_run`. |
 | 15 | **Only failed extraction jobs are deletable**, and only draft/completed/archived sprints — history cannot be quietly destroyed. |
-| 16 | **481 tests** across 11 apps, including permission and institution-scoping tests. |
+| 16 | **498 tests** across 11 apps, including permission and institution-scoping tests. |
 
 ## Needs improvement
 
@@ -2509,7 +2696,7 @@ D:\AI READY\
 │   │   └── wsgi.py / asgi.py       # gunicorn uses wsgi; asgi is unused
 │   └── apps/                       # ELEVEN domain apps
 │       ├── accounts/               # User (11 roles) · permissions.py · tokens · seed_demo_users
-│       ├── institutions/           # the tenant
+│       ├── institutions/           # the tenant + Institution DNA (leaders, departments, IT systems)
 │       ├── sprints/                # state machine · overview · access.py · composes nested URLs
 │       ├── documents/              # upload validation · Drive import · secure download
 │       │   ├── services.py         #   create_document_from_file() — the ONE ingestion path
@@ -2546,13 +2733,17 @@ D:\AI READY\
     ├── vite.config.ts              # dev proxy /api → localhost:8000
     ├── tailwind.config.js / postcss.config.js
     └── src/
-        ├── main.tsx / App.tsx      # bootstrap + all 12 routes (no lazy loading)
+        ├── main.tsx / App.tsx      # bootstrap + all 14 route entries (no lazy loading)
         ├── api/                    # 14 axios modules; client.ts holds the interceptors
         ├── context/                # AuthContext (the only global state) · ThemeContext
         ├── hooks/useApiResource.ts # the single fetch hook
         ├── layouts/AppShell.tsx
-        ├── components/             # Navbar · Sidebar (the numbered 1–10 wizard) · ApiStates
-        ├── pages/                  # 12 screens in 8 folders, one per wizard step
+        ├── components/             # Navbar · Sidebar (2 nav groups, 12 modules) · ApiStates
+        ├── pages/                  # 14 screens in 11 folders
+        │   ├── institutions/       #   Institution DNA — 3 tabs, editable
+        │   ├── status/             #   Project Status Dashboard — build progress, no API
+        │   └── …                   #   auth · dashboard · sprints · documents · facts · gaps
+        │                           #   · scoring · recommendations · reports
         ├── types/                  # 12 type modules
         └── utils/errors.ts         # getErrorMessage + humanizeExtractionError
 ```
@@ -2707,7 +2898,7 @@ flowchart TD
 | **Frontend** | React | `^18.2.0` | UI library |
 | | TypeScript | `^5.2.2` | Type safety; `npm run build` runs `tsc` before Vite |
 | | Vite | `^5.1.0` | Dev server (port 3000, `/api` proxy) + production bundler |
-| | React Router DOM | `^6.22.0` | Client-side routing, 12 routes |
+| | React Router DOM | `^6.22.0` | Client-side routing, 14 route entries |
 | | Axios | `^1.6.7` | HTTP client + auth/refresh interceptors |
 | | Tailwind CSS | `^3.4.1` | Styling (with `postcss` + `autoprefixer`) |
 | | lucide-react | `^0.330.0` | Icon set |
@@ -2820,6 +3011,9 @@ library, no date library, no chart library. Everything is hand-rolled on Tailwin
 | `backend/apps/gaps/models.py` | The three partial unique constraints |
 | `backend/apps/documents/services.py` | `create_document_from_file()` — **the single ingestion path** for both upload and Drive import |
 | `backend/apps/documents/constants.py` | Document types, required types, and the Drive checklist — **including the documented slug divergence** |
+| `backend/apps/institutions/models.py` | Institution + the three DNA models, and the comment explaining which counts are stored vs. derived |
+| `backend/apps/institutions/views.py` | `InstitutionScopedMixin` and the two institution permission classes — why DELETE differs between an institution and its sub-resources |
+| `backend/apps/institutions/constants.py` | The five digital-maturity level descriptions |
 | `backend/apps/reports/services.py` | The 11-section report builder |
 | `backend/config/urls.py` | Root routing, **and the comment explaining why media is never served** |
 | `backend/docs/API_CONTRACT.md` | A hand-written, frontend-audited contract; the best single reference for the API |
@@ -2827,7 +3021,9 @@ library, no date library, no chart library. Everything is hand-rolled on Tailwin
 | `frontend/src/api/client.ts` | Token attachment + the single-flight silent-refresh interceptor |
 | `frontend/src/context/AuthContext.tsx` | The only global state |
 | `frontend/src/App.tsx` | All routes + the session guard |
-| `frontend/src/components/Sidebar.tsx` | The numbered 1–10 wizard — the clearest statement of the product's flow |
+| `frontend/src/components/Sidebar.tsx` | The whole product plan in one file — two nav groups, which modules are live vs. inert, and the 10 audit steps |
+| `frontend/src/pages/institutions/InstitutionDNA.tsx` | The Institution DNA screen: 3 tabs, the derived-vs-stored count distinction, all editing |
+| `frontend/src/pages/status/StatusDashboard.tsx` | Build-progress report. **Hand-maintained constants, no API** — read §25 before trusting its numbers |
 | `frontend/src/utils/errors.ts` | DRF error normalisation + extraction-error humanisation |
 | `frontend/src/pages/documents/UploadDataPack.tsx` | The largest screen; holds the frontend twin of the Drive checklist |
 | `docker-compose.yml` | The five production services and their volumes |
@@ -2983,7 +3179,7 @@ docker build -t ai-ready-backend ./backend
 python manage.py test
 ```
 
-**481 tests** across 11 apps. The AI is mocked throughout. To additionally run the
+**498 tests** across 11 apps. The AI is mocked throughout. To additionally run the
 opt-in test that makes a **real, quota-spending API call**, set
 `RUN_OPENAI_INTEGRATION_TESTS=true` first.
 
@@ -3034,6 +3230,8 @@ docker compose exec backend python manage.py createsuperuser
 | `pytest-django` | `requirements/development.txt` | **Installed, never used** — CI runs `manage.py test` and there is no pytest config file |
 | `black`, `flake8` | `requirements/development.txt` | **Installed, never run** — no CI step, no pre-commit config |
 | `IsSuperAdmin`, `IsConsultant`, `IsInstitutionAdmin`, `IsReadOnly` | `accounts/permissions.py` | **Defined but not referenced** by any view — the composite gates are used instead. Reasonable to keep as a toolkit |
+| **Status Dashboard data** | `pages/status/StatusDashboard.tsx` | **Hand-maintained, not measured.** `PLAN_MODULES`, `AUDIT_STEPS`, `OPS_READINESS`, `ACTIVITY` and `BUILD_QUEUE` are module-level constants; the page makes **no API call**. Nothing in the backend computes a "% complete", and the file says so. The headline figures (modules live, plan coverage, modules not started) *are* derived from `PLAN_MODULES` rather than typed, so they cannot contradict the list beneath them — but the per-step percentages are engineering judgement and go stale unless someone updates them. Treat it as a status *report*, not a metric |
+| `SprintMode` enum + `Sprint.mode` column | `sprints/models.py` | **No longer reachable from the UI.** The setup screen's mode picker was removed; every new sprint takes the model default. The column and enum remain, so reviving the choice is a UI change only |
 | `dump.rdb` (root and `backend/`) | repo root, `backend/` | **Stray local Redis snapshots.** Correctly git-ignored (`dump.rdb`, `*.rdb`); safe to delete |
 | `.e2e_sprint2`, `.e2e_token2` | `backend/` | **Leftover local scratch files** from manual end-to-end testing. Untracked; safe to delete |
 | `celery_worker.log` | `backend/` | **Leftover local log file** |
@@ -3051,7 +3249,7 @@ and the **unused table extraction**.
 
 | Status | Items |
 |---|---|
-| **Implemented** | Auth, institutions, sprints + state machine, uploads, Drive import, the full 7-stage AI pipeline, multi-provider AI, fact review + history, 5 gap detectors + AI conflicts, the 9-step CRI engine, baseline approval, 3 recommendation generators, versioned PDF/DOCX reports, dashboard, OpenAPI docs, 481 tests, Docker/CI/CD |
+| **Implemented** | Auth, institutions, **Institution DNA**, sprints + state machine, uploads, Drive import, the full 7-stage AI pipeline, multi-provider AI, fact review + history, 5 gap detectors + AI conflicts, the 9-step CRI engine, baseline approval, 3 recommendation generators, versioned PDF/DOCX reports, dashboard, **Project Status Dashboard**, plan-shaped navigation, OpenAPI docs, 498 tests, Docker/CI/CD |
 | **Partial** | OCR (interface + honest flagging, no backend); non-PDF documents (accepted and stored, but unreadable and unexplained to the user); classification (called, validated, then discarded) |
 | **Planned / absent** | User registration, password reset, email/notifications, Celery Beat, object storage, caching, monitoring, TLS, backups, frontend tests, rate limiting |
 | **Dead / stray** | `uvicorn`, `debug_task`, unused permission classes, `dump.rdb`, `.e2e_*`, `celery_worker.log`, unread `tables` payload |
@@ -3133,7 +3331,9 @@ On the backend, **eleven Django apps**, each owning one part of the domain:
 accounts (people and permissions), institutions, sprints, documents, extraction,
 facts, gaps, scoring, recommendations, reports, and dashboard.
 
-On the frontend, a **React single-page app** — one screen per wizard step.
+On the frontend, a **React single-page app**. Its navigation is the approved
+12-module product plan; four modules are built, and the ten-step audit wizard is
+the deepest of them.
 
 The three that matter most:
 
@@ -3255,7 +3455,7 @@ record, marks it failed with a clear message, and returns normally.
 
 ### How is the project deployed?
 
-Push to `main` on GitHub. GitHub Actions runs the full backend test suite — 481
+Push to `main` on GitHub. GitHub Actions runs the full backend test suite — 498
 tests — and builds the frontend. If both pass, it builds two Docker images, pushes
 them to GitHub's container registry, then SSHes into a Google Cloud VM and pulls
 them.
@@ -3346,7 +3546,7 @@ no analytics, no error-tracking service.**
 5. **Invariants enforced in the database**, not only in services — three partial
    unique constraints on gaps, checksum uniqueness on documents, version uniqueness
    on reports.
-6. **481 backend tests**, covering permissions, institution scoping, and the AI
+6. **498 backend tests**, covering permissions, institution scoping, and the AI
    paths (mocked), plus an opt-in real-API integration test.
 7. **Graceful degradation.** Broker down, Drive misconfigured, AI unconfigured,
    non-PDF document — each produces a clear, actionable message rather than a 500.

@@ -5,7 +5,7 @@ import { createSprint } from '../../api/sprints';
 import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import { InlineError } from '../../components/ApiStates';
-import type { Institution, SprintMode } from '../../types';
+import type { Institution } from '../../types';
 import { Building, Sparkles, ArrowRight, Info } from 'lucide-react';
 
 export const SprintSetup: React.FC = () => {
@@ -19,8 +19,10 @@ export const SprintSetup: React.FC = () => {
   // place responsible for institutional master data instead of two forms that
   // can disagree about it.
 
-  // Sprint Form state
-  const [sprintMode, setSprintMode] = useState<SprintMode>('verified_cri');
+  // No sprint-mode picker: the platform runs one discovery method, so there is
+  // nothing to choose. `sprint_mode` is left off the create payload entirely
+  // and Sprint.mode's model default supplies it — one place decides the
+  // method, rather than a form that always sends the same value.
   const [academicYear, setAcademicYear] = useState('2026-27');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -44,7 +46,6 @@ export const SprintSetup: React.FC = () => {
       // Create discovery sprint
       const sprintRes = await createSprint({
         institution_id: selectedInstId,
-        sprint_mode: sprintMode,
         academic_year: academicYear,
       });
 
@@ -75,10 +76,12 @@ export const SprintSetup: React.FC = () => {
       {error && <InlineError message={error} onDismiss={() => setError('')} />}
 
       <form onSubmit={handleCreateSprint} className="space-y-6">
-        {/* Institution Details */}
+        {/* One card, one heading: with the mode picker gone there are only
+            three fields left, and splitting them across two headed sections
+            made the screen look busier than it is. */}
         <div className="glass-card p-5 sm:p-6 space-y-4">
           <h2 className="eyebrow flex items-center gap-2">
-            <Building className="w-4 h-4 text-brand-800" /> Institution Profile
+            <Sparkles className="w-4 h-4 text-brand-800" /> Sprint Settings
           </h2>
 
           {institutions.length > 0 ? (
@@ -110,59 +113,8 @@ export const SprintSetup: React.FC = () => {
               </span>
             </div>
           )}
-        </div>
 
-        {/* Sprint Configuration */}
-        <div className="glass-card p-5 sm:p-6 space-y-4">
-          <h2 className="eyebrow flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-brand-800" /> Sprint Settings
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div
-              onClick={() => setSprintMode('quick_cri')}
-              className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                sprintMode === 'quick_cri'
-                  ? 'bg-brand-50 border-brand-500 shadow-card'
-                  : 'bg-card border-line-200 hover:border-line-300'
-              }`}
-            >
-              <span className="text-xs font-bold text-brand-800">Quick CRI</span>
-              <p className="text-sm font-semibold text-ink-900 mt-1">Same Day Audit</p>
-              <p className="text-xs text-ink-500 mt-2">8-12 Documents | 60-75% Confidence | Rapid baseline for sales discovery</p>
-            </div>
-
-            <div
-              onClick={() => setSprintMode('verified_cri')}
-              className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                sprintMode === 'verified_cri'
-                  ? 'bg-brand-50 border-brand-500 shadow-card'
-                  : 'bg-card border-line-200 hover:border-line-300'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-brand-800">Verified CRI</span>
-                <span className="text-[10px] font-extrabold bg-brand-500 text-on-brand px-1.5 py-0.5 rounded">RECOMMENDED</span>
-              </div>
-              <p className="text-sm font-semibold text-ink-900 mt-1">Verified Discovery</p>
-              <p className="text-xs text-ink-500 mt-2">15-25 Documents | 80-90% Confidence | Formal baseline &amp; transformation proposal</p>
-            </div>
-
-            <div
-              onClick={() => setSprintMode('full_digital_twin')}
-              className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                sprintMode === 'full_digital_twin'
-                  ? 'bg-brand-50 border-brand-500 shadow-card'
-                  : 'bg-card border-line-200 hover:border-line-300'
-              }`}
-            >
-              <span className="text-xs font-bold text-brand-800">Full Digital Twin</span>
-              <p className="text-sm font-semibold text-ink-900 mt-1">5-15 Days Enterprise</p>
-              <p className="text-xs text-ink-500 mt-2">40-80+ Documents | 90%+ Confidence | Continuous enterprise digital twin</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="label">Academic Year *</label>
               <input

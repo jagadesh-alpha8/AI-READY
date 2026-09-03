@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Gauge, Building2, ShieldCheck, Layers, Target, ListChecks, Bot, Bell,
-  Network, ClipboardCheck, Settings, CalendarDays, PieChart,
+  Network, ClipboardCheck, Settings, PieChart,
   FolderPlus, Upload, Activity, FileSearch, AlertCircle, CheckSquare,
   BarChart3, Lock, Sparkles, FileText, X,
 } from 'lucide-react';
@@ -34,13 +34,33 @@ interface NavModule {
   childrenCaption?: string;
 }
 
+interface NavGroup {
+  heading: string;
+  modules: NavModule[];
+}
+
+/**
+ * Reporting on the build itself, kept out of "Platform Modules" on purpose:
+ * the status dashboard describes how much of the product plan exists, so
+ * listing it among the modules it reports on would make it count itself.
+ */
+const WORK_COMPLETION_MODULES: NavModule[] = [
+  {
+    key: 'status-dashboard',
+    label: 'Project Status Dashboard',
+    icon: PieChart,
+    status: 'live',
+    to: '/status-dashboard',
+  },
+];
+
 /**
  * The platform's module list, matching the approved product plan.
  *
- * Dashboard, Institution DNA, AI Readiness Audit, and Status Dashboard are
- * built. AI Readiness Audit owns the ten-step discovery sprint that used to
- * be the whole sidebar. Evidence Intelligence is the next module in the
- * plan, so it is labelled distinctly from the ones queued behind it.
+ * Dashboard, Institution DNA and AI Readiness Audit are built. AI Readiness
+ * Audit owns the ten-step discovery sprint that used to be the whole sidebar.
+ * Evidence Intelligence is the next module in the plan, so it is labelled
+ * distinctly from the ones queued behind it.
  *
  * No notification badges are rendered here. The plan mock shows counts against
  * three modules, but nothing in this app produces them yet, and a hardcoded
@@ -49,7 +69,6 @@ interface NavModule {
  */
 function buildModules(sprintId: string): NavModule[] {
   return [
-    { key: 'status-dashboard', label: 'Status Dashboard', icon: PieChart, status: 'live', to: '/status-dashboard' },
     {
       key: 'dashboard',
       label: 'Dashboard',
@@ -92,7 +111,6 @@ function buildModules(sprintId: string): NavModule[] {
     { key: 'compliance-mapping', label: 'Compliance Mapping', icon: Network, status: 'planned' },
     { key: 'uat-readiness', label: 'UAT Readiness', icon: ClipboardCheck, status: 'planned' },
     { key: 'admin-settings', label: 'Admin / Settings', icon: Settings, status: 'planned' },
-    { key: 'build-timeline', label: 'Build Timeline', icon: CalendarDays, status: 'planned' },
   ];
 }
 
@@ -105,7 +123,10 @@ export const Sidebar: React.FC<{
   onClose?: () => void;
 }> = ({ activeSprintId, open = false, onClose }) => {
   const sprintId = activeSprintId || 'demo-sprint-id';
-  const modules = buildModules(sprintId);
+  const groups: NavGroup[] = [
+    { heading: 'Work Completion', modules: WORK_COMPLETION_MODULES },
+    { heading: 'Platform Modules', modules: buildModules(sprintId) },
+  ];
   const { pathname } = useLocation();
 
   // Only used to highlight the parent module while one of its steps is open.
@@ -124,7 +145,7 @@ export const Sidebar: React.FC<{
       )}
 
       <aside
-        className={`bg-card border-r border-line-200 p-4 flex flex-col justify-between
+        className={`bg-card border-r border-line-200 p-4 flex flex-col
           fixed inset-y-0 left-0 z-50 w-72 transition-transform duration-200 ease-out overflow-y-auto
           ${open ? 'translate-x-0' : '-translate-x-full'}
           lg:translate-x-0 lg:static lg:z-0 lg:w-64 lg:shrink-0 lg:min-h-[calc(100vh-57px)]`}
@@ -137,13 +158,14 @@ export const Sidebar: React.FC<{
             </button>
           </div>
 
-          <div>
+          {groups.map((group) => (
+          <div key={group.heading}>
             <h2 className="text-[11px] font-bold text-ink-500 uppercase tracking-wide px-3 mb-3">
-              Platform Modules
+              {group.heading}
             </h2>
 
             <nav className="space-y-1">
-              {modules.map((module) => {
+              {group.modules.map((module) => {
                 const Icon = module.icon;
 
                 // --- Not built yet: visible, labelled, and deliberately inert.
@@ -248,14 +270,7 @@ export const Sidebar: React.FC<{
               })}
             </nav>
           </div>
-        </div>
-
-        <div className="p-3 bg-surface rounded-xl border border-line-200 text-xs">
-          <p className="font-semibold text-ink-900">Target Completion</p>
-          <p className="text-ink-500 mt-0.5">Fast-Track Discovery</p>
-          <div className="w-full bg-line-200 h-1.5 rounded-full mt-2 overflow-hidden">
-            <div className="bg-brand-500 h-full w-2/3 rounded-full"></div>
-          </div>
+          ))}
         </div>
       </aside>
     </>
