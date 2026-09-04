@@ -10,6 +10,11 @@ from apps.facts.views import SprintFactListView
 from apps.gaps.views import SprintGapListView
 from apps.recommendations.views import SprintRecommendationGenerateView, SprintRecommendationListView
 from apps.reports.views import SprintReportGenerateView, SprintReportListView
+from apps.vector_store.views import (
+    SprintEvidenceSearchView,
+    SprintVectorIndexStatusView,
+    SprintVectorIndexView,
+)
 from apps.scoring.views import (
     SprintBaselineApproveProvisionalView,
     SprintBaselineApproveView,
@@ -133,6 +138,34 @@ urlpatterns = [
     ),
     path('/<uuid:sprint_id>/reports', SprintReportListView.as_view(), name='sprint-reports'),
     path('/<uuid:sprint_id>/reports/', SprintReportListView.as_view(), name='sprint-reports-slash'),
+    # Vector store: semantic indexing of this sprint's documents, and evidence
+    # retrieval over them. Nested here like every other sprint sub-resource, so
+    # institution scoping is the same get_authorized_sprint() check.
+    path(
+        '/<uuid:sprint_id>/vector-index',
+        SprintVectorIndexView.as_view(), name='sprint-vector-index',
+    ),
+    path(
+        '/<uuid:sprint_id>/vector-index/',
+        SprintVectorIndexView.as_view(), name='sprint-vector-index-slash',
+    ),
+    path(
+        '/<uuid:sprint_id>/vector-index/status',
+        SprintVectorIndexStatusView.as_view(), name='sprint-vector-index-status',
+    ),
+    path(
+        '/<uuid:sprint_id>/vector-index/status/',
+        SprintVectorIndexStatusView.as_view(), name='sprint-vector-index-status-slash',
+    ),
+    path(
+        '/<uuid:sprint_id>/evidence-search',
+        SprintEvidenceSearchView.as_view(), name='sprint-evidence-search',
+    ),
+    path(
+        '/<uuid:sprint_id>/evidence-search/',
+        SprintEvidenceSearchView.as_view(), name='sprint-evidence-search-slash',
+    ),
+
     path(
         '/<uuid:sprint_id>/reports/generate', SprintReportGenerateView.as_view(), name='sprint-reports-generate',
     ),

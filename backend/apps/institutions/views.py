@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import generics, viewsets
@@ -43,9 +44,11 @@ class InstitutionViewSet(viewsets.ModelViewSet):
     """CRUD for institutions, scoped to the ones a user is authorized to see.
 
     Cross-institution roles (super_admin, consultant) see every institution;
-    everyone else only sees the one on their own profile. Deletion is a soft
-    delete (is_active=False) so existing sprints keep a valid institution
-    reference.
+    everyone else only sees the one on their own profile. Deletion is a hard
+    delete: the institution and everything that hangs off it (departments,
+    leaders, systems, sprints, and every document/fact/gap/score/
+    recommendation/report scoped to those sprints) is removed for good — see
+    `perform_destroy`.
     """
     serializer_class = InstitutionSerializer
     permission_classes = [CanManageInstitution, IsInstitutionMember]
@@ -82,8 +85,25 @@ class InstitutionViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
     def perform_destroy(self, instance):
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
+        # Local import: apps.scoring depends on apps.institutions' model
+        # graph (Sprint -> Institution), so importing at module load time
+        # risks a circular import during app registry setup.
+        from apps.scoring.models import Baseline
+
+        with transaction.atomic():
+            # Baseline.scoring_run is on_delete=PROTECT (a baseline decision
+            # must always name the exact run it was made against — see that
+            # field's docstring), but ScoringRun cascades from Sprint just
+            # like Baseline itself does. Deleting the institution would
+            # therefore cascade-delete a sprint's ScoringRun rows first and
+            # hit ProtectedError on their still-present Baseline rows, even
+            # though those same rows are also about to be cascade-deleted
+            # via Sprint -- a known Django interaction between PROTECT and
+            # CASCADE (the collector doesn't exempt objects it has already
+            # scheduled for deletion via a different path). Clearing
+            # Baseline rows up front avoids that ordering trap.
+            Baseline.objects.filter(sprint__institution=instance).delete()
+            instance.delete()
 
 
 class CanManageInstitutionDna(BasePermission):

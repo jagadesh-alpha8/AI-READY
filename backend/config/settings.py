@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'apps.recommendations',
     'apps.reports',
     'apps.dashboard',
+    'apps.vector_store',
 ]
 
 MIDDLEWARE = [
@@ -304,6 +305,93 @@ GOOGLE_DRIVE_IMPORT_MAX_FOLDERS = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_FOLDERS
 # its own knob since it's an unrelated task/queue.
 GOOGLE_DRIVE_IMPORT_MAX_RETRIES = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_RETRIES', 3))
 GOOGLE_DRIVE_IMPORT_RETRY_BACKOFF_SECONDS = int(os.getenv('GOOGLE_DRIVE_IMPORT_RETRY_BACKOFF_SECONDS', 15))
+
+def _int_env(name, default):
+    """Read an int setting, tolerating a present-but-empty variable.
+
+    `.env` files routinely carry `KEY=` for "leave this unset", and a bare
+    int('') raises ValueError at import time -- which takes the whole
+    application down at startup rather than degrading. Blank means "use the
+    default", which is what an empty line in a .env is meant to say.
+    """
+    raw = (os.getenv(name) or '').strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+# ---------------------------------------------------------------------------
+# Vector store (apps.vector_store) -- semantic retrieval over college document
+# content, so a future benchmarking criterion can pull the relevant evidence
+# and hand it to an LLM.
+#
+# PostgreSQL stays the source of truth for every structured record. Pinecone
+# holds only embeddings of document text plus the metadata needed to filter and
+# cite them; nothing here replaces or duplicates a Django model.
+#
+# Entirely optional. When PINECONE_API_KEY / PINECONE_INDEX_NAME (or an
+# embedding key) are unset, `apps.vector_store.services.indexer.is_enabled()`
+# is False: no Celery task is queued, no row is written, and document upload,
+# extraction, scoring and reports behave exactly as they did before this app
+# existed. The API endpoints answer 503 with a clear reason rather than 500.
+# ---------------------------------------------------------------------------
+PINECONE_API_KEY = os.getenv('PINECONE_API_KEY', '')
+PINECONE_INDEX_NAME = os.getenv('PINECONE_INDEX_NAME', '')
+# Used only when creating the index (see docs/VECTOR_STORE.md); the SDK reads
+# the index by name at runtime, so these two are documentation for operators
+# rather than something the client sends on every call.
+PINECONE_CLOUD = os.getenv('PINECONE_CLOUD', 'aws')
+PINECONE_REGION = os.getenv('PINECONE_REGION', 'us-east-1')
+# Optional. Institution isolation is enforced by metadata filtering (see
+# apps.vector_store.services.search), so a namespace is not required; it is
+# here for operators who want one index shared across environments.
+PINECONE_NAMESPACE = os.getenv('PINECONE_NAMESPACE', '')
+
+# How vectors get their embeddings:
+#   integrated -- the Pinecone index embeds server-side (an index created with
+#                 an `embed` config, e.g. llama-text-embed-v2). No embedding
+#                 key or model is needed here; Pinecone owns both.
+#   manual     -- this app embeds via EMBEDDING_* below and upserts raw vectors.
+#   auto       -- (default) ask the index which it is, once per process, and
+#                 cache it. Costs one describe_index call the first time a
+#                 store is built, never in the request path.
+# The two use different Pinecone APIs (upsert_records/search vs upsert/query),
+# which is why this is a mode and not just a different embedding provider.
+PINECONE_EMBEDDING_MODE = os.getenv('PINECONE_EMBEDDING_MODE', 'auto')
+
+# Embeddings. Deliberately separate from the extraction AI settings above:
+# Anthropic publishes no embedding endpoint, so a deployment running Claude for
+# extraction still needs an OpenAI-compatible key here. Falls back to
+# OPENAI_API_KEY / AI_API_KEY when those are usable -- see
+# apps.vector_store.services.embeddings._resolve_api_key.
+EMBEDDING_API_KEY = os.getenv('EMBEDDING_API_KEY', '')
+EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text-embedding-3-small')
+# Blank means "derive from the model" (see embeddings.KNOWN_MODEL_DIMENSIONS).
+# Set it only for a model this app does not know the width of.
+EMBEDDING_DIMENSIONS = _int_env('EMBEDDING_DIMENSIONS', 0) or None
+EMBEDDING_BASE_URL = os.getenv('EMBEDDING_BASE_URL', '')
+
+# Chunking. A chunk never spans a page (page number is the citation this
+# platform promises) and never splits a sentence unless one sentence is longer
+# than the whole budget. Overlap must stay below the max or chunking cannot
+# terminate -- apps.vector_store.services.chunking enforces that.
+VECTOR_CHUNK_MAX_CHARS = _int_env('VECTOR_CHUNK_MAX_CHARS', 1200)
+VECTOR_CHUNK_OVERLAP_CHARS = _int_env('VECTOR_CHUNK_OVERLAP_CHARS', 150)
+# Below this a chunk is page furniture (a header, a page number) that would
+# only compete with real evidence at search time.
+VECTOR_CHUNK_MIN_CHARS = _int_env('VECTOR_CHUNK_MIN_CHARS', 40)
+
+# Indexing retry policy, mirroring EXTRACTION_MAX_RETRIES above: recoverable
+# failures back off exponentially, permanent ones fail the row immediately.
+VECTOR_INDEX_MAX_RETRIES = _int_env('VECTOR_INDEX_MAX_RETRIES', 3)
+VECTOR_INDEX_RETRY_BACKOFF_SECONDS = _int_env('VECTOR_INDEX_RETRY_BACKOFF_SECONDS', 20)
+
+VECTOR_SEARCH_DEFAULT_TOP_K = _int_env('VECTOR_SEARCH_DEFAULT_TOP_K', 5)
+# Hard ceiling, so a caller cannot ask for an unbounded result set.
+VECTOR_SEARCH_MAX_TOP_K = _int_env('VECTOR_SEARCH_MAX_TOP_K', 50)
 
 # Logging: without this, module-level `logging.getLogger(__name__)` calls in
 # apps.* (extraction's pipeline/task logging in particular) fall back to

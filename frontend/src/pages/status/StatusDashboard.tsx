@@ -31,7 +31,7 @@ const PLAN_MODULES: PlanModule[] = [
   { label: 'Evidence Intelligence', icon: Layers, status: 'next', note: 'Next in the build queue. No code yet.' },
   { label: 'Transformation Plan', icon: Target, status: 'planned', note: 'Not started.' },
   { label: 'Goals & Tasks', icon: ListChecks, status: 'planned', note: 'Not started.' },
-  { label: 'AI Copilot', icon: Bot, status: 'planned', note: 'Not started.' },
+  { label: 'AI Chatbot', icon: Bot, status: 'planned', note: 'Not started.' },
   { label: 'Reminders', icon: Bell, status: 'planned', note: 'Not started.' },
   { label: 'Compliance Mapping', icon: Network, status: 'planned', note: 'Not started.' },
   { label: 'UAT Readiness', icon: ClipboardCheck, status: 'planned', note: 'Not started.' },
@@ -69,7 +69,7 @@ const ACTIVITY: { date: string; title: string; desc: string }[] = [
 ];
 
 const BUILD_QUEUE = [
-  'Evidence Intelligence', 'Transformation Plan', 'Goals & Tasks', 'AI Copilot',
+  'Evidence Intelligence', 'Transformation Plan', 'Goals & Tasks', 'AI Chatbot',
   'Reminders', 'Compliance Mapping', 'UAT Readiness', 'Admin / Settings',
 ];
 

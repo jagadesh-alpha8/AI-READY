@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Building2, Users, Server, Plus, Pencil, Trash2, Check, X, Info,
+  ArrowLeft, Building2, Users, Server, Plus, Pencil, Trash2, Check, X, Info,
 } from 'lucide-react';
 
 import {
@@ -12,7 +13,6 @@ import {
   deleteSystem,
   getInstitution,
   listDepartments,
-  listInstitutions,
   listSystems,
   updateDepartment,
   updateInstitution,
@@ -24,8 +24,7 @@ import { getErrorMessage } from '../../utils/errors';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type {
   Department,
-  Institution,
-  InstitutionDetail,
+  InstitutionDetail as InstitutionDetailType,
   InstitutionSystem,
   InstitutionSystemTag,
 } from '../../types';
@@ -75,76 +74,49 @@ function toCount(value: string): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
 }
 
-export const InstitutionDNA: React.FC = () => {
+/** An institution's workspace: profile, leadership, departments and systems.
+ * Reached only by picking an institution on the InstitutionList page first —
+ * deleting the institution itself lives there too, since it acts on the
+ * institution as a whole rather than anything edited in here. */
+export const InstitutionDetail: React.FC = () => {
+  const { institutionId = '' } = useParams<{ institutionId: string }>();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const canEdit = !!user && WRITE_ROLES.includes(user.role);
-
-  const { data: institutions, loading: listLoading, error: listError, refetch: refetchList } =
-    useApiResource<Institution[]>(() => listInstitutions(), []);
-
-  const [selectedId, setSelectedId] = useState('');
-  const activeId = selectedId || institutions?.[0]?.id || '';
 
   const {
     data: institution,
     loading,
     error,
     refetch,
-  } = useApiResource<InstitutionDetail>(() => getInstitution(activeId), [activeId], !!activeId);
+  } = useApiResource<InstitutionDetailType>(() => getInstitution(institutionId), [institutionId]);
 
   const [tab, setTab] = useState<TabKey>('profile');
-
-  if (listLoading) return <LoadingState message="Loading institutions…" />;
-  if (listError) return <ErrorState message={listError} onRetry={refetchList} />;
-
-  if (!institutions || institutions.length === 0) {
-    return (
-      <EmptyState message="No institutions yet. One has to exist before its DNA can be recorded — a super admin or consultant creates the first." />
-    );
-  }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => navigate('/institution-dna')}
+            aria-label="Back to institutions"
+            className="btn-icon shrink-0"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
           <div className="p-2.5 rounded-lg bg-brand-500/10 border border-brand-500/30 text-brand-800 shrink-0">
             <Building2 className="w-6 h-6" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900 truncate">Institution DNA</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-ink-900 truncate">
+              {institution?.name || 'Institution DNA'}
+            </h1>
             <p className="text-sm text-ink-500">
               The institutional baseline every discovery sprint is measured against.
             </p>
           </div>
         </div>
-
-        {institutions.length > 1 && (
-          <select
-            value={activeId}
-            onChange={(e) => setSelectedId(e.target.value)}
-            className="input sm:ml-auto sm:w-auto"
-            aria-label="Select institution"
-          >
-            {institutions.map((inst) => (
-              <option key={inst.id} value={inst.id}>
-                {inst.name}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {TABS.filter((item) => SYSTEMS_TAB_ENABLED || item.key !== 'systems').map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => setTab(item.key)}
-            className={tab === item.key ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm'}
-          >
-            {item.label}
-          </button>
-        ))}
       </div>
 
       {loading && <LoadingState message="Loading institution…" />}
@@ -152,6 +124,19 @@ export const InstitutionDNA: React.FC = () => {
 
       {!loading && !error && institution && (
         <>
+          <div className="flex flex-wrap gap-2">
+            {TABS.filter((item) => SYSTEMS_TAB_ENABLED || item.key !== 'systems').map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setTab(item.key)}
+                className={tab === item.key ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm'}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
           {tab === 'profile' && (
             <ProfileTab institution={institution} canEdit={canEdit} onSaved={refetch} />
           )}
@@ -170,7 +155,7 @@ export const InstitutionDNA: React.FC = () => {
 // ---------------------------------------------------------------- profile ---
 
 const ProfileTab: React.FC<{
-  institution: InstitutionDetail;
+  institution: InstitutionDetailType;
   canEdit: boolean;
   onSaved: () => void;
 }> = ({ institution, canEdit, onSaved }) => {
@@ -424,7 +409,7 @@ const PriorityEditor: React.FC<{
 );
 
 const LeadershipCard: React.FC<{
-  institution: InstitutionDetail;
+  institution: InstitutionDetailType;
   canEdit: boolean;
   onChanged: () => void;
 }> = ({ institution, canEdit, onChanged }) => {
@@ -765,7 +750,7 @@ const Stat: React.FC<{ value: number; label: string }> = ({ value, label }) => (
 // ---------------------------------------------------------------- systems ---
 
 const SystemsTab: React.FC<{
-  institution: InstitutionDetail;
+  institution: InstitutionDetailType;
   canEdit: boolean;
   onSaved: () => void;
 }> = ({ institution, canEdit, onSaved }) => {

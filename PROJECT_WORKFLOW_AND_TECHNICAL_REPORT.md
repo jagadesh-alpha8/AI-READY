@@ -1,27 +1,29 @@
 # AIOS Discovery Sprint — Project Workflow & Technical Report
 
 > **Scope.** Every statement below was traced through the actual repository at
-> `D:\AI READY` (branch `main`, HEAD `aab8e2f "status dashbaord add"`, plus the
-> uncommitted working tree). Where a capability is commonly expected but
-> genuinely absent, this report says **"Not found in the codebase"** rather than
-> guessing. No secret values are reproduced.
+> `D:\AI READY` (branch `main`, HEAD `9be6893 "category remove and work completion
+> seperation"`, plus the uncommitted working tree). Where a capability is commonly
+> expected but genuinely absent, this report says **"Not found in the codebase"**
+> rather than guessing. No secret values are reproduced.
 >
 > **Status legend:** `[IMPLEMENTED]` · `[PARTIAL]` · `[PLANNED]` · `[DEAD/UNUSED]`
 >
 > ### What changed since this report was first written
 >
-> First written at `8742ea7`. Three things have landed since, and every affected
-> section below has been updated rather than appended to:
+> First written at `8742ea7`. Everything below has landed since, and every affected
+> section has been updated rather than appended to:
 >
 > | Change | Effect on this report |
 > |---|---|
 > | **Navigation rebuilt** around the 12-module product plan | §2, §4.3, §4.8, §19 — the app is no longer a bare 10-screen wizard; those ten steps are now one module among several |
-> | **Institution DNA** module built (3 new models, 3 nested sub-resources, new page) | §1, §3, §4, §5, §6, §7, §8, §19, §23 |
+> | **Institution DNA** module built (3 new models, 3 nested sub-resources, new pages) | §1, §3, §4, §5, §6, §7, §8, §19, §23 |
 > | **Project Status Dashboard** page added | §1, §4, §19, §25 |
 > | **Sprint Setup narrowed** — no longer creates institutions, no sprint-mode picker | §2.3, §3.3, §7 |
+> | **Institution delete became a hard delete**, and institution *creation* moved to the Institution DNA list page | §3.2, §5.3, §7.1 |
+> | **`apps.vector_store` added** — a 12th Django app: Pinecone-backed semantic retrieval over college document text | §1, §3.11, §5, §6, §7, §9, §11, §12, §13, §17, §19, §21, §22, §24, §25, §27 |
 >
-> Backend test count moved **481 → 498** with the Institution DNA suite;
-> migrations **20 → 21**.
+> Backend test count moved **481 → 498** (Institution DNA) **→ 578** (vector store);
+> migrations **20 → 21 → 22**; Django apps **11 → 12**.
 
 ---
 
@@ -165,8 +167,10 @@ of "sees everything", consumed by `apps/accounts/permissions.py`.
 | 14 | Versioned report generation → PDF (fpdf2) + DOCX (python-docx) | `reports` | `[IMPLEMENTED]` |
 | 15 | Cross-sprint dashboard with live metrics | `dashboard` | `[IMPLEMENTED]` |
 | 15a | **Project Status Dashboard** — build-progress report against the 11-module plan | frontend only | `[IMPLEMENTED]` — hand-maintained data, see §25 |
+| 15b | **Vector store** — chunk/embed college document text into Pinecone; institution-isolated semantic evidence search | `vector_store` | `[IMPLEMENTED]` backend + API, **optional**; no UI consumes it yet — see §3.11 |
 | 16 | OpenAPI schema / Swagger / ReDoc | `config` | `[IMPLEMENTED]` |
 | 17 | Celery Beat / scheduled tasks | — | **Not found in the codebase** (deliberately — see §11) |
+| 17a | Benchmarking framework / benchmark vectors / college-vs-benchmark comparison | — | **Not found in the codebase.** The vector store is the retrieval layer such a framework would call; no benchmark criteria, vectors or comparison logic exist |
 | 18 | User registration / self-signup | — | **Not found in the codebase** — accounts are seeded or created in Django admin |
 | 19 | Password reset by email | — | **Not found in the codebase** — only authenticated `change-password` exists |
 | 20 | Email/notification sending | — | **Not found in the codebase** — no mail backend configured |
@@ -176,7 +180,8 @@ of "sees everything", consumed by `apps/accounts/permissions.py`.
 **Backend:** Python 3.12, Django 5.0.x, Django REST Framework, SimpleJWT (with
 token blacklist), Celery 5.3+, Redis 5+, PostgreSQL 16 (SQLite fallback for local
 dev), `drf-spectacular`, `django-filter`, `pdfplumber`, `fpdf2`, `python-docx`,
-`openai>=1.50,<2`, `anthropic>=0.40,<1`, Gunicorn.
+`openai>=1.50,<2`, `anthropic>=0.40,<1`, `pinecone>=5,<7` (optional — see §3.11),
+Gunicorn.
 
 **Frontend:** React 18.2, TypeScript 5.2, Vite 5.1, React Router 6.22, Axios 1.6,
 Tailwind CSS 3.4, `lucide-react` icons.
@@ -190,7 +195,7 @@ GitHub Actions CI/CD, nginx 1.27-alpine (SPA + reverse proxy), deployed to a
 ```mermaid
 graph TB
     subgraph Browser["User's browser"]
-        SPA["React 18 SPA<br/>(Vite build, 12 screens)"]
+        SPA["React 18 SPA<br/>(Vite build, 15 screens)"]
     end
 
     subgraph VM["GCP VM — /opt/ai-ready — docker compose"]
@@ -206,6 +211,7 @@ graph TB
     subgraph Ext["External services"]
         AI["AI provider<br/>OpenAI / Anthropic /<br/>OpenAI-compatible endpoint"]
         GD["Google Drive REST v3"]
+        PC["Pinecone<br/>vector index<br/>(OPTIONAL)"]
     end
 
     SPA -->|"HTTP /api/v1/**<br/>Bearer JWT"| NGX
@@ -217,14 +223,19 @@ graph TB
     CEL --> MEDIA
     CEL -->|"chat.completions / messages"| AI
     CEL -->|"files.list / files.get"| GD
+    CEL -.->|"upsert chunks<br/>only when configured"| PC
+    API -.->|"evidence search"| PC
     API --> MEDIA
     API --> STATIC
     NGX -.->|"/static/"| STATIC
 ```
 
+Dotted edges are the optional vector store: with `PINECONE_API_KEY` unset they do
+not exist at runtime, and nothing else in the diagram changes.
+
 **Defining architectural properties, all verified in code:**
 
-* **Domain-per-app.** Eleven Django apps, each owning its models/views/serializers/
+* **Domain-per-app.** Twelve Django apps, each owning its models/views/serializers/
   services. Nested `/sprints/<id>/…` routes are composed in `apps/sprints/urls.py`
   by importing views from their owning app — so URL shape does not force logic into
   one app.
@@ -264,7 +275,7 @@ PLATFORM MODULES
      1. Sprint Setup ... 10. Report & Export
   Evidence Intelligence             ← next in the plan; inert
   Transformation Plan               ← planned; inert
-  Goals & Tasks · AI Copilot · Reminders
+  Goals & Tasks · AI Chatbot · Reminders
   Compliance Mapping · UAT Readiness · Admin / Settings
 ```
 
@@ -555,11 +566,19 @@ sequenceDiagram
 
 - **API:** `GET|POST /institutions`, `GET|PUT|PATCH|DELETE /institutions/{id}`.
 - **Backend:** `apps/institutions/views.py::InstitutionViewSet`.
-- **Database:** `institutions_institution` (UUID PK, `is_active` soft-delete flag).
+- **Frontend:** `pages/institutions/InstitutionList.tsx` — the list, the **create form**, and per-row delete.
+- **Database:** `institutions_institution` (UUID PK). `is_active` still exists on the
+  model, but **DELETE is now a hard cascade**, not a flag flip — so the field only
+  lingers on institutions removed before that change. The list page hides its Status
+  column entirely when nothing is inactive.
 - **Notable:** list is filtered by `get_accessible_institution_ids()`, but **detail
   actions deliberately use the unscoped queryset** so an out-of-scope institution
   returns `403` (via `IsInstitutionMember`) rather than `404` — the same pattern
   is used in `SprintViewSet`.
+- **Two role sets, deliberately asymmetric:** `WRITE_INSTITUTION_ROLES` =
+  `super_admin` / `consultant` / `institution_admin` for create and update;
+  `DELETE_INSTITUTION_ROLES` = `super_admin` / `consultant` for delete, which is
+  narrower because deleting an institution takes every sprint under it with it.
 
 ## 3.2a Institution DNA
 
@@ -577,9 +596,13 @@ only when more than one is accessible) → work three tabs:
 | **Departments** | One card per department: head, faculty / students / programmes |
 | **Systems & IT** | Digital-maturity level (1–5) with its rubric description, the systems list with `Legacy` / `Manual` tags, and a current-AI-usage note |
 
-**Frontend:** `pages/institutions/InstitutionDNA.tsx` (~1 050 lines) — the page
-plus three tab components, an inline `Field`, a priority-tag editor, a leadership
-card, and a department stat tile.
+**Frontend:** two pages. `pages/institutions/InstitutionList.tsx` (323 lines) is the
+landing page — the table, the create form, and per-row delete;
+`pages/institutions/InstitutionDetail.tsx` (1 035 lines) is one institution's
+workspace — three tab components, an inline `Field`, a priority-tag editor, a
+leadership card, and a department stat tile. Create and delete live on the *list*
+because they act on the institution as a whole rather than on any field of its
+profile.
 
 **API:** `GET /institutions/{id}` (detail serializer) · `PATCH /institutions/{id}`
 · `GET|POST /institutions/{id}/{leaders,departments,systems}` ·
@@ -708,7 +731,131 @@ sprint list. The code comments explicitly explain why each metric is its own que
 rather than one combined `.aggregate()` — mixing `Count()` over multiple reverse
 FKs fans out the join and inflates results.
 
-## 3.11 Feature dependency graph
+## 3.11 Vector store — semantic evidence retrieval `[IMPLEMENTED]`
+
+`apps/vector_store/` (2 703 lines across 15 modules) indexes the **text of a
+college's uploaded documents** into **Pinecone** so that a natural-language
+question — *"AI-certified faculty and faculty AI training"* — returns the passages
+that answer it, each citable back to a document and a page.
+
+**It is entirely optional.** With `PINECONE_API_KEY` / `PINECONE_INDEX_NAME` unset,
+`indexer.is_enabled()` is `False`: no task is queued, no row is written, and upload,
+extraction, scoring, approval and reports behave exactly as they did before the app
+existed. The three endpoints answer **`503` with a stated reason**, not `500` and not
+a silently empty list — "not configured" and "no results" must be distinguishable.
+`pinecone` is imported lazily inside `pinecone_client`, so the project boots and the
+whole suite passes with the SDK absent.
+
+### What it is not
+
+Stated explicitly because the scope is easy to overread:
+
+| Not this | Why |
+|---|---|
+| A replacement for PostgreSQL | Postgres remains the source of truth for **every** structured record. Pinecone holds embeddings plus the metadata needed to filter and cite them — nothing else is copied across |
+| Part of CRI scoring | The 9-step engine (§6.4) is untouched and still fully deterministic. No vector influences a score |
+| A benchmarking framework | **No benchmark criteria, benchmark vectors or comparison logic exist.** This is the retrieval layer such a framework would call. `source_type` is already pinned to `college_document` on every write *and* every query, so benchmark vectors could later share the index without either kind leaking into the other |
+| Coupled to one vendor | `EmbeddingService` is an ABC; `OpenAIEmbeddingService` is one implementation, and `EMBEDDING_BASE_URL` points it at any OpenAI-compatible endpoint. `pinecone_client` is the **only** module that imports the SDK |
+
+### The indexing pipeline
+
+`services/indexer.py::index_document` — read → hash → chunk → embed → upsert:
+
+```mermaid
+flowchart TD
+    UP["Document reaches status=processed<br/>(end of the extraction task)"] --> Q{"indexer.is_enabled()?"}
+    Q -->|no| SKIP["Nothing happens.<br/>No row, no task, no error"]
+    Q -->|yes| ROW["VectorDocumentIndex row → pending"]
+    ROW --> T["Celery: index_document_vectors"]
+    T --> READ["PDFPageReader.read_pages()<br/>the SAME reader the AI pipeline uses"]
+    READ --> CH["chunk_pages()<br/>≤1200 chars, 150 overlap, ≥40 min<br/>never spans a page · never splits a sentence"]
+    CH --> HASH{"SHA-256 of chunk text<br/>== stored content_hash<br/>AND same embedding model?"}
+    HASH -->|yes, and not force| NOOP["No-op → status stays indexed<br/>(re-running a sprint is cheap)"]
+    HASH -->|no| MODE{"Index embeds<br/>server-side?"}
+    MODE -->|"integrated"| UPR["upsert_records()<br/>Pinecone embeds · batches of 96"]
+    MODE -->|"manual"| EMB["EmbeddingService.embed()<br/>→ upsert() raw vectors · batches of 100"]
+    UPR --> STALE
+    EMB --> STALE["Delete ids new_count … old vector_count-1<br/>(chunks that no longer exist)"]
+    STALE --> OK["status=indexed · vector_count · embedding_model · indexed_at"]
+    T -.->|RecoverableVectorStoreError| RETRY["retry ×3, 20 s × 2ⁿ"]
+    T -.->|PermanentVectorStoreError| FAIL["status=failed + reason on the row"]
+```
+
+Three details worth naming:
+
+- **A chunk never spans a page.** The page number *is* the citation this platform
+  promises, so a chunk straddling a page boundary could not be cited honestly.
+- **The content hash is over extracted text, not the file.** Re-uploading the same
+  PDF with different metadata is a no-op; a file whose text extraction *improved*
+  re-embeds. `Document.checksum` cannot express either.
+- **Vector ids are deterministic** —
+  `college_{institution}_document_{document}_chunk_{n}` — so a re-index overwrites
+  in place instead of duplicating. That, plus the stale-id delete, is what makes
+  indexing idempotent.
+
+### Institution isolation
+
+The hard requirement: one college must never retrieve another's documents.
+
+```python
+metadata_filter = {
+    'college_id':  {'$eq': str(institution_id)},
+    'source_type': {'$eq': SOURCE_TYPE_COLLEGE_DOCUMENT},
+}
+```
+
+- The filter is **built inside `search.build_filter()`**, never accepted from the
+  caller, so no call site can omit or widen it.
+- `institution_id` comes from **the sprint in the URL**, never the request body — the
+  search serializer has no institution field at all.
+- Filtering happens **server-side in Pinecone**, not by discarding rows after
+  retrieval.
+- `pinecone_client._require_filter()` raises rather than issuing an unfiltered
+  query: *"an unfiltered query would cross institutions."*
+
+### Vector metadata
+
+Exactly nine keys, doing exactly two jobs — isolation and traceability:
+
+| Key | Job |
+|---|---|
+| `college_id`, `sprint_id`, `source_type` | Isolation (filtered on, server-side) |
+| `document_id`, `document_name`, `document_type`, `page_number`, `chunk_index` | Traceability — so a hit renders as *"Faculty_Report.pdf, page 17"* |
+| `text` | The chunk itself, so a result is readable without a second round trip |
+
+Nothing else from PostgreSQL is copied in; a field that is neither filtered nor
+cited would only be a second copy that drifts. **The original PDF/DOCX is never
+uploaded to Pinecone** — only extracted text.
+
+### Two Pinecone modes
+
+The index may embed server-side or take raw vectors, and the two use *different
+APIs* — which is why this is a mode, not just another embedding provider:
+
+| Mode | Who embeds | Pinecone API | Batch cap |
+|---|---|---|---|
+| `integrated` | Pinecone (e.g. `llama-text-embed-v2`) | `upsert_records` / `search` | **96** |
+| `manual` | This app, via `EmbeddingService` | `upsert` / `query` | 100 |
+| `auto` *(default)* | Detected once per process via a cached `describe_index`, never in the request path | — | — |
+
+Because Anthropic publishes no embedding endpoint, `EMBEDDING_API_KEY` is separate
+from `AI_API_KEY`: a deployment running Claude for extraction still needs an
+OpenAI-compatible key *for manual mode only*. Integrated mode needs no embedding key
+at all, and `is_enabled()` knows not to demand one.
+
+### Observability
+
+`VectorDocumentIndex` (one row per document) is the retryable, inspectable record —
+the same role `ExtractionJob` plays for extraction. It stores *that* a document is
+indexed, with which model, how many vectors, when, and why it failed. **It stores no
+embeddings**: those live in Pinecone, and a second copy here would have no reader.
+
+### Endpoints
+
+Three, all sprint-scoped — see §7.1. Pinecone is never exposed: no index name, no
+host, no key, and no raw match object reaches the client.
+
+## 3.12 Feature dependency graph
 
 ```mermaid
 graph LR
@@ -730,13 +877,18 @@ graph LR
     SPR --> DASH[Dashboard]
     SCORE --> DASH
     DNA -.->|"supplies the institution<br/>Sprint Setup selects"| SPR
+    DOC -.->|"optional · only when<br/>Pinecone is configured"| VEC[Vector store]
 ```
 
 Institution DNA sits alongside the audit rather than inside it: it holds the
-institution's standing baseline, which every sprint is then measured against.
-Sprint Setup depends on it for institution creation, but the audit pipeline does
-not read DNA records — connecting the two (for example, checking an extracted
-faculty count against the recorded one) is not implemented.
+institution's standing baseline, which every sprint is then measured against. It is
+also where institutions are **created** — Sprint Setup only selects one — but the
+audit pipeline does not read DNA records; connecting the two (for example, checking
+an extracted faculty count against the recorded one) is not implemented.
+
+The vector store hangs off documents as a **leaf**: extraction feeds it, and nothing
+downstream depends on it. Removing it, or never configuring it, changes no other
+edge in this graph.
 ---
 
 # 4. Frontend architecture
@@ -754,7 +906,7 @@ Dev server: `vite --host 0.0.0.0 --port 3000`, with a proxy sending `/api` →
 ```
 frontend/src/
 ├── main.tsx              # ReactDOM.createRoot bootstrap
-├── App.tsx               # Router + all 14 route entries, ProtectedLayout
+├── App.tsx               # Router + all 17 route entries, ProtectedLayout
 ├── api/                  # 14 axios modules, one per backend domain
 │   └── client.ts         # the shared axios instance + interceptors
 ├── context/
@@ -779,7 +931,8 @@ a static top-level import, so the whole app ships as one bundle.
 | `/login` | `LoginRoute` — redirects to `/dashboard` if a session exists | `Login` |
 | `/dashboard` | `ProtectedLayout` | `Dashboard` |
 | `/status-dashboard` | `ProtectedLayout` | `StatusDashboard` — "Project Status Dashboard" |
-| `/institution-dna` | `ProtectedLayout` | `InstitutionDNA` |
+| `/institution-dna` | `ProtectedLayout` | `InstitutionList` — the list, create form and delete |
+| `/institution-dna/:institutionId` | `ProtectedLayout` | `InstitutionDetail` — one institution's 3-tab workspace |
 | `/sprint/setup` | `ProtectedLayout` | `SprintSetup` |
 | `/sprint/:sprintId/upload` | `ProtectedLayout` | `UploadDataPack` |
 | `/sprint/:sprintId/monitor` | `ProtectedLayout` | `AIProcessingMonitor` |
@@ -875,7 +1028,8 @@ to `/login` (guarding against a redirect loop when already there).
 | `pages/auth/Login.tsx` (147) | Sign in | `POST /auth/login` | Ships an **11-persona quick-login list with a hardcoded password** — see §17 |
 | `pages/dashboard/Dashboard.tsx` (231) | Cross-sprint overview | `GET /dashboard` | Renders 7 metric tiles + sprint cards |
 | `pages/status/StatusDashboard.tsx` (~300) | Build-progress report | — | **No API calls.** Every figure is a module-level constant; the headline counts are derived from that list rather than typed. See §25 |
-| `pages/institutions/InstitutionDNA.tsx` (~1 050) | Institution DNA, 3 tabs | `GET/PATCH /institutions/{id}`, `+/leaders`, `+/departments`, `+/systems` | Derived vs. stored counts; write actions offered only to the roles in §8 |
+| `pages/institutions/InstitutionList.tsx` (323) | Institution DNA landing page | `GET/POST /institutions`, `DELETE /institutions/{id}` | Create gated to `WRITE_INSTITUTION_ROLES`, delete to the narrower `DELETE_INSTITUTION_ROLES`; blank optional fields are omitted from the POST rather than sent as `""` |
+| `pages/institutions/InstitutionDetail.tsx` (1 035) | One institution, 3 tabs | `GET/PATCH /institutions/{id}`, `+/leaders`, `+/departments`, `+/systems` | Derived vs. stored counts; write actions offered only to the roles in §8 |
 | `pages/sprints/SprintSetup.tsx` (~150) | Audit step 1 | `GET /institutions`, `POST /sprints` | **Selects** an institution — no longer creates one, and no mode picker |
 | `pages/documents/UploadDataPack.tsx` (537) | Screen 2 | `GET/POST /sprints/{id}/documents`, `upload-file`, `drive-import-jobs`, `DELETE /documents/{id}` | Holds `REQUIRED_CHECKLIST`, the frontend twin of `DRIVE_IMPORT_CHECKLIST` — **kept in sync by hand** |
 | `pages/documents/AIProcessingMonitor.tsx` (256) | Screen 3 | `GET/POST /sprints/{id}/extraction-jobs`, cancel, `DELETE` | 3 s polling; `humanizeExtractionError` |
@@ -947,9 +1101,10 @@ backend/
 │   ├── scoring/           models, serializers, views, constants, services/{cri_engine, baseline}
 │   ├── recommendations/   models, serializers, views, services
 │   ├── reports/           models, serializers, views, services, tasks, rendering, utils
-│   └── dashboard/         serializers, views     ← no models; pure aggregation
+│   ├── dashboard/         serializers, views     ← no models; pure aggregation
+│   └── vector_store/      models, serializers, views, tasks, exceptions, services/ (5 modules)
 ├── requirements/{base,development,production}.txt
-├── docs/{API_CONTRACT.md, openapi.yaml}
+├── docs/{API_CONTRACT.md, openapi.yaml, VECTOR_STORE.md}
 ├── Dockerfile, docker-entrypoint.sh, .dockerignore
 ```
 
@@ -959,7 +1114,7 @@ backend/
 |---|---|---|---|
 | `config` | Project wiring | `settings.py`, `urls.py`, `celery.py`, `pagination.py` | Settings, root routing, Celery app, opt-in pagination |
 | `accounts` | Identity + authorization | `models.py`, `permissions.py` (190 L), `tokens.py`, `management/commands/seed_demo_users.py` (163 L) | Custom `User`, 11 roles, **all reusable permission classes and the institution-scoping helpers** |
-| `institutions` | Tenant **+ Institution DNA** | `models.py` (4 models), `serializers.py`, `views.py`, `constants.py`, `urls.py` | Institution CRUD with `is_active` soft delete; leadership, departments and IT systems as nested sub-resources; the digital-maturity rubric |
+| `institutions` | Tenant **+ Institution DNA** | `models.py` (4 models), `serializers.py`, `views.py`, `constants.py`, `urls.py` | Institution CRUD (**DELETE is a hard cascade** — see §7.1); leadership, departments and IT systems as nested sub-resources; the digital-maturity rubric |
 | `sprints` | Workflow spine | `models.py` (124 L, state machine), `views.py` (130 L), `access.py`, `urls.py` (144 L) | Sprint lifecycle, one-call overview, **composes every nested `/sprints/<id>/…` route** |
 | `documents` | Evidence intake | `services.py`, `tasks.py` (154 L), `drive_import.py` (157 L), `constants.py` (84 L) | Upload validation, checksum dedupe, Drive import, authenticated download |
 | `extraction` | The AI pipeline | `services/` (11 modules, ~1 700 L), `tasks.py` (114 L) | 7-stage pipeline, provider-agnostic AI, retry policy |
@@ -969,6 +1124,7 @@ backend/
 | `recommendations` | Actionable output | `services.py` (204 L) | 3 idempotent generators |
 | `reports` | Deliverable | `services.py` (203 L), `rendering.py` (204 L), `tasks.py` (80 L) | 11-section report data + PDF/DOCX rendering |
 | `dashboard` | Aggregation | `views.py` (90 L) | Cross-sprint metrics; **owns no models** |
+| `vector_store` | Semantic retrieval | `services/pinecone_client.py` (470 L), `services/indexer.py` (300 L), `services/embeddings.py` (221 L), `services/search.py` (157 L), `services/chunking.py` (145 L) | Chunk → embed → upsert college document text; institution-isolated evidence search. **Entirely optional** — see §3.11 |
 
 ## 5.4 How a request travels through the backend
 
@@ -1071,7 +1227,7 @@ development currently runs. `conn_max_age=600` (10-minute persistent connections
 **Every model uses a UUID4 primary key** (`models.UUIDField(primary_key=True,
 default=uuid.uuid4, editable=False)`), except Django's own built-ins.
 
-**21 migrations** across 11 apps, including one data migration
+**22 migrations** across 12 apps, including one data migration
 (`scoring/0002_seed_pillars.py`) that seeds the eight pillars.
 
 ## 6.1 Model-by-model reference
@@ -1196,6 +1352,15 @@ default=uuid.uuid4, editable=False)`), except Django's own built-ins.
 - **Constraint:** `UniqueConstraint(['sprint','version'], name='unique_report_version_per_sprint')`.
 - **Meta:** `ordering = ['-version']`.
 
+### `vector_store.VectorDocumentIndex` — `vector_store_vectordocumentindex`
+- **Purpose:** tracks one document's presence in the Pinecone index, so indexing is **observable and retryable**. Pinecone cannot answer *"did this document ever index, and if not why"*; this row can. Same role `ExtractionJob` plays for extraction.
+- **Key fields:** `status` (pending/processing/indexed/failed), `vector_count`, `embedding_model`, **`content_hash`** (SHA-256 of the extracted *text*, `db_index=True` — not of the file, because text is what gets embedded), `indexed_at`, `error_message`, `celery_task_id`.
+- **FK:** `document` (**`OneToOneField`**, `CASCADE`) — re-indexing updates the row rather than accumulating history; `sprint` (`CASCADE`), `institution` (`CASCADE`).
+- **`institution` is denormalised** from `document.sprint.institution` so status can be listed per institution without a two-table join on every read. Safe to copy: a document never moves between institutions.
+- **Holds no embedding arrays** — those live in Pinecone; a second copy here would have no reader.
+- **Index:** `models.Index(['sprint','status'], name='ix_vecidx_sprint_status')` — the only hand-written composite index in the project.
+- **Meta:** `ordering = ['-updated_at']`.
+
 ## 6.2 Entity-relationship diagram
 
 ```mermaid
@@ -1222,6 +1387,10 @@ erDiagram
     DOCUMENT ||--o{ EXTRACTION_JOB : "is processed by"
     DOCUMENT ||--o{ EXTRACTED_FACT : "is source of"
     DOCUMENT ||--o{ GAP_ITEM : "is stale in"
+    DOCUMENT ||--o| VECTOR_DOCUMENT_INDEX : "is indexed as (1:1)"
+
+    INSTITUTION ||--o{ VECTOR_DOCUMENT_INDEX : "owns (denormalised)"
+    SPRINT ||--o{ VECTOR_DOCUMENT_INDEX : "tracks"
 
     EXTRACTED_FACT ||--o{ FACT_REVIEW_HISTORY : "logs"
     EXTRACTED_FACT ||--o{ GAP_ITEM : "triggers"
@@ -1264,11 +1433,15 @@ criteria* are configuration (DB rows).
 | `unique_report_version_per_sprint` | `reports_report` | Version numbers never reused |
 | `scoring_run` FK `on_delete=PROTECT` | `scoring_baseline` | An approved baseline's run cannot be deleted |
 | `unique_department_name_per_institution` | `institutions_department` | No two departments share a name within one institution |
+| `document` **`OneToOneField`** (implicit unique) | `vector_store_vectordocumentindex` | One index-tracking row per document; a re-index updates it rather than appending |
+| `content_hash` `db_index=True` | `vector_store_vectordocumentindex` | Skip re-embedding unchanged text |
+| `ix_vecidx_sprint_status` (composite) | `vector_store_vectordocumentindex` | The status endpoint's exact filter |
 
-**No explicit `db_index` beyond `checksum`, and no composite indexes.** Foreign keys
-get Django's automatic indexes. On a large deployment the hot filters —
-`facts(sprint_id, status)`, `gaps(sprint_id, status, priority)`,
-`documents(sprint_id, status)` — would each benefit from a composite index (see §18).
+**Explicit `db_index` on `checksum` and `content_hash`; exactly one composite index**
+(`ix_vecidx_sprint_status`, added with the vector store). Foreign keys get Django's
+automatic indexes. On a large deployment the hot filters — `facts(sprint_id,
+status)`, `gaps(sprint_id, status, priority)`, `documents(sprint_id, status)` — would
+each benefit from a composite index of the same shape (see §18).
 
 ## 6.4 The CRI scoring engine — nine steps
 
@@ -1359,10 +1532,10 @@ and `backend/docs/openapi.yaml`.
 | Method | Endpoint | Purpose | Auth | Notes |
 |---|---|---|---|---|
 | GET | `/institutions` | List | JWT | Scoped by `get_accessible_institution_ids`. Returns the **lean** serializer — no leaders, no derived counts |
-| POST | `/institutions` | Create | `CanManageInstitution` | |
+| POST | `/institutions` | Create | `CanManageInstitution` — `super_admin` / `consultant` / `institution_admin` | Reached from the **Institution DNA list page**; Sprint Setup no longer creates institutions |
 | GET | `/institutions/{id}` | Detail | JWT + `IsInstitutionMember` | Returns `InstitutionDetailSerializer`: adds `leaders[]`, `department_count`, `program_count`, `digital_maturity_label`, `digital_maturity_description` |
 | PUT/PATCH | `/institutions/{id}` | Update | `CanManageInstitution` | Also how the DNA profile and the Systems & IT assessment are saved |
-| DELETE | `/institutions/{id}` | Soft delete | `super_admin` / `consultant` only | Sets `is_active=False` so existing sprints keep a valid reference |
+| DELETE | `/institutions/{id}` | **Hard delete** | `super_admin` / `consultant` only | Cascades to departments, leaders, systems, sprints and everything scoped to those sprints. `perform_destroy` clears `Baseline` rows first, inside a transaction, to dodge the `PROTECT`-vs-`CASCADE` collector trap on `Baseline.scoring_run` |
 
 Out-of-scope detail requests give **403**, not 404 — the queryset is deliberately
 unscoped for detail actions so an authorization failure isn't masked as "missing".
@@ -1474,6 +1647,29 @@ it is stored.
 
 > `?file=` rather than `?format=` **on purpose** — DRF reserves `format` for content
 > negotiation and would intercept it before the view.
+
+### Vector store & evidence search — `[IMPLEMENTED]`, optional
+
+Registered in `apps/sprints/urls.py` alongside every other `/sprints/{id}/…`
+sub-resource, so institution scoping is the same `get_authorized_sprint()` check.
+`apps/vector_store/urls.py` exists but is **deliberately empty** — the app owns a
+URLConf only in case a non-nested route is ever needed.
+
+| Method | Endpoint | Purpose | Auth | Notes |
+|---|---|---|---|---|
+| POST | `/sprints/{id}/vector-index` | Queue every **processed** document in the sprint for indexing | `CanManageSprint` | `202` with the tracking rows. Body: `{force?: bool}` — `force` re-embeds even when the content hash is unchanged. `200` (not an error) when the sprint has no processed documents yet |
+| GET | `/sprints/{id}/vector-index/status` | Per-document indexing status | JWT + sprint access | `status`, `vector_count`, `embedding_model`, `content_hash`, `indexed_at`, `error_message`. Optional pagination |
+| POST | `/sprints/{id}/evidence-search` | Semantic search over this college's indexed text | JWT + sprint access (**read-only, so any member**) | Body: `{query (3–2000 chars), top_k?, document_type?, scope_to_sprint? (default true)}`. **No institution field** — it is taken from the URL's sprint, which is what makes the filter un-spoofable |
+
+All three return **`503` with a stated reason** when Pinecone is unconfigured, rather
+than `500` or a silently empty list. A search whose provider is rate-limited or down
+is also `503` ("temporarily unavailable"); a malformed query is `400`. **No Pinecone
+index name, host, key or raw match object is ever serialized to the client.**
+
+Each result carries `score`, `text`, `document_id`, `document_name`,
+`document_type`, `page_number`, `chunk_index`, `sprint_id`, `institution_id` — there
+is no code path that returns an anonymous vector, because a downstream LLM must be
+able to say *"according to Faculty_Report.pdf, page 17"*.
 
 ### Dashboard & docs
 
@@ -1913,6 +2109,27 @@ and explicitly **never the API key, never the prompt, never the response body**
 extraction output is not deterministic run-to-run. This is not called out in the
 code as a decision. Scoring, by contrast, *is* explicitly deterministic.
 
+## 9.7 Embeddings — a second, separate AI surface
+
+The vector store (§3.11) is the project's **only other** use of a model provider, and
+it is deliberately decoupled from everything above:
+
+| | Extraction AI | Embeddings |
+|---|---|---|
+| Configured by | `AI_API_KEY` / `AI_MODEL` / `AI_BASE_URL` | `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` / `EMBEDDING_BASE_URL` |
+| Providers | OpenAI · Anthropic · any OpenAI-compatible endpoint | Any OpenAI-compatible endpoint — **or none at all**, when the Pinecone index embeds server-side |
+| Abstraction | 7 ABCs in `extraction/services/base.py` | `EmbeddingService` ABC in `vector_store/services/embeddings.py` |
+| Output validated? | Yes — every field re-checked in Python (§9.4) | N/A — a vector has no semantics to validate; **the retrieved text is never treated as truth**, only as a citation to a page a human can open |
+
+The keys are separate on purpose: **Anthropic publishes no embedding endpoint**, so a
+deployment running Claude for extraction would otherwise have no way to embed.
+`EMBEDDING_API_KEY` falls back to `OPENAI_API_KEY` / `AI_API_KEY` when those are
+usable, so the common single-provider setup still needs only one key.
+
+**No LLM reasons over retrieved evidence anywhere in the codebase today.** Search
+returns cited passages and stops there; the component that would feed them to a model
+does not exist yet.
+
 ---
 
 # 10. File upload & document processing
@@ -2027,7 +2244,15 @@ flowchart TD
 14. Last active job in the sprint → sprint `processing → reviewing`, and
     `generate_gaps_for_sprint()` adds `missing_document` gaps for whichever of the
     six `REQUIRED_DOCUMENT_TYPES` are absent.
-15. The monitor screen's next 3-second poll shows everything complete.
+15. **Only if Pinecone is configured** — `_queue_vector_indexing(document)` writes a
+    `VectorDocumentIndex` row and queues `index_document_vectors`. The document is
+    re-read, split into roughly 300 page-bounded chunks, embedded, and upserted under
+    ids `college_…_document_…_chunk_0 … 299`. Wrapped in a bare `except`, so a
+    missing SDK, an unconfigured index or a down broker is logged and dropped — step
+    13's result is already committed and does not depend on this.
+16. The monitor screen's next 3-second poll shows everything complete. *(The monitor
+    does not surface indexing state; only `GET /sprints/{id}/vector-index/status`
+    does, and no screen calls it.)*
 
 ---
 
@@ -2065,18 +2290,41 @@ code already handles gracefully ever gets a chance to raise.
 from an API call. `config/settings.py` and `backend/README.md` both say to add
 `CELERY_BEAT_SCHEDULE` only if a recurring job is ever introduced.
 
-## 11.3 The three tasks
+## 11.3 The five tasks
 
 | Task | Module | Trigger | Retries | Backoff | On exhaustion |
 |---|---|---|---|---|---|
 | `run_extraction_job(job_id)` | `apps/extraction/tasks.py` | `POST /sprints/{id}/extraction-jobs` | **3** (`EXTRACTION_MAX_RETRIES`), `acks_late=True` | `30 s × 2ⁿ` → 30/60/120 | `ExtractionJob.status=failed`, `Document.status=failed` |
 | `run_drive_import_job(job_id)` | `apps/documents/tasks.py` | `POST /sprints/{id}/drive-import-jobs` | **3** (`GOOGLE_DRIVE_IMPORT_MAX_RETRIES`), `acks_late=True` | `15 s × 2ⁿ` → 15/30/60 | `DriveImportJob.status=failed` |
 | `generate_report_task(report_id)` | `apps/reports/tasks.py` | `POST /sprints/{id}/reports` | **none, by design** | — | `Report.status=failed`, error stored in `report_data['error']` |
+| `index_document_vectors(document_id, force)` | `apps/vector_store/tasks.py` | End of a successful extraction, **or** `POST /sprints/{id}/vector-index` | **3** (`VECTOR_INDEX_MAX_RETRIES`), `acks_late=True` | `20 s × 2ⁿ` → 20/40/80 | `VectorDocumentIndex.status=failed` + the reason on the row |
+| `index_sprint_vectors(sprint_id, force)` | `apps/vector_store/tasks.py` | Fan-out helper | — | — | Queues one task per document and returns the count |
 
 `generate_report_task`'s docstring explains the asymmetry: unlike extraction (an
 inherently flaky pipeline over external documents), report generation reads
 already-validated data, so *"a failure here is a real bug to surface immediately,
 not a transient condition worth retrying blindly."*
+
+The two vector tasks follow extraction's policy exactly — recoverable errors back
+off, permanent and *unrecognised* ones fail immediately rather than hiding a real
+bug behind a retry loop. `index_sprint_vectors` fans out **one task per document**
+rather than running one long task per sprint, so a single bad document costs one
+document and each gets its own retry budget.
+
+**Extraction never fails because of indexing.** The hand-off in
+`apps/extraction/tasks.py` is wrapped whole:
+
+```python
+def _queue_vector_indexing(document):
+    try:
+        from apps.vector_store.services import indexer
+        indexer.queue_document(document)
+    except Exception as exc:
+        logger.error('extraction.task.vector_queue_failed document_id=%s error=%s', document.id, exc)
+```
+
+A missing `pinecone` package, an unconfigured index, or a down broker is logged and
+dropped — the extraction result is already committed and stands on its own.
 
 ## 11.4 Job status tracking
 
@@ -2087,6 +2335,7 @@ There is **no polling of Celery's own result backend**. Each task owns a DB row:
 | `ExtractionJob` | pending → running → retrying → completed / failed / cancelled | `current_step` (7 stages) + `progress_percentage` (15/30/45/60/75/90/100) |
 | `DriveImportJob` | pending → scanning → downloading → completed / failed | `files_scanned`, `files_imported`, `results` JSON |
 | `Report` | draft → generating → ready / failed | `status` alone |
+| `VectorDocumentIndex` | pending → processing → indexed / failed | `vector_count`, `embedding_model`, `indexed_at`, `error_message` |
 
 `celery_task_id` is stored on the first two so `SprintExtractionCancelView` can call
 `current_app.control.revoke(task_id, terminate=True)`.
@@ -2169,7 +2418,12 @@ sequenceDiagram
 | **Google Drive REST v3** | Import a shared folder of institutional documents | `apps/documents/drive_import.py` | **Single server-side API key** (`GOOGLE_DRIVE_API_KEY`) as a query param | Folder id, page tokens, file ids | File metadata (`id,name,mimeType,size`) and raw/exported bytes |
 | **Redis 7** | Celery broker (and nominal result backend) | `config/celery.py` | none (container network only) | Task name + `job_id` | Task delivery |
 | **PostgreSQL 16** | Primary datastore | `dj-database-url` | `POSTGRES_USER`/`POSTGRES_PASSWORD` | All application data | — |
+| **Pinecone** *(optional)* | Vector index for college-evidence retrieval | `apps/vector_store/services/pinecone_client.py` — **the only module that imports the SDK, and lazily** | `PINECONE_API_KEY` (SDK) | Chunk text (≤1 200 chars) + 9 metadata keys, or a raw embedding vector; queries carry text/vector + the metadata filter | Matches: id, score, metadata. **Never the original file** |
+| **OpenAI embeddings** *(optional)* | Vector generation, **manual mode only** | `apps/vector_store/services/embeddings.py` | `EMBEDDING_API_KEY`, falling back to `OPENAI_API_KEY` / `AI_API_KEY` | Chunk text | Float vectors (`text-embedding-3-small` = 1 536 d by default) |
 | **GitHub Container Registry** | Image hosting | `.github/workflows/ci-cd.yml`, `docker-compose.yml` | `GITHUB_TOKEN` | Built images | Pulled images |
+
+Neither Pinecone row is reached unless it is configured. In **integrated** mode
+Pinecone embeds server-side and the OpenAI embeddings row does not apply at all.
 
 **Not present:** S3/GCS/object storage, any email/SMTP provider, SMS, payment
 gateway, analytics/telemetry, error tracking (Sentry), or feature flags — all
@@ -2177,8 +2431,12 @@ gateway, analytics/telemetry, error tracking (Sentry), or feature flags — all
 
 **Data-privacy note.** Institutional document text is sent to a third-party AI
 provider. There is no PII redaction step, no per-institution consent record, and no
-configurable data-residency control in the code. Whether that is acceptable is a
-contractual question, but it is worth stating explicitly.
+configurable data-residency control in the code. **Enabling the vector store widens
+this**: the same text is also sent to Pinecone (and, in manual mode, to an embedding
+provider), and the chunk text is *stored* there rather than merely passed through.
+`PINECONE_CLOUD` / `PINECONE_REGION` give an operator control over where the index
+lives, which is the only data-residency lever in the codebase. Whether any of this is
+acceptable is a contractual question, but it is worth stating explicitly.
 ---
 
 # 13. Configuration & environment variables
@@ -2226,6 +2484,22 @@ All configuration is read via `os.getenv` in `config/settings.py`, loaded from
 | `SECURE_SSL_REDIRECT` | Force HTTPS when `DEBUG=False` (**default `True`**) | No | `settings.py` | No |
 | `DJANGO_LOG_LEVEL` / `APP_LOG_LEVEL` / `CELERY_LOG_LEVEL` | Log levels (all default `INFO`) | No | `LOGGING` | No |
 | `RUN_OPENAI_INTEGRATION_TESTS` | Enables the opt-in **real-API** test (spends quota) | No | `extraction/tests.py` | No |
+| **`PINECONE_API_KEY`** | Pinecone auth. **Unset ⇒ the whole vector store is off** | No — optional feature | `vector_store/services/pinecone_client.py` | **Yes** |
+| **`PINECONE_INDEX_NAME`** | Which index to read/write. Also required to enable | No | same | No |
+| `PINECONE_CLOUD` / `PINECONE_REGION` | Recorded for the operator who **creates** the index (`aws` / `us-east-1`); the SDK resolves the index by name at runtime | No | same | No |
+| `PINECONE_NAMESPACE` | Optional namespace (default `''`). Isolation does **not** depend on it — metadata filtering does | No | same | No |
+| `PINECONE_EMBEDDING_MODE` | `auto` (default) / `integrated` / `manual` — who generates the embedding, and therefore which Pinecone API is used | No | same | No |
+| **`EMBEDDING_API_KEY`** | Embedding provider key, **manual mode only**. Separate from `AI_API_KEY` because Anthropic has no embedding endpoint; falls back to `OPENAI_API_KEY` / `AI_API_KEY` | No | `vector_store/services/embeddings.py` | **Yes** |
+| `EMBEDDING_MODEL` | Embedding model (**`text-embedding-3-small`**) | No | same | No |
+| `EMBEDDING_DIMENSIONS` | Override only for a model whose width this app does not know; blank ⇒ derived | No | same | No |
+| `EMBEDDING_BASE_URL` | Point at any OpenAI-compatible embedding endpoint | No | same | No |
+| `VECTOR_CHUNK_MAX_CHARS` / `..._OVERLAP_CHARS` / `..._MIN_CHARS` | Chunking (**1 200** / **150** / **40**). Overlap must stay below max or chunking cannot terminate — enforced in `chunking.py` | No | `vector_store/services/chunking.py` | No |
+| `VECTOR_INDEX_MAX_RETRIES` / `..._RETRY_BACKOFF_SECONDS` | Indexing retry policy (**3** / **20**) | No | `vector_store/tasks.py` | No |
+| `VECTOR_SEARCH_DEFAULT_TOP_K` / `VECTOR_SEARCH_MAX_TOP_K` | Result count (**5**) and its hard ceiling (**50**), so a caller cannot ask for an unbounded set | No | `vector_store/services/search.py` | No |
+
+> Integer vector settings go through a `_int_env()` helper rather than bare `int()`,
+> so an env var that is *present but empty* (`EMBEDDING_DIMENSIONS=`) falls back to
+> the default instead of crashing Django at import time.
 
 ## 13.2 Configuration by environment
 
@@ -2255,7 +2529,7 @@ flowchart LR
 
     subgraph CI["CI/CD"]
         direction TB
-        T1["backend-test<br/>python 3.12 · pip install development.txt<br/>python manage.py test (498 tests)"]
+        T1["backend-test<br/>python 3.12 · pip install development.txt<br/>python manage.py test (578 tests)"]
         T2["frontend-build<br/>node 20 · npm ci · npm run build"]
         T3["build-and-push<br/>buildx → GHCR<br/>tags: latest + git SHA<br/>cache-from/to: type=gha"]
         T4["deploy<br/>appleboy/ssh-action → GCP VM"]
@@ -2500,6 +2774,7 @@ source produces an honest empty section, never placeholder text.
 | **Celery — extraction** | typed exception taxonomy | Recoverable → retry ×3 with exponential backoff; permanent/unknown → fail immediately; **all state recorded on the job row** |
 | **Celery — Drive import** | same shape | Per-file failures are **recorded and skipped**, not fatal to the job |
 | **Celery — reports** | broad `except Exception` | `status=failed`, error stored in `report_data['error']`; **no retry, deliberately** |
+| **Celery — vector indexing** | typed taxonomy mirroring extraction's | Recoverable → retry ×3 at 20/40/80 s; permanent/unknown → fail immediately, reason written to `VectorDocumentIndex.error_message`. **Classification is by HTTP status code**, not by string-matching the exception text — an earlier keyword approach misread a `400`'s header dump as transient |
 | **Broker down** | `try/except` around every `.delay()` | Job marked failed with `"Could not reach the Celery broker: …"`; **API still returns 201/202** |
 | **Logging** | `LOGGING` in settings | Console handler, `{asctime} {levelname} {name} {message}`; `django`/`apps`/`celery` loggers at INFO, root at WARNING. The comment notes that without this block, `apps.*` module loggers would silently vanish into Python's last-resort handler |
 
@@ -2529,6 +2804,11 @@ source produces an honest empty section, never placeholder text.
 | **Recalculate a locked baseline** | `400` explaining the baseline must be returned for correction first |
 | **Delete an active sprint** | `400` *"Archive it first (or delete it while still a draft)."* |
 | **Delete a non-failed extraction job** | `400` *"Only failed jobs can be deleted."* |
+| **Delete an institution** | Hard cascade inside a transaction. `Baseline` rows are cleared first to avoid a `ProtectedError` from the `PROTECT`-vs-`CASCADE` collector interaction on `Baseline.scoring_run` |
+| **Pinecone unconfigured (or the SDK not installed)** | No task is queued and no row is written — the rest of the platform is unaffected. The three vector endpoints return `503` naming the missing variables, so *"not configured"* is never mistaken for *"no results"* |
+| **Pinecone rate-limited / timing out / down** | Indexing retries; a *search* returns `503 "Evidence search is temporarily unavailable: …"` so the caller knows to retry rather than assuming the college has no evidence |
+| **A document re-indexed with unchanged text** | No-op — the content hash matches, so nothing is re-embedded and no cost is incurred |
+| **Indexing fails for one document** | That document alone is marked `failed` with its reason; the sprint's other documents index normally, each having its own task and retry budget |
 
 ## 16.3 Missing error handling
 
@@ -2564,7 +2844,9 @@ source produces an honest empty section, never placeholder text.
 | 13 | **CORS is explicitly allowlisted** (`CORS_ALLOWED_ORIGINS`), not `CORS_ALLOW_ALL_ORIGINS`. |
 | 14 | **Immutable audit trails** — `FactReviewHistory`, `BaselineDecisionHistory`, `ScoringRun.pillar_snapshot`, `Report.version`, and the `PROTECT` FK on `Baseline.scoring_run`. |
 | 15 | **Only failed extraction jobs are deletable**, and only draft/completed/archived sprints — history cannot be quietly destroyed. |
-| 16 | **498 tests** across 11 apps, including permission and institution-scoping tests. |
+| 16 | **578 tests** across 12 apps, including permission and institution-scoping tests. |
+| 17 | **Cross-institution vector retrieval is structurally prevented.** The `college_id` filter is built server-side in `search.build_filter()`, never accepted from the caller; the institution comes from the URL's sprint, not the request body; and `pinecone_client._require_filter()` refuses to issue an unfiltered query at all. Filtering happens **inside Pinecone**, not by discarding rows after retrieval. |
+| 18 | **Pinecone internals never reach the client** — no index name, host, key or raw match object is serialized. Unconfigured deployments get a `503` with a stated reason, not a `500` stack trace. |
 
 ## Needs improvement
 
@@ -2616,7 +2898,7 @@ source produces an honest empty section, never placeholder text.
 | P3 | **N+1 in recommendation generation.** `_derive_gap_owner_role(gap)` touches `gap.source_fact.owner_role` / `gap.related_document.owner_role` with **no `select_related`** on the gaps queryset. | `recommendations/services.py` | One extra query per gap |
 | P4 | **~32 queries per scoring run.** `_evaluate_pillar` runs `count()`, `count()`, and `aggregate()` on the gaps queryset **separately** — three round trips × 8 pillars — plus the per-criterion fact reads. | `scoring/services/cri_engine.py` | Moderate; every recalculation |
 | P5 | **~20 `count()` queries in one request.** `SprintViewSet.overview` counts documents (7 buckets), facts (6), gaps (5), recommendations (3), reports (1) individually, then serialises every document, recommendation, and the scorecard. | `sprints/views.py` | The heaviest single endpoint |
-| P6 | **No composite indexes.** The hot filters — `facts(sprint_id, status)`, `gaps(sprint_id, status, priority)`, `documents(sprint_id, status)`, `extraction_jobs(sprint_id, status)` — rely on single-column FK indexes only. | all migrations | Grows with data volume |
+| P6 | **Almost no composite indexes.** The hot filters — `facts(sprint_id, status)`, `gaps(sprint_id, status, priority)`, `documents(sprint_id, status)`, `extraction_jobs(sprint_id, status)` — rely on single-column FK indexes only. `vector_store` is the one app that declares the index for its own filter (`ix_vecidx_sprint_status`), which is the pattern the others should follow. | all migrations | Grows with data volume |
 | P7 | **`_detect_conflicting_facts` loads every fact into memory** and groups in Python. | `gaps/services.py` | Memory + time on large sprints |
 
 **Recommendations:** batch P1 into one `field_key__in=[…]` query; use `bulk_create`
@@ -2642,11 +2924,25 @@ composite indexes in P6.
 read for stage 1 instead of re-parsing the PDF; (4) consider a cheaper model for
 classification. All four are behaviour-preserving. See §9.5.
 
+### Indexing cost, when the vector store is enabled
+
+| Metric | Value |
+|---|---|
+| Chunks per document | Roughly `chars / 1 050` per page (1 200 max less 150 overlap), rounded up at each sentence boundary — a 180-page PDF runs to a few hundred |
+| Embedding calls | Batched: **96** records per `upsert_records` (integrated) or **100** vectors per `upsert` (manual). ~300 chunks → 3–4 calls |
+| Re-index cost when nothing changed | **Zero.** The SHA-256 content-hash check short-circuits before any embedding, which is what makes "re-index this sprint" safe to press repeatedly |
+| Search | One embedding call (manual mode only) + one filtered `query`; `top_k` is capped at 50 |
+| Effect on the user's request | **None** — all indexing is on Celery; only search is synchronous, and it is a single round trip |
+
+The batch caps are not cosmetic: `upsert_records` rejects a batch above **96**
+outright, which is why the integrated store carries a different constant from the
+manual one.
+
 ## 18.3 Frontend
 
-| # | Issue | Detail |
-|---|---|---|
-| F1 | **No code splitting.** Every one of the 12 pages is a static top-level import in `App.tsx`. `React.lazy` + `Suspense` per route would materially cut the initial bundle. |
+| # | Issue |
+|---|---|
+| F1 | **No code splitting.** Every one of the 15 pages is a static top-level import in `App.tsx`. `React.lazy` + `Suspense` per route would materially cut the initial bundle. |
 | F2 | **3-second polling with no backoff.** Both `AIProcessingMonitor` and `ReportPreviewExport` poll unconditionally. A 20-minute extraction is ~400 requests per open tab. Exponential backoff, or stopping once every job is terminal, would cut this by an order of magnitude. |
 | F3 | **No request caching or deduplication.** Every mount refetches; `useApiResource` has no cache. React Query/SWR would remove most redundant calls. |
 | F4 | **Full list refetch after every single action.** Confirming one fact refetches the whole fact list. |
@@ -2682,11 +2978,12 @@ D:\AI READY\
 │   ├── db.sqlite3                  # local dev database (git-ignored)
 │   ├── media/                      # uploads + rendered reports (git-ignored)
 │   ├── requirements/
-│   │   ├── base.txt                # 18 runtime packages
+│   │   ├── base.txt                # 19 runtime packages
 │   │   ├── development.txt         # + pytest-django, black, flake8
 │   │   └── production.txt          # + gunicorn, uvicorn
 │   ├── docs/
 │   │   ├── API_CONTRACT.md         # hand-written contract, audited against the frontend
+│   │   ├── VECTOR_STORE.md         # vector-store architecture + operator setup
 │   │   └── openapi.yaml
 │   ├── config/                     # PROJECT configuration (not an app)
 │   │   ├── settings.py             # single settings module, heavily commented
@@ -2694,7 +2991,7 @@ D:\AI READY\
 │   │   ├── celery.py               # Celery('aios_backend')
 │   │   ├── pagination.py           # OptionalPageNumberPagination
 │   │   └── wsgi.py / asgi.py       # gunicorn uses wsgi; asgi is unused
-│   └── apps/                       # ELEVEN domain apps
+│   └── apps/                       # TWELVE domain apps
 │       ├── accounts/               # User (11 roles) · permissions.py · tokens · seed_demo_users
 │       ├── institutions/           # the tenant + Institution DNA (leaders, departments, IT systems)
 │       ├── sprints/                # state machine · overview · access.py · composes nested URLs
@@ -2725,7 +3022,18 @@ D:\AI READY\
 │       │       └── baseline.py     #   approve / approve-provisional / return
 │       ├── recommendations/        # 3 idempotent generators
 │       ├── reports/                # 11-section builder + fpdf2 PDF + python-docx DOCX
-│       └── dashboard/              # aggregation only — OWNS NO MODELS
+│       ├── dashboard/              # aggregation only — OWNS NO MODELS
+│       └── vector_store/           # OPTIONAL — Pinecone evidence retrieval
+│           ├── models.py           #   VectorDocumentIndex (tracking only, no vectors)
+│           ├── tasks.py            #   index_document_vectors + index_sprint_vectors
+│           ├── exceptions.py       #   Recoverable / Permanent, mirroring extraction's
+│           ├── urls.py             #   DELIBERATELY EMPTY — routes live in sprints/urls.py
+│           └── services/
+│               ├── chunking.py     #     page-aware, sentence-aware splitting
+│               ├── embeddings.py   #     EmbeddingService ABC + OpenAI implementation
+│               ├── pinecone_client.py  # THE ONLY MODULE THAT IMPORTS THE SDK (lazily)
+│               ├── indexer.py      #     read → hash → chunk → embed → upsert
+│               └── search.py       #     build_filter() — the isolation boundary
 │
 └── frontend/                       # React 18 + TypeScript + Vite
     ├── Dockerfile                  # node:20 build → nginx:1.27-alpine
@@ -2733,7 +3041,7 @@ D:\AI READY\
     ├── vite.config.ts              # dev proxy /api → localhost:8000
     ├── tailwind.config.js / postcss.config.js
     └── src/
-        ├── main.tsx / App.tsx      # bootstrap + all 14 route entries (no lazy loading)
+        ├── main.tsx / App.tsx      # bootstrap + all 17 route entries (no lazy loading)
         ├── api/                    # 14 axios modules; client.ts holds the interceptors
         ├── context/                # AuthContext (the only global state) · ThemeContext
         ├── hooks/useApiResource.ts # the single fetch hook
@@ -2898,7 +3206,7 @@ flowchart TD
 | **Frontend** | React | `^18.2.0` | UI library |
 | | TypeScript | `^5.2.2` | Type safety; `npm run build` runs `tsc` before Vite |
 | | Vite | `^5.1.0` | Dev server (port 3000, `/api` proxy) + production bundler |
-| | React Router DOM | `^6.22.0` | Client-side routing, 14 route entries |
+| | React Router DOM | `^6.22.0` | Client-side routing, 17 route entries — 15 screens plus two redirects |
 | | Axios | `^1.6.7` | HTTP client + auth/refresh interceptors |
 | | Tailwind CSS | `^3.4.1` | Styling (with `postcss` + `autoprefixer`) |
 | | lucide-react | `^0.330.0` | Icon set |
@@ -2922,6 +3230,8 @@ flowchart TD
 | | python-docx | `>=1.1.0` | DOCX report rendering |
 | | Pillow | `>=10.2.0` | Image handling (Django `ImageField` support) |
 | | requests | `>=2.31.0` | Google Drive REST v3 calls |
+| **Vector search** | pinecone | `>=5.0.0,<7.0.0` | Vector index for college-evidence retrieval. **Optional at runtime** — imported lazily, only when configured |
+| | *embedding model* | `text-embedding-3-small` (manual mode) | Default embedding model; integrated indexes embed server-side instead (e.g. `llama-text-embed-v2`) |
 | **Storage** | Local filesystem | — | `MEDIA_ROOT`, mounted as the `media_data` Docker volume. **No S3/GCS.** |
 | **Queue** | Celery | `>=5.3.0` | Async task execution |
 | | Redis | 7 (`redis:7-alpine`); client `>=5.0.0` | Broker (result backend nominally configured but ignored) |
@@ -2938,7 +3248,7 @@ flowchart TD
 
 # 22. Dependencies
 
-## 22.1 Backend (`requirements/base.txt` — 18 packages)
+## 22.1 Backend (`requirements/base.txt` — 19 packages)
 
 | Package | Why it is here |
 |---|---|
@@ -2960,6 +3270,7 @@ flowchart TD
 | `anthropic>=0.40.0,<1.0.0` | Anthropic SDK; **major-pinned** for the same reason |
 | `pdfplumber>=0.11.0,<0.12.0` | PDF reading; **tightly pinned** — its API moves between minors |
 | `requests>=2.31.0` | Google Drive REST calls (the only place `requests` is used) |
+| `pinecone>=5.0.0,<7.0.0` | Vector store; **major-bounded**. Listed as a runtime requirement but imported **lazily**, only when Pinecone is actually configured — the project boots, migrates and passes its full suite with the package absent |
 
 **Development adds:** `pytest-django`, `black`, `flake8`.
 **Production adds:** `gunicorn`, `uvicorn`.
@@ -2977,7 +3288,8 @@ library, no date library, no chart library. Everything is hand-rolled on Tailwin
 
 | Observation | Detail |
 |---|---|
-| **Well-pinned where it matters** | The three volatile packages (`openai`, `anthropic`, `pdfplumber`) all carry upper bounds; Django is minor-bounded |
+| **Well-pinned where it matters** | The four volatile packages (`openai`, `anthropic`, `pdfplumber`, `pinecone`) all carry upper bounds; Django is minor-bounded |
+| **One dependency is optional at runtime** | `pinecone` is the only package the code guards against being missing (a lazy import behind a configuration check). Everything else is imported unconditionally at startup |
 | **Loosely pinned elsewhere** | Most packages are `>=` with no ceiling, and there is **no lockfile for Python** (no `requirements.lock`, no Poetry/uv/pip-tools). Two builds a month apart can resolve differently — the CI image and the deployed image may not match |
 | **Frontend is locked** | `package-lock.json` is committed and CI uses `npm ci` — reproducible |
 | **`uvicorn` is unused** | Listed in `production.txt`; compose runs `gunicorn config.wsgi`. `config/asgi.py` exists but nothing routes to it. Dead weight |
@@ -3015,6 +3327,11 @@ library, no date library, no chart library. Everything is hand-rolled on Tailwin
 | `backend/apps/institutions/views.py` | `InstitutionScopedMixin` and the two institution permission classes — why DELETE differs between an institution and its sub-resources |
 | `backend/apps/institutions/constants.py` | The five digital-maturity level descriptions |
 | `backend/apps/reports/services.py` | The 11-section report builder |
+| `backend/apps/vector_store/services/search.py` | `build_filter()` — the vector-side tenant boundary. **Read this to understand why one college cannot retrieve another's documents** |
+| `backend/apps/vector_store/services/pinecone_client.py` | The only module importing the Pinecone SDK; both store classes, the deterministic id scheme, the metadata contract, and the error taxonomy |
+| `backend/apps/vector_store/services/indexer.py` | read → hash → chunk → embed → upsert, and the content-hash short-circuit that makes re-indexing cheap |
+| `backend/apps/vector_store/models.py` | Why the tracking row exists and why it holds no vectors |
+| `backend/docs/VECTOR_STORE.md` | The vector store's own architecture document and operator setup guide |
 | `backend/config/urls.py` | Root routing, **and the comment explaining why media is never served** |
 | `backend/docs/API_CONTRACT.md` | A hand-written, frontend-audited contract; the best single reference for the API |
 | `backend/apps/accounts/management/commands/seed_demo_users.py` | The 11 demo personas and the shared demo password |
@@ -3022,7 +3339,8 @@ library, no date library, no chart library. Everything is hand-rolled on Tailwin
 | `frontend/src/context/AuthContext.tsx` | The only global state |
 | `frontend/src/App.tsx` | All routes + the session guard |
 | `frontend/src/components/Sidebar.tsx` | The whole product plan in one file — two nav groups, which modules are live vs. inert, and the 10 audit steps |
-| `frontend/src/pages/institutions/InstitutionDNA.tsx` | The Institution DNA screen: 3 tabs, the derived-vs-stored count distinction, all editing |
+| `frontend/src/pages/institutions/InstitutionList.tsx` | The Institution DNA landing page: the list, the create form, and per-row hard delete — plus the two role sets mirroring the backend's |
+| `frontend/src/pages/institutions/InstitutionDetail.tsx` | One institution's workspace: 3 tabs, the derived-vs-stored count distinction, all editing |
 | `frontend/src/pages/status/StatusDashboard.tsx` | Build-progress report. **Hand-maintained constants, no API** — read §25 before trusting its numbers |
 | `frontend/src/utils/errors.ts` | DRF error normalisation + extraction-error humanisation |
 | `frontend/src/pages/documents/UploadDataPack.tsx` | The largest screen; holds the frontend twin of the Drive checklist |
@@ -3083,6 +3401,15 @@ value has a default), but for a *useful* local run set:
 - `AI_API_KEY` — an OpenAI (`sk-…`) **or** Anthropic (`sk-ant-…`) key; the provider
   is auto-detected. Without it, extraction jobs fail with a clear configuration error
 - `GOOGLE_DRIVE_API_KEY` — only if you want the Drive import path
+
+**The vector store needs nothing here.** Leave `PINECONE_*` and `EMBEDDING_*` unset
+and the app runs exactly as it did before that app existed. To switch it on you need
+`PINECONE_API_KEY` and `PINECONE_INDEX_NAME` (create the index yourself first — this
+app reads an index, it never creates one), plus `EMBEDDING_API_KEY` **only** if your
+index does not embed server-side. `pip install -r requirements/base.txt` brings in
+`pinecone`; without it the app still boots, and the endpoints answer `503`. Full
+setup, including how to choose a dimension and metric, is in
+`backend/docs/VECTOR_STORE.md`.
 
 ## Database setup
 
@@ -3179,9 +3506,13 @@ docker build -t ai-ready-backend ./backend
 python manage.py test
 ```
 
-**498 tests** across 11 apps. The AI is mocked throughout. To additionally run the
-opt-in test that makes a **real, quota-spending API call**, set
+**578 tests** across 12 apps — `Ran 578 tests … OK (skipped=1)`, the single skip
+being the opt-in real-API test below. **The AI, the embedding provider and Pinecone
+are all mocked throughout**; no test makes a network call by default. To additionally
+run the opt-in test that makes a **real, quota-spending API call**, set
 `RUN_OPENAI_INTEGRATION_TESTS=true` first.
+
+The suite takes roughly **14 minutes** on a developer machine against SQLite.
 
 CI runs exactly this with `SECRET_KEY`, `JWT_SECRET_KEY`, `DEBUG=True`, and
 `ALLOWED_HOSTS=localhost,127.0.0.1` set.
@@ -3232,6 +3563,11 @@ docker compose exec backend python manage.py createsuperuser
 | `IsSuperAdmin`, `IsConsultant`, `IsInstitutionAdmin`, `IsReadOnly` | `accounts/permissions.py` | **Defined but not referenced** by any view — the composite gates are used instead. Reasonable to keep as a toolkit |
 | **Status Dashboard data** | `pages/status/StatusDashboard.tsx` | **Hand-maintained, not measured.** `PLAN_MODULES`, `AUDIT_STEPS`, `OPS_READINESS`, `ACTIVITY` and `BUILD_QUEUE` are module-level constants; the page makes **no API call**. Nothing in the backend computes a "% complete", and the file says so. The headline figures (modules live, plan coverage, modules not started) *are* derived from `PLAN_MODULES` rather than typed, so they cannot contradict the list beneath them — but the per-step percentages are engineering judgement and go stale unless someone updates them. Treat it as a status *report*, not a metric |
 | `SprintMode` enum + `Sprint.mode` column | `sprints/models.py` | **No longer reachable from the UI.** The setup screen's mode picker was removed; every new sprint takes the model default. The column and enum remain, so reviving the choice is a UI change only |
+| `Institution.is_active` | `institutions/models.py` | **Effectively vestigial.** DELETE is now a hard cascade, so nothing sets it `False` any more; it only lingers on rows removed before that change. Still read by the list page, which hides its Status column when no inactive row exists |
+| `apps/vector_store/urls.py` | `vector_store/` | **Empty by design**, and says so — every route lives in `sprints/urls.py` with the other nested sub-resources. The module exists so the app owns a URLConf if a non-nested route is ever needed |
+| **Vector store endpoints** | `vector_store/views.py` | **Implemented and tested, but no frontend calls them.** All three are reachable only via the API or the OpenAPI docs; no page in the SPA triggers indexing or renders evidence results yet |
+| `index_sprint_vectors` | `vector_store/tasks.py` | **Not triggered by any endpoint** — `POST /vector-index` queues per-document tasks directly. It exists as the fan-out entry point for a scheduled or management-command re-index |
+| `PineconeVectorStore` (manual mode) + `OpenAIEmbeddingService` | `vector_store/services/pinecone_client.py`, `services/embeddings.py` | **Implemented and unit-tested, but only one of the two modes runs in any given deployment.** Against an *integrated* index this whole path — and the embedding provider with it — is never entered. Not dead: the mode is a real deployment choice, selected by `PINECONE_EMBEDDING_MODE` |
 | `dump.rdb` (root and `backend/`) | repo root, `backend/` | **Stray local Redis snapshots.** Correctly git-ignored (`dump.rdb`, `*.rdb`); safe to delete |
 | `.e2e_sprint2`, `.e2e_token2` | `backend/` | **Leftover local scratch files** from manual end-to-end testing. Untracked; safe to delete |
 | `celery_worker.log` | `backend/` | **Leftover local log file** |
@@ -3249,9 +3585,9 @@ and the **unused table extraction**.
 
 | Status | Items |
 |---|---|
-| **Implemented** | Auth, institutions, **Institution DNA**, sprints + state machine, uploads, Drive import, the full 7-stage AI pipeline, multi-provider AI, fact review + history, 5 gap detectors + AI conflicts, the 9-step CRI engine, baseline approval, 3 recommendation generators, versioned PDF/DOCX reports, dashboard, **Project Status Dashboard**, plan-shaped navigation, OpenAPI docs, 498 tests, Docker/CI/CD |
-| **Partial** | OCR (interface + honest flagging, no backend); non-PDF documents (accepted and stored, but unreadable and unexplained to the user); classification (called, validated, then discarded) |
-| **Planned / absent** | User registration, password reset, email/notifications, Celery Beat, object storage, caching, monitoring, TLS, backups, frontend tests, rate limiting |
+| **Implemented** | Auth, institutions, **Institution DNA**, sprints + state machine, uploads, Drive import, the full 7-stage AI pipeline, multi-provider AI, fact review + history, 5 gap detectors + AI conflicts, the 9-step CRI engine, baseline approval, 3 recommendation generators, versioned PDF/DOCX reports, dashboard, **Project Status Dashboard**, plan-shaped navigation, **the Pinecone vector store (backend + API)**, OpenAPI docs, 578 tests, Docker/CI/CD |
+| **Partial** | OCR (interface + honest flagging, no backend); non-PDF documents (accepted and stored, but unreadable and unexplained to the user); classification (called, validated, then discarded); **vector store — backend complete and tested, but no UI consumes it** |
+| **Planned / absent** | User registration, password reset, email/notifications, Celery Beat, object storage, caching, monitoring, TLS, backups, frontend tests, rate limiting, **the benchmarking framework the vector store was built to feed** |
 | **Dead / stray** | `uvicorn`, `debug_task`, unused permission classes, `dump.rdb`, `.e2e_*`, `celery_worker.log`, unread `tables` payload |
 ---
 
@@ -3455,7 +3791,7 @@ record, marks it failed with a clear message, and returns normally.
 
 ### How is the project deployed?
 
-Push to `main` on GitHub. GitHub Actions runs the full backend test suite — 498
+Push to `main` on GitHub. GitHub Actions runs the full backend test suite — 578
 tests — and builds the frontend. If both pass, it builds two Docker images, pushes
 them to GitHub's container registry, then SSHes into a Google Cloud VM and pulls
 them.
@@ -3489,11 +3825,16 @@ A **containerised, monolithic Django REST API** with a **React SPA** and a **Cel
 worker sharing the same image**, on **PostgreSQL** and **Redis**, behind **nginx**,
 deployed to a single **GCP VM** via **GitHub Actions → GHCR → SSH**.
 
-The backend is organised as **eleven domain apps**, with business logic pushed into
+The backend is organised as **twelve domain apps**, with business logic pushed into
 `services/` modules that are independent of HTTP and Celery — so the CRI engine, the
-gap detectors, and the report builder can all be unit-tested directly. The
-**extraction pipeline is built on seven abstract interfaces**, making each stage
-individually replaceable without touching orchestration or retry logic.
+gap detectors, the report builder and the vector indexer can all be unit-tested
+directly. The **extraction pipeline is built on seven abstract interfaces**, making
+each stage individually replaceable without touching orchestration or retry logic;
+the vector store follows the same pattern with `EmbeddingService` and its two
+Pinecone store classes.
+
+The twelfth app, `vector_store`, is **strictly additive**: unconfigured, it queues
+nothing, writes nothing, and changes no other subsystem's behaviour.
 
 ## Main workflows
 
@@ -3506,11 +3847,17 @@ individually replaceable without touching orchestration or retry logic.
 5. **Approval** — baseline sign-off that locks the score against further drift.
 6. **Delivery** — data-derived recommendations and a versioned PDF/DOCX report.
 
+*Optional, off the main line:* **indexing** — a processed document's text is chunked
+and embedded into Pinecone, and **evidence search** returns the college's own
+passages for a natural-language query, each cited to a document and page. Nothing in
+workflows 1–6 depends on it.
+
 ## Key technologies
 
 Python 3.12 · Django 5 · DRF · SimpleJWT · Celery · Redis · PostgreSQL 16 ·
-OpenAI + Anthropic SDKs · pdfplumber · fpdf2 · python-docx · React 18 · TypeScript ·
-Vite · Tailwind · Axios · Docker Compose · nginx · Gunicorn · GitHub Actions.
+OpenAI + Anthropic SDKs · Pinecone (optional) · pdfplumber · fpdf2 · python-docx ·
+React 18 · TypeScript · Vite · Tailwind · Axios · Docker Compose · nginx · Gunicorn ·
+GitHub Actions.
 
 ## Critical components
 
@@ -3522,14 +3869,16 @@ Vite · Tailwind · Axios · Docker Compose · nginx · Gunicorn · GitHub Actio
 | `documents/services.py` | The single ingestion path for both upload routes |
 | `gaps/services.py::create_gap_if_new` | The shared idempotency primitive |
 | `extraction/services/ai_service.py` | Provider swappability |
+| `vector_store/services/search.py::build_filter` | The vector-side tenant boundary — the `college_id` filter no call site can omit |
 | `frontend/src/api/client.ts` | Auth and silent refresh in one place |
 | `docker-entrypoint.sh` | Migration safety across two containers sharing an image |
 
 ## External dependencies
 
 An AI provider (OpenAI, Anthropic, or an OpenAI-compatible endpoint), Google Drive
-REST v3, Redis, PostgreSQL, and GHCR. **No email, no object storage, no payment,
-no analytics, no error-tracking service.**
+REST v3, Redis, PostgreSQL, and GHCR — plus **Pinecone and an embedding provider,
+both optional** and both inert unless configured. **No email, no object storage, no
+payment, no analytics, no error-tracking service.**
 
 ## Current strengths
 
@@ -3546,14 +3895,19 @@ no analytics, no error-tracking service.**
 5. **Invariants enforced in the database**, not only in services — three partial
    unique constraints on gaps, checksum uniqueness on documents, version uniqueness
    on reports.
-6. **498 backend tests**, covering permissions, institution scoping, and the AI
+6. **578 backend tests**, covering permissions, institution scoping, and the AI
    paths (mocked), plus an opt-in real-API integration test.
 7. **Graceful degradation.** Broker down, Drive misconfigured, AI unconfigured,
-   non-PDF document — each produces a clear, actionable message rather than a 500.
+   Pinecone unconfigured, SDK not even installed, non-PDF document — each produces a
+   clear, actionable message rather than a 500.
 8. **A configurable scoring rubric** whose version fingerprint changes automatically
    when an admin retunes a weight.
 9. **A clean, lean frontend** with a correctly-implemented single-flight token
    refresh.
+10. **The newest subsystem was added without disturbing the old ones.** The vector
+    store is a leaf: a lazy SDK import, a guarded hand-off from extraction, a filter
+    it builds rather than accepts, and a feature flag that is simply the absence of
+    configuration. Turning it off is not a code path — it is the default.
 
 ## Current weaknesses
 
@@ -3613,7 +3967,7 @@ no analytics, no error-tracking service.**
 | 3 | N+1 in gap generation (two queries per fact) |
 | 4 | `~20 count()` queries in `GET /sprints/{id}/overview` |
 | 5 | 3-second polling with no backoff or termination |
-| 6 | No composite indexes on the hot filter columns |
+| 6 | No composite indexes on the hot filter columns (except `vector_store`'s own) |
 | 7 | Celery concurrency 2 caps throughput at two documents at a time |
 | 8 | Gunicorn's 3 sync workers can be starved by the heavy overview endpoint |
 | 9 | No caching layer, despite Redis already being deployed |

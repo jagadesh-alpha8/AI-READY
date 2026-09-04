@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { LogOut, Menu, Moon, Sun } from 'lucide-react';
 import ingageLogo from '../assets/ingage-logo-mark.png';
+import ingageLogoDark from '../assets/ingage-logo-mark-dark.png';
 
 export const Navbar: React.FC<{ onMenuClick?: () => void }> = ({ onMenuClick }) => {
   const { user, logout } = useAuth();
@@ -20,7 +21,18 @@ export const Navbar: React.FC<{ onMenuClick?: () => void }> = ({ onMenuClick }) 
       </button>
 
       <div className="flex items-center gap-3 min-w-0">
-        <img src={ingageLogo} alt="Ingage" className="h-6 sm:h-7 w-auto shrink-0" />
+        {/* Two files rather than one recoloured with a CSS filter: the wordmark
+            is two brand colours, and no filter can lighten the near-black "in"
+            without also shifting the green. Swapped in CSS rather than from
+            ThemeContext so it follows index.html's pre-React theme script and
+            cannot flash the wrong logo on first paint. */}
+        <img src={ingageLogo} alt="Ingage" className="h-6 sm:h-7 w-auto shrink-0 dark:hidden" />
+        <img
+          src={ingageLogoDark}
+          alt=""
+          aria-hidden="true"
+          className="h-6 sm:h-7 w-auto shrink-0 hidden dark:block"
+        />
         <span className="hidden sm:block w-px h-7 bg-line-200 shrink-0" aria-hidden="true" />
         <div className="min-w-0 hidden sm:block">
           <h1 className="text-sm font-bold text-ink-900 tracking-tight leading-tight truncate">

@@ -370,3 +370,86 @@ class SprintCrudTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {login.data["access_token"]}')
         response = self.client.get(f'/api/v1/sprints/{sprint["id"]}/overview/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+class SprintDeleteWithBaselineTests(APITestCase):
+    """Regression: `Baseline.scoring_run` is PROTECT and a sprint's ScoringRuns
+    cascade from the sprint, so any sprint that had ever reached a baseline
+    could not be deleted — the cascade hit the protection and returned a 500,
+    even though DELETABLE_STATUSES had already sanctioned the delete.
+    """
+
+    def setUp(self):
+        from apps.scoring.models import Baseline, ScoringRun
+
+        self.institution = Institution.objects.create(name='College A')
+        self.sprint = Sprint.objects.create(
+            institution=self.institution, status=Sprint.Status.ARCHIVED,
+        )
+        run = ScoringRun.objects.create(sprint=self.sprint, calculation_version='1.0')
+        Baseline.objects.create(sprint=self.sprint, scoring_run=run)
+
+        email = 'del_admin@test.edu'
+        self.admin = User.objects.create_user(
+            email=email, username='del_admin', password=PASSWORD,
+            first_name='D', last_name='A', role=User.Role.SUPER_ADMIN,
+            institution=self.institution,
+        )
+        login = self.client.post(
+            '/api/v1/auth/login/', {'email': email, 'password': PASSWORD},
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {login.data["access_token"]}')
+
+    def test_archived_sprint_with_a_baseline_can_be_deleted(self):
+        response = self.client.delete(f'/api/v1/sprints/{self.sprint.id}')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Sprint.objects.filter(pk=self.sprint.pk).exists())
+
+    def test_the_baseline_and_its_scoring_run_go_with_it(self):
+        from apps.scoring.models import Baseline, ScoringRun
+
+        self.client.delete(f'/api/v1/sprints/{self.sprint.id}')
+        self.assertFalse(Baseline.objects.filter(sprint_id=self.sprint.id).exists())
+        self.assertFalse(ScoringRun.objects.filter(sprint_id=self.sprint.id).exists())
+
+    def test_a_non_deletable_status_is_still_refused(self):
+        """The status gate is unchanged — only the PROTECT blocker was fixed."""
+        self.sprint.status = Sprint.Status.REVIEWING
+        self.sprint.save(update_fields=['status'])
+        response = self.client.delete(f'/api/v1/sprints/{self.sprint.id}')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Sprint.objects.filter(pk=self.sprint.pk).exists())
+
+    def test_sprint_with_same_titled_gaps_on_different_facts_can_be_deleted(self):
+        """Regression: `GapItem.source_fact` is SET_NULL and
+        `unique_active_gap_per_sprint_type_title` is a partial unique index
+        conditioned on that column being null. Cascading the delete nulled every
+        fact-scoped gap at once, so two gaps sharing a title collided and the
+        whole delete failed with an IntegrityError 500.
+
+        Real data had five separate "Needs confirmation: Institution Name"
+        gaps, one per document — perfectly legal while each was scoped to its
+        own fact.
+        """
+        from apps.documents.models import Document
+        from apps.facts.models import ExtractedFact
+        from apps.gaps.models import GapItem
+
+        document = Document.objects.create(sprint=self.sprint, document_type='aqar')
+        for _ in range(3):
+            fact = ExtractedFact.objects.create(
+                sprint=self.sprint, document=document, field_name='Institution Name',
+                field_key='institution_name', value='X',
+            )
+            GapItem.objects.create(
+                sprint=self.sprint,
+                gap_type=GapItem.GapType.UNCONFIRMED_FACT,
+                title='Needs confirmation: Institution Name',
+                source_fact=fact,
+                status=GapItem.Status.OPEN,
+            )
+
+        response = self.client.delete(f'/api/v1/sprints/{self.sprint.id}')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Sprint.objects.filter(pk=self.sprint.pk).exists())
+        self.assertFalse(GapItem.objects.filter(sprint_id=self.sprint.id).exists())
+        self.assertFalse(ExtractedFact.objects.filter(sprint_id=self.sprint.id).exists())

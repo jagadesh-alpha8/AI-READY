@@ -106,7 +106,7 @@ function buildModules(sprintId: string): NavModule[] {
     { key: 'evidence-intelligence', label: 'Evidence Intelligence', icon: Layers, status: 'next' },
     { key: 'transformation-plan', label: 'Transformation Plan', icon: Target, status: 'planned' },
     { key: 'goals-tasks', label: 'Goals & Tasks', icon: ListChecks, status: 'planned' },
-    { key: 'ai-copilot', label: 'AI Copilot', icon: Bot, status: 'planned' },
+    { key: 'ai-chatbot', label: 'AI Chatbot', icon: Bot, status: 'planned' },
     { key: 'reminders', label: 'Reminders', icon: Bell, status: 'planned' },
     { key: 'compliance-mapping', label: 'Compliance Mapping', icon: Network, status: 'planned' },
     { key: 'uat-readiness', label: 'UAT Readiness', icon: ClipboardCheck, status: 'planned' },

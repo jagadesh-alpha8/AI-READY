@@ -56,8 +56,33 @@ def run_extraction_job(self, job_id):
     job.save(update_fields=['status', 'completed_at', 'updated_at'])
     logger.info('extraction.task.completed job_id=%s', job.id)
 
+    _queue_vector_indexing(job.document)
     _advance_sprint_if_all_jobs_done(job.sprint)
     return str(job.id)
+
+
+def _queue_vector_indexing(document):
+    """Hand the finished document to the vector-indexing layer.
+
+    Deliberately a *separate Celery task*, not an eighth pipeline stage: the
+    seven stages in `ExtractionJob.Step` are a fixed contract the monitor UI
+    renders against, and semantic indexing has its own retry budget and its own
+    failure meaning. Splitting them means a Pinecone outage cannot fail an
+    extraction job that otherwise succeeded.
+
+    Everything is swallowed. Indexing is an addition to the document workflow
+    and must never be able to break it — a failure is recorded on
+    `VectorDocumentIndex` and surfaces through the status endpoint instead. When
+    the feature is unconfigured this is a no-op that logs nothing.
+    """
+    try:
+        from apps.vector_store.services import indexer
+
+        indexer.queue_document(document)
+    except Exception as exc:
+        logger.error(
+            'extraction.task.vector_queue_failed document_id=%s error=%s', document.id, exc,
+        )
 
 
 def _handle_recoverable(task, job, exc):

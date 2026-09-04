@@ -1,3 +1,5 @@
+from django.db import transaction
+from django.db.models import ProtectedError
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -68,7 +70,42 @@ class SprintViewSet(viewsets.ModelViewSet):
                 f"Cannot delete a sprint in '{instance.status}' status. "
                 'Archive it first (or delete it while still a draft).',
             )
-        instance.delete()
+
+        with transaction.atomic():
+            # Teardown order matters here, for two separate reasons.
+            #
+            # 1. `Baseline.scoring_run` is PROTECT, and a sprint's ScoringRuns
+            #    cascade from the sprint -- so once a sprint had ever reached a
+            #    baseline, the cascade hit that protection and the delete
+            #    failed, even though DELETABLE_STATUSES had already sanctioned
+            #    it. The protection exists to stop a ScoringRun being deleted
+            #    out from under a *surviving* baseline; tearing down the whole
+            #    engagement is the case it was never meant to block.
+            #
+            # 2. `GapItem.source_fact` / `.related_document` are SET_NULL, and
+            #    `unique_active_gap_per_sprint_type_title` is a partial unique
+            #    index conditioned on BOTH being null. Letting the cascade null
+            #    them en masse makes every fact-scoped gap fall into that
+            #    condition at once, and any two sharing a title then collide --
+            #    e.g. five separate "Needs confirmation: Institution Name"
+            #    gaps, one per document. Deleting the gaps first means there is
+            #    nothing left for the cascade to null.
+            #
+            # Both are pre-existing landmines that only fire on a sprint with
+            # real data, which is why neither showed up until one was deleted.
+            instance.baselines.all().delete()
+            instance.gaps.all().delete()
+            try:
+                instance.delete()
+            except ProtectedError as exc:
+                # Defensive: anything else that ever gains a PROTECT reference
+                # should surface as a readable 400 naming the blocker, not as
+                # an unhandled 500.
+                blockers = ', '.join(sorted({type(obj).__name__ for obj in exc.protected_objects}))
+                raise ValidationError(
+                    'This sprint cannot be deleted because other records still '
+                    f'depend on it ({blockers}). Archive it instead.',
+                ) from exc
 
     @action(detail=True, methods=['get'])
     def overview(self, request, pk=None):

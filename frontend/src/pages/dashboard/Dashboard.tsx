@@ -4,6 +4,7 @@ import { listSprints, deleteSprint, archiveSprint } from '../../api/sprints';
 import { getDashboard } from '../../api/dashboard';
 import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, LoadingState } from '../../components/ApiStates';
+import { getErrorMessage } from '../../utils/errors';
 import type { DashboardData, Sprint } from '../../types';
 import { Building, Plus, Play, CheckCircle2, ArrowRight, ShieldCheck, Trash2, Archive } from 'lucide-react';
 
@@ -36,7 +37,11 @@ export const Dashboard: React.FC = () => {
       refetchDashboard();
     } catch (err) {
       console.error('Failed to delete sprint:', err);
-      alert('Failed to delete sprint. Only drafts, completed, and archived sprints can be deleted.');
+      // Show what the server actually said. The previous hardcoded line
+      // claimed the sprint was in a non-deletable status, which was wrong for
+      // every other failure — including an archived sprint that failed for an
+      // entirely different reason.
+      alert(getErrorMessage(err, 'Failed to delete sprint.'));
     }
   };
 
@@ -51,7 +56,7 @@ export const Dashboard: React.FC = () => {
       refetchDashboard();
     } catch (err) {
       console.error('Failed to archive sprint:', err);
-      alert('Failed to archive sprint. Please try again.');
+      alert(getErrorMessage(err, 'Failed to archive sprint. Please try again.'));
     }
   };
 

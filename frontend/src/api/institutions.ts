@@ -29,6 +29,14 @@ export function updateInstitution(id: string, payload: UpdateInstitutionPayload)
   return api.patch<InstitutionDetail>(`/institutions/${id}`, payload);
 }
 
+/** Hard delete: the institution and everything scoped to it (departments,
+ * leaders, systems, sprints, and those sprints' documents/facts/gaps/scores/
+ * reports) is removed for good. Restricted server-side to the roles in
+ * DELETE_INSTITUTION_ROLES — super_admin and consultant. */
+export function deleteInstitution(id: string) {
+  return api.delete(`/institutions/${id}`);
+}
+
 // --- Institution DNA sub-resources -----------------------------------------
 // All nested under their institution, which is what scopes and authorizes them.
 

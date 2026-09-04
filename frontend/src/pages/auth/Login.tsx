@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getErrorMessage } from '../../utils/errors';
 import { Shield, ArrowRight, Lock } from 'lucide-react';
 import ingageLogo from '../../assets/ingage-logo-mark.png';
+import ingageLogoDark from '../../assets/ingage-logo-mark-dark.png';
 
 const SEEDED_ROLES = [
   { role: 'SUPER_ADMIN', name: 'Super Admin', email: 'superadmin@ingage.ai', desc: 'Full System & Config Control' },
@@ -54,7 +55,14 @@ export const Login: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface flex flex-col justify-center py-10 sm:py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full max-w-4xl text-center mb-8">
-        <img src={ingageLogo} alt="Ingage" className="h-10 sm:h-12 w-auto mx-auto mb-5" />
+        {/* Light/dark pair — see the note in Navbar.tsx. */}
+        <img src={ingageLogo} alt="Ingage" className="h-10 sm:h-12 w-auto mx-auto mb-5 dark:hidden" />
+        <img
+          src={ingageLogoDark}
+          alt=""
+          aria-hidden="true"
+          className="h-10 sm:h-12 w-auto mx-auto mb-5 hidden dark:block"
+        />
         <h1 className="text-2xl sm:text-3xl font-bold text-ink-900 tracking-tight text-balance">
           AIOS AI Readiness Discovery Sprint Platform
         </h1>

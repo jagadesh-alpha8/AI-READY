@@ -2,6 +2,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import User
+from apps.sprints.models import Sprint
 
 from .models import Department, Institution, InstitutionLeader
 
@@ -104,19 +105,58 @@ class InstitutionCrudTests(APITestCase):
         })
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    # -- delete (soft) -----------------------------------------------------
+    # -- delete (hard, cascading) --------------------------------------------
 
     def test_institution_admin_cannot_delete_institution(self):
         self._auth(self.admin_a)
         response = self.client.delete(f'/api/v1/institutions/{self.institution_a.id}/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_super_admin_delete_is_a_soft_delete(self):
+    def test_super_admin_delete_removes_the_institution(self):
         self._auth(self.super_admin)
         response = self.client.delete(f'/api/v1/institutions/{self.institution_a.id}/')
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.institution_a.refresh_from_db()
-        self.assertFalse(self.institution_a.is_active)
+        self.assertFalse(Institution.objects.filter(id=self.institution_a.id).exists())
+
+    def test_delete_cascades_to_departments_and_leaders(self):
+        department = Department.objects.create(institution=self.institution_a, name='CSE')
+        leader = InstitutionLeader.objects.create(
+            institution=self.institution_a, name='Dr. Rao', role='Principal',
+        )
+        self._auth(self.super_admin)
+        response = self.client.delete(f'/api/v1/institutions/{self.institution_a.id}/')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Department.objects.filter(id=department.id).exists())
+        self.assertFalse(InstitutionLeader.objects.filter(id=leader.id).exists())
+
+    def test_delete_unlinks_rather_than_deletes_its_users(self):
+        """User.institution is SET_NULL, not CASCADE -- a login must survive
+        its institution being removed, just pointing at no institution."""
+        self._auth(self.super_admin)
+        response = self.client.delete(f'/api/v1/institutions/{self.institution_a.id}/')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.admin_a.refresh_from_db()
+        self.assertIsNone(self.admin_a.institution)
+
+    def test_delete_removes_a_baseline_approved_sprint(self):
+        """Regression: Baseline.scoring_run is on_delete=PROTECT. A naive
+        cascade delete of the institution would cascade-delete the sprint's
+        ScoringRun rows and hit ProtectedError on their still-present
+        Baseline rows, even though those Baseline rows are also
+        cascade-deleted via the same sprint -- see perform_destroy."""
+        from apps.scoring.models import Baseline, ScoringRun
+
+        sprint = Sprint.objects.create(institution=self.institution_a)
+        scoring_run = ScoringRun.objects.create(sprint=sprint, calculation_version='v1')
+        baseline = Baseline.objects.create(sprint=sprint, scoring_run=scoring_run)
+
+        self._auth(self.super_admin)
+        response = self.client.delete(f'/api/v1/institutions/{self.institution_a.id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Sprint.objects.filter(id=sprint.id).exists())
+        self.assertFalse(ScoringRun.objects.filter(id=scoring_run.id).exists())
+        self.assertFalse(Baseline.objects.filter(id=baseline.id).exists())
 
     # -- filtering / ordering / pagination -----------------------------------
 
