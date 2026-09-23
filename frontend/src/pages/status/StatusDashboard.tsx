@@ -1,7 +1,8 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import {
   Gauge, Building2, ShieldCheck, Layers, Target, ListChecks, Bot, Bell,
-  Network, ClipboardCheck, Settings, PieChart, AlertTriangle,
+  Network, ClipboardCheck, Settings, PieChart, AlertTriangle, ArrowLeft,
 } from 'lucide-react';
 
 type LucideIcon = typeof Gauge;
@@ -56,7 +57,7 @@ const AUDIT_STEPS: { label: string; pct: number; note: string }[] = [
 
 const OPS_READINESS: { label: string; pct: number; note: string }[] = [
   { label: 'Production Security Hardening', pct: 40, note: 'Placeholder secret keys, demo credentials, no HTTPS, no rate-limiting.' },
-  { label: 'Automated Testing & QA', pct: 70, note: '498 backend tests; zero frontend tests.' },
+  { label: 'Automated Testing & QA', pct: 70, note: '578 backend tests; zero frontend tests.' },
   { label: 'Deployment & Infrastructure', pct: 80, note: 'Docker + CI/CD live; no monitoring or backups yet.' },
 ];
 
@@ -104,7 +105,18 @@ export const StatusDashboard: React.FC = () => {
   const auditPct = Math.round(AUDIT_STEPS.reduce((s, x) => s + x.pct, 0) / AUDIT_STEPS.length);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-6xl mx-auto">
+      {/* This page renders outside the app shell (see StandaloneRoute in
+          App.tsx), so it carries its own way back rather than relying on a
+          Navbar that is not there. */}
+      <Link
+        to="/dashboard"
+        className="inline-flex items-center gap-1.5 text-sm text-ink-500 hover:text-ink-900 transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back to the platform
+      </Link>
+
       {/* Header banner */}
       <div className="glass-card p-6 sm:p-8 bg-gradient-to-br from-brand-50 to-card">
         <span className="text-xs font-bold uppercase tracking-wide text-brand-800">Engineering status report</span>

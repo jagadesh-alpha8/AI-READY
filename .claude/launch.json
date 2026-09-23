@@ -9,6 +9,13 @@
       "port": 3000
     },
     {
+      "name": "frontend-alt",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "3100"],
+      "cwd": "frontend",
+      "port": 3100
+    },
+    {
       "name": "backend",
       "runtimeExecutable": "python",
       "runtimeArgs": ["manage.py", "runserver", "0.0.0.0:8000"],

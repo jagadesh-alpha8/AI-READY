@@ -9,6 +9,18 @@ import { Dashboard } from './pages/dashboard/Dashboard';
 import { InstitutionList } from './pages/institutions/InstitutionList';
 import { InstitutionDetail } from './pages/institutions/InstitutionDetail';
 import { StatusDashboard } from './pages/status/StatusDashboard';
+import { ModulePreview } from './pages/previews/ModulePreview';
+// Modules ported from the InGage prototype. Each renders demo data and says
+// so at the top — see components/DemoDataNotice.
+import { EvidenceIntelligence } from './pages/evidence/EvidenceIntelligence';
+import { CriBenchmarkIntelligence } from './pages/benchmark/CriBenchmarkIntelligence';
+import { BenchmarkStudio } from './pages/benchmark/BenchmarkStudio';
+import { TransformationPlan } from './pages/workspace/TransformationPlan';
+import { GoalsTasks } from './pages/workspace/GoalsTasks';
+import { AIChatbot } from './pages/chat/AIChatbot';
+import { Reminders } from './pages/workspace/Reminders';
+import { ComplianceMapping } from './pages/compliance/ComplianceMapping';
+import { UatReadiness } from './pages/workspace/UatReadiness';
 import { SprintSetup } from './pages/sprints/SprintSetup';
 import { UploadDataPack } from './pages/documents/UploadDataPack';
 import { AIProcessingMonitor } from './pages/documents/AIProcessingMonitor';
@@ -39,6 +51,20 @@ const ProtectedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) 
   return <AppShell activeSprintId={sprintId}>{children}</AppShell>;
 };
 
+/** A session-guarded page with no Navbar and no Sidebar.
+ *
+ * For pages that are *about* the product rather than part of it — today just
+ * the build-status report. Keeping the shell off is the point: the page is
+ * opened on its own to be read or shown, not navigated away from, and the
+ * surrounding chrome would only invite someone to read it as a module. */
+const StandaloneRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading } = useAuth();
+
+  if (loading) return <FullScreenLoading />;
+  if (!user) return <Navigate to="/login" replace />;
+  return <div className="min-h-screen bg-surface p-4 sm:p-6 lg:p-8">{children}</div>;
+};
+
 const FullScreenLoading: React.FC = () => (
   <div className="min-h-screen bg-surface flex items-center justify-center text-sm text-ink-500">
     Loading...
@@ -53,7 +79,26 @@ function AppRoutes() {
       <Route path="/dashboard" element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
       <Route path="/institution-dna" element={<ProtectedLayout><InstitutionList /></ProtectedLayout>} />
       <Route path="/institution-dna/:institutionId" element={<ProtectedLayout><InstitutionDetail /></ProtectedLayout>} />
-      <Route path="/status-dashboard" element={<ProtectedLayout><StatusDashboard /></ProtectedLayout>} />
+      {/* Build-progress report, deliberately OUTSIDE the app shell and absent
+          from the sidebar: it reports on how much of the product plan exists,
+          which makes it a report about the app rather than a module of it.
+          Reached by URL. Still requires a session — it names unbuilt work. */}
+      <Route path="/status-dashboard" element={<StandaloneRoute><StatusDashboard /></StandaloneRoute>} />
+
+      {/* Ported from the InGage prototype: real screens, demo data. */}
+      <Route path="/evidence" element={<ProtectedLayout><EvidenceIntelligence /></ProtectedLayout>} />
+      <Route path="/cri-benchmark" element={<ProtectedLayout><CriBenchmarkIntelligence /></ProtectedLayout>} />
+      <Route path="/benchmark-studio" element={<ProtectedLayout><BenchmarkStudio /></ProtectedLayout>} />
+      <Route path="/transformation-plan" element={<ProtectedLayout><TransformationPlan /></ProtectedLayout>} />
+      <Route path="/goals-tasks" element={<ProtectedLayout><GoalsTasks /></ProtectedLayout>} />
+      <Route path="/ai-chatbot" element={<ProtectedLayout><AIChatbot /></ProtectedLayout>} />
+      <Route path="/reminders" element={<ProtectedLayout><Reminders /></ProtectedLayout>} />
+      <Route path="/compliance" element={<ProtectedLayout><ComplianceMapping /></ProtectedLayout>} />
+      <Route path="/uat-readiness" element={<ProtectedLayout><UatReadiness /></ProtectedLayout>} />
+
+      {/* Design previews for the modules with no prototype screen to port.
+          Every one of these says so at the top — see ModulePreview. */}
+      <Route path="/preview/:moduleKey" element={<ProtectedLayout><ModulePreview /></ProtectedLayout>} />
       <Route path="/sprint/setup" element={<ProtectedLayout><SprintSetup /></ProtectedLayout>} />
       <Route path="/sprint/:sprintId/upload" element={<ProtectedLayout><UploadDataPack /></ProtectedLayout>} />
       <Route path="/sprint/:sprintId/monitor" element={<ProtectedLayout><AIProcessingMonitor /></ProtectedLayout>} />

@@ -2,17 +2,25 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Gauge, Building2, ShieldCheck, Layers, Target, ListChecks, Bot, Bell,
-  Network, ClipboardCheck, Settings, PieChart,
+  Network, ClipboardCheck, Settings, Award, BookOpen,
   FolderPlus, Upload, Activity, FileSearch, AlertCircle, CheckSquare,
   BarChart3, Lock, Sparkles, FileText, X,
 } from 'lucide-react';
 
 type LucideIcon = typeof Gauge;
 
-/** Where a module sits in the build plan. Only `live` modules are navigable;
- * the rest are shown so the full platform shape stays visible, but they are
- * inert rather than dead links. */
-type ModuleStatus = 'live' | 'next' | 'planned';
+/** Where a module sits in the build plan.
+ *
+ * - `live`   — built here, backed by the API, real data.
+ * - `demo`   — UI ported from the InGage prototype, rendering sample data
+ *              held in the browser. Navigable, but NOT backed by anything;
+ *              every such page opens with a banner saying so.
+ * - `next` / `planned` — not built at all; the link opens a design preview.
+ *
+ * The distinction between `live` and `demo` is the important one: both are
+ * clickable and look finished, and only the label stops someone reading a
+ * seeded number as an institution's real record. */
+type ModuleStatus = 'live' | 'demo' | 'next' | 'planned';
 
 interface NavChild {
   to: string;
@@ -28,6 +36,9 @@ interface NavModule {
   /** Direct route — only for a live module with no children. */
   to?: string;
   exact?: boolean;
+  /** Who a module is for, when it is not everyone. Rendered as a small label
+   * so an internal-only screen is identifiable from the menu. */
+  audience?: string;
   /** Sub-steps, always rendered beneath the module — nothing here collapses. */
   children?: NavChild[];
   /** Caption shown above the children when expanded. */
@@ -38,21 +49,6 @@ interface NavGroup {
   heading: string;
   modules: NavModule[];
 }
-
-/**
- * Reporting on the build itself, kept out of "Platform Modules" on purpose:
- * the status dashboard describes how much of the product plan exists, so
- * listing it among the modules it reports on would make it count itself.
- */
-const WORK_COMPLETION_MODULES: NavModule[] = [
-  {
-    key: 'status-dashboard',
-    label: 'Project Status Dashboard',
-    icon: PieChart,
-    status: 'live',
-    to: '/status-dashboard',
-  },
-];
 
 /**
  * The platform's module list, matching the approved product plan.
@@ -103,13 +99,32 @@ function buildModules(sprintId: string): NavModule[] {
         { to: `/sprint/${sprintId}/report`, label: '10. Report & Export', icon: FileText },
       ],
     },
-    { key: 'evidence-intelligence', label: 'Evidence Intelligence', icon: Layers, status: 'next' },
-    { key: 'transformation-plan', label: 'Transformation Plan', icon: Target, status: 'planned' },
-    { key: 'goals-tasks', label: 'Goals & Tasks', icon: ListChecks, status: 'planned' },
-    { key: 'ai-chatbot', label: 'AI Chatbot', icon: Bot, status: 'planned' },
-    { key: 'reminders', label: 'Reminders', icon: Bell, status: 'planned' },
-    { key: 'compliance-mapping', label: 'Compliance Mapping', icon: Network, status: 'planned' },
-    { key: 'uat-readiness', label: 'UAT Readiness', icon: ClipboardCheck, status: 'planned' },
+    { key: 'evidence-intelligence', label: 'Evidence Intelligence', icon: Layers, status: 'demo', to: '/evidence' },
+    {
+      key: 'cri-benchmark-intelligence',
+      label: 'CRI & Benchmark Intelligence',
+      icon: Award,
+      status: 'demo',
+      to: '/cri-benchmark',
+    },
+    {
+      key: 'benchmark-studio',
+      label: 'Benchmark Studio',
+      icon: BookOpen,
+      status: 'demo',
+      to: '/benchmark-studio',
+      // Carried through from the source prototype, where this screen is
+      // explicitly an internal governance tool. Worth keeping visible: it is
+      // the one entry here that a client should probably never see.
+      audience: 'InGage internal',
+    },
+    { key: 'transformation-plan', label: 'Transformation Plan', icon: Target, status: 'demo', to: '/transformation-plan' },
+    { key: 'goals-tasks', label: 'Goals & Tasks', icon: ListChecks, status: 'demo', to: '/goals-tasks' },
+    { key: 'ai-chatbot', label: 'AI Chatbot', icon: Bot, status: 'demo', to: '/ai-chatbot' },
+    { key: 'reminders', label: 'Reminders', icon: Bell, status: 'demo', to: '/reminders' },
+    { key: 'compliance-mapping', label: 'Compliance Mapping', icon: Network, status: 'demo', to: '/compliance' },
+    { key: 'uat-readiness', label: 'UAT Readiness', icon: ClipboardCheck, status: 'demo', to: '/uat-readiness' },
+    // No prototype screen exists for this one, so it keeps its design preview.
     { key: 'admin-settings', label: 'Admin / Settings', icon: Settings, status: 'planned' },
   ];
 }
@@ -123,8 +138,11 @@ export const Sidebar: React.FC<{
   onClose?: () => void;
 }> = ({ activeSprintId, open = false, onClose }) => {
   const sprintId = activeSprintId || 'demo-sprint-id';
+  // One group. The Project Status Dashboard is deliberately NOT here: it
+  // reports on how much of the product plan exists, which makes it a report
+  // about the app rather than a part of it. It lives on its own route
+  // (/status-dashboard), reached by URL rather than by this menu.
   const groups: NavGroup[] = [
-    { heading: 'Work Completion', modules: WORK_COMPLETION_MODULES },
     { heading: 'Platform Modules', modules: buildModules(sprintId) },
   ];
   const { pathname } = useLocation();
@@ -168,34 +186,67 @@ export const Sidebar: React.FC<{
               {group.modules.map((module) => {
                 const Icon = module.icon;
 
-                // --- Not built yet: visible, labelled, and deliberately inert.
+                // --- Ported prototype screen running on sample data. Reads as
+                // a real module because it is one — but the data behind it is
+                // not, so the row is marked and the page opens with a banner.
+                if (module.status === 'demo') {
+                  return (
+                    <NavLink
+                      key={module.key}
+                      to={module.to!}
+                      onClick={onClose}
+                      title="Ported from the InGage prototype — renders sample data, not a real record"
+                      className={({ isActive }) =>
+                        `${ROW_BASE} ${
+                          isActive
+                            ? 'bg-brand-50 text-brand-800 border-brand-500 font-semibold'
+                            : 'text-ink-600 border-transparent hover:text-ink-900 hover:bg-surface'
+                        }`
+                      }
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="min-w-0 leading-snug">
+                        {module.label}
+                        {module.audience && (
+                          <span className="block text-[10px] font-semibold uppercase tracking-wide text-ink-500/70 mt-0.5">
+                            {module.audience}
+                          </span>
+                        )}
+                      </span>
+                      <span className="ml-auto shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-info-bg text-info border border-info-line">
+                        Demo
+                      </span>
+                      <span className="sr-only">Sample data, not connected to a real institution.</span>
+                    </NavLink>
+                  );
+                }
+
+                // --- Not built: shown so the full platform shape stays
+                // visible, but inert. No route, no hover affordance, and
+                // `aria-disabled` so a screen reader announces it as
+                // unavailable rather than reading it as a link that is simply
+                // hard to activate.
                 if (module.status !== 'live') {
                   return (
                     <div
                       key={module.key}
                       aria-disabled="true"
-                      title={
-                        module.status === 'next'
-                          ? 'Next module in the build plan'
-                          : 'Planned — not built yet'
-                      }
-                      className={`${ROW_BASE} border-transparent text-ink-500/60 cursor-not-allowed select-none`}
+                      title="Not built yet"
+                      className={`${ROW_BASE} border-transparent text-ink-500/50 cursor-not-allowed select-none`}
                     >
                       <Icon className="w-4 h-4 shrink-0" />
-                      <span className="truncate">{module.label}</span>
-                      {/* Only the next module up is marked, and with a dot
-                          rather than a word: badging all ten planned modules
-                          added no information, and a text badge cost enough
-                          width to truncate the longest labels. */}
-                      {module.status === 'next' && (
-                        <>
-                          <span
-                            className="ml-auto shrink-0 w-2 h-2 rounded-full bg-accent"
-                            aria-hidden="true"
-                          />
-                          <span className="sr-only">Next module in the build plan</span>
-                        </>
-                      )}
+                      {/* Wraps rather than truncates: the longest labels do
+                          not fit one line at this width, and a half-shown
+                          label is worse than a two-line one. */}
+                      <span className="min-w-0 leading-snug">
+                        {module.label}
+                        {module.audience && (
+                          <span className="block text-[10px] font-semibold uppercase tracking-wide text-ink-500/60 mt-0.5">
+                            {module.audience}
+                          </span>
+                        )}
+                      </span>
+                      <span className="sr-only">Not built yet. Unavailable.</span>
                     </div>
                   );
                 }
@@ -269,6 +320,7 @@ export const Sidebar: React.FC<{
                 );
               })}
             </nav>
+
           </div>
           ))}
         </div>
