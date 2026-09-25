@@ -12,6 +12,9 @@ type LucideIcon = typeof Gauge;
 /** Where a module sits in the build plan.
  *
  * - `live`   — built here, backed by the API, real data.
+ * - `admin`  — an internal InGage workspace, not a client module. Badged as
+ *              such because WHO it is for is the load-bearing fact; that its
+ *              library is still sample data is stated on the page itself.
  * - `demo`   — UI ported from the InGage prototype, rendering sample data
  *              held in the browser. Navigable, but NOT backed by anything;
  *              every such page opens with a banner saying so.
@@ -20,7 +23,7 @@ type LucideIcon = typeof Gauge;
  * The distinction between `live` and `demo` is the important one: both are
  * clickable and look finished, and only the label stops someone reading a
  * seeded number as an institution's real record. */
-type ModuleStatus = 'live' | 'demo' | 'next' | 'planned';
+type ModuleStatus = 'live' | 'demo' | 'admin' | 'next' | 'planned';
 
 interface NavChild {
   to: string;
@@ -99,28 +102,24 @@ function buildModules(sprintId: string): NavModule[] {
         { to: `/sprint/${sprintId}/report`, label: '10. Report & Export', icon: FileText },
       ],
     },
-    { key: 'evidence-intelligence', label: 'Evidence Intelligence', icon: Layers, status: 'demo', to: '/evidence' },
+    { key: 'evidence-intelligence', label: 'Evidence Intelligence', icon: Layers, status: 'live', to: '/evidence' },
     {
       key: 'cri-benchmark-intelligence',
       label: 'CRI & Benchmark Intelligence',
       icon: Award,
-      status: 'demo',
+      status: 'live',
       to: '/cri-benchmark',
     },
     {
       key: 'benchmark-studio',
       label: 'Benchmark Studio',
       icon: BookOpen,
-      status: 'demo',
+      status: 'admin',
       to: '/benchmark-studio',
-      // Carried through from the source prototype, where this screen is
-      // explicitly an internal governance tool. Worth keeping visible: it is
-      // the one entry here that a client should probably never see.
-      audience: 'InGage internal',
     },
-    { key: 'transformation-plan', label: 'Transformation Plan', icon: Target, status: 'demo', to: '/transformation-plan' },
+    { key: 'transformation-plan', label: 'Transformation Plan', icon: Target, status: 'live', to: '/transformation-plan' },
     { key: 'goals-tasks', label: 'Goals & Tasks', icon: ListChecks, status: 'demo', to: '/goals-tasks' },
-    { key: 'ai-chatbot', label: 'AI Chatbot', icon: Bot, status: 'demo', to: '/ai-chatbot' },
+    { key: 'ai-chatbot', label: 'AI Copilot', icon: Bot, status: 'demo', to: '/ai-chatbot' },
     { key: 'reminders', label: 'Reminders', icon: Bell, status: 'demo', to: '/reminders' },
     { key: 'compliance-mapping', label: 'Compliance Mapping', icon: Network, status: 'demo', to: '/compliance' },
     { key: 'uat-readiness', label: 'UAT Readiness', icon: ClipboardCheck, status: 'demo', to: '/uat-readiness' },
@@ -189,13 +188,18 @@ export const Sidebar: React.FC<{
                 // --- Ported prototype screen running on sample data. Reads as
                 // a real module because it is one — but the data behind it is
                 // not, so the row is marked and the page opens with a banner.
-                if (module.status === 'demo') {
+                if (module.status === 'demo' || module.status === 'admin') {
+                  const isAdmin = module.status === 'admin';
                   return (
                     <NavLink
                       key={module.key}
                       to={module.to!}
                       onClick={onClose}
-                      title="Ported from the InGage prototype — renders sample data, not a real record"
+                      title={
+                        isAdmin
+                          ? 'InGage internal administration — not a client module'
+                          : 'Ported from the InGage prototype — renders sample data, not a real record'
+                      }
                       className={({ isActive }) =>
                         `${ROW_BASE} ${
                           isActive
@@ -213,10 +217,20 @@ export const Sidebar: React.FC<{
                           </span>
                         )}
                       </span>
-                      <span className="ml-auto shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-info-bg text-info border border-info-line">
-                        Demo
+                      <span
+                        className={`ml-auto shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${
+                          isAdmin
+                            ? 'bg-danger-bg text-danger border-danger-line'
+                            : 'bg-info-bg text-info border-info-line'
+                        }`}
+                      >
+                        {isAdmin ? 'Admin' : 'Demo'}
                       </span>
-                      <span className="sr-only">Sample data, not connected to a real institution.</span>
+                      <span className="sr-only">
+                        {isAdmin
+                          ? 'InGage internal administration. Not for client users.'
+                          : 'Sample data, not connected to a real institution.'}
+                      </span>
                     </NavLink>
                   );
                 }

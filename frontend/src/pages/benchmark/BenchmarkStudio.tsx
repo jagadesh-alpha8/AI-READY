@@ -3,7 +3,6 @@ import {
   BookOpen, Clock, Edit3, Layers, Lock, Search, Shield, ShieldCheck, Sparkles,
 } from 'lucide-react';
 
-import { DemoDataNotice } from '../../components/DemoDataNotice';
 import { PageHeader, TabStrip } from '../../components/PageHeader';
 import {
   seedApprovalRequests, seedBenchmarkVersions, seedBenchmarks, seedCandidates,
@@ -57,23 +56,43 @@ export const BenchmarkStudio: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <DemoDataNotice detail="The library below is the prototype's twelve seed benchmarks; editing and publishing do not persist." />
-
       <PageHeader
         icon={BookOpen}
         title="Benchmark Studio"
         description="Author, source, version, approve and publish the benchmark library every client institution is scored against."
-        badge={<span className="badge badge-neutral">InGage internal</span>}
+        badge={<span className="badge badge-danger">Admin</span>}
       />
 
-      <div className="glass-card p-4 flex items-start gap-3 border-brand-500/30">
-        <Shield className="w-4 h-4 text-brand-800 shrink-0 mt-0.5" />
-        <p className="text-sm text-ink-600">
-          <strong className="text-ink-900">Not a client-facing screen. </strong>
-          This is the company's benchmark IP and its governance trail. In the prototype it sits behind
-          nine dedicated roles — editor, source reviewer, methodology reviewer, approver, publisher,
-          auditor — none of which exist in this platform's role model yet.
-        </p>
+      {/* Spec §3 and §25.1 put this screen in a separate INTERNAL navigation
+          that client users cannot reach at all. It is temporarily left in the
+          client menu so the work can be reviewed; moving it out is a tracked
+          correction, not an open question. Until then this banner is the only
+          thing standing between a client and the company's benchmark IP, so
+          it is deliberately the loudest on the page. */}
+      <div className="rounded-lg border-2 border-danger-line bg-danger-bg p-4 flex items-start gap-3">
+        <Shield className="w-5 h-5 text-danger shrink-0 mt-0.5" />
+        <div className="text-sm text-ink-600 min-w-0 space-y-1.5">
+          <p>
+            <strong className="text-danger">InGage internal only — not for client eyes. </strong>
+            This screen holds the company's benchmark IP and its governance trail.
+          </p>
+          <p>
+            Specification §3 and §25.1 place it in a separate internal navigation that client users
+            cannot access. It is showing in the client menu <strong>temporarily, for review</strong>,
+            and must be moved before any client is given a login. Nothing currently enforces that —
+            any authenticated user can open this page.
+          </p>
+          <p className="text-ink-500">
+            §20.1 defines nine governance roles for this workspace — editor, source reviewer,
+            methodology reviewer, approver, publisher, auditor and more. None exist in this
+            platform's role model yet.
+          </p>
+          <p className="text-ink-500">
+            The library below is the prototype's twelve seed benchmarks. There is no benchmark
+            backend yet, so editing, approving and publishing change nothing and a reload resets
+            everything.
+          </p>
+        </div>
       </div>
 
       <TabStrip

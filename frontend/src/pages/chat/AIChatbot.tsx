@@ -73,7 +73,7 @@ export const AIChatbot: React.FC = () => {
 
       <PageHeader
         icon={Bot}
-        title="AI Chatbot"
+        title="AI Copilot"
         description="Ask about readiness in plain language. Answers should cite the evidence behind them — that part is not built."
       />
 
@@ -83,7 +83,7 @@ export const AIChatbot: React.FC = () => {
             <Bot className="w-[18px] h-[18px]" />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold text-ink-900">AI Readiness Chatbot</p>
+            <p className="text-sm font-bold text-ink-900">AI Readiness Copilot</p>
             <p className="text-xs text-warning">Scripted demo — not connected to a model</p>
           </div>
         </div>

@@ -228,19 +228,54 @@ export interface CRIRuleVersion {
   dimensionWeights: Record<string, number>;
   gateRules: CRIGateRule[];
   normalizationMethod: 'WEIGHT_BASED' | 'RANK_BASED' | 'PERCENTILE';
-  status: 'DRAFT' | 'METHODOLOGY_REVIEW' | 'APPROVED' | 'SUPERSEDED';
+  /** `REQUIRES_INGAGE_APPROVAL` is spec §2.4: methodology numbers that have
+   * not been signed off are held in that state rather than presented as
+   * settled. The weights and thresholds shipped with the prototype are
+   * exactly that — plausible placeholders nobody has approved. */
+  status: 'DRAFT' | 'REQUIRES_INGAGE_APPROVAL' | 'METHODOLOGY_REVIEW' | 'APPROVED' | 'SUPERSEDED';
   approvedBy: string | null;
   approvedAt: string | null;
 }
 
+/** A criticality gate — spec §13.6.
+ *
+ * ⚠ A gate **caps** a score; it does not deduct from it. The prototype
+ * implemented gates as subtracted percentage penalties, which is a different
+ * mechanism and produces very different numbers (it is why its own sample
+ * data computed 0.0 — 20 points subtracted from a base of 7.7). The spec's
+ * intent is a ceiling: "an institution cannot receive a high responsible-AI
+ * governance rating if no AI policy or accountability structure exists."
+ */
 export interface CRIGateRule {
   id: string;
   ruleVersionId: string;
+  gateCode: string;
+  gateDescription: string;
+  /** The benchmark whose level decides whether this gate fires. */
   benchmarkCode: string;
-  gateType: 'SOFT' | 'HARD';
+  /** Human-readable statement of when the gate applies. */
+  triggerCondition: string;
+  /** The gate fires when the benchmark sits below this level, or is unassessed. */
   minimumLevel: MaturityLevel;
-  penaltyPercentage: number;
-  description: string;
+  capScoreEffect: 'CAP_OVERALL' | 'CAP_DOMAIN' | 'CAP_CATEGORY' | 'FLAG_ONLY' | 'REVIEW_REQUIRED';
+  /** The ceiling applied when the gate fires. Null for FLAG_ONLY and
+   * REVIEW_REQUIRED, which change no number. */
+  maxAllowedScore: number | null;
+  reviewOverrideAllowed: boolean;
+  overrideRequiresApproval: boolean;
+}
+
+/** What one gate did to one assessment — the trace §13.7 requires. */
+export interface GateOutcome {
+  gateCode: string;
+  gateDescription: string;
+  benchmarkCode: string;
+  fired: boolean;
+  capScoreEffect: CRIGateRule['capScoreEffect'];
+  /** Plain words: why it fired or why it did not. */
+  reason: string;
+  /** What it actually changed, if anything. */
+  effect: string;
 }
 
 // ===== GAP ENGINE =====

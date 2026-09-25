@@ -1,7 +1,7 @@
 // ===================================================================
 // Demo content for the workspace modules — Evidence Intelligence,
 // Transformation Plan, Goals & Tasks, Reminders, Compliance Mapping,
-// UAT Readiness, and the AI Chatbot's canned replies.
+// UAT Readiness, and the AI Copilot's canned replies.
 //
 // PORTED from the InGage "AI Future Ready" prototype, where each of these
 // lived as a local array inside `src/App.tsx`. Content preserved; gathered
@@ -204,7 +204,7 @@ export const UAT_ITEMS: UatItem[] = [
   { module: 'Evidence Intelligence', item: 'Document upload and status tracking', status: 'in_progress', risk: 'medium' },
   { module: 'Transformation Plan', item: 'Plan generation from CRI and evidence', status: 'ready', risk: 'low' },
   { module: 'Goals & Tasks', item: 'Task board and status updates', status: 'in_progress', risk: 'medium' },
-  { module: 'AI Chatbot', item: 'Context-aware responses', status: 'in_progress', risk: 'medium' },
+  { module: 'AI Copilot', item: 'Context-aware responses', status: 'in_progress', risk: 'medium' },
   { module: 'Reminders', item: 'Reminder display and actions', status: 'ready', risk: 'low' },
   { module: 'Compliance Mapping', item: 'NAAC / NBA / NIRF / NEP mapping', status: 'in_progress', risk: 'medium' },
   { module: 'Role-Based Views', item: 'Role switcher and contextual views', status: 'ready', risk: 'low' },
@@ -234,4 +234,4 @@ export const CHAT_SUGGESTIONS = [
 ];
 
 export const CHAT_OPENING =
-  'Hello. I am the AI Readiness Chatbot. I can help you understand your CRI score, identify gaps, track tasks, and navigate your transformation journey. What would you like to know?';
+  'Hello. I am the AI Readiness Copilot. I can help you understand your CRI score, identify gaps, track tasks, and navigate your transformation journey. What would you like to know?';

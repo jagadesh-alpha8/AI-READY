@@ -149,15 +149,56 @@ export const seedBenchmarkVersions: BenchmarkVersion[] = seedBenchmarks.map((bm)
 }));
 
 // ===== CRI RULE VERSION =====
+/**
+ * ⚠ Spec §2.4 — "No Invented Methodology Numbers."
+ *
+ * Every number below is a placeholder carried over from the prototype: the
+ * domain weights, the gate ceilings, the minimum levels. None has been
+ * approved by InGage, so the rule version is held at
+ * `REQUIRES_INGAGE_APPROVAL` rather than `APPROVED`. The UI reads that status
+ * and says so, instead of presenting the weights as settled methodology.
+ *
+ * Gates are modelled as **caps** here, per §13.6 — see `CRIGateRule`.
+ */
 export const seedCRIRuleVersion: CRIRuleVersion = {
-  id: 'cri-rule-v1', versionNumber: 1, effectiveFrom: '2026-06-01', effectiveTo: null,
+  id: 'cri-rule-v1',
+  versionNumber: 1,
+  effectiveFrom: '2026-06-01',
+  effectiveTo: null,
   dimensionWeights: { GOV: 0.10, CUR: 0.15, FAC: 0.18, STU: 0.15, INF: 0.17, RES: 0.10, IND: 0.10, EVQ: 0.05 },
   gateRules: [
-    { id: 'gate-1', ruleVersionId: 'cri-rule-v1', benchmarkCode: 'GOV.STR.001', gateType: 'HARD', minimumLevel: 'L3_FOUNDATIONAL', penaltyPercentage: 20, description: 'Approved AI strategy is required for CRI > 50' },
-    { id: 'gate-2', ruleVersionId: 'cri-rule-v1', benchmarkCode: 'GOV.POL.001', gateType: 'HARD', minimumLevel: 'L3_FOUNDATIONAL', penaltyPercentage: 15, description: 'Responsible AI policy is required for CRI > 60' },
-    { id: 'gate-3', ruleVersionId: 'cri-rule-v1', benchmarkCode: 'FAC.LIT.001', gateType: 'SOFT', minimumLevel: 'L3_FOUNDATIONAL', penaltyPercentage: 10, description: 'Faculty AI literacy below foundational triggers a 10% penalty' },
+    {
+      id: 'gate-1', ruleVersionId: 'cri-rule-v1', gateCode: 'GATE-GOV-STRATEGY',
+      gateDescription: 'No approved AI strategy caps overall readiness',
+      benchmarkCode: 'GOV.STR.001',
+      triggerCondition: 'GOV.STR.001 is unassessed or below L3 Foundational',
+      minimumLevel: 'L3_FOUNDATIONAL',
+      capScoreEffect: 'CAP_OVERALL', maxAllowedScore: 50,
+      reviewOverrideAllowed: false, overrideRequiresApproval: true,
+    },
+    {
+      id: 'gate-2', ruleVersionId: 'cri-rule-v1', gateCode: 'GATE-GOV-POLICY',
+      gateDescription: 'No responsible-AI policy caps overall readiness',
+      benchmarkCode: 'GOV.POL.001',
+      triggerCondition: 'GOV.POL.001 is unassessed or below L3 Foundational',
+      minimumLevel: 'L3_FOUNDATIONAL',
+      capScoreEffect: 'CAP_OVERALL', maxAllowedScore: 60,
+      reviewOverrideAllowed: false, overrideRequiresApproval: true,
+    },
+    {
+      id: 'gate-3', ruleVersionId: 'cri-rule-v1', gateCode: 'GATE-FAC-LITERACY',
+      gateDescription: 'Faculty AI literacy below foundational caps the Faculty domain',
+      benchmarkCode: 'FAC.LIT.001',
+      triggerCondition: 'FAC.LIT.001 is unassessed or below L3 Foundational',
+      minimumLevel: 'L3_FOUNDATIONAL',
+      capScoreEffect: 'CAP_DOMAIN', maxAllowedScore: 40,
+      reviewOverrideAllowed: true, overrideRequiresApproval: true,
+    },
   ],
-  normalizationMethod: 'WEIGHT_BASED', status: 'APPROVED', approvedBy: 'u5', approvedAt: '2026-06-01',
+  normalizationMethod: 'WEIGHT_BASED',
+  status: 'REQUIRES_INGAGE_APPROVAL',
+  approvedBy: null,
+  approvedAt: null,
 };
 
 // ===== ASSESSMENT SNAPSHOT =====

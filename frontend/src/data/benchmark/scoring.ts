@@ -16,8 +16,8 @@
 import { seedCRIRuleVersion } from './seed';
 import type {
   Benchmark, BenchmarkAssessment, BenchmarkCandidate, BenchmarkVersion,
-  CRIRuleVersion, CriticFinding, DomainScore, GapResult, ImpactSimulation,
-  MaturityLevel,
+  CRIRuleVersion, CriticFinding, DomainScore, GapResult, GateOutcome,
+  ImpactSimulation, MaturityLevel,
 } from './types';
 
 /** Reading order, lowest capability first. Note that L1 is the TOP. */
@@ -54,11 +54,21 @@ export function domainLabel(code: string): string {
 export interface CRIResult {
   overallCRI: number;
   domainScores: DomainScore[];
-  totalPenalties: number;
-  /** Score before gate penalties, so a report can show the deduction rather
-   * than only the final number. The original returned no such value, which is
-   * why its UI displayed hardcoded penalty figures. */
-  baseCRI: number;
+  /** The weighted score before any gate applied, so a report can show the
+   * ceiling rather than only the final number. */
+  uncappedCRI: number;
+  /** One entry per gate in the rule version — fired or not, and what it did.
+   * This is the trace §13.7 requires of every score component. */
+  gateOutcomes: GateOutcome[];
+  /** True when the rule version's numbers have not been approved by InGage
+   * (§2.4). The UI must not present the score as methodology when this is set. */
+  rulesAwaitingApproval: boolean;
+}
+
+/** Is `level` at or above `minimum`? Unassessed (null) never is. */
+function meetsLevel(level: MaturityLevel | null, minimum: MaturityLevel): boolean {
+  if (!level) return false;
+  return MATURITY_ORDER.indexOf(level) >= MATURITY_ORDER.indexOf(minimum);
 }
 
 /**
@@ -122,21 +132,83 @@ export function calculateCRI(
 
   // The original computed this twice and discarded the first result. Only the
   // weighted sum is kept, which is correct while the weights total 1.0.
-  const baseCRI = Number(weightedSum.toFixed(1));
+  const uncappedCRI = Number(weightedSum.toFixed(1));
 
-  let totalPenalties = 0;
-  ruleVersion.gateRules.forEach((gate) => {
+  // --- Gates (§13.6): a gate CAPS a score, it does not deduct from it. ---
+  let overallCRI = uncappedCRI;
+  const gateOutcomes: GateOutcome[] = ruleVersion.gateRules.map((gate) => {
     const match = assessments.find((a) => a.benchmarkCode === gate.benchmarkCode);
-    if (!match) return;
-    if (gate.gateType === 'HARD' && !match.currentLevel) {
-      totalPenalties += gate.penaltyPercentage;
-    } else if (gate.gateType === 'SOFT' && match.currentLevel === 'L3_FOUNDATIONAL') {
-      totalPenalties += gate.penaltyPercentage / 2;
+    const base = {
+      gateCode: gate.gateCode,
+      gateDescription: gate.gateDescription,
+      benchmarkCode: gate.benchmarkCode,
+      capScoreEffect: gate.capScoreEffect,
+    };
+
+    if (!match) {
+      return { ...base, fired: false, reason: `${gate.benchmarkCode} is not in this assessment.`, effect: 'None' };
     }
+    if (meetsLevel(match.currentLevel, gate.minimumLevel)) {
+      return {
+        ...base, fired: false,
+        reason: `${gate.benchmarkCode} is at ${MATURITY_LABELS[match.currentLevel!]}, at or above the required ${MATURITY_LABELS[gate.minimumLevel]}.`,
+        effect: 'None',
+      };
+    }
+
+    const standing = match.currentLevel ? MATURITY_LABELS[match.currentLevel] : 'not assessed';
+    const reason = `${gate.benchmarkCode} is ${standing}, below the required ${MATURITY_LABELS[gate.minimumLevel]}.`;
+
+    if (gate.capScoreEffect === 'FLAG_ONLY') {
+      return { ...base, fired: true, reason, effect: 'Flagged for attention; no change to the score.' };
+    }
+    if (gate.capScoreEffect === 'REVIEW_REQUIRED') {
+      return { ...base, fired: true, reason, effect: 'Human review required before this score is official.' };
+    }
+    if (gate.maxAllowedScore === null) {
+      return { ...base, fired: true, reason, effect: 'No ceiling configured; no change to the score.' };
+    }
+
+    if (gate.capScoreEffect === 'CAP_OVERALL') {
+      const before = overallCRI;
+      overallCRI = Math.min(overallCRI, gate.maxAllowedScore);
+      return {
+        ...base, fired: true, reason,
+        effect: before > gate.maxAllowedScore
+          ? `Overall capped at ${gate.maxAllowedScore} (was ${before.toFixed(1)}).`
+          : `Overall ceiling of ${gate.maxAllowedScore} applied; score was already below it.`,
+      };
+    }
+
+    // CAP_DOMAIN / CAP_CATEGORY both cap the benchmark's own domain. Category
+    // capping needs the category tree, which this demo layer does not carry.
+    const domainCode = gate.benchmarkCode.split('.')[0];
+    const domain = domainScores.find((d) => d.domainCode === domainCode);
+    if (!domain || domain.normalizedScore <= gate.maxAllowedScore) {
+      return { ...base, fired: true, reason, effect: `${domainCode} ceiling of ${gate.maxAllowedScore} applied; domain was already below it.` };
+    }
+    const wasDomain = domain.normalizedScore;
+    domain.normalizedScore = gate.maxAllowedScore;
+    domain.weightedScore = Number((gate.maxAllowedScore * domain.weight).toFixed(2));
+    // Capping a domain changes the total it feeds.
+    overallCRI = Number(
+      domainScores.reduce((sum, d) => (d.benchmarkCount > 0 ? sum + d.weightedScore : sum), 0).toFixed(1),
+    );
+    return {
+      ...base, fired: true, reason,
+      effect: `${domainCode} capped at ${gate.maxAllowedScore} (was ${wasDomain.toFixed(1)}).`,
+    };
   });
 
-  const overallCRI = Math.max(0, Math.min(100, Number((baseCRI - totalPenalties).toFixed(1))));
-  return { overallCRI, domainScores, totalPenalties, baseCRI };
+  overallCRI = Math.max(0, Math.min(100, Number(overallCRI.toFixed(1))));
+
+  return {
+    overallCRI,
+    domainScores,
+    uncappedCRI,
+    gateOutcomes,
+    rulesAwaitingApproval: ruleVersion.status !== 'APPROVED',
+  };
 }
 
 /** Every applicable benchmark sitting below its target becomes a gap. */

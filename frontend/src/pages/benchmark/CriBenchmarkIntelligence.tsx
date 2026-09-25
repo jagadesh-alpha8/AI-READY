@@ -1,225 +1,367 @@
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  AlertTriangle, Award, BarChart3, FileText, RefreshCw, TrendingUp, Zap,
+  AlertTriangle, ArrowRight, Award, BarChart3, Info, RefreshCw, TrendingUp,
 } from 'lucide-react';
 
-import { DemoDataNotice } from '../../components/DemoDataNotice';
+import { listSprints } from '../../api/sprints';
+import { getScore, recalculateScore } from '../../api/scoring';
+import { listSprintGaps } from '../../api/gaps';
+import { listRecommendations } from '../../api/recommendations';
+import { useApiResource } from '../../hooks/useApiResource';
+import { getErrorMessage } from '../../utils/errors';
+import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { PageHeader, TabStrip } from '../../components/PageHeader';
-import { seedAssessmentSnapshot, seedGaps, seedTransformationMappings } from '../../data/benchmark/seed';
-import { MATURITY_LABELS, calculateCRI } from '../../data/benchmark/scoring';
-import type { GapResult } from '../../data/benchmark/types';
+import type {
+  Gap, GapPriority, PillarScore, PillarStatus, Recommendation, Scorecard, Sprint,
+} from '../../types';
 
 /**
- * Ported from the InGage prototype's CRI & Benchmark Intelligence page.
+ * CRI & Benchmark Intelligence — the institution's readiness score, the gaps
+ * behind it, and the roadmap that closes them.
  *
- * ⚠ This is a SECOND scoring model, parallel to the platform's own CRI engine
- * (8 pillars scored from confirmed facts). This one scores 8 domains from
- * benchmark maturity levels. The two will not agree, and which is
- * authoritative is an open decision — see the note rendered on the score tab.
+ * Every figure is REAL: it comes from `apps/scoring`'s deterministic engine,
+ * the gap engine, and the recommendation generators. Nothing is seeded.
+ *
+ * ⚠ On the name: this reads the platform's **pillar-based** CRI — eight
+ * pillars scored from confirmed facts. The specification's §13 describes a
+ * future CRI computed from an approved *benchmark library* instead. That
+ * library has no backend yet (no model, no table, no endpoint), so there is
+ * nothing benchmark-shaped to show. Rather than render a seeded stand-in and
+ * call it intelligence, this page shows the engine that actually runs and
+ * says plainly what is still to come.
  */
 
-type Tab = 'summary' | 'gaps' | 'roadmap';
+type Tab = 'score' | 'gaps' | 'roadmap';
+
+const PILLAR_STATUS_BADGE: Record<PillarStatus, string> = {
+  not_started: 'badge-neutral',
+  at_risk: 'badge-danger',
+  developing: 'badge-warning',
+  strong: 'badge-success',
+};
+
+const PILLAR_STATUS_LABEL: Record<PillarStatus, string> = {
+  not_started: 'Not started',
+  at_risk: 'At risk',
+  developing: 'Developing',
+  strong: 'Strong',
+};
+
+const PRIORITY_BADGE: Record<GapPriority, string> = {
+  blocking: 'badge-danger',
+  high: 'badge-warning',
+  medium: 'badge-info',
+  optional: 'badge-neutral',
+};
 
 export const CriBenchmarkIntelligence: React.FC = () => {
-  const [tab, setTab] = useState<Tab>('summary');
-  const snapshot = seedAssessmentSnapshot;
-  const [gaps] = useState<GapResult[]>(seedGaps);
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<Tab>('score');
+  const [sprintId, setSprintId] = useState('');
+  const [recalculating, setRecalculating] = useState(false);
+  const [actionError, setActionError] = useState('');
 
-  // Recalculating does NOT overwrite the published snapshot. The prototype's
-  // version did, and the result was startling: its seed declares an overall
-  // CRI of 43.5 with eight populated domain scores, but ships only three
-  // benchmark assessments — which the engine scores at 0.0. One press turned
-  // 43.5 into 0 with no explanation.
-  //
-  // Both numbers are shown instead, because the discrepancy is the useful
-  // finding: the seeded figure cannot be reproduced from the assessments it
-  // travels with.
-  const [recomputed, setRecomputed] = useState<ReturnType<typeof calculateCRI> | null>(null);
+  const { data: sprints, loading: sprintsLoading, error: sprintsError, refetch: refetchSprints } =
+    useApiResource<Sprint[]>(() => listSprints(), []);
 
-  const result = useMemo(() => calculateCRI(snapshot.benchmarkAssessments), [snapshot]);
-  const assessedCount = snapshot.benchmarkAssessments.length;
+  const activeSprintId = sprintId || sprints?.[0]?.id || '';
 
-  const recalculate = () => setRecomputed(result);
+  const {
+    data: scorecard, setData: setScorecard, loading: scoreLoading, error: scoreError, refetch: refetchScore,
+  } = useApiResource<Scorecard>(() => getScore(activeSprintId), [activeSprintId], !!activeSprintId);
+
+  const { data: gaps } = useApiResource<Gap[]>(
+    () => listSprintGaps(activeSprintId), [activeSprintId], !!activeSprintId,
+  );
+
+  const { data: recommendations } = useApiResource<Recommendation[]>(
+    () => listRecommendations(activeSprintId), [activeSprintId], !!activeSprintId,
+  );
+
+  const openGaps = useMemo(
+    () => (gaps ?? []).filter((g) => g.status === 'open' || g.status === 'in_progress'),
+    [gaps],
+  );
+
+  const visibleRecommendations = useMemo(
+    () => (recommendations ?? []).filter((r) => r.status !== 'hidden'),
+    [recommendations],
+  );
+
+  const handleRecalculate = async () => {
+    if (!activeSprintId || recalculating) return;
+    setRecalculating(true);
+    setActionError('');
+    try {
+      const { data } = await recalculateScore(activeSprintId);
+      setScorecard(data);
+    } catch (err) {
+      // A baseline-locked sprint refuses recalculation on purpose — the
+      // server's own message explains why far better than a generic one.
+      setActionError(getErrorMessage(err, 'Could not recalculate the score.'));
+    } finally {
+      setRecalculating(false);
+    }
+  };
+
+  if (sprintsLoading) return <LoadingState message="Loading sprints…" />;
+  if (sprintsError) return <ErrorState message={sprintsError} onRetry={refetchSprints} />;
+
+  if (!sprints || sprints.length === 0) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          icon={Award}
+          title="CRI & Benchmark Intelligence"
+          description="The institution's readiness score, the gaps behind it, and the roadmap that closes them."
+        />
+        <EmptyState
+          message="No sprints yet. A readiness score is produced by a discovery sprint — start one to see it here."
+          action={{ label: 'Start a sprint', onClick: () => navigate('/sprint/setup') }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <DemoDataNotice detail="The benchmark library and the assessment behind this score are sample data." />
-
       <PageHeader
         icon={Award}
         title="CRI & Benchmark Intelligence"
-        description="The institution scored against the published benchmark library — the index, the gaps behind it, and the roadmap that closes them."
+        description="The institution's readiness score, the gaps behind it, and the roadmap that closes them."
         actions={
-          <button type="button" onClick={recalculate} className="btn-primary btn-sm">
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Recalculate</span>
+          <button
+            type="button"
+            onClick={handleRecalculate}
+            disabled={recalculating || !activeSprintId}
+            className="btn-primary btn-sm"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${recalculating ? 'animate-spin' : ''}`} />
+            <span>{recalculating ? 'Recalculating…' : 'Recalculate'}</span>
           </button>
         }
       />
 
+      <div className="glass-card p-4">
+        <label className="label" htmlFor="cri-sprint">Sprint</label>
+        <select
+          id="cri-sprint"
+          value={activeSprintId}
+          onChange={(e) => { setSprintId(e.target.value); setTab('score'); }}
+          className="input"
+        >
+          {sprints.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.sprint_code}{s.name ? ` — ${s.name}` : ''} ({s.status.replace(/_/g, ' ')})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
+
       <TabStrip
         tabs={[
-          { id: 'summary', label: 'Score card', icon: BarChart3 },
-          { id: 'gaps', label: 'Gap analysis', icon: AlertTriangle, count: gaps.length },
-          { id: 'roadmap', label: 'Roadmap', icon: TrendingUp, count: seedTransformationMappings.length },
+          { id: 'score', label: 'Score card', icon: BarChart3 },
+          { id: 'gaps', label: 'Gaps', icon: AlertTriangle, count: openGaps.length },
+          { id: 'roadmap', label: 'Roadmap', icon: TrendingUp, count: visibleRecommendations.length },
         ]}
         active={tab}
         onChange={setTab}
       />
 
-      {tab === 'summary' && (
-        <ScoreCard
-          published={snapshot.overallCRI}
-          domainScores={snapshot.domainScores}
-          recomputed={recomputed}
-          assessedCount={assessedCount}
-        />
+      {scoreError && <ErrorState message={scoreError} onRetry={refetchScore} />}
+      {scoreLoading && <LoadingState message="Loading the score…" />}
+
+      {!scoreLoading && !scoreError && scorecard && (
+        <>
+          {tab === 'score' && <ScoreCard scorecard={scorecard} sprintId={activeSprintId} />}
+          {tab === 'gaps' && <Gaps gaps={openGaps} sprintId={activeSprintId} />}
+          {tab === 'roadmap' && <Roadmap recommendations={visibleRecommendations} sprintId={activeSprintId} />}
+        </>
       )}
-      {tab === 'gaps' && <GapAnalysis gaps={gaps} />}
-      {tab === 'roadmap' && <Roadmap />}
     </div>
   );
 };
 
 // ===== SCORE CARD =====
-const ScoreCard: React.FC<{
-  published: number;
-  domainScores: typeof seedAssessmentSnapshot.domainScores;
-  recomputed: ReturnType<typeof calculateCRI> | null;
-  assessedCount: number;
-}> = ({ published, domainScores, recomputed, assessedCount }) => (
-  <div className="space-y-4">
-    <div className="rounded-lg border border-warning-line bg-warning-bg p-4 flex items-start gap-3">
-      <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-      <p className="text-sm text-ink-600 min-w-0">
-        <strong className="text-warning">Two scoring models. </strong>
-        This index is computed from benchmark maturity levels. The platform's Live CRI Preview
-        computes a different index from confirmed facts against pillar criteria. They will not
-        agree — which one is authoritative has not been decided.
-      </p>
-    </div>
+const ScoreCard: React.FC<{ scorecard: Scorecard; sprintId: string }> = ({ scorecard, sprintId }) => {
+  const navigate = useNavigate();
+  const m = scorecard.evidence_metrics;
 
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div className="glass-card p-6 flex flex-col items-center justify-center text-center">
-        <span className="text-xs font-bold uppercase tracking-wide text-ink-500">
-          Campus Readiness Index
-        </span>
-        <p className="text-5xl font-bold text-brand-800 mt-2 tabular-nums">
-          {published.toFixed(1)}
-          <span className="text-xl text-ink-500 font-normal"> / 100</span>
-        </p>
-        <span className="badge badge-brand mt-3">Published snapshot</span>
-      </div>
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="glass-card p-6 flex flex-col items-center justify-center text-center">
+          <span className="text-xs font-bold uppercase tracking-wide text-ink-500">
+            Campus Readiness Index
+          </span>
+          <p className="text-5xl font-bold text-brand-800 mt-2 tabular-nums">
+            {scorecard.overall_cri.toFixed(1)}
+            <span className="text-xl text-ink-500 font-normal"> / 100</span>
+          </p>
+          <p className="text-sm text-ink-500 mt-2">
+            Confidence {(scorecard.overall_confidence * 100).toFixed(0)}%
+          </p>
+          <span className="badge badge-neutral mt-3" title="The scoring rubric this result was produced by">
+            Engine {scorecard.calculation_version}
+          </span>
+        </div>
 
-      <div className="lg:col-span-2 glass-card p-6 space-y-3">
-        <h2 className="eyebrow">Recalculate to see the engine run</h2>
-        {recomputed ? (
-          <>
-            {/* Derived, not hardcoded. The prototype displayed fixed
-                "−15 / −5" figures that were never computed; these come from
-                the engine. */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Figure label="Before penalties" value={recomputed.baseCRI.toFixed(1)} />
-              <Figure
-                label="Gate penalties"
-                value={recomputed.totalPenalties > 0 ? `−${recomputed.totalPenalties.toFixed(1)}` : '0.0'}
-                tone={recomputed.totalPenalties > 0 ? 'danger' : 'default'}
-              />
-              <Figure label="Recomputed index" value={recomputed.overallCRI.toFixed(1)} tone="brand" />
-            </div>
-            <p className="text-xs text-ink-500 flex items-start gap-1.5">
-              <Zap className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              A hard gate deducts its full penalty when a critical benchmark is unassessed; a soft
-              gate deducts half when one sits at the foundational level.
-            </p>
-          </>
-        ) : (
-          <p className="text-sm text-ink-500">
-            Press <strong className="text-ink-900">Recalculate</strong> to run the deterministic
-            engine over the assessments in this snapshot and compare the result with the published
-            figure.
-          </p>
-        )}
-      </div>
-    </div>
-
-    {recomputed && Math.abs(recomputed.overallCRI - published) > 0.05 && (
-      <div className="rounded-lg border border-danger-line bg-danger-bg p-4 flex items-start gap-3">
-        <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
-        <div className="text-sm text-ink-600 min-w-0 space-y-1.5">
-          <p>
-            <strong className="text-danger">
-              The published figure cannot be reproduced from this snapshot.
-            </strong>{' '}
-            Published {published.toFixed(1)}; recomputed {recomputed.overallCRI.toFixed(1)}.
-          </p>
-          <p>
-            The sample data carries eight populated domain scores but only{' '}
-            <strong className="text-ink-900">{assessedCount} benchmark assessments</strong>. Every
-            other domain therefore scores zero while still carrying its weight, and the gates deduct
-            a further {recomputed.totalPenalties.toFixed(1)} points.
-          </p>
-          <p>
-            This is a defect in the prototype's seed data, not in the engine — the prototype's own
-            recalculate button had the same effect, silently. Surfacing it rather than overwriting
-            the published number, because a score that changes by 40 points on a button press is
-            exactly the thing a client would notice.
+        <div className="lg:col-span-2 glass-card p-6 space-y-3">
+          <h2 className="eyebrow">What the score was built from</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <Figure label="Documents processed" value={m.documents_processed} />
+            <Figure label="Facts confirmed" value={m.confirmed_facts} />
+            <Figure label="Facts corrected" value={m.corrected_facts} />
+            <Figure label="Facts extracted" value={m.total_extracted_facts} />
+            <Figure
+              label="Gaps unresolved"
+              value={m.unresolved_gaps}
+              tone={m.unresolved_gaps > 0 ? 'danger' : 'success'}
+            />
+            <Figure
+              label="Blocking gaps"
+              value={scorecard.unresolved_blocking_gaps.length}
+              tone={scorecard.unresolved_blocking_gaps.length > 0 ? 'danger' : 'success'}
+            />
+          </div>
+          <p className="text-xs text-ink-500">
+            Every point traces back to a confirmed fact from an uploaded document. The engine is
+            deterministic — the same inputs and the same rubric version always produce the same score.
           </p>
         </div>
       </div>
-    )}
 
-    <div className="glass-card p-6 space-y-4">
-      <h2 className="eyebrow">Domain readiness — published snapshot</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {domainScores.map((domain) => (
-          <div key={domain.domainCode} className="rounded-lg border border-line-200 bg-surface p-4 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-bold text-ink-900 min-w-0 truncate">{domain.domainLabel}</span>
-              <span className="text-sm font-bold text-brand-800 tabular-nums shrink-0">
-                {domain.normalizedScore.toFixed(1)}
-              </span>
-            </div>
-            <div
-              className="h-2 rounded-full bg-line-200 overflow-hidden"
-              role="progressbar"
-              aria-valuenow={Math.round(domain.normalizedScore)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={`${domain.domainLabel} score`}
-            >
-              <div
-                className="h-full rounded-full bg-brand-500"
-                style={{ width: `${Math.min(100, Math.max(0, domain.normalizedScore))}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-[11px] text-ink-500">
-              <span>Weight {(domain.weight * 100).toFixed(0)}%</span>
-              <span>
-                {domain.applicableBenchmarkCount === 0
-                  ? 'No benchmarks assessed'
-                  : `${domain.applicableBenchmarkCount} assessed`}
-              </span>
-            </div>
+      {scorecard.unresolved_blocking_gaps.length > 0 && (
+        <div className="rounded-lg border border-danger-line bg-danger-bg p-4 flex items-start gap-3">
+          <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
+          <div className="text-sm text-ink-600 min-w-0">
+            <p>
+              <strong className="text-danger">
+                {scorecard.unresolved_blocking_gaps.length} blocking gap
+                {scorecard.unresolved_blocking_gaps.length === 1 ? '' : 's'} open.
+              </strong>{' '}
+              A baseline cannot be approved until these are resolved.
+            </p>
           </div>
-        ))}
+        </div>
+      )}
+
+      <div className="glass-card p-6 space-y-4">
+        <h2 className="eyebrow">Readiness by pillar</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {scorecard.pillar_scores.map((pillar) => (
+            <PillarCard key={pillar.pillar} pillar={pillar} />
+          ))}
+        </div>
       </div>
-      <p className="text-xs text-ink-500">
-        A domain with no benchmarks assessed scores zero and still carries its weight — which is why
-        the headline index sits low while individual domains do not.
-      </p>
+
+      {(scorecard.strengths.length > 0 || scorecard.weaknesses.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {scorecard.strengths.length > 0 && (
+            <div className="glass-card p-5 space-y-2">
+              <h2 className="eyebrow">Strongest</h2>
+              {scorecard.strengths.map((s) => (
+                <div key={s.pillar} className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-ink-700 min-w-0 truncate">{s.label}</span>
+                  <span className="text-sm font-bold text-success tabular-nums shrink-0">
+                    {s.raw_score.toFixed(1)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {scorecard.weaknesses.length > 0 && (
+            <div className="glass-card p-5 space-y-2">
+              <h2 className="eyebrow">Weakest</h2>
+              {scorecard.weaknesses.map((w) => (
+                <div key={w.pillar} className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-ink-700 min-w-0 truncate">{w.label}</span>
+                  <span className="text-sm font-bold text-danger tabular-nums shrink-0">
+                    {w.raw_score.toFixed(1)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Honest about what the module's name promises but does not yet do. */}
+      <div className="rounded-lg border border-info-line bg-info-bg p-4 flex items-start gap-3">
+        <Info className="w-4 h-4 text-info shrink-0 mt-0.5" />
+        <p className="text-sm text-ink-600 min-w-0">
+          <strong className="text-info">Benchmark comparison is not built yet. </strong>
+          This score comes from the platform's eight-pillar engine. Specification §13 describes a CRI
+          computed instead against an approved benchmark library, with maturity levels and
+          criticality gates — that library has no backend yet. Benchmark Studio shows the intended
+          model on sample data.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => navigate(`/sprint/${sprintId}/score`)}
+        className="btn-secondary btn-sm"
+      >
+        <span>Open the full scoring workspace</span>
+        <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+};
+
+const PillarCard: React.FC<{ pillar: PillarScore }> = ({ pillar }) => (
+  <div className="rounded-lg border border-line-200 bg-surface p-4 space-y-2">
+    <div className="flex items-start justify-between gap-2">
+      <span className="text-sm font-bold text-ink-900 min-w-0">{pillar.label}</span>
+      <span className={`badge ${PILLAR_STATUS_BADGE[pillar.status]} shrink-0`}>
+        {PILLAR_STATUS_LABEL[pillar.status]}
+      </span>
+    </div>
+
+    <div className="flex items-baseline gap-2">
+      <span className="text-lg font-bold text-brand-800 tabular-nums">
+        {pillar.raw_score.toFixed(1)}
+      </span>
+      <span className="text-xs text-ink-500">/ 100</span>
+    </div>
+
+    <div
+      className="h-2 rounded-full bg-line-200 overflow-hidden"
+      role="progressbar"
+      aria-valuenow={Math.round(pillar.raw_score)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={`${pillar.label} score`}
+    >
+      <div
+        className="h-full rounded-full bg-brand-500"
+        style={{ width: `${Math.min(100, Math.max(0, pillar.raw_score))}%` }}
+      />
+    </div>
+
+    <div className="flex flex-wrap justify-between gap-x-3 text-[11px] text-ink-500">
+      <span>Weight {(pillar.weight * 100).toFixed(0)}%</span>
+      <span>{pillar.evidence_count} evidence</span>
+      <span>{pillar.gap_count} gaps</span>
+      <span>Confidence {(pillar.confidence * 100).toFixed(0)}%</span>
     </div>
   </div>
 );
 
-const Figure: React.FC<{ label: string; value: string; tone?: 'default' | 'danger' | 'brand' }> = ({
-  label, value, tone = 'default',
-}) => (
+const Figure: React.FC<{
+  label: string;
+  value: number;
+  tone?: 'default' | 'danger' | 'success';
+}> = ({ label, value, tone = 'default' }) => (
   <div className="rounded-lg border border-line-200 bg-surface p-3">
     <p className="text-[11px] font-bold uppercase tracking-wide text-ink-500">{label}</p>
     <p
       className={`text-xl font-bold mt-0.5 tabular-nums ${
-        tone === 'danger' ? 'text-danger' : tone === 'brand' ? 'text-brand-800' : 'text-ink-900'
+        tone === 'danger' ? 'text-danger' : tone === 'success' ? 'text-success' : 'text-ink-900'
       }`}
     >
       {value}
@@ -227,121 +369,165 @@ const Figure: React.FC<{ label: string; value: string; tone?: 'default' | 'dange
   </div>
 );
 
-// ===== GAP ANALYSIS =====
-const GapAnalysis: React.FC<{ gaps: GapResult[] }> = ({ gaps }) => (
-  <div className="space-y-3">
-    <p className="text-sm text-ink-500">
-      Every applicable benchmark sitting below its target becomes a gap, generated deterministically
-      from current level versus target level.
-    </p>
+// ===== GAPS =====
+const Gaps: React.FC<{ gaps: Gap[]; sprintId: string }> = ({ gaps, sprintId }) => {
+  const navigate = useNavigate();
 
-    {gaps.map((gap) => (
-      <div key={gap.id} className="glass-card p-5 space-y-3">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="font-mono text-xs font-bold text-brand-800 bg-brand-500/10 px-2 py-1 rounded">
-              {gap.benchmarkCode}
+  if (gaps.length === 0) {
+    return <EmptyState message="No open gaps on this sprint." />;
+  }
+
+  // Blocking first — that is the order someone works them in.
+  const order: GapPriority[] = ['blocking', 'high', 'medium', 'optional'];
+  const sorted = [...gaps].sort(
+    (a, b) => order.indexOf(a.priority) - order.indexOf(b.priority),
+  );
+
+  // A processed sprint routinely carries hundreds of gaps — this one has 306,
+  // which rendered as 306 cards and a page 37,000 pixels tall. Nobody reads
+  // that. This is a summary view; the gap dashboard is the work queue, so
+  // show the counts and the few that actually block a baseline, then link out.
+  const SHOWN = 12;
+  const visible = sorted.slice(0, SHOWN);
+  const remaining = sorted.length - visible.length;
+
+  const byPriority = order
+    .map((p) => ({ priority: p, count: gaps.filter((g) => g.priority === p).length }))
+    .filter((row) => row.count > 0);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-ink-500">
+        Generated by the gap engine from the sprint's own facts and documents — five detectors plus
+        AI conflict checking. Each carries the score impact of leaving it open.
+      </p>
+
+      <div className="glass-card p-5 space-y-3">
+        <h2 className="eyebrow">{gaps.length} open gaps</h2>
+        <div className="flex flex-wrap gap-2">
+          {byPriority.map((row) => (
+            <span key={row.priority} className={`badge ${PRIORITY_BADGE[row.priority]}`}>
+              {row.count} {row.priority}
             </span>
-            <span className="text-sm font-bold text-ink-900">{gap.benchmarkTitle}</span>
-          </div>
-          <span
-            className={`badge ${
-              gap.severity === 'CRITICAL' ? 'badge-danger' : gap.severity === 'HIGH' ? 'badge-warning' : 'badge-info'
-            }`}
-          >
-            {gap.severity}
-          </span>
+          ))}
         </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-lg bg-surface border border-line-200 p-3">
-          <Cell label="Current" value={gap.currentLevel ? MATURITY_LABELS[gap.currentLevel] : 'Not assessed'} />
-          <Cell label="Target" value={MATURITY_LABELS[gap.targetLevel]} tone="success" />
-          <Cell label="Evidence needed" value={`${gap.evidenceGaps.length} item${gap.evidenceGaps.length === 1 ? '' : 's'}`} />
-          <Cell label="CRI at stake" value={`${gap.criImpact.toFixed(1)} pts`} tone="danger" />
-        </div>
-
-        {gap.evidenceGaps.length > 0 && (
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-wide text-ink-500 mb-1.5">
-              Missing evidence
-            </p>
-            <ul className="space-y-1">
-              {gap.evidenceGaps.map((item) => (
-                <li key={item} className="text-sm text-ink-600 flex items-start gap-2">
-                  <FileText className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {gap.recommendedActions.length > 0 && (
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-wide text-ink-500 mb-1.5">
-              Recommended actions
-            </p>
-            <ul className="space-y-1">
-              {gap.recommendedActions.map((item) => (
-                <li key={item} className="text-sm text-ink-600 flex items-start gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-brand-500 shrink-0 mt-1.5" />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
-    ))}
-  </div>
-);
 
-const Cell: React.FC<{ label: string; value: string; tone?: 'default' | 'success' | 'danger' }> = ({
-  label, value, tone = 'default',
-}) => (
-  <div className="min-w-0">
-    <p className="text-[10px] font-bold uppercase tracking-wide text-ink-500">{label}</p>
-    <p
-      className={`text-sm font-bold truncate ${
-        tone === 'success' ? 'text-success' : tone === 'danger' ? 'text-danger' : 'text-ink-900'
-      }`}
-    >
-      {value}
-    </p>
-  </div>
-);
+      {visible.map((gap) => (
+        <div key={gap.id} className="glass-card p-5 space-y-2">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-ink-900">{gap.title}</h3>
+              <p className="text-xs text-ink-500 mt-0.5">
+                {gap.pillar_label || gap.pillar} · {gap.gap_type.replace(/_/g, ' ')}
+                {gap.owner_role ? ` · ${gap.owner_role.replace(/_/g, ' ').toLowerCase()}` : ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {gap.score_impact > 0 && (
+                <span className="badge badge-warning">−{gap.score_impact.toFixed(1)} pts</span>
+              )}
+              <span className={`badge ${PRIORITY_BADGE[gap.priority]}`}>{gap.priority}</span>
+            </div>
+          </div>
+
+          {gap.description && <p className="text-sm text-ink-600">{gap.description}</p>}
+        </div>
+      ))}
+
+      {remaining > 0 && (
+        <p className="text-sm text-ink-500">
+          Showing the {SHOWN} highest-priority of {gaps.length}. The other {remaining} are in the gap
+          dashboard, where they can be filtered, assigned and resolved.
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={() => navigate(`/sprint/${sprintId}/gaps`)}
+        className="btn-secondary btn-sm"
+      >
+        <span>Work all {gaps.length} in the gap dashboard</span>
+        <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+};
 
 // ===== ROADMAP =====
-const Roadmap: React.FC = () => (
-  <div className="space-y-3">
-    <p className="text-sm text-ink-500">
-      Each initiative is tied to the gap it closes, with the CRI movement it is expected to produce.
-    </p>
+const Roadmap: React.FC<{ recommendations: Recommendation[]; sprintId: string }> = ({
+  recommendations, sprintId,
+}) => {
+  const navigate = useNavigate();
 
-    {seedTransformationMappings.map((item) => (
-      <div key={item.id} className="glass-card p-5 space-y-3">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="min-w-0">
-            <span className="font-mono text-[11px] font-bold text-ink-500">{item.initiativeCode}</span>
-            <h3 className="text-sm font-bold text-ink-900">{item.title}</h3>
-          </div>
-          <span className="badge badge-success shrink-0">
-            <TrendingUp className="w-3 h-3" />
-            +{item.estimatedCriLift.toFixed(1)} CRI
-          </span>
+  if (recommendations.length === 0) {
+    return (
+      <EmptyState
+        message="No recommendations generated yet. They are produced from the sprint's gaps and confirmed facts."
+        action={{
+          label: 'Open recommendations',
+          onClick: () => navigate(`/sprint/${sprintId}/recommendations`),
+        }}
+      />
+    );
+  }
+
+  const totalLift = recommendations.reduce((sum, r) => sum + (r.expected_cri_lift || 0), 0);
+
+  return (
+    <div className="space-y-3">
+      <div className="glass-card p-5 flex items-center justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <h2 className="eyebrow">Expected lift if all are actioned</h2>
+          <p className="text-sm text-ink-500 mt-0.5">
+            Derived per recommendation from the gap it closes.
+          </p>
         </div>
-
-        <p className="text-sm text-ink-600 rounded-lg bg-surface border border-line-200 p-3">
-          {item.description}
-        </p>
-
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-500">
-          <span>Timeline: <strong className="text-ink-900">{item.timeline}</strong></span>
-          <span>Owner: <strong className="text-ink-900">{item.owner}</strong></span>
-          <span>Priority: <strong className="text-ink-900">{item.priority}</strong></span>
-          <span>Status: <strong className="text-ink-900">{item.status.replace(/_/g, ' ')}</strong></span>
-        </div>
+        <span className="badge badge-success shrink-0">
+          <TrendingUp className="w-3 h-3" />
+          +{totalLift.toFixed(1)} CRI
+        </span>
       </div>
-    ))}
-  </div>
-);
+
+      {recommendations.map((rec) => (
+        <div key={rec.id} className="glass-card p-5 space-y-2.5">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <h3 className="text-sm font-bold text-ink-900 min-w-0">{rec.title}</h3>
+            <div className="flex items-center gap-2 shrink-0">
+              {rec.expected_cri_lift > 0 && (
+                <span className="badge badge-success">+{rec.expected_cri_lift.toFixed(1)} CRI</span>
+              )}
+              <span className={`badge ${PRIORITY_BADGE[rec.priority]}`}>{rec.priority}</span>
+            </div>
+          </div>
+
+          {rec.description && (
+            <p className="text-sm text-ink-600 rounded-lg bg-surface border border-line-200 p-3">
+              {rec.description}
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-500">
+            {rec.pillar_label && <span>Pillar: <strong className="text-ink-900">{rec.pillar_label}</strong></span>}
+            {rec.owner_role && (
+              <span>
+                Owner: <strong className="text-ink-900">{rec.owner_role.replace(/_/g, ' ').toLowerCase()}</strong>
+              </span>
+            )}
+            {rec.timeline && <span>Timeline: <strong className="text-ink-900">{rec.timeline}</strong></span>}
+            <span>Status: <strong className="text-ink-900">{rec.status}</strong></span>
+          </div>
+        </div>
+      ))}
+
+      <button
+        type="button"
+        onClick={() => navigate(`/sprint/${sprintId}/recommendations`)}
+        className="btn-secondary btn-sm"
+      >
+        <span>Edit in the recommendations workspace</span>
+        <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+};

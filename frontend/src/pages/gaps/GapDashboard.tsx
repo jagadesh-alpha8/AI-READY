@@ -19,6 +19,11 @@ export const GapDashboard: React.FC = () => {
     refetch,
   } = useApiResource<Gap[]>(() => listSprintGaps(sprintId!), [sprintId], isRealSprint);
   const gaps = gapsData || [];
+  // `open` and `in_progress` are both live work; resolved, unavailable and
+  // skipped are closed out.
+  const openGapCount = gaps.filter(
+    (gap) => gap.status === 'open' || gap.status === 'in_progress',
+  ).length;
 
   const [actionError, setActionError] = useState('');
   const [resolvingId, setResolvingId] = useState<string | null>(null);
@@ -97,7 +102,13 @@ export const GapDashboard: React.FC = () => {
       <div className="glass-card p-5 sm:p-6">
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <h2 className="eyebrow">Identified Data Gaps &amp; Score Penalties</h2>
-          <span className="text-xs text-ink-500">{gaps.length} gaps open</span>
+          {/* The table below lists every gap, resolved ones included, so this
+              label must not call the whole list "open" -- it read "318 gaps
+              open" on a sprint with 306 open and 12 already resolved. */}
+          <span className="text-xs text-ink-500">
+            {openGapCount} open
+            {gaps.length > openGapCount && ` · ${gaps.length - openGapCount} closed`}
+          </span>
         </div>
 
         {loading ? (
