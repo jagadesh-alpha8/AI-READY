@@ -1,12 +1,28 @@
 # AIOS Discovery Sprint — Project Workflow & Technical Report
 
 > **Scope.** Every statement below was traced through the actual repository at
-> `D:\AI READY` (branch `main`, HEAD `9be6893 "category remove and work completion
-> seperation"`, plus the uncommitted working tree). Where a capability is commonly
-> expected but genuinely absent, this report says **"Not found in the codebase"**
-> rather than guessing. No secret values are reproduced.
+> `D:\AI READY` (branch `main`, HEAD `3654670 "benchmark"`). Where a capability is
+> commonly expected but genuinely absent, this report says **"Not found in the
+> codebase"** rather than guessing. No secret values are reproduced.
 >
-> **Status legend:** `[IMPLEMENTED]` · `[PARTIAL]` · `[PLANNED]` · `[DEAD/UNUSED]`
+> **Status legend:** `[IMPLEMENTED]` · `[PARTIAL]` · `[UI-ONLY / DEMO DATA]` ·
+> `[PLANNED]` · `[DEAD/UNUSED]`
+>
+> ⚠️ **Read this before anything else.** As of `3654670` the application contains
+> **two very different kinds of screen**, and they look equally finished:
+>
+> * **Nine screens are real** — Dashboard, Institution DNA, and the ten-step AI
+>   Readiness Audit. They call the Django API, persist to PostgreSQL, and enforce
+>   permissions server-side.
+> * **Nine screens are `[UI-ONLY / DEMO DATA]`** — ported from an InGage prototype
+>   and rendering hardcoded sample content held in the browser. **No API call, no
+>   database table, no migration, no endpoint, nothing persisted.** Reloading
+>   resets them. Every one carries an on-screen "Demo data" banner and a `DEMO`
+>   badge in the sidebar, and §3.12 lists them explicitly.
+>
+> No figure on a demo screen is an institution's real record. This matters more
+> than usual here, because the rest of the platform is built on the opposite
+> promise — that a number on screen traces back to a document a human can open.
 >
 > ### What changed since this report was first written
 >
@@ -21,9 +37,13 @@
 > | **Sprint Setup narrowed** — no longer creates institutions, no sprint-mode picker | §2.3, §3.3, §7 |
 > | **Institution delete became a hard delete**, and institution *creation* moved to the Institution DNA list page | §3.2, §5.3, §7.1 |
 > | **`apps.vector_store` added** — a 12th Django app: Pinecone-backed semantic retrieval over college document text | §1, §3.11, §5, §6, §7, §9, §11, §12, §13, §17, §19, §21, §22, §24, §25, §27 |
+> | **Status Dashboard left the sidebar** — now a standalone route outside the app shell, reached by URL | §4.2, §4.3, §19, §25 |
+> | **Nine modules ported from the InGage prototype**, frontend-only, on demo data — including a **second, parallel CRI scoring model** | §1, §3.12, §4, §19, §25, §27 |
 >
 > Backend test count moved **481 → 498** (Institution DNA) **→ 578** (vector store);
-> migrations **20 → 21 → 22**; Django apps **11 → 12**.
+> migrations **20 → 21 → 22**; Django apps **11 → 12**. **The backend has not
+> changed since the vector store landed** — the nine ported modules added
+> ~4 050 lines of frontend and nothing else.
 
 ---
 
@@ -168,9 +188,13 @@ of "sees everything", consumed by `apps/accounts/permissions.py`.
 | 15 | Cross-sprint dashboard with live metrics | `dashboard` | `[IMPLEMENTED]` |
 | 15a | **Project Status Dashboard** — build-progress report against the 11-module plan | frontend only | `[IMPLEMENTED]` — hand-maintained data, see §25 |
 | 15b | **Vector store** — chunk/embed college document text into Pinecone; institution-isolated semantic evidence search | `vector_store` | `[IMPLEMENTED]` backend + API, **optional**; no UI consumes it yet — see §3.11 |
+| 15c | **CRI & Benchmark Intelligence** — institution scored against a benchmark library, with gaps and roadmap | frontend only | **`[UI-ONLY / DEMO DATA]`** — see §3.12 |
+| 15d | **Benchmark Studio** — author/version/approve/publish the benchmark library (7 tabs) | frontend only | **`[UI-ONLY / DEMO DATA]`**, InGage-internal — see §3.12 |
+| 15e | **Evidence Intelligence · Transformation Plan · Goals & Tasks · AI Chatbot · Reminders · Compliance Mapping · UAT Readiness** | frontend only | **`[UI-ONLY / DEMO DATA]`** — see §3.12 |
 | 16 | OpenAPI schema / Swagger / ReDoc | `config` | `[IMPLEMENTED]` |
 | 17 | Celery Beat / scheduled tasks | — | **Not found in the codebase** (deliberately — see §11) |
-| 17a | Benchmarking framework / benchmark vectors / college-vs-benchmark comparison | — | **Not found in the codebase.** The vector store is the retrieval layer such a framework would call; no benchmark criteria, vectors or comparison logic exist |
+| 17a | Benchmarking framework — **persisted** benchmark library, applicability rules, published versions, approval trail | — | **Not found in the codebase.** A UI for all of this now exists (§3.12) and the vector store is the retrieval layer it would call, but **no model, table, migration or endpoint backs any of it** |
+| 17b | Admin / Settings | — | **Not found in the codebase.** The menu entry is present but deliberately inert |
 | 18 | User registration / self-signup | — | **Not found in the codebase** — accounts are seeded or created in Django admin |
 | 19 | Password reset by email | — | **Not found in the codebase** — only authenticated `change-password` exists |
 | 20 | Email/notification sending | — | **Not found in the codebase** — no mail backend configured |
@@ -195,7 +219,7 @@ GitHub Actions CI/CD, nginx 1.27-alpine (SPA + reverse proxy), deployed to a
 ```mermaid
 graph TB
     subgraph Browser["User's browser"]
-        SPA["React 18 SPA<br/>(Vite build, 15 screens)"]
+        SPA["React 18 SPA<br/>(Vite build, 24 screens<br/>9 of them demo-data only)"]
     end
 
     subgraph VM["GCP VM — /opt/ai-ready — docker compose"]
@@ -855,7 +879,94 @@ embeddings**: those live in Pinecone, and a second copy here would have no reade
 Three, all sprint-scoped — see §7.1. Pinecone is never exposed: no index name, no
 host, no key, and no raw match object reaches the client.
 
-## 3.12 Feature dependency graph
+## 3.12 The nine ported modules `[UI-ONLY / DEMO DATA]`
+
+Nine screens were ported from an InGage React prototype (`ai-future-ready-platform`)
+handed over for reference. **~4 050 lines of frontend, and nothing else** — no
+Django app, no model, no migration, no serializer, no endpoint. The backend is
+byte-identical to what it was before this work.
+
+### What "demo data" means here, precisely
+
+| | |
+|---|---|
+| Where the data lives | Two TypeScript modules — `data/benchmark/seed.ts` and `data/workspaceDemo.ts` — imported directly by the pages |
+| Network calls | **None.** No page in this set imports `api/client.ts` |
+| Persistence | **None.** Editing, approving, completing and sending are either disabled controls or local `useState`; a reload resets everything |
+| How a reader is warned | A `DemoDataNotice` banner is the **first element on every page**, placed so it cannot be cropped out of a screenshot, plus a `DEMO` badge on each sidebar row |
+
+The banner is not decoration. These screens are visually indistinguishable from the
+real ones — same tokens, same components, same dark mode — and the sample content is
+plausible (named faculty, real accreditation criteria, specific percentages). Without
+the label, a screenshot of Compliance Mapping would read as an institution's genuine
+NAAC position.
+
+### The modules
+
+| Module | Route | Ported from | What it shows |
+|---|---|---|---|
+| Evidence Intelligence | `/evidence` | `EvidencePage` | 12 documents with verification state, status filters, missing-evidence count |
+| **CRI & Benchmark Intelligence** | `/cri-benchmark` | `CriBenchmarkIntelligence` | Score card, benchmark-driven gap analysis, transformation roadmap |
+| **Benchmark Studio** | `/benchmark-studio` | `BenchmarkStudio` | 7 tabs: explorer, editor, level matrix, source registry, approvals, versions, AI candidates |
+| Transformation Plan | `/transformation-plan` | `TransformationPlanPage` | 3 phases, 8 initiatives, owner and success metric each |
+| Goals & Tasks | `/goals-tasks` | `GoalsTasksPage` | Task list with owners; goals with progress |
+| AI Chatbot | `/ai-chatbot` | `AIChatPage` | Working chat UI over **five scripted keyword replies** |
+| Reminders | `/reminders` | `RemindersPage` | 8 reminders by priority and type |
+| Compliance Mapping | `/compliance` | `CompliancePage` | 10 criteria across NAAC / NBA / NIRF / NEP / AI-Future-Ready |
+| UAT Readiness | `/uat-readiness` | `UATPage` | 12-item sign-off checklist |
+
+### The benchmark model that came with them
+
+`data/benchmark/types.ts` (420 L) reproduces the prototype's domain model — the
+substantive part of the handover, and a reasonable contract for a future backend:
+
+- **4-level ontology** (DOMAIN → SECTION → CATEGORY → CAPABILITY) over **8 domains**
+- **3 maturity levels per benchmark**, with observable requirements, minimum
+  evidence, expected outcomes and explicit non-examples
+- **11-state lifecycle** with a transition table, and **immutability on publish**
+- **Source registry** — 7 authorities (AICTE, NAAC, NEP 2020, UNESCO, MIT, WEF,
+  InGage) with page-referenced claims, linked SUPPORTS/CONTRADICTS to benchmarks
+- **Applicability rules**, **CRI mapping** with weights and hard/soft gates
+- **AI benchmark factory** — candidates, an adversarial critic, an impact simulator
+
+> ⚠️ **The maturity levels are numbered in reverse: `L1_ADVANCED` is the HIGHEST,
+> `L3_FOUNDATIONAL` the lowest.** Preserved from the prototype rather than silently
+> corrected, and flagged on the Levels tab — but it reverses what most readers
+> expect and should be settled before it reaches a client report.
+
+### ⚠️ This introduces a second CRI scoring model
+
+The most consequential thing in the port, and an unresolved architectural conflict:
+
+| | `apps/scoring` (real) | `data/benchmark/scoring.ts` (demo) |
+|---|---|---|
+| Scores | 8 **pillars** | 8 **domains** |
+| From | Confirmed facts vs. pillar criteria | Benchmark maturity levels |
+| Where | Python, server-side, 61 tests | TypeScript, in the browser, untested |
+| Persisted | `ScoringRun`, `Baseline`, `PillarScore` | Nothing |
+
+**They will not agree**, and nothing reconciles them. The ported page says so in a
+banner. Which model is authoritative is an open product decision — a client shown
+two different CRI numbers is a serious problem.
+
+### Two defects in the prototype, fixed rather than copied
+
+1. **The seed data does not add up.** It declares `overallCRI: 43.5` with eight
+   populated domain scores, but ships **only three benchmark assessments**, which
+   the engine scores at **0.0** (7.7 base, less 20 points of gate penalties). The
+   prototype's "Recalculate" button silently overwrote 43.5 with 0. The port shows
+   the published figure and, on recalculation, both numbers side by side with the
+   arithmetic — the discrepancy being the useful finding.
+2. **Hardcoded penalties.** The prototype's score card displayed fixed "−15 / −5 Pts"
+   that were never computed; its calculator returned no penalty total at all.
+   `calculateCRI` now returns `baseCRI` and `totalPenalties`, and the UI renders
+   what the engine actually produced.
+
+Also not carried over: the prototype's `recharts` dependency (used in zero files),
+its `axios` client (never imported), and the 12 of 14 files in its `src/pages/` that
+its own `App.tsx` never imports.
+
+## 3.13 Feature dependency graph
 
 ```mermaid
 graph LR
@@ -904,22 +1015,42 @@ Dev server: `vite --host 0.0.0.0 --port 3000`, with a proxy sending `/api` →
 ## 4.2 Structure
 
 ```
-frontend/src/
+frontend/src/                 # 70 .ts/.tsx files
 ├── main.tsx              # ReactDOM.createRoot bootstrap
-├── App.tsx               # Router + all 17 route entries, ProtectedLayout
+├── App.tsx               # Router + all 27 route entries; ProtectedLayout + StandaloneRoute
 ├── api/                  # 14 axios modules, one per backend domain
 │   └── client.ts         # the shared axios instance + interceptors
+│                         #   NOTE: none of the ported modules import this
 ├── context/
 │   ├── AuthContext.tsx   # user/token/login/logout/loading
 │   └── ThemeContext.tsx  # light/dark
 ├── hooks/useApiResource.ts   # the single data-fetching hook
 ├── layouts/AppShell.tsx      # Navbar + Sidebar + content
-├── components/           # Navbar, Sidebar, ApiStates
-├── pages/                # 14 screens across 11 folders
+├── components/           # Navbar, Sidebar, ApiStates,
+│   ├── DemoDataNotice.tsx    #   the banner every ported page opens with
+│   └── PageHeader.tsx        #   shared PageHeader / TabStrip / FilterPills
+├── data/                 # ⚠ DEMO CONTENT ONLY — no API, no persistence
+│   ├── benchmark/
+│   │   ├── types.ts      #   the prototype's benchmark domain model (420 L)
+│   │   ├── seed.ts       #   12 benchmarks, 7 sources, 1 assessment snapshot
+│   │   └── scoring.ts    #   the SECOND CRI engine — see §3.12
+│   └── workspaceDemo.ts  #   evidence, plan, tasks, reminders, compliance, UAT, chat
+├── pages/                # 24 screens across 16 folders
+│   ├── benchmark/        #   [DEMO] CriBenchmarkIntelligence, BenchmarkStudio
+│   ├── evidence/ chat/ compliance/ workspace/   # [DEMO] the other seven
+│   ├── previews/         #   design previews — no longer linked from the menu
+│   └── …                 #   the real screens: auth, dashboard, institutions,
+│                         #   sprints, documents, facts, gaps, scoring,
+│                         #   recommendations, reports, status
 ├── types/                # 12 type modules, re-exported by types/index.ts
 ├── utils/errors.ts       # getErrorMessage + humanizeExtractionError
 └── index.css             # Tailwind + design tokens
 ```
+
+**The `data/` folder is new and is the thing to notice.** Before the port, every
+value the frontend rendered arrived from the API. These two modules are the first
+frontend-owned "facts" in the project, which is exactly why the pages that read them
+are labelled as loudly as they are.
 
 ## 4.3 Routing
 
@@ -930,9 +1061,19 @@ a static top-level import, so the whole app ships as one bundle.
 |---|---|---|
 | `/login` | `LoginRoute` — redirects to `/dashboard` if a session exists | `Login` |
 | `/dashboard` | `ProtectedLayout` | `Dashboard` |
-| `/status-dashboard` | `ProtectedLayout` | `StatusDashboard` — "Project Status Dashboard" |
+| `/status-dashboard` | **`StandaloneRoute`** | `StatusDashboard` — session-guarded but **outside the app shell**: no Navbar, no Sidebar, and absent from the menu. It reports on how much of the product plan exists, which makes it a report *about* the app rather than a module of it. Reached by URL; carries its own "back to the platform" link |
 | `/institution-dna` | `ProtectedLayout` | `InstitutionList` — the list, create form and delete |
 | `/institution-dna/:institutionId` | `ProtectedLayout` | `InstitutionDetail` — one institution's 3-tab workspace |
+| `/evidence` | `ProtectedLayout` | `EvidenceIntelligence` **`[DEMO]`** |
+| `/cri-benchmark` | `ProtectedLayout` | `CriBenchmarkIntelligence` **`[DEMO]`** |
+| `/benchmark-studio` | `ProtectedLayout` | `BenchmarkStudio` **`[DEMO]`** |
+| `/transformation-plan` | `ProtectedLayout` | `TransformationPlan` **`[DEMO]`** |
+| `/goals-tasks` | `ProtectedLayout` | `GoalsTasks` **`[DEMO]`** |
+| `/ai-chatbot` | `ProtectedLayout` | `AIChatbot` **`[DEMO]`** |
+| `/reminders` | `ProtectedLayout` | `Reminders` **`[DEMO]`** |
+| `/compliance` | `ProtectedLayout` | `ComplianceMapping` **`[DEMO]`** |
+| `/uat-readiness` | `ProtectedLayout` | `UatReadiness` **`[DEMO]`** |
+| `/preview/:moduleKey` | `ProtectedLayout` | `ModulePreview` — design write-ups for unbuilt modules. **No longer linked from the menu**; reachable by URL only (see §25) |
 | `/sprint/setup` | `ProtectedLayout` | `SprintSetup` |
 | `/sprint/:sprintId/upload` | `ProtectedLayout` | `UploadDataPack` |
 | `/sprint/:sprintId/monitor` | `ProtectedLayout` | `AIProcessingMonitor` |
@@ -949,6 +1090,23 @@ a static top-level import, so the whole app ships as one bundle.
 role enforcement is server-side. This is a deliberate simplification, but it means
 a `viewer` can open the Baseline Approval screen and only discover they cannot act
 when the API returns `403`.
+
+**The demo routes have no role gate of any kind** — not even a server-side one to
+discover, since they call no server. Anyone with a session can open Benchmark
+Studio, which the prototype treats as InGage-internal. The sidebar labels it
+"INGAGE INTERNAL"; nothing enforces it.
+
+### Sidebar module states
+
+`components/Sidebar.tsx` renders four kinds of row, and the distinction between the
+first two is the one that matters:
+
+| State | Rendering | Meaning |
+|---|---|---|
+| `live` | Normal link | Built here, backed by the API, real data |
+| `demo` | Link + `DEMO` badge | Ported prototype screen on sample data |
+| `next` / `planned` | Dimmed, `aria-disabled`, **not a link** | Not built. Today only Admin / Settings |
+| — | — | Project Status Dashboard is **not in the sidebar at all** |
 
 ## 4.4 State management
 
@@ -1027,7 +1185,17 @@ to `/login` (guarding against a redirect loop when already there).
 |---|---|---|---|
 | `pages/auth/Login.tsx` (147) | Sign in | `POST /auth/login` | Ships an **11-persona quick-login list with a hardcoded password** — see §17 |
 | `pages/dashboard/Dashboard.tsx` (231) | Cross-sprint overview | `GET /dashboard` | Renders 7 metric tiles + sprint cards |
-| `pages/status/StatusDashboard.tsx` (~300) | Build-progress report | — | **No API calls.** Every figure is a module-level constant; the headline counts are derived from that list rather than typed. See §25 |
+| `pages/status/StatusDashboard.tsx` (~310) | Build-progress report | — | **No API calls.** Every figure is a module-level constant; the headline counts are derived from that list rather than typed. Renders outside the app shell. See §25 |
+| `pages/evidence/EvidenceIntelligence.tsx` (121) | **`[DEMO]`** Document register | — | Reads `EVIDENCE_DOCS`; Upload button is disabled |
+| `pages/benchmark/CriBenchmarkIntelligence.tsx` (347) | **`[DEMO]`** Benchmark CRI, gaps, roadmap | — | Runs the second scoring engine in-browser; surfaces the published-vs-recomputed discrepancy rather than hiding it |
+| `pages/benchmark/BenchmarkStudio.tsx` (603) | **`[DEMO]`** Benchmark governance, 7 tabs | — | The largest ported screen. Explorer filters, level matrix, source registry, approval queue, version history, AI candidates with critic + simulator |
+| `pages/workspace/TransformationPlan.tsx` (113) | **`[DEMO]`** Phased roadmap | — | Accordion by phase; the in-progress phase opens by default |
+| `pages/workspace/GoalsTasks.tsx` (126) | **`[DEMO]`** Tasks + goals | — | Status filters; goal progress bars |
+| `pages/chat/AIChatbot.tsx` (173) | **`[DEMO]`** Chat | — | **Scripted keyword replies, no model call.** Says so in the banner *and* on the assistant's status line — a chat box is the easiest thing here to mistake for working AI |
+| `pages/workspace/Reminders.tsx` (88) | **`[DEMO]`** Reminder queue | — | Done/Snooze are disabled; no scheduler exists |
+| `pages/compliance/ComplianceMapping.tsx` (107) | **`[DEMO]`** Framework mapping | — | NAAC / NBA / NIRF / NEP / AI-Future-Ready |
+| `pages/workspace/UatReadiness.tsx` (85) | **`[DEMO]`** Sign-off checklist | — | Completion % derived from the list |
+| `pages/previews/ModulePreview.tsx` (299) | Design write-up for an unbuilt module | — | Grey wireframes with **no values that could pass for data**. Unlinked from the menu since the ports landed |
 | `pages/institutions/InstitutionList.tsx` (323) | Institution DNA landing page | `GET/POST /institutions`, `DELETE /institutions/{id}` | Create gated to `WRITE_INSTITUTION_ROLES`, delete to the narrower `DELETE_INSTITUTION_ROLES`; blank optional fields are omitted from the POST rather than sent as `""` |
 | `pages/institutions/InstitutionDetail.tsx` (1 035) | One institution, 3 tabs | `GET/PATCH /institutions/{id}`, `+/leaders`, `+/departments`, `+/systems` | Derived vs. stored counts; write actions offered only to the roles in §8 |
 | `pages/sprints/SprintSetup.tsx` (~150) | Audit step 1 | `GET /institutions`, `POST /sprints` | **Selects** an institution — no longer creates one, and no mode picker |
@@ -2942,7 +3110,7 @@ manual one.
 
 | # | Issue |
 |---|---|
-| F1 | **No code splitting.** Every one of the 15 pages is a static top-level import in `App.tsx`. `React.lazy` + `Suspense` per route would materially cut the initial bundle. |
+| F1 | **No code splitting.** Every one of the 24 pages is a static top-level import in `App.tsx`. The nine ported modules added ~4 050 lines to that single bundle. `React.lazy` + `Suspense` per route would materially cut the initial bundle. |
 | F2 | **3-second polling with no backoff.** Both `AIProcessingMonitor` and `ReportPreviewExport` poll unconditionally. A 20-minute extraction is ~400 requests per open tab. Exponential backoff, or stopping once every job is terminal, would cut this by an order of magnitude. |
 | F3 | **No request caching or deduplication.** Every mount refetches; `useApiResource` has no cache. React Query/SWR would remove most redundant calls. |
 | F4 | **Full list refetch after every single action.** Confirming one fact refetches the whole fact list. |
@@ -3041,15 +3209,24 @@ D:\AI READY\
     ├── vite.config.ts              # dev proxy /api → localhost:8000
     ├── tailwind.config.js / postcss.config.js
     └── src/
-        ├── main.tsx / App.tsx      # bootstrap + all 17 route entries (no lazy loading)
+        ├── main.tsx / App.tsx      # bootstrap + all 27 route entries (no lazy loading)
         ├── api/                    # 14 axios modules; client.ts holds the interceptors
         ├── context/                # AuthContext (the only global state) · ThemeContext
         ├── hooks/useApiResource.ts # the single fetch hook
         ├── layouts/AppShell.tsx
-        ├── components/             # Navbar · Sidebar (2 nav groups, 12 modules) · ApiStates
-        ├── pages/                  # 14 screens in 11 folders
-        │   ├── institutions/       #   Institution DNA — 3 tabs, editable
-        │   ├── status/             #   Project Status Dashboard — build progress, no API
+        ├── components/             # Navbar · Sidebar (13 modules, 4 row states)
+        │   ├── DemoDataNotice.tsx  #   the banner every ported page opens with
+        │   ├── PageHeader.tsx      #   shared PageHeader / TabStrip / FilterPills
+        │   └── ApiStates.tsx       #   loading / error / empty
+        ├── data/                   # ⚠ DEMO CONTENT — the only frontend-owned "facts"
+        │   ├── benchmark/          #   types (420 L) · seed (226 L) · scoring (270 L)
+        │   └── workspaceDemo.ts    #   evidence · plan · tasks · reminders · compliance · UAT · chat
+        ├── pages/                  # 24 screens in 16 folders
+        │   ├── institutions/       #   Institution DNA — list + create + delete, 3-tab detail
+        │   ├── status/             #   Project Status Dashboard — no API, outside the app shell
+        │   ├── benchmark/          #   [DEMO] CRI intelligence · Benchmark Studio
+        │   ├── evidence/ chat/ compliance/ workspace/   # [DEMO] the other seven
+        │   ├── previews/           #   design write-ups; unlinked from the menu
         │   └── …                   #   auth · dashboard · sprints · documents · facts · gaps
         │                           #   · scoring · recommendations · reports
         ├── types/                  # 12 type modules
@@ -3206,7 +3383,7 @@ flowchart TD
 | **Frontend** | React | `^18.2.0` | UI library |
 | | TypeScript | `^5.2.2` | Type safety; `npm run build` runs `tsc` before Vite |
 | | Vite | `^5.1.0` | Dev server (port 3000, `/api` proxy) + production bundler |
-| | React Router DOM | `^6.22.0` | Client-side routing, 17 route entries — 15 screens plus two redirects |
+| | React Router DOM | `^6.22.0` | Client-side routing, 27 route entries — 24 screens plus a login route and two redirects |
 | | Axios | `^1.6.7` | HTTP client + auth/refresh interceptors |
 | | Tailwind CSS | `^3.4.1` | Styling (with `postcss` + `autoprefixer`) |
 | | lucide-react | `^0.330.0` | Icon set |
@@ -3565,6 +3742,10 @@ docker compose exec backend python manage.py createsuperuser
 | `SprintMode` enum + `Sprint.mode` column | `sprints/models.py` | **No longer reachable from the UI.** The setup screen's mode picker was removed; every new sprint takes the model default. The column and enum remain, so reviving the choice is a UI change only |
 | `Institution.is_active` | `institutions/models.py` | **Effectively vestigial.** DELETE is now a hard cascade, so nothing sets it `False` any more; it only lingers on rows removed before that change. Still read by the list page, which hides its Status column when no inactive row exists |
 | `apps/vector_store/urls.py` | `vector_store/` | **Empty by design**, and says so — every route lives in `sprints/urls.py` with the other nested sub-resources. The module exists so the app owns a URLConf if a non-nested route is ever needed |
+| **Design preview system** | `pages/previews/` (~1 000 L), `/preview/:moduleKey` | **Unreachable from the UI.** Nine of its ten subjects were replaced by ported screens, and the tenth (Admin / Settings) was deliberately made inert — so no menu row links here any more. The route still resolves by URL, so the eight flow write-ups and their open-questions lists are not lost. Keep or delete is a live decision |
+| **`data/benchmark/` + `data/workspaceDemo.ts`** | `frontend/src/data/` | **Not dead — but not real either.** ~950 lines of hardcoded content that nine screens render as though it were an institution's record. Harmless while labelled; the risk is the label being removed before a backend exists |
+| `MATURITY_ORDER`, `LIFECYCLE_TRANSITIONS`, most of `types.ts` | `data/benchmark/` | **Declared, largely unexercised.** The lifecycle transition table is never enforced (nothing transitions), and several entities — `ApplicabilityRule`, `BenchmarkAuditEvent`, `TargetResult` — are typed and seeded but never rendered. Kept as the contract a future backend would implement |
+| `validateBenchmark`, `canEditBenchmark` | `data/benchmark/scoring.ts` | **Called, but advisory only.** They render warnings; nothing can actually be edited or published, so neither has anything to guard |
 | **Vector store endpoints** | `vector_store/views.py` | **Implemented and tested, but no frontend calls them.** All three are reachable only via the API or the OpenAPI docs; no page in the SPA triggers indexing or renders evidence results yet |
 | `index_sprint_vectors` | `vector_store/tasks.py` | **Not triggered by any endpoint** — `POST /vector-index` queues per-document tasks directly. It exists as the fan-out entry point for a scheduled or management-command re-index |
 | `PineconeVectorStore` (manual mode) + `OpenAIEmbeddingService` | `vector_store/services/pinecone_client.py`, `services/embeddings.py` | **Implemented and unit-tested, but only one of the two modes runs in any given deployment.** Against an *integrated* index this whole path — and the embedding provider with it — is never entered. Not dead: the mode is a real deployment choice, selected by `PINECONE_EMBEDDING_MODE` |
@@ -3586,8 +3767,9 @@ and the **unused table extraction**.
 | Status | Items |
 |---|---|
 | **Implemented** | Auth, institutions, **Institution DNA**, sprints + state machine, uploads, Drive import, the full 7-stage AI pipeline, multi-provider AI, fact review + history, 5 gap detectors + AI conflicts, the 9-step CRI engine, baseline approval, 3 recommendation generators, versioned PDF/DOCX reports, dashboard, **Project Status Dashboard**, plan-shaped navigation, **the Pinecone vector store (backend + API)**, OpenAPI docs, 578 tests, Docker/CI/CD |
+| **UI-only / demo data** | **Nine ported modules** — Evidence Intelligence, CRI & Benchmark Intelligence, Benchmark Studio, Transformation Plan, Goals & Tasks, AI Chatbot, Reminders, Compliance Mapping, UAT Readiness. Complete, polished screens over hardcoded content, with **no backend of any kind** (§3.12) |
 | **Partial** | OCR (interface + honest flagging, no backend); non-PDF documents (accepted and stored, but unreadable and unexplained to the user); classification (called, validated, then discarded); **vector store — backend complete and tested, but no UI consumes it** |
-| **Planned / absent** | User registration, password reset, email/notifications, Celery Beat, object storage, caching, monitoring, TLS, backups, frontend tests, rate limiting, **the benchmarking framework the vector store was built to feed** |
+| **Planned / absent** | User registration, password reset, email/notifications, Celery Beat, object storage, caching, monitoring, TLS, backups, frontend tests, rate limiting, Admin/Settings, and **a persisted benchmarking framework** — the UI now exists, the storage, API and governance behind it do not |
 | **Dead / stray** | `uvicorn`, `debug_task`, unused permission classes, `dump.rdb`, `.e2e_*`, `celery_worker.log`, unread `tables` payload |
 ---
 
@@ -3836,6 +4018,13 @@ Pinecone store classes.
 The twelfth app, `vector_store`, is **strictly additive**: unconfigured, it queues
 nothing, writes nothing, and changes no other subsystem's behaviour.
 
+**The frontend no longer maps one-to-one onto that backend.** Nine of its
+twenty-four screens are ported prototype UI running on hardcoded content, with no
+Django app, model or endpoint behind them (§3.12). The architecture summary above
+describes the half of the product that is wired end to end; the other half is a
+working picture of where the product is going, and one of those nine screens
+implements a **second, incompatible CRI scoring model** in TypeScript.
+
 ## Main workflows
 
 1. **Intake** — upload files or import a Google Drive folder, through one shared,
@@ -3926,6 +4115,17 @@ payment, no analytics, no error-tracking service.**
 11. **No Python lockfile** — builds are not reproducible.
 12. **Institutional document text is sent to a third-party AI provider** with no
     redaction or consent record.
+13. **Nine screens render hardcoded data and look exactly as finished as the real
+    ones.** The banners and `DEMO` badges are the only thing separating them, and
+    they are convention rather than a mechanism — nothing fails, warns, or blocks
+    a build if one is removed.
+14. **Two incompatible CRI scoring models now exist** — the deterministic Python
+    engine and a TypeScript one ported with the prototype. They will not agree, and
+    which is authoritative is undecided (§3.12).
+15. **Benchmark Studio has no access control.** The prototype treats it as
+    InGage-internal and the sidebar labels it so, but any authenticated user can
+    open it. Harmless while it reads a seed file; not harmless the moment it reads
+    real benchmark IP.
 
 ## Technical debt
 

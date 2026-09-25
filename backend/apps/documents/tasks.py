@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from celery import shared_task
 from django.conf import settings
@@ -49,6 +50,13 @@ def run_drive_import_job(self, job_id):
         files = list_drive_folder_files(
             folder_id, settings.GOOGLE_DRIVE_API_KEY, settings.GOOGLE_DRIVE_IMPORT_MAX_FILES,
             max_folders=settings.GOOGLE_DRIVE_IMPORT_MAX_FOLDERS,
+            # Stop walking the moment every checklist slot has a candidate.
+            # Only one file per slot is ever imported, so a folder tree that
+            # yields all twelve in its first level does not need the other
+            # 190 folders scanned. Classification is filename-only, and the
+            # listing already carries filenames, so this costs nothing.
+            stop_when=_all_slots_claimed,
+            max_workers=settings.GOOGLE_DRIVE_IMPORT_CONCURRENCY,
         )
     except PermanentDriveImportError as exc:
         _fail(job, str(exc))
@@ -67,17 +75,21 @@ def run_drive_import_job(self, job_id):
     job.files_scanned = len(files)
     job.save(update_fields=['files_scanned', 'updated_at'])
 
-    claimed = {}
-    unmatched = []
-    for f in files:
-        slot = classify_filename(f['name'])
-        if slot is None or slot in claimed:
-            unmatched.append(f['name'])
-            continue
-        claimed[slot] = f
+    claimed = _claim_slots(files)
+    unmatched = [
+        f['name'] for f in files
+        if not (classify_filename(f['name']) and claimed.get(classify_filename(f['name'])) is f)
+    ]
 
     job.status = DriveImportJob.Status.DOWNLOADING
     job.save(update_fields=['status', 'updated_at'])
+
+    # Downloads run concurrently; document creation does not. Fetching is pure
+    # network I/O and was the bulk of the wall clock -- twelve files pulled one
+    # after another, each with a 60 s ceiling. Creating the Document rows stays
+    # on this thread, in checklist order: it touches the database, and the
+    # results dict is ordered output a human reads.
+    downloads = _download_all(claimed)
 
     results = {}
     skipped = []
@@ -89,12 +101,12 @@ def run_drive_import_job(self, job_id):
             results[slot] = {'status': 'missing', 'filename': None, 'document_id': None}
             continue
 
-        try:
-            content, filename, mime_type = download_drive_file(file_meta, settings.GOOGLE_DRIVE_API_KEY)
-        except (PermanentDriveImportError, RecoverableDriveImportError) as exc:
-            skipped.append({'filename': file_meta['name'], 'reason': str(exc)})
+        outcome = downloads[slot]
+        if isinstance(outcome, Exception):
+            skipped.append({'filename': file_meta['name'], 'reason': str(outcome)})
             results[slot] = {'status': 'missing', 'filename': None, 'document_id': None}
             continue
+        content, filename, mime_type = outcome
 
         upload = SimpleUploadedFile(filename, content, content_type=mime_type)
         try:
@@ -120,6 +132,52 @@ def run_drive_import_job(self, job_id):
     job.save(update_fields=['results', 'files_imported', 'status', 'completed_at', 'updated_at'])
     logger.info('documents.drive_import.completed job_id=%s imported=%d', job.id, imported)
     return str(job.id)
+
+
+def _claim_slots(files):
+    """Map each checklist slot to the FIRST file whose name matches it.
+
+    First-match-wins in listing order, which is why the folder walk keeps its
+    ordering deterministic even when it fetches folders concurrently.
+    """
+    claimed = {}
+    for entry in files:
+        slot = classify_filename(entry['name'])
+        if slot is None or slot in claimed:
+            continue
+        claimed[slot] = entry
+    return claimed
+
+
+def _all_slots_claimed(files):
+    """Every checklist slot has a candidate — the folder walk can stop."""
+    return len(_claim_slots(files)) >= len(DRIVE_IMPORT_CHECKLIST)
+
+
+def _download_all(claimed):
+    """Fetch every claimed file concurrently.
+
+    Returns `{slot: (content, filename, mime_type) | Exception}` — a failure
+    is returned rather than raised, because one bad export must not fail the
+    other eleven files, which is the behaviour the sequential version had.
+    """
+    if not claimed:
+        return {}
+
+    api_key = settings.GOOGLE_DRIVE_API_KEY
+    workers = min(settings.GOOGLE_DRIVE_IMPORT_CONCURRENCY, len(claimed))
+
+    def fetch(slot):
+        try:
+            return slot, download_drive_file(claimed[slot], api_key)
+        except (PermanentDriveImportError, RecoverableDriveImportError) as exc:
+            return slot, exc
+
+    if workers <= 1:
+        return dict(fetch(slot) for slot in claimed)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return dict(pool.map(fetch, list(claimed)))
 
 
 def _handle_recoverable(task, job, exc):

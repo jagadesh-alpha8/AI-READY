@@ -1,4 +1,5 @@
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -40,54 +41,107 @@ def parse_drive_folder_id(url):
     )
 
 
-def list_drive_folder_files(folder_id, api_key, max_files, max_folders=200):
+def _list_one_folder(folder_id, api_key, max_files):
+    """One folder's immediate contents, paging until exhausted or `max_files`.
+
+    Returns `(files, subfolder_ids)`. Pure I/O over a single folder, so a
+    whole level of the tree can be fetched concurrently.
+    """
+    files = []
+    subfolders = []
+    page_token = None
+
+    while len(files) < max_files:
+        params = {
+            'q': f"'{folder_id}' in parents and trashed=false",
+            'fields': 'nextPageToken, files(id,name,mimeType,size)',
+            # Fixed page size. This used to be `min(100, max_files - len(files))`
+            # against the GLOBAL running total, which shrank as the walk filled
+            # up: at 199 of 200 files it asked for one record per round trip.
+            # The global cap is applied once, after the walk.
+            'pageSize': min(100, max_files),
+            'key': api_key,
+        }
+        if page_token:
+            params['pageToken'] = page_token
+        try:
+            resp = requests.get(f'{DRIVE_API_BASE}/files', params=params, timeout=_LIST_TIMEOUT)
+        except requests.RequestException as exc:
+            raise RecoverableDriveImportError(f'Network error listing Drive folder: {exc}') from exc
+
+        _raise_for_drive_status(resp, context='listing the folder')
+        payload = resp.json()
+        for entry in payload.get('files', []):
+            if entry.get('mimeType') == _FOLDER_MIME_TYPE:
+                subfolders.append(entry['id'])
+            else:
+                files.append(entry)
+
+        page_token = payload.get('nextPageToken')
+        if not page_token:
+            break
+
+    return files, subfolders
+
+
+def list_drive_folder_files(
+    folder_id, api_key, max_files, max_folders=200, *, stop_when=None, max_workers=8,
+):
     """Return up to `max_files` {id, name, mimeType, size} dicts for
     non-trashed files anywhere under `folder_id`, walking subfolders
-    recursively (breadth-first) and paging each folder's contents via
-    pageToken. `max_folders` bounds how many folders total get walked, as a
-    safety cap against a huge or deeply-nested tree; `visited` guards
-    against revisiting a folder reachable through more than one path."""
+    breadth-first. `max_folders` bounds how many folders total get walked, as
+    a safety cap against a huge or deeply-nested tree; `visited` guards
+    against revisiting a folder reachable through more than one path.
+
+    **A whole level is fetched concurrently.** The walk used to be strictly
+    serial — one HTTP round trip per folder, waiting for each before starting
+    the next — so a tree of thirty folders cost thirty round trips end to end.
+    Folders within a level are independent, so they go out together.
+
+    Ordering is preserved regardless of which request finishes first: results
+    are gathered in submission order, not completion order. That matters
+    because the caller claims a checklist slot with the *first* matching
+    filename, so a reordered listing would silently change which file wins.
+
+    `stop_when`: optional predicate over the files found so far. When it
+    returns True the walk stops immediately — the importer uses it to stop
+    once every checklist slot is filled, rather than walking a 200-folder
+    Drive to find twelve documents it already has.
+    """
     if not api_key:
         raise PermanentDriveImportError('GOOGLE_DRIVE_API_KEY is not configured on the server.')
 
     files = []
-    folders_to_visit = [folder_id]
     visited = set()
+    level = [folder_id]
 
-    while folders_to_visit and len(files) < max_files and len(visited) < max_folders:
-        current_folder = folders_to_visit.pop(0)
-        if current_folder in visited:
-            continue
-        visited.add(current_folder)
+    while level and len(files) < max_files and len(visited) < max_folders:
+        # Respect max_folders across the level, not just per folder.
+        budget = max_folders - len(visited)
+        current = [f for f in level if f not in visited][:budget]
+        if not current:
+            break
+        visited.update(current)
 
-        page_token = None
-        while len(files) < max_files:
-            params = {
-                'q': f"'{current_folder}' in parents and trashed=false",
-                'fields': 'nextPageToken, files(id,name,mimeType,size)',
-                'pageSize': min(100, max_files - len(files)),
-                'key': api_key,
-            }
-            if page_token:
-                params['pageToken'] = page_token
-            try:
-                resp = requests.get(f'{DRIVE_API_BASE}/files', params=params, timeout=_LIST_TIMEOUT)
-            except requests.RequestException as exc:
-                raise RecoverableDriveImportError(f'Network error listing Drive folder: {exc}') from exc
+        if len(current) == 1:
+            results = [_list_one_folder(current[0], api_key, max_files)]
+        else:
+            with ThreadPoolExecutor(max_workers=min(max_workers, len(current))) as pool:
+                # `map` yields in submission order, so the walk stays
+                # deterministic even though the requests race.
+                results = list(pool.map(
+                    lambda fid: _list_one_folder(fid, api_key, max_files), current,
+                ))
 
-            _raise_for_drive_status(resp, context='listing the folder')
-            payload = resp.json()
-            for entry in payload.get('files', []):
-                if entry.get('mimeType') == _FOLDER_MIME_TYPE:
-                    folders_to_visit.append(entry['id'])
-                else:
-                    files.append(entry)
-                    if len(files) >= max_files:
-                        break
+        next_level = []
+        for folder_files, subfolders in results:
+            files.extend(folder_files)
+            next_level.extend(subfolders)
 
-            page_token = payload.get('nextPageToken')
-            if not page_token or len(files) >= max_files:
-                break
+        if stop_when is not None and stop_when(files):
+            break
+
+        level = next_level
 
     return files[:max_files]
 

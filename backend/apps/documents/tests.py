@@ -492,6 +492,52 @@ class ListDriveFolderFilesTests(SimpleTestCase):
         files = list_drive_folder_files('root', 'test-key', max_files=200, max_folders=2)
         self.assertEqual(len(files), 1)
 
+    @patch('apps.documents.drive_import.requests.get')
+    def test_stop_when_halts_the_walk_early(self, mock_get):
+        """The importer only ever uses one file per checklist slot, so it stops
+        the walk as soon as it has them. A folder deeper in the tree must then
+        never be requested at all -- that early exit is the whole point."""
+        mock_get.side_effect = _make_fake_drive_get(
+            files_by_folder={
+                'root': [
+                    {'id': 'f1', 'name': 'a.pdf', 'mimeType': 'application/pdf'},
+                    {'id': 'deep', 'name': 'Deep', 'mimeType': 'application/vnd.google-apps.folder'},
+                ],
+                'deep': [{'id': 'f2', 'name': 'b.pdf', 'mimeType': 'application/pdf'}],
+            },
+        )
+        files = list_drive_folder_files(
+            'root', 'test-key', max_files=200, stop_when=lambda found: len(found) >= 1,
+        )
+        self.assertEqual([f['id'] for f in files], ['f1'])
+        requested = [str(call.kwargs.get('params', {}).get('q', '')) for call in mock_get.call_args_list]
+        self.assertFalse(
+            any('deep' in q for q in requested),
+            'the walk stopped, so the subfolder should never have been listed',
+        )
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_concurrent_level_preserves_listing_order(self, mock_get):
+        """Folders in a level are fetched concurrently, but the files come back
+        in folder order regardless of which request finished first. The
+        importer claims a checklist slot with the FIRST matching filename, so a
+        reordered listing would silently change which file wins."""
+        mock_get.side_effect = _make_fake_drive_get(
+            files_by_folder={
+                'root': [
+                    {'id': 's1', 'name': 'S1', 'mimeType': 'application/vnd.google-apps.folder'},
+                    {'id': 's2', 'name': 'S2', 'mimeType': 'application/vnd.google-apps.folder'},
+                    {'id': 's3', 'name': 'S3', 'mimeType': 'application/vnd.google-apps.folder'},
+                ],
+                's1': [{'id': 'a', 'name': 'a.pdf', 'mimeType': 'application/pdf'}],
+                's2': [{'id': 'b', 'name': 'b.pdf', 'mimeType': 'application/pdf'}],
+                's3': [{'id': 'c', 'name': 'c.pdf', 'mimeType': 'application/pdf'}],
+            },
+        )
+        for _ in range(5):
+            files = list_drive_folder_files('root', 'test-key', max_files=200)
+            self.assertEqual([f['id'] for f in files], ['a', 'b', 'c'])
+
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True, GOOGLE_DRIVE_API_KEY='test-key')
 class DriveImportTaskTests(APITestCase):

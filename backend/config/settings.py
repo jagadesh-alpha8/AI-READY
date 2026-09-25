@@ -303,6 +303,12 @@ GOOGLE_DRIVE_IMPORT_MAX_FOLDERS = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_FOLDERS
 # Retry policy for transient Drive API failures (network hiccups, 5xx),
 # mirrors EXTRACTION_MAX_RETRIES/EXTRACTION_RETRY_BACKOFF_SECONDS but kept as
 # its own knob since it's an unrelated task/queue.
+# How many Drive requests may be in flight at once -- folders during the
+# scan, files during the download. Both phases were strictly serial, which is
+# what made a large shared folder take minutes: the wall clock was the SUM of
+# every round trip. Kept modest because this runs against a single API key
+# whose quota is shared by every import.
+GOOGLE_DRIVE_IMPORT_CONCURRENCY = int(os.getenv('GOOGLE_DRIVE_IMPORT_CONCURRENCY', 6))
 GOOGLE_DRIVE_IMPORT_MAX_RETRIES = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_RETRIES', 3))
 GOOGLE_DRIVE_IMPORT_RETRY_BACKOFF_SECONDS = int(os.getenv('GOOGLE_DRIVE_IMPORT_RETRY_BACKOFF_SECONDS', 15))
 
