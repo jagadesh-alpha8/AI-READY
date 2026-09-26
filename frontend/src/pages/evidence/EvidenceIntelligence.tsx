@@ -194,7 +194,7 @@ export const EvidenceIntelligence: React.FC = () => {
         >
           {sprints.map((sprint) => (
             <option key={sprint.id} value={sprint.id}>
-              {sprint.sprint_code}{sprint.name ? ` — ${sprint.name}` : ''} ({sprint.status.replace(/_/g, ' ')})
+              {sprint.institution_name || sprint.name || 'Institution'} · {sprint.sprint_code} ({sprint.status.replace(/_/g, ' ')})
             </option>
           ))}
         </select>

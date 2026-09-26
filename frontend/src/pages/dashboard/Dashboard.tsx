@@ -172,7 +172,7 @@ export const Dashboard: React.FC = () => {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th>Sprint ID</th>
+                  <th>College</th>
                   <th>Sprint Mode</th>
                   <th>Academic Year</th>
                   <th>Status</th>
@@ -183,8 +183,17 @@ export const Dashboard: React.FC = () => {
               <tbody>
                 {sprints.map((sprint) => (
                   <tr key={sprint.id}>
-                    <td className="font-mono font-medium text-brand-800">
-                      {sprint.id.substring(0, 8)}...
+                    {/* The first eight characters of a UUID identify nothing
+                        to a human. Lead with whose sprint it is, and carry the
+                        readable sprint code underneath. */}
+                    <td>
+                      <p className="font-semibold text-ink-900">
+                        {sprint.institution_name || sprint.name || 'Unnamed institution'}
+                      </p>
+                      <p className="font-mono text-xs text-brand-800">{sprint.sprint_code}</p>
+                      {sprint.name && sprint.name !== sprint.institution_name && (
+                        <p className="text-xs text-ink-500">{sprint.name}</p>
+                      )}
                     </td>
                     <td className="text-ink-900 capitalize font-medium">
                       {(sprint.sprint_mode || sprint.mode || '').replace('_', ' ')}

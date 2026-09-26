@@ -15,6 +15,7 @@ urlpatterns = [
     # API v1 — every prefix below is deliberately slash-free (see APPEND_SLASH
     # in settings) to match the frontend's axios client exactly.
     path('api/v1/auth/', include('apps.accounts.urls')),
+    path('api/v1/users', include('apps.accounts.user_urls')),
     path('api/v1/institutions', include('apps.institutions.urls')),
     path('api/v1/sprints', include('apps.sprints.urls')),
     path('api/v1/documents', include('apps.documents.urls')),

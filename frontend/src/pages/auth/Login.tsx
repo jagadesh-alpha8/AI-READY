@@ -1,10 +1,33 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { getErrorMessage } from '../../utils/errors';
-import { Shield, ArrowRight, Lock } from 'lucide-react';
+import {
+  ArrowRight, ClipboardCheck, FileSearch, Gauge, Lock, Shield, Target,
+} from 'lucide-react';
 import ingageLogo from '../../assets/ingage-logo-mark.png';
 import ingageLogoDark from '../../assets/ingage-logo-mark-dark.png';
 
+/**
+ * Sign-in. Two columns: what the platform is, and the form to get into it.
+ *
+ * The eleven demo personas and the shared seed password used to sit on this
+ * page in the open. That is fine on a developer's machine and wrong in front
+ * of a client: it advertises eleven live accounts and their password to
+ * anyone who reaches the URL. They are now behind a flag that is off unless
+ * `VITE_SHOW_DEMO_PERSONAS=true` is set, so nothing was deleted and a
+ * developer can have them back with one line in `.env.local`.
+ */
+const SHOW_DEMO_PERSONAS = import.meta.env.VITE_SHOW_DEMO_PERSONAS === 'true';
+
+// TEMPORARY: the super admin credentials are prefilled so signing in during
+// the demo is one click. This is the one piece of seed data still on this
+// page -- it is not shown as text anywhere, but anyone reaching /login can
+// read it out of the password box. Clear both strings to turn it off; that
+// is the whole change, and nothing else depends on them.
+const DEFAULT_EMAIL = 'superadmin@ingage.ai';
+const DEFAULT_PASSWORD = 'Password123!';
+
+/** Only ever rendered when SHOW_DEMO_PERSONAS is on; see above. */
 const SEEDED_ROLES = [
   { role: 'SUPER_ADMIN', name: 'Super Admin', email: 'superadmin@ingage.ai', desc: 'Full System & Config Control' },
   { role: 'INGAGE_CONSULTANT', name: 'InGage Lead Consultant', email: 'consultant@ingage.ai', desc: 'Sprint Lead & Scoring Specialist' },
@@ -19,10 +42,51 @@ const SEEDED_ROLES = [
   { role: 'VIEWER', name: 'Trustee Board', email: 'viewer@mkce.ac.in', desc: 'Approved Reports Viewer' },
 ];
 
+/** What the platform actually does. Every claim here maps to a module that
+ *  exists — no capability is described that a client cannot be shown. */
+const CAPABILITIES = [
+  {
+    icon: FileSearch,
+    title: 'Evidence-first, not self-reported',
+    body: 'Institutional documents — SSR, AQAR, audited records — are ingested and machine-read. '
+      + 'Each extracted fact keeps a citation back to its source page.',
+  },
+  {
+    icon: Gauge,
+    title: 'Composite Readiness Index',
+    body: 'A single weighted score across eight readiness domains, recomputed from confirmed '
+      + 'facts rather than opinion, with the rubric visible to administrators.',
+  },
+  {
+    icon: Target,
+    title: 'Gaps become a costed plan',
+    body: 'Every gap is ranked by impact and effort, then rolled into a phased transformation '
+      + 'plan with owners, milestones and projected score lift.',
+  },
+  {
+    icon: ClipboardCheck,
+    title: 'Audit-ready by construction',
+    body: 'Scores trace back to the document that produced them, so a finding can be defended '
+      + 'in an accreditation review rather than merely asserted.',
+  },
+];
+
+/** The eight scored domains, matching the live rubric in the database. */
+const DOMAINS = [
+  'Governance & Strategy',
+  'Curriculum & Academic Readiness',
+  'Faculty AI Capability',
+  'Student AI Readiness',
+  'Infrastructure & Digital Capability',
+  'Research & Innovation',
+  'Industry & Placement Outcomes',
+  'Evidence Quality & Data Confidence',
+];
+
 export const Login: React.FC = () => {
   const { login } = useAuth();
-  const [email, setEmail] = useState('superadmin@ingage.ai');
-  const [password, setPassword] = useState('Password123!');
+  const [email, setEmail] = useState(DEFAULT_EMAIL);
+  const [password, setPassword] = useState(DEFAULT_PASSWORD);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -54,29 +118,67 @@ export const Login: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface flex flex-col justify-center py-10 sm:py-12 px-4 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full max-w-4xl text-center mb-8">
-        {/* Light/dark pair — see the note in Navbar.tsx. */}
-        <img src={ingageLogo} alt="Ingage" className="h-10 sm:h-12 w-auto mx-auto mb-5 dark:hidden" />
-        <img
-          src={ingageLogoDark}
-          alt=""
-          aria-hidden="true"
-          className="h-10 sm:h-12 w-auto mx-auto mb-5 hidden dark:block"
-        />
-        <h1 className="text-2xl sm:text-3xl font-bold text-ink-900 tracking-tight text-balance">
-          AIOS AI Readiness Discovery Sprint Platform
-        </h1>
-        <p className="mt-2 text-sm text-ink-500 max-w-xl mx-auto">
-          Fast-Track Discovery Platform for Higher Education Institutions by InGage Technologies.
-        </p>
-      </div>
+      <div className="max-w-6xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 lg:items-center">
 
-      <div className="max-w-5xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
-        {/* Left: Custom Login Form */}
-        <div className="lg:col-span-5 glass-card p-6 sm:p-8 flex flex-col justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-ink-900 mb-1">Sign In to Discovery Sprint</h2>
-            <p className="text-sm text-ink-500 mb-6">Enter your institutional credentials</p>
+        {/* ===== Column 1 — the portal ===== */}
+        <section className="lg:col-span-7 min-w-0 order-2 lg:order-1">
+          {/* Light/dark pair — see the note in Navbar.tsx. */}
+          <img src={ingageLogo} alt="InGage" className="h-9 sm:h-10 w-auto mb-6 dark:hidden" />
+          <img
+            src={ingageLogoDark}
+            alt=""
+            aria-hidden="true"
+            className="h-9 sm:h-10 w-auto mb-6 hidden dark:block"
+          />
+
+          <h1 className="text-3xl sm:text-4xl font-bold text-ink-900 tracking-tight text-balance">
+            AIOS AI Readiness Discovery Sprint Platform
+          </h1>
+          <p className="mt-3 text-base text-ink-600 max-w-2xl">
+            A fast-track discovery platform that tells a higher-education institution where it
+            actually stands on AI readiness — from its own evidence, in weeks rather than quarters.
+          </p>
+
+          <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-6">
+            {CAPABILITIES.map(({ icon: Icon, title, body }) => (
+              <div key={title} className="flex items-start gap-3 min-w-0">
+                <span className="shrink-0 rounded-lg bg-brand-50 border border-brand-100 p-2">
+                  <Icon className="w-4 h-4 text-brand-800" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold text-ink-900">{title}</h2>
+                  <p className="text-sm text-ink-500 mt-0.5">{body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-line-200">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-ink-500">
+              Scored across eight domains
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {DOMAINS.map((d) => (
+                <span
+                  key={d}
+                  className="text-xs text-ink-600 bg-card border border-line-200 rounded-full px-2.5 py-1"
+                >
+                  {d}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <p className="mt-6 text-xs text-ink-500">
+            Built by InGage Technologies. Access is role-based and enforced server-side.
+          </p>
+        </section>
+
+        {/* ===== Column 2 — sign in ===== */}
+        <section className="lg:col-span-5 min-w-0 order-1 lg:order-2">
+          <div className="glass-card p-6 sm:p-8">
+            <h2 className="text-xl font-bold text-ink-900 mb-1">Sign in</h2>
+            <p className="text-sm text-ink-500 mb-6">Use your institutional credentials.</p>
 
             {error && (
               <div className="mb-4 p-3 bg-danger-bg border border-danger-line rounded-lg text-sm text-danger">
@@ -86,69 +188,73 @@ export const Login: React.FC = () => {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="label">Email Address</label>
+                <label className="label" htmlFor="login-email">Email address</label>
                 <input
+                  id="login-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  autoComplete="username"
+                  placeholder="you@institution.edu"
                   className="input"
                 />
               </div>
 
               <div>
-                <label className="label">Password</label>
+                <label className="label" htmlFor="login-password">Password</label>
                 <input
+                  id="login-password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="current-password"
                   className="input"
                 />
               </div>
 
               <button type="submit" disabled={loading} className="btn-primary w-full">
-                <span>{loading ? 'Authenticating...' : 'Sign In'}</span>
+                <span>{loading ? 'Authenticating…' : 'Sign In'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
-          </div>
 
-          <div className="mt-8 pt-4 border-t border-line-200 text-xs text-ink-500 flex items-center justify-between flex-wrap gap-2">
-            <span className="flex items-center gap-1"><Lock className="w-3.5 h-3.5 text-brand-800" /> RBAC Enforced</span>
-            <span>Default PW: Password123!</span>
-          </div>
-        </div>
-
-        {/* Right: Quick Login Grid for All 11 Roles */}
-        <div className="lg:col-span-7 glass-card p-5 sm:p-6">
-          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-            <div>
-              <h3 className="text-sm font-bold text-ink-900 flex items-center gap-2">
-                <Shield className="w-4 h-4 text-brand-800" /> Demo Persona Quick Login (11 Roles)
-              </h3>
-              <p className="text-xs text-ink-500 mt-0.5">Click any persona to log in immediately and test role permissions</p>
+            <div className="mt-6 pt-4 border-t border-line-200 flex items-center gap-1.5 text-xs text-ink-500">
+              <Lock className="w-3.5 h-3.5 text-brand-800 shrink-0" />
+              <span>Role-based access control is enforced on every request.</span>
             </div>
-            <span className="badge-brand">Seeded Demo Data</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {SEEDED_ROLES.map((r) => (
-              <button
-                key={r.email}
-                onClick={() => handleQuickLogin(r.email)}
-                className="text-left p-3 rounded-lg bg-surface border border-line-200 hover:border-brand-500 hover:bg-brand-50 transition-all group"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-brand-800">{r.role}</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-ink-400 group-hover:text-brand-800 transition-colors shrink-0" />
-                </div>
-                <p className="text-sm font-semibold text-ink-900 mt-0.5 truncate">{r.name}</p>
-                <p className="text-xs text-ink-500 truncate">{r.desc}</p>
-              </button>
-            ))}
-          </div>
-        </div>
+          {/* Developer convenience only, and off by default — see the note at
+              the top of this file. */}
+          {SHOW_DEMO_PERSONAS && (
+            <div className="glass-card p-5 mt-4">
+              <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+                <h3 className="text-sm font-bold text-ink-900 flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-brand-800" /> Demo persona quick login
+                </h3>
+                <span className="badge-brand">Seeded demo data</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {SEEDED_ROLES.map((r) => (
+                  <button
+                    key={r.email}
+                    onClick={() => handleQuickLogin(r.email)}
+                    className="text-left p-2.5 rounded-lg bg-surface border border-line-200 hover:border-brand-500 hover:bg-brand-50 transition-all group"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-brand-800">{r.role}</span>
+                      <ArrowRight className="w-3 h-3 text-ink-400 group-hover:text-brand-800 transition-colors shrink-0" />
+                    </div>
+                    <p className="text-sm font-semibold text-ink-900 mt-0.5 truncate">{r.name}</p>
+                    <p className="text-xs text-ink-500 truncate">{r.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

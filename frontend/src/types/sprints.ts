@@ -15,6 +15,8 @@ export type SprintStatus =
 export interface Sprint {
   id: string;
   institution_id: string;
+  /** Resolved server-side so a sprint can be identified without a second request. */
+  institution_name: string;
   name: string;
   sprint_code: string;
   mode: SprintMode;

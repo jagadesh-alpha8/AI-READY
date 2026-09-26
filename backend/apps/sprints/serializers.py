@@ -10,6 +10,11 @@ class SprintSerializer(serializers.ModelSerializer):
         source='institution', queryset=Institution.objects.all(),
     )
     created_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    #: The institution's name, so a sprint can be identified without a second
+    #: request. `get_queryset` already uses select_related('institution'), so
+    #: this costs no extra query. Sprint codes alone ("SPR-2AC52B86") do not
+    #: tell anyone which college they belong to.
+    institution_name = serializers.CharField(source='institution.name', read_only=True)
     # Frontend-compatible alias: the existing (unmodified) frontend's
     # SprintSetup.tsx posts `sprint_mode`, and Dashboard.tsx reads
     # `sprint.sprint_mode` back off the list response -- without this,
@@ -23,13 +28,13 @@ class SprintSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sprint
         fields = [
-            'id', 'institution_id', 'name', 'sprint_code', 'mode', 'sprint_mode', 'status',
+            'id', 'institution_id', 'institution_name', 'name', 'sprint_code', 'mode', 'sprint_mode', 'status',
             'academic_year', 'description', 'start_date', 'target_completion_date',
             'completion_percentage', 'overall_cri', 'confidence_score',
             'created_by', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'sprint_code', 'overall_cri', 'confidence_score',
+            'id', 'sprint_code', 'institution_name', 'overall_cri', 'confidence_score',
             'created_by', 'created_at', 'updated_at',
         ]
 

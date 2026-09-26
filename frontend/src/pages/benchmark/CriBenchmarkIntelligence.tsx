@@ -153,7 +153,7 @@ export const CriBenchmarkIntelligence: React.FC = () => {
         >
           {sprints.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.sprint_code}{s.name ? ` — ${s.name}` : ''} ({s.status.replace(/_/g, ' ')})
+              {s.institution_name || s.name || 'Institution'} · {s.sprint_code} ({s.status.replace(/_/g, ' ')})
             </option>
           ))}
         </select>

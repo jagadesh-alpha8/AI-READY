@@ -24,8 +24,21 @@ export const SprintSetup: React.FC = () => {
   // and Sprint.mode's model default supplies it — one place decides the
   // method, rather than a form that always sends the same value.
   const [academicYear, setAcademicYear] = useState('2026-27');
+  // A sprint used to be created with no name at all, so every list showed a
+  // bare code ("SPR-2AC52B86") that says nothing about whose sprint it is.
+  // The name defaults to the selected college and follows it until the user
+  // types their own, at which point their wording wins.
+  const [name, setName] = useState('');
+  const [nameEdited, setNameEdited] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const selectedInstitution = institutions.find((inst) => inst.id === selectedInstId);
+
+  React.useEffect(() => {
+    if (nameEdited || !selectedInstitution) return;
+    setName(`${selectedInstitution.name} — AI Readiness ${academicYear}`);
+  }, [selectedInstitution, academicYear, nameEdited]);
 
   React.useEffect(() => {
     if (institutions.length > 0 && !selectedInstId) {
@@ -47,6 +60,7 @@ export const SprintSetup: React.FC = () => {
       const sprintRes = await createSprint({
         institution_id: selectedInstId,
         academic_year: academicYear,
+        name: name.trim() || `${selectedInstitution?.name ?? 'Institution'} — AI Readiness ${academicYear}`,
       });
 
       const newSprintId = sprintRes.data.id;
@@ -95,7 +109,13 @@ export const SprintSetup: React.FC = () => {
               >
                 {institutions.map((inst) => (
                   <option key={inst.id} value={inst.id}>
-                    {inst.name} ({inst.city}, {inst.state}) - {inst.institution_type}
+                    {/* Only the parts that exist: an institution with no
+                        city, state or type rendered as "NAME (, ) -". */}
+                    {[
+                      inst.name,
+                      [inst.city, inst.state].filter(Boolean).join(', '),
+                      inst.institution_type,
+                    ].filter(Boolean).join(' · ')}
                   </option>
                 ))}
               </select>
@@ -113,6 +133,23 @@ export const SprintSetup: React.FC = () => {
               </span>
             </div>
           )}
+
+          <div>
+            <label className="label" htmlFor="sprint-name">Sprint Name *</label>
+            <input
+              id="sprint-name"
+              type="text"
+              value={name}
+              onChange={(e) => { setName(e.target.value); setNameEdited(true); }}
+              required
+              className="input"
+              placeholder="e.g. St. Joseph's College — AI Readiness 2026-27"
+            />
+            <p className="text-xs text-ink-500 mt-1.5">
+              Names the sprint everywhere it is listed. It follows the selected college until you
+              change it.
+            </p>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>

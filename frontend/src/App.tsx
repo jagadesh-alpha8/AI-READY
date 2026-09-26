@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AppShell } from './layouts/AppShell';
+import { ScrollToTop } from './components/ScrollToTop';
 
 import { Login } from './pages/auth/Login';
 import { Dashboard } from './pages/dashboard/Dashboard';
@@ -10,6 +11,7 @@ import { InstitutionList } from './pages/institutions/InstitutionList';
 import { InstitutionDetail } from './pages/institutions/InstitutionDetail';
 import { StatusDashboard } from './pages/status/StatusDashboard';
 import { ModulePreview } from './pages/previews/ModulePreview';
+import { AdminSettings } from './pages/admin/AdminSettings';
 // Modules ported from the InGage prototype. Each renders demo data and says
 // so at the top — see components/DemoDataNotice.
 import { EvidenceIntelligence } from './pages/evidence/EvidenceIntelligence';
@@ -17,7 +19,7 @@ import { CriBenchmarkIntelligence } from './pages/benchmark/CriBenchmarkIntellig
 import { BenchmarkStudio } from './pages/benchmark/BenchmarkStudio';
 import { TransformationPlan } from './pages/workspace/TransformationPlan';
 import { GoalsTasks } from './pages/workspace/GoalsTasks';
-import { AIChatbot } from './pages/chat/AIChatbot';
+import { AICopilot } from './pages/chat/AICopilot';
 import { Reminders } from './pages/workspace/Reminders';
 import { ComplianceMapping } from './pages/compliance/ComplianceMapping';
 import { UatReadiness } from './pages/workspace/UatReadiness';
@@ -91,10 +93,11 @@ function AppRoutes() {
       <Route path="/benchmark-studio" element={<ProtectedLayout><BenchmarkStudio /></ProtectedLayout>} />
       <Route path="/transformation-plan" element={<ProtectedLayout><TransformationPlan /></ProtectedLayout>} />
       <Route path="/goals-tasks" element={<ProtectedLayout><GoalsTasks /></ProtectedLayout>} />
-      <Route path="/ai-chatbot" element={<ProtectedLayout><AIChatbot /></ProtectedLayout>} />
+      <Route path="/ai-copilot" element={<ProtectedLayout><AICopilot /></ProtectedLayout>} />
       <Route path="/reminders" element={<ProtectedLayout><Reminders /></ProtectedLayout>} />
       <Route path="/compliance" element={<ProtectedLayout><ComplianceMapping /></ProtectedLayout>} />
       <Route path="/uat-readiness" element={<ProtectedLayout><UatReadiness /></ProtectedLayout>} />
+      <Route path="/admin-settings" element={<ProtectedLayout><AdminSettings /></ProtectedLayout>} />
 
       {/* Design previews for the modules with no prototype screen to port.
           Every one of these says so at the top — see ModulePreview. */}
@@ -127,6 +130,10 @@ export default function App() {
     <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
+          {/* Inside the Router so it can watch the location; outside the
+              routes so a navigation resets scroll before the new screen
+              paints. */}
+          <ScrollToTop />
           <AppRoutes />
         </AuthProvider>
       </BrowserRouter>

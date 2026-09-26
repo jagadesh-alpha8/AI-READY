@@ -118,13 +118,12 @@ function buildModules(sprintId: string): NavModule[] {
       to: '/benchmark-studio',
     },
     { key: 'transformation-plan', label: 'Transformation Plan', icon: Target, status: 'live', to: '/transformation-plan' },
-    { key: 'goals-tasks', label: 'Goals & Tasks', icon: ListChecks, status: 'demo', to: '/goals-tasks' },
-    { key: 'ai-chatbot', label: 'AI Copilot', icon: Bot, status: 'demo', to: '/ai-chatbot' },
-    { key: 'reminders', label: 'Reminders', icon: Bell, status: 'demo', to: '/reminders' },
-    { key: 'compliance-mapping', label: 'Compliance Mapping', icon: Network, status: 'demo', to: '/compliance' },
-    { key: 'uat-readiness', label: 'UAT Readiness', icon: ClipboardCheck, status: 'demo', to: '/uat-readiness' },
-    // No prototype screen exists for this one, so it keeps its design preview.
-    { key: 'admin-settings', label: 'Admin / Settings', icon: Settings, status: 'planned' },
+    { key: 'goals-tasks', label: 'Goals & Tasks', icon: ListChecks, status: 'live', to: '/goals-tasks' },
+    { key: 'ai-copilot', label: 'AI Copilot', icon: Bot, status: 'live', to: '/ai-copilot' },
+    { key: 'reminders', label: 'Reminders', icon: Bell, status: 'live', to: '/reminders' },
+    { key: 'compliance-mapping', label: 'Compliance Mapping', icon: Network, status: 'live', to: '/compliance' },
+    { key: 'uat-readiness', label: 'UAT Readiness', icon: ClipboardCheck, status: 'live', to: '/uat-readiness' },
+    { key: 'admin-settings', label: 'Admin / Settings', icon: Settings, status: 'live', to: '/admin-settings' },
   ];
 }
 
