@@ -6,6 +6,7 @@ import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { Gap } from '../../types';
 import { AlertCircle, ArrowRight } from 'lucide-react';
+import { ScrollableTable } from '../../components/ScrollableTable';
 
 export const GapDashboard: React.FC = () => {
   const { sprintId } = useParams<{ sprintId: string }>();
@@ -128,23 +129,26 @@ export const GapDashboard: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="table-shell">
-            <table className="table-base">
+          <ScrollableTable>
+            <table className="table-base min-w-[1280px]">
               <thead>
                 <tr>
+                  <th>S.No</th>
                   <th>Audit Field ID</th>
                   <th>Gap Type</th>
                   <th>Priority</th>
                   <th>Assigned Owner</th>
                   <th>Title</th>
+                  <th>Source</th>
                   <th>Score Impact</th>
                   <th>Status</th>
                   <th className="text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {gaps.map((gap) => (
+                {gaps.map((gap, index) => (
                   <tr key={gap.id}>
+                    <td className="text-ink-500 tabular-nums">{index + 1}</td>
                     <td className="font-mono text-xs font-bold text-brand-800">
                       {gap.audit_field_id || '—'}
                     </td>
@@ -156,6 +160,12 @@ export const GapDashboard: React.FC = () => {
                     </td>
                     <td className="font-semibold text-ink-900">{gap.owner_role || '—'}</td>
                     <td className="text-ink-600">{gap.title}</td>
+                    <td
+                      className="text-ink-600 max-w-[14rem] truncate"
+                      title={gap.source_document_filename || undefined}
+                    >
+                      {gap.source_document_filename || '—'}
+                    </td>
                     <td className="font-mono font-bold text-danger tabular-nums">
                       -{gap.score_impact} pts
                     </td>
@@ -195,7 +205,7 @@ export const GapDashboard: React.FC = () => {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollableTable>
         )}
       </div>
     </div>

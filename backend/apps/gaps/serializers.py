@@ -25,12 +25,14 @@ class GapItemSerializer(serializers.ModelSerializer):
     # blank.
     audit_field_id = serializers.SerializerMethodField()
     score_impact = serializers.SerializerMethodField()
+    # The document the gap was raised from, for the dashboard's Source column.
+    source_document_filename = serializers.SerializerMethodField()
 
     class Meta:
         model = GapItem
         fields = [
             'id', 'sprint_id', 'gap_type', 'title', 'description', 'pillar', 'pillar_label',
-            'priority', 'source_fact_id', 'related_document_id', 'owner_role', 'audit_field_id',
+            'priority', 'source_fact_id', 'related_document_id', 'source_document_filename', 'owner_role', 'audit_field_id',
             'score_impact', 'status', 'resolution', 'resolved_by', 'resolved_at', 'created_at', 'updated_at',
             'conflict_fact_b_id', 'conflict_value_a', 'conflict_value_b', 'conflict_confidence',
         ]
@@ -47,6 +49,16 @@ class GapItemSerializer(serializers.ModelSerializer):
         if obj.related_document_id:
             return obj.related_document.owner_role
         return ''
+
+    def get_source_document_filename(self, obj):
+        document = None
+        if obj.source_fact_id:
+            document = obj.source_fact.source_document or obj.source_fact.document
+        if document is None and obj.related_document_id:
+            document = obj.related_document
+        if document is None:
+            return ''
+        return document.original_filename or document.title
 
     def get_audit_field_id(self, obj):
         return obj.source_fact.field_key if obj.source_fact_id else ''

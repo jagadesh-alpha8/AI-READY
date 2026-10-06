@@ -1,46 +1,66 @@
-"""Real `PageReader` implementation for PDF documents.
+"""Real `PageReader` implementation for PDF documents -- digital and scanned.
 
-Reads a PDF's real page text (and, where present, its tables and Info-dict
-metadata) via `pdfplumber` -- pure Python, no system-level binary (poppler,
-ghostscript, ...) required. A page with too little extractable text to be
-real content is marked `requires_ocr` rather than silently reported as
-empty; see `OCRProvider` in `base.py` for how a real OCR backend plugs in.
+Flow, per document:
 
-Only PDF is implemented here (per this task's scope). Anything else is
-reported honestly as an unsupported format -- not guessed at, not silently
-treated as empty content with no explanation.
+    Open PDF with PyMuPDF
+      -> for each page: extract the text layer
+           -> meaningful?   yes: use it
+                            no:  render the page to an image -> OCR (PaddleOCR)
+      -> combine all pages, drop repeated headers/footers, clean each page
+      -> (chunking happens next, in openai_fact_extractor._build_chunks)
+
+Pages stay separate in the output (each fact the AI extracts cites a page
+number); "combine" here means the header/footer pass looks across the whole
+document. A page that has no usable text even after OCR is marked
+`requires_ocr` rather than silently reported as empty.
+
+Only PDF is implemented here. Anything else is reported honestly as an
+unsupported format -- not guessed at, not silently treated as empty.
 """
 import logging
 import os
 
-import pdfplumber
+import pymupdf
+import numpy as np
 from django.conf import settings
 
 from ..exceptions import PermanentExtractionError, RecoverableExtractionError
 from . import stub
 from .base import PageReader
+from .text_cleaning import clean_text, is_meaningful_text, remove_repeated_headers_footers
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {'.pdf'}
 
 
-class PDFPageReader(PageReader):
-    """Reads a PDF's pages via pdfplumber, page by page.
+def default_ocr_provider():
+    """PaddleOCR when enabled and installed; otherwise the honest no-op."""
+    if settings.OCR_PROVIDER == 'paddle':
+        from .paddle_ocr import PaddleOCRProvider, paddleocr_available
 
-    `ocr_provider` defaults to `stub.NullOCRProvider` (performs no OCR,
-    honestly reports pages that need it) -- pass a real implementation of
-    `base.OCRProvider` once one exists, without needing any other change
-    here or in `ExtractionPipeline`.
+        if paddleocr_available():
+            return PaddleOCRProvider()
+        logger.warning('pdf_reader.ocr_unavailable provider=paddle reason=paddleocr not installed')
+    return stub.NullOCRProvider()
+
+
+class PDFPageReader(PageReader):
+    """Reads a PDF's pages via PyMuPDF, falling back to OCR page by page.
+
+    `ocr_provider` defaults to `default_ocr_provider()` (PaddleOCR, or
+    `stub.NullOCRProvider` when OCR is disabled/unavailable) -- pass any
+    `base.OCRProvider` to swap it.
     """
 
-    def __init__(self, *, ocr_provider=None, min_text_chars_per_page=None):
-        self.ocr_provider = ocr_provider or stub.NullOCRProvider()
+    def __init__(self, *, ocr_provider=None, min_text_chars_per_page=None, ocr_dpi=None):
+        self.ocr_provider = ocr_provider or default_ocr_provider()
         self.min_text_chars_per_page = (
             min_text_chars_per_page
             if min_text_chars_per_page is not None
             else settings.PDF_MIN_TEXT_CHARS_PER_PAGE
         )
+        self.ocr_dpi = ocr_dpi or settings.OCR_DPI
 
     def read_pages(self, document, max_pages=None):
         if not document.file:
@@ -63,63 +83,101 @@ class PDFPageReader(PageReader):
         try:
             document.file.open('rb')
             try:
-                with pdfplumber.open(document.file) as pdf:
-                    return self._read_pdf(document, pdf, max_pages)
+                data = document.file.read()
             finally:
                 document.file.close()
-        except (PermanentExtractionError, RecoverableExtractionError):
-            raise
         except OSError as exc:
             # Storage I/O hiccup reading the file itself -- worth a retry.
             logger.warning('pdf_reader.io_error document_id=%s error=%s', document.id, exc)
             raise RecoverableExtractionError(f'Could not read document file: {exc}') from exc
+
+        try:
+            pdf = pymupdf.open(stream=data, filetype='pdf')
         except Exception as exc:
-            # Anything pdfplumber/pdfminer raises for a malformed/corrupt
-            # PDF -- retrying the same bytes won't produce a different result.
+            # Malformed/corrupt PDF -- retrying the same bytes won't help.
             logger.error('pdf_reader.parse_error document_id=%s error=%s', document.id, exc)
             raise PermanentExtractionError(f'Could not parse PDF: {exc}') from exc
 
+        try:
+            return self._read_pdf(document, pdf, max_pages)
+        except (PermanentExtractionError, RecoverableExtractionError):
+            raise
+        except Exception as exc:
+            logger.error('pdf_reader.parse_error document_id=%s error=%s', document.id, exc)
+            raise PermanentExtractionError(f'Could not parse PDF: {exc}') from exc
+        finally:
+            pdf.close()
+
     def _read_pdf(self, document, pdf, max_pages):
-        total_page_count = len(pdf.pages)
-        pages_to_read = pdf.pages[:max_pages] if max_pages else pdf.pages
+        total_page_count = pdf.page_count
+        pages_to_read = min(total_page_count, max_pages) if max_pages else total_page_count
 
-        pages_out = []
+        raw_texts = []
+        sources = []
         ocr_warnings = []
-        for page_number, page in enumerate(pages_to_read, start=1):
-            text = (page.extract_text() or '').strip()
-            tables = page.extract_tables() or []
-            requires_ocr = len(text) < self.min_text_chars_per_page
+        for index in range(pages_to_read):
+            page_number = index + 1
+            page = pdf.load_page(index)
+            text = page.get_text('text', sort=True) or ''
+            source = 'text'
 
-            if requires_ocr:
-                ocr_text = self.ocr_provider.extract_text(document, page_number)
-                if ocr_text:
-                    text = ocr_text.strip()
-                    requires_ocr = len(text) < self.min_text_chars_per_page
-                if requires_ocr:
+            if not is_meaningful_text(text, self.min_text_chars_per_page):
+                image = None if isinstance(self.ocr_provider, stub.NullOCRProvider) else self._render(page)
+                ocr_text = self.ocr_provider.extract_text(document, page_number, image=image)
+                if ocr_text is None:
+                    source = 'none'
                     ocr_warnings.append(
                         f'Page {page_number} has little/no extractable text and requires OCR '
-                        f'(no OCR backend configured yet).'
+                        f'(no OCR backend available).'
                     )
+                elif is_meaningful_text(ocr_text, self.min_text_chars_per_page):
+                    text, source = ocr_text, 'ocr'
+                else:
+                    # OCR ran but found nothing readable: a blank, photo-only
+                    # or illegible page. Keep whatever little there was.
+                    text = text if len(text.strip()) >= len(ocr_text.strip()) else ocr_text
+                    source = 'none'
+                    ocr_warnings.append(
+                        f'Page {page_number} has no readable text, even after OCR '
+                        f'(blank, photo-only or illegible page).'
+                    )
+            raw_texts.append(text)
+            sources.append(source)
 
-            pages_out.append({
-                'page_number': page_number,
+        cleaned = [clean_text(t) for t in remove_repeated_headers_footers([clean_text(t) for t in raw_texts])]
+
+        pages_out = [
+            {
+                'page_number': index + 1,
                 'text': text,
                 'char_count': len(text),
-                'requires_ocr': requires_ocr,
-                'tables': tables,
-            })
+                'text_source': source,  # 'text' (PDF text layer) | 'ocr' | 'none'
+                'requires_ocr': source == 'none',
+                'tables': [],
+            }
+            for index, (text, source) in enumerate(zip(cleaned, sources))
+        ]
 
         result = {
             'pages': pages_out,
             'page_count': total_page_count,
             'pages_read': len(pages_out),
+            'ocr_pages': sources.count('ocr'),
             'requires_ocr': any(p['requires_ocr'] for p in pages_out),
             'ocr_warnings': ocr_warnings,
-            'metadata': dict(pdf.metadata or {}),
+            'metadata': {k: v for k, v in (pdf.metadata or {}).items() if v},
             'format_supported': True,
         }
         logger.info(
-            'pdf_reader.read document_id=%s page_count=%d pages_read=%d requires_ocr=%s',
-            document.id, total_page_count, len(pages_out), result['requires_ocr'],
+            'pdf_reader.read document_id=%s page_count=%d pages_read=%d ocr_pages=%d unreadable_pages=%d',
+            document.id, total_page_count, len(pages_out), result['ocr_pages'], len(ocr_warnings),
         )
         return result
+
+    def _render(self, page):
+        """Page -> BGR uint8 image at `ocr_dpi`, the layout PaddleOCR expects."""
+        pix = page.get_pixmap(dpi=self.ocr_dpi, colorspace=pymupdf.csRGB, alpha=False)
+        # Rows can be padded (stride > width*3), so slice by stride first.
+        rows = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.stride)
+        rgb = rows[:, :pix.width * 3].reshape(pix.height, pix.width, 3)
+        return np.ascontiguousarray(rgb[:, :, ::-1])

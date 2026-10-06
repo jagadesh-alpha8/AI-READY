@@ -15,6 +15,7 @@ export interface Gap {
   score_impact: number;
   source_fact_id: string | null;
   related_document_id: string | null;
+  source_document_filename: string;
   owner_role: string;
   status: GapStatus;
   resolution: string;

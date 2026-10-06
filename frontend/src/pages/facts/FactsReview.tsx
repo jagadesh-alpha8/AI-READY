@@ -6,6 +6,7 @@ import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { Fact } from '../../types';
 import { FileSearch, ArrowRight } from 'lucide-react';
+import { ScrollableTable } from '../../components/ScrollableTable';
 
 export const FactsReview: React.FC = () => {
   const { sprintId } = useParams<{ sprintId: string }>();
@@ -134,10 +135,11 @@ export const FactsReview: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="table-shell">
-            <table className="table-base">
+          <ScrollableTable>
+            <table className="table-base min-w-[1400px]">
               <thead>
                 <tr>
+                  <th>S.No</th>
                   <th>Audit Field ID</th>
                   <th>Extracted Value</th>
                   <th>Pillar</th>
@@ -150,8 +152,9 @@ export const FactsReview: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {facts.map((fact) => (
+                {facts.map((fact, index) => (
                   <tr key={fact.id}>
+                    <td className="text-ink-500 tabular-nums">{index + 1}</td>
                     <td className="font-mono text-xs font-bold text-brand-800">
                       {fact.audit_field_id}
                     </td>
@@ -241,7 +244,7 @@ export const FactsReview: React.FC = () => {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollableTable>
         )}
       </div>
     </div>

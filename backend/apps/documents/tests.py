@@ -463,7 +463,7 @@ class ListDriveFolderFilesTests(SimpleTestCase):
             },
         )
         files = list_drive_folder_files('root', 'test-key', max_files=200)
-        self.assertEqual({f['id'] for f in files}, {'f1', 'f2'})
+        self.assertEqual({(f['id'], f['folder_path']) for f in files}, {('f1', ''), ('f2', 'Sub')})
 
     @patch('apps.documents.drive_import.requests.get')
     def test_respects_max_files_cap_across_folders(self, mock_get):
@@ -494,8 +494,7 @@ class ListDriveFolderFilesTests(SimpleTestCase):
 
     @patch('apps.documents.drive_import.requests.get')
     def test_stop_when_halts_the_walk_early(self, mock_get):
-        """The importer only ever uses one file per checklist slot, so it stops
-        the walk as soon as it has them. A folder deeper in the tree must then
+        """Once `stop_when` is satisfied, a folder deeper in the tree must
         never be requested at all -- that early exit is the whole point."""
         mock_get.side_effect = _make_fake_drive_get(
             files_by_folder={
@@ -583,9 +582,47 @@ class DriveImportTaskTests(APITestCase):
         self.assertEqual(job.results['naac_ssr']['status'], 'found')
         self.assertEqual(job.results['aqar_report']['status'], 'found')
         self.assertEqual(job.results['aicte_approval']['status'], 'missing')
-        self.assertIn('Random_Notes.txt', job.results['unmatched_files'])
-        self.assertEqual(job.results['skipped_files'], [])
+        self.assertEqual(
+            job.results['skipped_files'], [{'filename': 'Random_Notes.txt', 'reason': 'Unsupported file type.'}],
+        )
+        self.assertEqual(job.results['additional_files'], [])
         self.assertEqual(Document.objects.filter(sprint=self.sprint).count(), 2)
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_imports_every_file_from_root_and_subfolders_not_just_checklist_matches(self, mock_get):
+        mock_get.side_effect = _make_fake_drive_get(
+            files_by_folder={
+                'abc123folder': [
+                    {'id': 'f1', 'name': 'NAAC_SSR_2025.pdf', 'mimeType': 'application/pdf'},
+                    {'id': 'f2', 'name': 'Campus_Brochure.pdf', 'mimeType': 'application/pdf'},
+                    {'id': 'sub1', 'name': 'Misc', 'mimeType': 'application/vnd.google-apps.folder'},
+                ],
+                'sub1': [
+                    # Second SSR match -- slot already claimed, still imported.
+                    {'id': 'f3', 'name': 'NAAC_SSR_2024.pdf', 'mimeType': 'application/pdf'},
+                    {'id': 'f4', 'name': 'Budget.xlsx', 'mimeType': 'application/octet-stream'},
+                ],
+            },
+            downloads={
+                'f1': b'%PDF-1.4 ssr 2025', 'f2': b'%PDF-1.4 brochure',
+                'f3': b'%PDF-1.4 ssr 2024', 'f4': b'PK budget',
+            },
+        )
+        response = self._start_import()
+        job = DriveImportJob.objects.get(id=response.data['id'])
+        self.assertEqual(job.status, DriveImportJob.Status.COMPLETED)
+        self.assertEqual(job.files_scanned, 4)
+        self.assertEqual(job.files_imported, 4)
+        self.assertEqual(job.results['naac_ssr']['filename'], 'NAAC_SSR_2025.pdf')
+        self.assertEqual(
+            [(f['folder'], f['filename']) for f in job.results['additional_files']],
+            [('', 'Campus_Brochure.pdf'), ('Misc', 'NAAC_SSR_2024.pdf'), ('Misc', 'Budget.xlsx')],
+        )
+        self.assertEqual(
+            Document.objects.filter(sprint=self.sprint, document_type='supporting_document').count(), 3,
+        )
+        # Progress is written per file while importing; it ends fully processed.
+        self.assertEqual(job.results['progress'], {'processed': 4, 'total': 4, 'current_file': ''})
 
     @patch('apps.documents.drive_import.requests.get')
     def test_scans_subfolders_recursively(self, mock_get):
@@ -676,6 +713,52 @@ class DriveImportTaskTests(APITestCase):
         self.assertEqual(job.status, DriveImportJob.Status.FAILED)
         self.assertIn('not configured', job.error_message)
         mock_get.assert_not_called()
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_stop_mid_import_keeps_imported_files_and_imports_no_more(self, mock_get):
+        mock_get.side_effect = _make_fake_drive_get(
+            files=[
+                {'id': 'f1', 'name': 'NAAC_SSR_2025.pdf', 'mimeType': 'application/pdf'},
+                {'id': 'f2', 'name': 'AQAR_Report.pdf', 'mimeType': 'application/pdf'},
+                {'id': 'f3', 'name': 'AICTE_Approval.pdf', 'mimeType': 'application/pdf'},
+            ],
+            downloads={'f1': b'%PDF-1.4 a', 'f2': b'%PDF-1.4 b', 'f3': b'%PDF-1.4 c'},
+        )
+        calls = {'n': 0}
+
+        def stop_after_first_file(job):
+            # Simulates the user pressing Stop once the first file has landed.
+            calls['n'] += 1
+            if calls['n'] == 2:
+                DriveImportJob.objects.filter(id=job.id).update(status=DriveImportJob.Status.CANCELLED)
+                return True
+            return False
+
+        with patch('apps.documents.tasks._is_cancelled', side_effect=stop_after_first_file):
+            response = self._start_import()
+        job = DriveImportJob.objects.get(id=response.data['id'])
+        self.assertEqual(job.status, DriveImportJob.Status.CANCELLED)
+        self.assertEqual(job.files_imported, 1)
+        self.assertEqual(Document.objects.filter(sprint=self.sprint).count(), 1)
+
+    def test_stop_endpoint_cancels_active_job(self):
+        job = DriveImportJob.objects.create(
+            sprint=self.sprint, drive_url='https://drive.google.com/drive/folders/abc123folder',
+            status=DriveImportJob.Status.DOWNLOADING,
+        )
+        response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/drive-import-jobs/{job.id}/stop')
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['status'], 'cancelled')
+
+    def test_stop_endpoint_rejects_finished_job(self):
+        job = DriveImportJob.objects.create(
+            sprint=self.sprint, drive_url='https://drive.google.com/drive/folders/abc123folder',
+            status=DriveImportJob.Status.COMPLETED,
+        )
+        response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/drive-import-jobs/{job.id}/stop')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        job.refresh_from_db()
+        self.assertEqual(job.status, DriveImportJob.Status.COMPLETED)
 
     @patch('apps.documents.drive_import.requests.get')
     def test_transient_network_error_reschedules_via_celery_retry(self, mock_get):

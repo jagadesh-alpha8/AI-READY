@@ -1,9 +1,10 @@
+import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from .constants import DRIVE_IMPORT_CHECKLIST
+from .constants import ALLOWED_UPLOAD_EXTENSIONS, DRIVE_IMPORT_CHECKLIST
 from .exceptions import PermanentDriveImportError, RecoverableDriveImportError
 
 DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3'
@@ -41,10 +42,12 @@ def parse_drive_folder_id(url):
     )
 
 
-def _list_one_folder(folder_id, api_key, max_files):
+def _list_one_folder(folder_id, folder_path, api_key, max_files):
     """One folder's immediate contents, paging until exhausted or `max_files`.
 
-    Returns `(files, subfolder_ids)`. Pure I/O over a single folder, so a
+    Returns `(files, subfolders)` where each file dict gains a `folder_path`
+    ('' for the root folder, 'Reports/2024' for a nested one) and each
+    subfolder is an `(id, path)` pair. Pure I/O over a single folder, so a
     whole level of the tree can be fetched concurrently.
     """
     files = []
@@ -73,9 +76,10 @@ def _list_one_folder(folder_id, api_key, max_files):
         payload = resp.json()
         for entry in payload.get('files', []):
             if entry.get('mimeType') == _FOLDER_MIME_TYPE:
-                subfolders.append(entry['id'])
+                child_path = f"{folder_path}/{entry['name']}" if folder_path else entry['name']
+                subfolders.append((entry['id'], child_path))
             else:
-                files.append(entry)
+                files.append({**entry, 'folder_path': folder_path})
 
         page_token = payload.get('nextPageToken')
         if not page_token:
@@ -87,8 +91,8 @@ def _list_one_folder(folder_id, api_key, max_files):
 def list_drive_folder_files(
     folder_id, api_key, max_files, max_folders=200, *, stop_when=None, max_workers=8,
 ):
-    """Return up to `max_files` {id, name, mimeType, size} dicts for
-    non-trashed files anywhere under `folder_id`, walking subfolders
+    """Return up to `max_files` {id, name, mimeType, size, folder_path} dicts
+    for non-trashed files in `folder_id` itself AND anywhere under it, walking subfolders
     breadth-first. `max_folders` bounds how many folders total get walked, as
     a safety cap against a huge or deeply-nested tree; `visited` guards
     against revisiting a folder reachable through more than one path.
@@ -113,24 +117,27 @@ def list_drive_folder_files(
 
     files = []
     visited = set()
-    level = [folder_id]
+    level = [(folder_id, '')]
 
     while level and len(files) < max_files and len(visited) < max_folders:
         # Respect max_folders across the level, not just per folder.
         budget = max_folders - len(visited)
-        current = [f for f in level if f not in visited][:budget]
+        current = []
+        for fid, path in level:
+            if fid not in visited and len(current) < budget:
+                visited.add(fid)
+                current.append((fid, path))
         if not current:
             break
-        visited.update(current)
 
         if len(current) == 1:
-            results = [_list_one_folder(current[0], api_key, max_files)]
+            results = [_list_one_folder(current[0][0], current[0][1], api_key, max_files)]
         else:
             with ThreadPoolExecutor(max_workers=min(max_workers, len(current))) as pool:
                 # `map` yields in submission order, so the walk stays
                 # deterministic even though the requests race.
                 results = list(pool.map(
-                    lambda fid: _list_one_folder(fid, api_key, max_files), current,
+                    lambda node: _list_one_folder(node[0], node[1], api_key, max_files), current,
                 ))
 
         next_level = []
@@ -144,6 +151,19 @@ def list_drive_folder_files(
         level = next_level
 
     return files[:max_files]
+
+
+def is_importable(file_meta):
+    """Cheap pre-download check: can this file possibly pass the upload
+    extension allowlist? Workspace types are judged by their export format,
+    everything else by the extension on its Drive filename. Lets the importer
+    skip a folder's .txt/.mp4/etc. without pulling their bytes first."""
+    mime_type = file_meta.get('mimeType', '')
+    if mime_type in _EXPORT_MIME_MAP:
+        return True
+    if mime_type.startswith('application/vnd.google-apps.'):
+        return False
+    return os.path.splitext(file_meta['name'])[1].lower() in ALLOWED_UPLOAD_EXTENSIONS
 
 
 def download_drive_file(file_meta, api_key):

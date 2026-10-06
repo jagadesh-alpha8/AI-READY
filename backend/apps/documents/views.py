@@ -127,6 +127,25 @@ class SprintDriveImportJobListCreateView(generics.ListCreateAPIView):
         return Response(DriveImportJobSerializer(job).data, status=201)
 
 
+class SprintDriveImportJobStopView(APIView):
+    """POST: stop a running Drive import. The worker checks between files,
+    so documents already imported stay; nothing further is imported."""
+
+    @extend_schema(request=None, responses=DriveImportJobSerializer)
+    def post(self, request, sprint_id, job_id):
+        get_authorized_sprint(request.user, sprint_id)
+        job = get_object_or_404(DriveImportJob, id=job_id, sprint_id=sprint_id)
+        now = timezone.now()
+        stopped = DriveImportJob.objects.filter(
+            id=job.id, status__in=DriveImportJob.ACTIVE_STATUSES,
+        ).update(status=DriveImportJob.Status.CANCELLED, completed_at=now, updated_at=now)
+        if not stopped:
+            raise DRFValidationError({'detail': f'This import is already {job.status}; there is nothing to stop.'})
+        logger.info('documents.drive_import.stop_requested job_id=%s user=%s', job.id, request.user.id)
+        job.refresh_from_db()
+        return Response(DriveImportJobSerializer(job).data)
+
+
 class DocumentDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Document.objects.all()
     serializer_class = DocumentSerializer

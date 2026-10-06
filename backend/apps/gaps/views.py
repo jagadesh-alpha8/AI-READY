@@ -33,7 +33,9 @@ class SprintGapListView(generics.ListAPIView):
 
     def get_queryset(self):
         get_authorized_sprint(self.request.user, self.kwargs['sprint_id'])
-        return GapItem.objects.filter(sprint_id=self.kwargs['sprint_id'])
+        return GapItem.objects.filter(sprint_id=self.kwargs['sprint_id']).select_related(
+            'source_fact__source_document', 'source_fact__document', 'related_document',
+        )
 
 
 class GapDetailView(generics.RetrieveAPIView):

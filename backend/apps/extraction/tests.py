@@ -36,6 +36,7 @@ from .services.openai_classifier import (
 from .services.openai_client import OpenAIExtractionService, OpenAIResponseError
 from .services.openai_fact_extractor import OpenAIFactExtractor
 from .services.pdf_reader import PDFPageReader
+from .services.text_cleaning import clean_text, is_meaningful_text, remove_repeated_headers_footers
 from .tasks import _handle_recoverable
 
 PASSWORD = 'Str0ng!DevPassw0rd'
@@ -165,6 +166,39 @@ class JobCreationTests(ExtractionJobTestBase):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(len(response.data), 1)
+
+    @patch('apps.extraction.views.run_extraction_job')
+    def test_post_with_document_ids_extracts_only_the_selected_documents(self, mock_task):
+        mock_task.delay.return_value = MagicMock(id='task-1')
+        self._auth(self.iqac)
+        unselected = Document.objects.create(
+            sprint=self.sprint, document_type='aqar_report', original_filename='aqar.pdf',
+            mime_type='application/pdf', status=Document.Status.UPLOADED,
+        )
+        response = self.client.post(
+            f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/',
+            {'document_ids': [str(self.document.id)]}, format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(len(response.data), 1)
+        self.assertTrue(ExtractionJob.objects.filter(document=self.document).exists())
+        self.assertFalse(ExtractionJob.objects.filter(document=unselected).exists())
+
+        # Selecting it again while its job is still pending queues nothing new.
+        again = self.client.post(
+            f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/',
+            {'document_ids': [str(self.document.id)]}, format='json',
+        )
+        self.assertEqual(again.data, [])
+
+    def test_post_with_document_ids_outside_sprint_is_not_found(self):
+        self._auth(self.iqac)
+        other_sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.QUICK_CRI)
+        response = self.client.post(
+            f'/api/v1/sprints/{other_sprint.id}/extraction-jobs/',
+            {'document_ids': [str(self.document.id)]}, format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_post_with_document_id_not_in_sprint_is_not_found(self):
         self._auth(self.iqac)
@@ -1024,9 +1058,43 @@ class PDFPageReaderTests(TestCase):
 
         result = reader.read_pages(document)
 
-        fake_ocr_provider.extract_text.assert_called_once_with(document, 1)
+        fake_ocr_provider.extract_text.assert_called_once()
+        args, kwargs = fake_ocr_provider.extract_text.call_args
+        self.assertEqual(args, (document, 1))
+        # The page is rendered to a BGR image for the OCR engine.
+        image = kwargs['image']
+        self.assertEqual(image.ndim, 3)
+        self.assertEqual(image.shape[2], 3)
+        self.assertEqual(str(image.dtype), 'uint8')
         self.assertEqual(result['pages'][0]['text'], 'This full paragraph of text was recovered by a real OCR backend.')
+        self.assertEqual(result['pages'][0]['text_source'], 'ocr')
         self.assertFalse(result['pages'][0]['requires_ocr'])
+        self.assertEqual(result['ocr_pages'], 1)
+
+    def test_digital_page_with_real_text_skips_ocr(self):
+        fake_ocr_provider = MagicMock()
+        reader = PDFPageReader(ocr_provider=fake_ocr_provider)
+        document = self._make_document(make_pdf_bytes([
+            'The institution has a total of 142 full-time faculty members across all departments.',
+        ]))
+
+        result = reader.read_pages(document)
+
+        fake_ocr_provider.extract_text.assert_not_called()
+        self.assertEqual(result['pages'][0]['text_source'], 'text')
+        self.assertIn('142 full-time faculty', result['pages'][0]['text'])
+
+    def test_page_ocr_cannot_read_either_stays_flagged(self):
+        fake_ocr_provider = MagicMock()
+        fake_ocr_provider.extract_text.return_value = ''
+        reader = PDFPageReader(ocr_provider=fake_ocr_provider)
+        document = self._make_document(make_pdf_bytes(['']))
+
+        result = reader.read_pages(document)
+
+        self.assertTrue(result['pages'][0]['requires_ocr'])
+        self.assertEqual(result['pages'][0]['text_source'], 'none')
+        self.assertIn('even after OCR', result['ocr_warnings'][0])
 
     def test_default_ocr_provider_never_fabricates_text(self):
         """With no real OCR backend configured, a low-text page stays
@@ -1035,6 +1103,29 @@ class PDFPageReaderTests(TestCase):
         result = self.reader.read_pages(document)
         self.assertEqual(result['pages'][0]['text'], '')
         self.assertTrue(result['pages'][0]['requires_ocr'])
+
+
+class TextCleaningTests(SimpleTestCase):
+    def test_garbage_text_is_not_meaningful(self):
+        self.assertFalse(is_meaningful_text('��� ### ~~~ ||| ��� ### ~~~ |||', 10))
+        self.assertFalse(is_meaningful_text('short', 40))
+        self.assertTrue(is_meaningful_text('Total sanctioned intake for B.E. CSE is 180 seats.', 40))
+
+    def test_clean_text_normalises_whitespace_and_hyphenation(self):
+        self.assertEqual(
+            clean_text('Intro-\nduction   to\tAI\n\n\n\nAcademic year 2023-\n24\x0c'),
+            'Introduction to AI\n\nAcademic year 2023-\n24',
+        )
+
+    def test_repeated_header_and_page_numbers_are_removed(self):
+        pages = [f'ABC College of Engineering\nBody text for page {i}.\nPage {i} of 5' for i in range(1, 6)]
+        cleaned = remove_repeated_headers_footers(pages)
+        for i, text in enumerate(cleaned, start=1):
+            self.assertEqual(text, f'Body text for page {i}.')
+
+    def test_short_documents_keep_their_lines(self):
+        pages = ['Heading\nBody one', 'Heading\nBody two']
+        self.assertEqual(remove_repeated_headers_footers(pages), pages)
 
 
 class OpenAIDocumentClassifierTests(TestCase):

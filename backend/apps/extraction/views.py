@@ -37,11 +37,22 @@ class SprintExtractionJobListCreateView(generics.ListCreateAPIView):
         body = ExtractionJobCreateSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         document_id = body.validated_data.get('document_id')
+        document_ids = set(body.validated_data.get('document_ids') or [])
 
         if document_id:
             documents = list(Document.objects.filter(id=document_id, sprint=sprint))
             if not documents:
                 raise NotFound('Document not found in this sprint.')
+        elif document_ids:
+            selected = Document.objects.filter(id__in=document_ids, sprint=sprint)
+            if selected.count() != len(document_ids):
+                raise NotFound('One or more selected documents were not found in this sprint.')
+            # Skip any selected document that is already mid-extraction, so a
+            # double click can't queue the same document twice.
+            active_document_ids = ExtractionJob.objects.filter(
+                sprint=sprint, status__in=ACTIVE_STATUSES,
+            ).values_list('document_id', flat=True)
+            documents = list(selected.exclude(id__in=active_document_ids))
         else:
             documents = list(self._eligible_documents(sprint))
 

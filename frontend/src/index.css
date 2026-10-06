@@ -165,6 +165,22 @@
      does -- the fix for "no unwanted horizontal scrolling" on narrow
      viewports. */
   .table-shell { @apply w-full overflow-x-auto rounded-lg border border-line-200; }
+  /* Opt-in for wide tables: caps the height, with a sticky header. Its own
+     horizontal scrollbar sits at the bottom edge, so ScrollableTable.tsx adds
+     a synced one on top (.table-hscroll-top). Both use a clearly visible
+     bar -- the global one is a faint grey that disappears on the dark theme. */
+  .table-scroll { @apply max-h-[70vh] overflow-auto; }
+  .table-scroll thead th { @apply sticky top-0 z-10; }
+  .table-hscroll-top { @apply overflow-x-auto overflow-y-hidden mb-1.5; }
+  .table-scroll,
+  .table-hscroll-top { scrollbar-color: rgb(var(--color-brand-500)) rgb(var(--color-line-200)); }
+  .table-scroll::-webkit-scrollbar,
+  .table-hscroll-top::-webkit-scrollbar { @apply w-3 h-3; }
+  .table-scroll::-webkit-scrollbar-track,
+  .table-hscroll-top::-webkit-scrollbar-track { @apply bg-line-200 rounded-full; }
+  .table-scroll::-webkit-scrollbar-thumb,
+  .table-hscroll-top::-webkit-scrollbar-thumb { @apply bg-brand-500 rounded-full; }
+  .table-scroll::-webkit-scrollbar-corner { @apply bg-transparent; }
   .table-base { @apply w-full text-left text-sm border-collapse min-w-[640px]; }
   .table-base thead th { @apply py-3 px-4 text-[11px] font-bold uppercase tracking-wide text-ink-500 bg-surface border-b border-line-200 whitespace-nowrap; }
   .table-base tbody td { @apply py-3.5 px-4 border-b border-line-100 align-top text-ink-700; }

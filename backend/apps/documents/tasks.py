@@ -1,5 +1,7 @@
 import logging
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from itertools import islice
 
 from celery import shared_task
 from django.conf import settings
@@ -7,20 +9,28 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
 from .constants import DRIVE_IMPORT_CHECKLIST
-from .drive_import import classify_filename, download_drive_file, list_drive_folder_files, parse_drive_folder_id
+from .drive_import import (
+    classify_filename, download_drive_file, is_importable, list_drive_folder_files, parse_drive_folder_id,
+)
 from .exceptions import PermanentDriveImportError, RecoverableDriveImportError
 from .services import DocumentValidationError, create_document_from_file
 
 logger = logging.getLogger(__name__)
 
+#: document_type for Drive files that don't fill a checklist slot -- they are
+#: still imported so the whole folder lands in the sprint.
+ADDITIONAL_DOCUMENT_TYPE = 'supporting_document'
+
 
 @shared_task(bind=True, max_retries=settings.GOOGLE_DRIVE_IMPORT_MAX_RETRIES, acks_late=True)
 def run_drive_import_job(self, job_id):
-    """Scan a Drive folder, classify its files against DRIVE_IMPORT_CHECKLIST,
-    and import whatever matches through the same document-creation path as a
-    manual upload. A single file's failure (bad export, validation reject)
-    doesn't fail the whole job -- it's recorded in `results['skipped_files']`
-    and the rest keep going.
+    """Scan a Drive folder (root + every subfolder) and import EVERY supported
+    file through the same document-creation path as a manual upload. The
+    first filename matching each DRIVE_IMPORT_CHECKLIST slot fills that slot;
+    every other file is imported as a supporting document. A single file's
+    failure (bad export, validation reject, unsupported type) doesn't fail the
+    whole job -- it's recorded in `results['skipped_files']` and the rest keep
+    going.
     """
     from .models import DriveImportJob
 
@@ -38,24 +48,21 @@ def run_drive_import_job(self, job_id):
         )
         return None
 
-    job.status = DriveImportJob.Status.SCANNING
-    if job.started_at is None:
-        job.started_at = timezone.now()
-    job.error_message = ''
-    job.save(update_fields=['status', 'started_at', 'error_message', 'updated_at'])
+    if not _set_status(
+        job, DriveImportJob.Status.SCANNING, started_at=job.started_at or timezone.now(), error_message='',
+    ):
+        logger.info('documents.drive_import.cancelled_before_start job_id=%s', job.id)
+        return None
     logger.info('documents.drive_import.scanning job_id=%s attempt=%d', job.id, self.request.retries + 1)
 
     try:
         folder_id = parse_drive_folder_id(job.drive_url)
+        # Walk the WHOLE tree -- root folder plus every subfolder. Every file
+        # is imported, not just one per checklist slot, so there is no early
+        # stop once the checklist fills up.
         files = list_drive_folder_files(
             folder_id, settings.GOOGLE_DRIVE_API_KEY, settings.GOOGLE_DRIVE_IMPORT_MAX_FILES,
             max_folders=settings.GOOGLE_DRIVE_IMPORT_MAX_FOLDERS,
-            # Stop walking the moment every checklist slot has a candidate.
-            # Only one file per slot is ever imported, so a folder tree that
-            # yields all twelve in its first level does not need the other
-            # 190 folders scanned. Classification is filename-only, and the
-            # listing already carries filenames, so this costs nothing.
-            stop_when=_all_slots_claimed,
             max_workers=settings.GOOGLE_DRIVE_IMPORT_CONCURRENCY,
         )
     except PermanentDriveImportError as exc:
@@ -75,63 +82,115 @@ def run_drive_import_job(self, job_id):
     job.files_scanned = len(files)
     job.save(update_fields=['files_scanned', 'updated_at'])
 
-    claimed = _claim_slots(files)
-    unmatched = [
-        f['name'] for f in files
-        if not (classify_filename(f['name']) and claimed.get(classify_filename(f['name'])) is f)
-    ]
-
-    job.status = DriveImportJob.Status.DOWNLOADING
-    job.save(update_fields=['status', 'updated_at'])
-
-    # Downloads run concurrently; document creation does not. Fetching is pure
-    # network I/O and was the bulk of the wall clock -- twelve files pulled one
-    # after another, each with a 60 s ceiling. Creating the Document rows stays
-    # on this thread, in checklist order: it touches the database, and the
-    # results dict is ordered output a human reads.
-    downloads = _download_all(claimed)
-
-    results = {}
     skipped = []
-    imported = 0
-    for item in DRIVE_IMPORT_CHECKLIST:
-        slot = item['type']
-        file_meta = claimed.get(slot)
-        if file_meta is None:
-            results[slot] = {'status': 'missing', 'filename': None, 'document_id': None}
-            continue
+    importable = []
+    for entry in files:
+        if is_importable(entry):
+            importable.append(entry)
+        else:
+            skipped.append({'filename': _display_name(entry), 'reason': 'Unsupported file type.'})
 
-        outcome = downloads[slot]
+    claimed = _claim_slots(importable)
+    slot_by_file_id = {meta['id']: slot for slot, meta in claimed.items()}
+
+    if not _set_status(job, DriveImportJob.Status.DOWNLOADING):
+        logger.info('documents.drive_import.cancelled_after_scan job_id=%s', job.id)
+        return str(job.id)
+
+    checklist_by_slot = {item['type']: item for item in DRIVE_IMPORT_CHECKLIST}
+    results = {
+        item['type']: {'status': 'missing', 'filename': None, 'document_id': None}
+        for item in DRIVE_IMPORT_CHECKLIST
+    }
+    additional = []
+    imported = 0
+    progress = {'processed': 0, 'total': len(importable), 'current_file': ''}
+    results.update(additional_files=additional, skipped_files=skipped, progress=progress)
+
+    # Files are handled one at a time, in listing order: each one is
+    # downloaded, saved as a Document, and the job's progress is written
+    # straight away -- so the Upload Data Pack page (which polls the job)
+    # shows every document in the records table as soon as it lands, instead
+    # of all at once at the end. Downloads still prefetch concurrently in the
+    # background; only the save-and-report step is sequential.
+    cancelled = False
+    for entry, outcome in _iter_downloads(importable):
+        # Checked before every file: a Stop click lands between two files,
+        # keeping everything imported so far and importing nothing more.
+        if _is_cancelled(job):
+            cancelled = True
+            break
+        progress['current_file'] = _display_name(entry)
         if isinstance(outcome, Exception):
-            skipped.append({'filename': file_meta['name'], 'reason': str(outcome)})
-            results[slot] = {'status': 'missing', 'filename': None, 'document_id': None}
+            skipped.append({'filename': _display_name(entry), 'reason': str(outcome)})
+            _save_progress(job, results, imported, progress)
             continue
         content, filename, mime_type = outcome
+
+        slot = slot_by_file_id.get(entry['id'])
+        if slot:
+            document_type, owner_role = slot, checklist_by_slot[slot]['owner']
+        else:
+            # Not a checklist match (or a second file for an already-claimed
+            # slot): still imported, as a general supporting document.
+            document_type, owner_role = ADDITIONAL_DOCUMENT_TYPE, ''
 
         upload = SimpleUploadedFile(filename, content, content_type=mime_type)
         try:
             document = create_document_from_file(
-                sprint=job.sprint, file_obj=upload, document_type=slot,
-                owner_role=item['owner'], uploaded_by=job.created_by,
+                sprint=job.sprint, file_obj=upload, document_type=document_type,
+                owner_role=owner_role, uploaded_by=job.created_by,
             )
         except DocumentValidationError as exc:
-            skipped.append({'filename': filename, 'reason': str(exc.errors)})
-            results[slot] = {'status': 'missing', 'filename': None, 'document_id': None}
+            skipped.append({'filename': _display_name(entry, filename), 'reason': _flatten_errors(exc.errors)})
+            _save_progress(job, results, imported, progress)
             continue
 
-        results[slot] = {'status': 'found', 'filename': filename, 'document_id': str(document.id)}
         imported += 1
+        if slot:
+            results[slot] = {'status': 'found', 'filename': filename, 'document_id': str(document.id)}
+        else:
+            additional.append({
+                'filename': filename, 'folder': entry.get('folder_path', ''), 'document_id': str(document.id),
+            })
+        _save_progress(job, results, imported, progress)
 
-    results['unmatched_files'] = unmatched
-    results['skipped_files'] = skipped
-
+    progress['current_file'] = ''
     job.results = results
     job.files_imported = imported
-    job.status = DriveImportJob.Status.COMPLETED
-    job.completed_at = timezone.now()
-    job.save(update_fields=['results', 'files_imported', 'status', 'completed_at', 'updated_at'])
-    logger.info('documents.drive_import.completed job_id=%s imported=%d', job.id, imported)
+    job.save(update_fields=['results', 'files_imported', 'updated_at'])
+    if cancelled or not _set_status(job, DriveImportJob.Status.COMPLETED, completed_at=timezone.now()):
+        logger.info('documents.drive_import.cancelled job_id=%s imported=%d', job.id, imported)
+    else:
+        logger.info('documents.drive_import.completed job_id=%s imported=%d', job.id, imported)
     return str(job.id)
+
+
+def _set_status(job, status, **fields):
+    """Move the job to `status` unless the user already cancelled it.
+
+    A conditional UPDATE rather than `job.save()`, so a Stop click that lands
+    while this worker is mid-step can never be overwritten back to an active
+    or completed status. Returns False if the job was cancelled.
+    """
+    from .models import DriveImportJob
+
+    updated = DriveImportJob.objects.filter(id=job.id).exclude(
+        status=DriveImportJob.Status.CANCELLED,
+    ).update(status=status, updated_at=timezone.now(), **fields)
+    if not updated:
+        job.status = DriveImportJob.Status.CANCELLED
+        return False
+    job.status = status
+    for name, value in fields.items():
+        setattr(job, name, value)
+    return True
+
+
+def _is_cancelled(job):
+    from .models import DriveImportJob
+
+    return DriveImportJob.objects.filter(id=job.id, status=DriveImportJob.Status.CANCELLED).exists()
 
 
 def _claim_slots(files):
@@ -149,35 +208,71 @@ def _claim_slots(files):
     return claimed
 
 
-def _all_slots_claimed(files):
-    """Every checklist slot has a candidate — the folder walk can stop."""
-    return len(_claim_slots(files)) >= len(DRIVE_IMPORT_CHECKLIST)
+def _display_name(entry, filename=None):
+    """'Reports/2024/AQAR.pdf' for a subfolder file, the plain name for root."""
+    name = filename or entry['name']
+    folder = entry.get('folder_path', '')
+    return f'{folder}/{name}' if folder else name
 
 
-def _download_all(claimed):
-    """Fetch every claimed file concurrently.
+def _flatten_errors(errors):
+    """DRF serializer errors -> one readable line for the results panel."""
+    if isinstance(errors, dict):
+        return ' '.join(_flatten_errors(v) for v in errors.values())
+    if isinstance(errors, (list, tuple)):
+        return ' '.join(_flatten_errors(v) for v in errors)
+    return str(errors)
 
-    Returns `{slot: (content, filename, mime_type) | Exception}` — a failure
-    is returned rather than raised, because one bad export must not fail the
-    other eleven files, which is the behaviour the sequential version had.
+
+def _save_progress(job, results, imported, progress):
+    """Persist per-file progress so the polling page can update mid-import."""
+    progress['processed'] += 1
+    job.results = results
+    job.files_imported = imported
+    job.save(update_fields=['results', 'files_imported', 'updated_at'])
+
+
+def _iter_downloads(entries):
+    """Yield `(entry, (content, filename, mime_type) | Exception)` in listing
+    order, one file at a time, as soon as each is ready.
+
+    Downloads run concurrently in the background, but results are handed back
+    strictly in order, so the caller can save each document the moment its
+    bytes arrive. A failure is yielded rather than raised, because one bad
+    export must not fail every other file in the folder.
     """
-    if not claimed:
-        return {}
+    if not entries:
+        return
 
     api_key = settings.GOOGLE_DRIVE_API_KEY
-    workers = min(settings.GOOGLE_DRIVE_IMPORT_CONCURRENCY, len(claimed))
+    workers = min(settings.GOOGLE_DRIVE_IMPORT_CONCURRENCY, len(entries))
 
-    def fetch(slot):
+    def fetch(entry):
         try:
-            return slot, download_drive_file(claimed[slot], api_key)
+            return entry, download_drive_file(entry, api_key)
         except (PermanentDriveImportError, RecoverableDriveImportError) as exc:
-            return slot, exc
+            return entry, exc
 
     if workers <= 1:
-        return dict(fetch(slot) for slot in claimed)
+        yield from (fetch(entry) for entry in entries)
+        return
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        return dict(pool.map(fetch, list(claimed)))
+    # A bounded prefetch window (at most `workers` downloads in flight) rather
+    # than `pool.map`, which submits every file up front: when the caller
+    # stops early (user pressed Stop), only the in-flight handful is wasted,
+    # and the rest are never fetched.
+    pool = ThreadPoolExecutor(max_workers=workers)
+    remaining = iter(entries)
+    pending = deque(pool.submit(fetch, entry) for entry in islice(remaining, workers))
+    try:
+        while pending:
+            result = pending.popleft().result()
+            nxt = next(remaining, None)
+            if nxt is not None:
+                pending.append(pool.submit(fetch, nxt))
+            yield result
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _handle_recoverable(task, job, exc):
@@ -194,9 +289,8 @@ def _handle_recoverable(task, job, exc):
     # SCANNING doubles as the pre-download retry state -- DriveImportJob has
     # no separate RETRYING status (unlike ExtractionJob's 6-value enum),
     # since a retry here is always still pre-download.
-    job.status = DriveImportJob.Status.SCANNING
-    job.error_message = str(exc)
-    job.save(update_fields=['status', 'error_message', 'updated_at'])
+    if not _set_status(job, DriveImportJob.Status.SCANNING, error_message=str(exc)):
+        return None
     logger.warning('documents.drive_import.retrying job_id=%s attempt=%d error=%s', job.id, attempt, exc)
 
     countdown = settings.GOOGLE_DRIVE_IMPORT_RETRY_BACKOFF_SECONDS * (2 ** task.request.retries)
@@ -206,7 +300,4 @@ def _handle_recoverable(task, job, exc):
 def _fail(job, message):
     from .models import DriveImportJob
 
-    job.status = DriveImportJob.Status.FAILED
-    job.error_message = message
-    job.completed_at = timezone.now()
-    job.save(update_fields=['status', 'error_message', 'completed_at', 'updated_at'])
+    _set_status(job, DriveImportJob.Status.FAILED, error_message=message, completed_at=timezone.now())

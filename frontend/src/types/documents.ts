@@ -27,7 +27,7 @@ export interface SprintDocument {
   updated_at: string;
 }
 
-export type DriveImportJobStatus = 'pending' | 'scanning' | 'downloading' | 'completed' | 'failed';
+export type DriveImportJobStatus = 'pending' | 'scanning' | 'downloading' | 'completed' | 'failed' | 'cancelled';
 
 export const ACTIVE_DRIVE_IMPORT_STATUSES: DriveImportJobStatus[] = ['pending', 'scanning', 'downloading'];
 
@@ -42,16 +42,37 @@ export interface DriveImportSkippedFile {
   reason: string;
 }
 
+/** A Drive file imported as a supporting document (no checklist slot).
+ * `folder` is '' for the root folder, 'Reports/2024' for a subfolder. */
+export interface DriveImportAdditionalFile {
+  filename: string;
+  folder: string;
+  document_id: string;
+}
+
+/** Live per-file progress, rewritten after every file while the job runs. */
+export interface DriveImportProgress {
+  processed: number;
+  total: number;
+  current_file: string;
+}
+
 /**
  * Keyed by DRIVE_IMPORT_CHECKLIST type slug (backend/apps/documents/
  * constants.py) -> DriveImportChecklistResult, PLUS two fixed keys of a
- * different shape: 'unmatched_files' (string[]) and 'skipped_files'
- * (DriveImportSkippedFile[]). This mixed shape mirrors the backend's single
- * `results` JSONField exactly -- callers must filter those two keys out
- * before treating the rest as checklist results (see UploadDataPack.tsx).
+ * different shape: 'additional_files' (DriveImportAdditionalFile[]) and
+ * 'skipped_files' (DriveImportSkippedFile[]). This mixed shape mirrors the
+ * backend's single `results` JSONField exactly -- callers must filter those
+ * two keys out before treating the rest as checklist results (see
+ * UploadDataPack.tsx). Older jobs may carry 'unmatched_files' (string[]).
  */
 export interface DriveImportJobResults {
-  [key: string]: DriveImportChecklistResult | string[] | DriveImportSkippedFile[];
+  [key: string]:
+    | DriveImportChecklistResult
+    | string[]
+    | DriveImportSkippedFile[]
+    | DriveImportAdditionalFile[]
+    | DriveImportProgress;
 }
 
 export interface DriveImportJob {

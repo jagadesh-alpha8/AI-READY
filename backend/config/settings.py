@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
@@ -251,9 +252,30 @@ OPENAI_EXTRACTION_MODEL = os.getenv('OPENAI_EXTRACTION_MODEL', '')
 OPENAI_CLASSIFICATION_SAMPLE_PAGES = int(os.getenv('OPENAI_CLASSIFICATION_SAMPLE_PAGES', 3))
 
 # apps.extraction.services.pdf_reader: a page with fewer than this many
-# extractable characters is flagged as requiring OCR rather than treated as
-# genuinely (and silently) empty.
+# extractable characters (or mostly non-letter garbage) is sent to OCR; if
+# OCR can't read it either, it's flagged rather than treated as empty.
 PDF_MIN_TEXT_CHARS_PER_PAGE = int(os.getenv('PDF_MIN_TEXT_CHARS_PER_PAGE', 40))
+
+# OCR for scanned / image-only PDF pages (apps.extraction.services.paddle_ocr).
+# OCR_PROVIDER: 'paddle' (PaddleOCR, models download on first use) or 'none'.
+# OCR_DPI: resolution pages are rendered at before OCR -- higher reads small
+# print better but is slower. OCR_MIN_CONFIDENCE: recognised lines below
+# this score are dropped rather than risk a misread number becoming a fact.
+# The test suite never loads real OCR models (slow, downloaded on first use)
+# unless OCR_PROVIDER is set explicitly; OCR tests inject a fake provider.
+_RUNNING_TESTS = len(sys.argv) > 1 and sys.argv[1] == 'test'
+OCR_PROVIDER = os.getenv('OCR_PROVIDER', 'none' if _RUNNING_TESTS else 'paddle').strip().lower()
+OCR_LANG = os.getenv('OCR_LANG', 'en')
+OCR_DPI = int(os.getenv('OCR_DPI', 200))
+OCR_MIN_CONFIDENCE = float(os.getenv('OCR_MIN_CONFIDENCE', 0.5))
+# OCR_ENABLE_MKLDNN: PaddlePaddle's oneDNN CPU acceleration -- roughly 4-5x
+# faster, but broken in paddlepaddle 3.3.x on Windows (pinned <3.3 in
+# requirements); set false if your paddlepaddle version crashes with it.
+# OCR_DET_MODEL: text-detection model. The mobile one reads document pages as
+# well as the server one in practice and is about twice as fast on CPU; set
+# 'PP-OCRv5_server_det' for hard scans, or blank for PaddleOCR's default.
+OCR_ENABLE_MKLDNN = os.getenv('OCR_ENABLE_MKLDNN', 'true').strip().lower() in ('1', 'true', 'yes')
+OCR_DET_MODEL = os.getenv('OCR_DET_MODEL', 'PP-OCRv5_mobile_det').strip()
 
 # apps.extraction.services.openai_fact_extractor: a document's pages are
 # grouped into chunks (never splitting a page) capped at this many
@@ -453,3 +475,6 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+
+    

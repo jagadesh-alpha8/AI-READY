@@ -45,10 +45,12 @@ class OCRProvider(ABC):
     NullOCRProvider` for the current, honest default (performs no OCR)."""
 
     @abstractmethod
-    def extract_text(self, document, page_number):
+    def extract_text(self, document, page_number, image=None):
         """Return the OCR'd text for one page of `document`, or `None` if
         OCR could not be performed (e.g. no OCR backend configured yet) --
-        never a fabricated guess at what the page might say."""
+        never a fabricated guess at what the page might say. `image` is the
+        page rendered by the `PageReader` (a BGR uint8 numpy array, as
+        OpenCV/PaddleOCR expect), or None if the reader didn't render one."""
 
 
 class FactExtractor(ABC):

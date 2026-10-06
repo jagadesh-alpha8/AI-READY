@@ -5,6 +5,10 @@ export function listDriveImportJobs(sprintId: string) {
   return api.get<DriveImportJob[]>(`/sprints/${sprintId}/drive-import-jobs`);
 }
 
+export function stopDriveImport(sprintId: string, jobId: string) {
+  return api.post<DriveImportJob>(`/sprints/${sprintId}/drive-import-jobs/${jobId}/stop`);
+}
+
 export function startDriveImport(sprintId: string, driveUrl: string) {
   return api.post<DriveImportJob>(`/sprints/${sprintId}/drive-import-jobs`, { drive_url: driveUrl });
 }

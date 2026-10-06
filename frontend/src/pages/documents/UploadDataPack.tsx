@@ -2,18 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { deleteDocument, listSprintDocuments, uploadDocument } from '../../api/documents';
 import { startExtraction } from '../../api/extraction';
-import { listDriveImportJobs, startDriveImport } from '../../api/driveImport';
+import { listDriveImportJobs, startDriveImport, stopDriveImport } from '../../api/driveImport';
 import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import {
   ACTIVE_DRIVE_IMPORT_STATUSES,
+  type DriveImportAdditionalFile,
   type DriveImportChecklistResult,
   type DriveImportJob,
+  type DriveImportProgress,
   type DriveImportSkippedFile,
   type SprintDocument,
 } from '../../types';
-import { Upload, CheckCircle2, AlertCircle, Play, File, Trash2, Link2, Loader2 } from 'lucide-react';
+import { Upload, CheckCircle2, AlertCircle, Play, File, Trash2, Link2, Loader2, Square } from 'lucide-react';
 
 const POLL_INTERVAL_MS = 3000; // matches AIProcessingMonitor.tsx
 
@@ -62,6 +64,9 @@ export const UploadDataPack: React.FC = () => {
   const [driveUrl, setDriveUrl] = useState('');
   const [driveSubmitting, setDriveSubmitting] = useState(false);
   const [driveError, setDriveError] = useState('');
+  const [driveStopping, setDriveStopping] = useState(false);
+  // Documents ticked in the records table for the next AI extraction run.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const handleFileUpload = async (file: File) => {
     if (!isRealSprint) {
@@ -117,6 +122,21 @@ export const UploadDataPack: React.FC = () => {
     }
   };
 
+  const handleStopDriveImport = async () => {
+    if (!latestDriveJob) return;
+    setDriveStopping(true);
+    setDriveError('');
+    try {
+      await stopDriveImport(sprintId!, latestDriveJob.id);
+    } catch (err) {
+      setDriveError(getErrorMessage(err, 'Failed to stop the Drive import.'));
+    } finally {
+      setDriveStopping(false);
+      refetchDriveJobs();
+      refetch();
+    }
+  };
+
   // Poll while the latest Drive import job is still in flight.
   useEffect(() => {
     if (!latestDriveJob || !ACTIVE_DRIVE_IMPORT_STATUSES.includes(latestDriveJob.status)) return;
@@ -129,10 +149,14 @@ export const UploadDataPack: React.FC = () => {
   // manual action needed -- DRIVE_IMPORT_CHECKLIST slugs on the backend
   // equal REQUIRED_CHECKLIST slugs here, so newly-imported documents show
   // up as "found" for free.
+  // The importer saves documents one at a time, so also refresh the
+  // records table each time `files_imported` ticks up mid-import -- every
+  // file appears in the table as soon as it lands.
   useEffect(() => {
-    if (latestDriveJob?.status === 'completed') refetch();
+    if (!latestDriveJob) return;
+    if (latestDriveJob.status !== 'pending' || latestDriveJob.files_imported > 0) refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestDriveJob?.status, latestDriveJob?.id]);
+  }, [latestDriveJob?.status, latestDriveJob?.id, latestDriveJob?.files_imported]);
 
   const handleStartExtraction = async () => {
     if (!isRealSprint) {
@@ -141,7 +165,16 @@ export const UploadDataPack: React.FC = () => {
     }
     setExtractionError('');
     try {
-      await startExtraction(sprintId!);
+      const ids = documents.filter((d) => selectedIds.has(d.id)).map((d) => d.id);
+      if (ids.length === 0) {
+        setExtractionError('Select at least one document in Uploaded Document Records to include in the AI extraction.');
+        return;
+      }
+      const { data: jobs } = await startExtraction(sprintId!, ids);
+      if (jobs.length === 0) {
+        setExtractionError('The selected documents are already being extracted. Check the AI Processing Monitor.');
+        return;
+      }
       navigate(`/sprint/${sprintId}/monitor`);
     } catch (err) {
       setExtractionError(getErrorMessage(err, 'Failed to start extraction job.'));
@@ -149,6 +182,22 @@ export const UploadDataPack: React.FC = () => {
   };
 
   const uploadedTypes = new Set(documents.map((d) => d.document_type));
+
+  // Only count ticks for documents that still exist (one may have been deleted).
+  const selectedCount = documents.filter((d) => selectedIds.has(d.id)).length;
+  const allSelected = documents.length > 0 && selectedCount === documents.length;
+  const notExtractedIds = documents
+    .filter((d) => d.status === 'uploaded' || d.status === 'failed')
+    .map((d) => d.id);
+  const toggleSelected = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const selectAll = (checked: boolean) =>
+    setSelectedIds(checked ? new Set(documents.map((d) => d.id)) : new Set());
 
   return (
     <div className="space-y-6">
@@ -163,9 +212,13 @@ export const UploadDataPack: React.FC = () => {
               Upload existing NAAC SSR, AQAR, faculty lists, lab inventory, placement reports, and syllabi for AI processing.
             </p>
           </div>
-          <button onClick={handleStartExtraction} className="btn-primary shrink-0">
+          <button onClick={handleStartExtraction} disabled={selectedCount === 0} className="btn-primary shrink-0">
             <Play className="w-4 h-4 fill-current" />
-            <span>Start AI Extraction Run</span>
+            <span>
+              {selectedCount === 0
+                ? 'Select documents to extract'
+                : `Start AI Extraction (${selectedCount} selected)`}
+            </span>
           </button>
         </div>
       </div>
@@ -314,6 +367,8 @@ export const UploadDataPack: React.FC = () => {
                 setDriveError={setDriveError}
                 latestDriveJob={latestDriveJob}
                 onStart={handleStartDriveImport}
+                onStop={handleStopDriveImport}
+                driveStopping={driveStopping}
               />
             )}
           </div>
@@ -340,7 +395,32 @@ export const UploadDataPack: React.FC = () => {
 
       {/* Uploaded Documents Table */}
       <div className="glass-card p-5 sm:p-6">
-        <h2 className="eyebrow mb-4">Uploaded Document Records</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h2 className="eyebrow">Uploaded Document Records</h2>
+          {documents.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-ink-600 font-semibold">
+                {selectedCount} of {documents.length} selected for AI extraction
+              </span>
+              <button onClick={() => selectAll(true)} className="btn-secondary btn-sm">
+                Select all
+              </button>
+              <button
+                onClick={() => setSelectedIds(new Set(notExtractedIds))}
+                disabled={notExtractedIds.length === 0}
+                className="btn-secondary btn-sm"
+                title="Documents not yet extracted, or whose last extraction failed"
+              >
+                Select not extracted ({notExtractedIds.length})
+              </button>
+              {selectedCount > 0 && (
+                <button onClick={() => selectAll(false)} className="btn-secondary btn-sm">
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         {loading ? (
           <LoadingState message="Loading uploaded documents..." />
         ) : error ? (
@@ -350,10 +430,23 @@ export const UploadDataPack: React.FC = () => {
             <p className="text-sm text-ink-500">No documents uploaded yet. Upload files above.</p>
           </div>
         ) : (
-          <div className="table-shell">
+          <div className="table-shell table-scroll">
             <table className="table-base">
               <thead>
                 <tr>
+                  <th className="w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all documents for AI extraction"
+                      checked={allSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = selectedCount > 0 && !allSelected;
+                      }}
+                      onChange={(e) => selectAll(e.target.checked)}
+                      className="w-4 h-4 accent-brand-500 cursor-pointer align-middle"
+                    />
+                  </th>
+                  <th>S.No</th>
                   <th>File Name</th>
                   <th>Document Type</th>
                   <th>Owner Role</th>
@@ -364,8 +457,22 @@ export const UploadDataPack: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {documents.map((doc) => (
-                  <tr key={doc.id}>
+                {documents.map((doc, index) => (
+                  <tr
+                    key={doc.id}
+                    onClick={() => toggleSelected(doc.id)}
+                    className={`cursor-pointer ${selectedIds.has(doc.id) ? 'bg-brand-500/10' : ''}`}
+                  >
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Include ${doc.original_filename} in AI extraction`}
+                        checked={selectedIds.has(doc.id)}
+                        onChange={() => toggleSelected(doc.id)}
+                        className="w-4 h-4 accent-brand-500 cursor-pointer align-middle"
+                      />
+                    </td>
+                    <td className="text-ink-500 tabular-nums">{index + 1}</td>
                     <td className="font-medium text-ink-900">
                       <div className="flex items-center gap-2">
                         <File className="w-4 h-4 text-brand-800 shrink-0" />
@@ -396,7 +503,7 @@ export const UploadDataPack: React.FC = () => {
                       )}
                     </td>
                     <td className="text-ink-500">{new Date(doc.created_at).toLocaleTimeString()}</td>
-                    <td className="text-right">
+                    <td className="text-right" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => handleDelete(doc)}
                         disabled={deletingId === doc.id}
@@ -431,17 +538,24 @@ const DriveImportPanel: React.FC<{
   setDriveError: (value: string) => void;
   latestDriveJob: DriveImportJob | undefined;
   onStart: () => void;
-}> = ({ driveUrl, setDriveUrl, driveSubmitting, driveError, setDriveError, latestDriveJob, onStart }) => {
+  onStop: () => void;
+  driveStopping: boolean;
+}> = ({
+  driveUrl, setDriveUrl, driveSubmitting, driveError, setDriveError, latestDriveJob, onStart, onStop, driveStopping,
+}) => {
   const jobActive = !!latestDriveJob && ACTIVE_DRIVE_IMPORT_STATUSES.includes(latestDriveJob.status);
-  const unmatchedFiles = (latestDriveJob?.results?.unmatched_files as string[] | undefined) || [];
+  const additionalFiles =
+    (latestDriveJob?.results?.additional_files as DriveImportAdditionalFile[] | undefined) || [];
   const skippedFiles = (latestDriveJob?.results?.skipped_files as DriveImportSkippedFile[] | undefined) || [];
+  const progress = latestDriveJob?.results?.progress as DriveImportProgress | undefined;
 
   return (
     <div>
       <h2 className="eyebrow mb-2">Import From Google Drive</h2>
       <p className="text-sm text-ink-500 mb-4">
-        Paste a folder link and the system scans it, downloads whatever matches the required checklist, and
-        imports it automatically — no manual file selection needed.
+        Paste a folder link and the system scans the folder and all of its subfolders, then imports every
+        supported document automatically. Files matching the checklist fill their slot; the rest are added as
+        supporting documents.
       </p>
 
       <div className="space-y-3">
@@ -459,10 +573,22 @@ const DriveImportPanel: React.FC<{
           </p>
         </div>
 
-        <button onClick={onStart} disabled={driveSubmitting || jobActive} className="btn-primary btn-sm">
-          <Link2 className="w-4 h-4" />
-          <span>{driveSubmitting ? 'Starting…' : 'Scan & Import'}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={onStart} disabled={driveSubmitting || jobActive} className="btn-primary btn-sm">
+            <Link2 className="w-4 h-4" />
+            <span>{driveSubmitting ? 'Starting…' : 'Scan & Import'}</span>
+          </button>
+          {jobActive && (
+            <button
+              onClick={onStop}
+              disabled={driveStopping}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-danger/40 text-danger hover:bg-danger/10 transition-colors disabled:opacity-60"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+              <span>{driveStopping ? 'Stopping…' : 'Stop Scan'}</span>
+            </button>
+          )}
+        </div>
 
         {driveError && <InlineError message={driveError} onDismiss={() => setDriveError('')} />}
 
@@ -475,6 +601,28 @@ const DriveImportPanel: React.FC<{
               </div>
             )}
 
+            {jobActive && progress && progress.total > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-ink-600">
+                  <span>
+                    Imported {latestDriveJob.files_imported} · processed {progress.processed} of {progress.total}
+                  </span>
+                  <span className="tabular-nums">{Math.round((progress.processed / progress.total) * 100)}%</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-line-200 overflow-hidden">
+                  <div
+                    className="h-full bg-brand-500 transition-all"
+                    style={{ width: `${(progress.processed / progress.total) * 100}%` }}
+                  />
+                </div>
+                {progress.current_file && (
+                  <p className="text-xs text-ink-500 truncate" title={progress.current_file}>
+                    Reading: {progress.current_file}
+                  </p>
+                )}
+              </div>
+            )}
+
             {latestDriveJob.status === 'failed' && (
               <div className="flex items-start gap-2 text-sm">
                 <span className="badge-danger shrink-0">Failed</span>
@@ -482,12 +630,19 @@ const DriveImportPanel: React.FC<{
               </div>
             )}
 
-            {latestDriveJob.status === 'completed' && (
+            {(latestDriveJob.status === 'completed' || latestDriveJob.status === 'cancelled') && (
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="badge-success">
-                    Scanned {latestDriveJob.files_scanned} files, imported {latestDriveJob.files_imported}
-                  </span>
+                  {latestDriveJob.status === 'cancelled' ? (
+                    <span className="badge-warning">
+                      Stopped — imported {latestDriveJob.files_imported} file
+                      {latestDriveJob.files_imported === 1 ? '' : 's'} before stopping
+                    </span>
+                  ) : (
+                    <span className="badge-success">
+                      Scanned {latestDriveJob.files_scanned} files, imported {latestDriveJob.files_imported}
+                    </span>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -510,18 +665,23 @@ const DriveImportPanel: React.FC<{
                   })}
                 </div>
 
-                {unmatchedFiles.length > 0 && (
+                {additionalFiles.length > 0 && (
                   <div className="text-xs text-ink-500">
-                    <p className="font-semibold text-ink-600 mb-1">Found in folder but not matched:</p>
-                    {unmatchedFiles.map((name) => (
-                      <p key={name} className="truncate">{name}</p>
+                    <p className="font-semibold text-ink-600 mb-1">
+                      Also imported as supporting documents ({additionalFiles.length}):
+                    </p>
+                    {additionalFiles.map((file) => (
+                      <p key={file.document_id} className="truncate">
+                        <span className="text-ink-400">{file.folder ? `${file.folder}/` : 'Root/'}</span>
+                        {file.filename}
+                      </p>
                     ))}
                   </div>
                 )}
 
                 {skippedFiles.length > 0 && (
                   <div className="text-xs text-ink-500">
-                    <p className="font-semibold text-ink-600 mb-1">Matched but could not be imported:</p>
+                    <p className="font-semibold text-ink-600 mb-1">Could not be imported:</p>
                     {skippedFiles.map((skipped) => (
                       <p key={skipped.filename} className="truncate">{skipped.filename} — {skipped.reason}</p>
                     ))}

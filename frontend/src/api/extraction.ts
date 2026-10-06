@@ -5,10 +5,11 @@ export function listExtractionJobs(sprintId: string) {
   return api.get<ExtractionJob[]>(`/sprints/${sprintId}/extraction-jobs`);
 }
 
-export function startExtraction(sprintId: string, documentId?: string) {
+/** No ids: every eligible document in the sprint. Ids: only those documents. */
+export function startExtraction(sprintId: string, documentIds?: string[]) {
   return api.post<ExtractionJob[]>(
     `/sprints/${sprintId}/extraction-jobs`,
-    documentId ? { document_id: documentId } : undefined,
+    documentIds && documentIds.length > 0 ? { document_ids: documentIds } : undefined,
   );
 }
 

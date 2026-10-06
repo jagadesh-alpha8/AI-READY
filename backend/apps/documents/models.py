@@ -70,6 +70,10 @@ class DriveImportJob(models.Model):
         DOWNLOADING = 'downloading', 'Downloading'
         COMPLETED = 'completed', 'Completed'
         FAILED = 'failed', 'Failed'
+        # Stopped by the user mid-scan; files already imported are kept.
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    ACTIVE_STATUSES = (Status.PENDING, Status.SCANNING, Status.DOWNLOADING)
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     sprint = models.ForeignKey('sprints.Sprint', on_delete=models.CASCADE, related_name='drive_import_jobs')

@@ -53,7 +53,7 @@ class NullOCRProvider(OCRProvider):
     is what lets `PDFPageReader` mark a page as still needing OCR instead
     of quietly treating it as confirmed-blank."""
 
-    def extract_text(self, document, page_number):
+    def extract_text(self, document, page_number, image=None):
         return None
 
 
