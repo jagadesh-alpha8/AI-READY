@@ -35,6 +35,17 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_SECONDS = 60
 
+#: Appended to the system prompt when talking to an OpenAI-*compatible*
+#: endpoint (AI_BASE_URL). Routers/proxies such as 9router often drop
+#: `response_format`, so the model never sees the schema and answers in prose.
+#: Putting the contract in the prompt itself works whether or not the router
+#: forwards `response_format` (which is still sent, for those that do).
+_JSON_INSTRUCTIONS = (
+    '\n\nOUTPUT FORMAT -- this is mandatory: reply with ONLY one JSON value that '
+    'conforms to the JSON Schema below. No markdown, no code fences, no text before '
+    'or after the JSON.\nJSON Schema:\n{schema}'
+)
+
 
 class OpenAIResponseError(AIResponseError):
     """The request to OpenAI succeeded, but the response wasn't usable --
@@ -96,21 +107,52 @@ class OpenAIExtractionService:
         logs even though they may contain document text.
         """
         started = time.monotonic()
+        compatible_endpoint = bool(self.base_url)
+        if compatible_endpoint:
+            system_prompt = system_prompt + _JSON_INSTRUCTIONS.format(
+                schema=json.dumps(response_schema, separators=(',', ':')),
+            )
+        messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_content},
+        ]
+        response_format = {
+            'type': 'json_schema',
+            'json_schema': {'name': schema_name, 'schema': response_schema, 'strict': True},
+        }
+
+        response = self._send(started, messages, response_format, timeout)
         try:
-            response = self._client.chat.completions.create(
+            result = self._parse_response(response)
+        except OpenAIResponseError as first_error:
+            if not compatible_endpoint:
+                self._log_outcome(started, success=False, error='invalid_response')
+                raise
+            # A router can't enforce the schema, so a model occasionally still
+            # replies in prose. One corrective retry costs a single extra call
+            # and usually lands; a second failure is reported as before.
+            logger.warning('openai.request model=%s retrying_after_invalid_json error=%s', self.model, first_error)
+            messages = messages + [
+                {'role': 'assistant', 'content': _message_content(response)},
+                {'role': 'user', 'content': 'That was not valid JSON. Reply again with ONLY the JSON value '
+                                            'matching the schema -- no other text.'},
+            ]
+            response = self._send(started, messages, response_format, timeout)
+            try:
+                result = self._parse_response(response)
+            except OpenAIResponseError:
+                self._log_outcome(started, success=False, error='invalid_response')
+                raise
+
+        self._log_outcome(started, success=True)
+        return result
+
+    def _send(self, started, messages, response_format, timeout):
+        try:
+            return self._client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {'role': 'system', 'content': system_prompt},
-                    {'role': 'user', 'content': user_content},
-                ],
-                response_format={
-                    'type': 'json_schema',
-                    'json_schema': {
-                        'name': schema_name,
-                        'schema': response_schema,
-                        'strict': True,
-                    },
-                },
+                messages=messages,
+                response_format=response_format,
                 timeout=timeout,
             )
         except RateLimitError as exc:
@@ -134,15 +176,6 @@ class OpenAIExtractionService:
             # Catch-all for any other SDK-raised error not covered above.
             self._log_outcome(started, success=False, error='api_error')
             raise PermanentExtractionError(f'OpenAI API error: {exc}') from exc
-
-        try:
-            result = self._parse_response(response)
-        except OpenAIResponseError:
-            self._log_outcome(started, success=False, error='invalid_response')
-            raise
-
-        self._log_outcome(started, success=True)
-        return result
 
     def _log_outcome(self, started, *, success, error=None):
         duration_ms = (time.monotonic() - started) * 1000
@@ -171,6 +204,41 @@ class OpenAIExtractionService:
             raise OpenAIResponseError('OpenAI response had no content.')
 
         try:
-            return json.loads(content)
+            return _loads_lenient(content)
         except (TypeError, ValueError) as exc:
             raise OpenAIResponseError(f'OpenAI response was not valid JSON: {exc}') from exc
+
+
+def _message_content(response):
+    try:
+        return response.choices[0].message.content or ''
+    except (AttributeError, IndexError):
+        return ''
+
+
+def _loads_lenient(content):
+    """Parse a model's JSON reply, tolerating the wrappers models add when
+    nothing enforces the schema: a ```json fence, or a sentence before or
+    after the JSON. Plain JSON parses on the first try, exactly as before."""
+    try:
+        return json.loads(content)
+    except ValueError:
+        pass
+    text = content.strip()
+    if text.startswith('```'):
+        text = text.split('\n', 1)[1] if '\n' in text else ''
+        text = text.rsplit('```', 1)[0].strip()
+        try:
+            return json.loads(text)
+        except ValueError:
+            pass
+    # First '{' or '[' that starts a complete JSON value.
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char in '{[':
+            try:
+                value, _end = decoder.raw_decode(text, index)
+                return value
+            except ValueError:
+                continue
+    return json.loads(content)  # re-raise the original, clearest error

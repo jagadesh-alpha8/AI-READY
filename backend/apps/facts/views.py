@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
@@ -8,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import CanReviewFacts, IsInstitutionMember, require_institution_access
+from apps.gaps.services import resolve_unconfirmed_fact_gap
 from apps.sprints.access import get_authorized_sprint
 from config.pagination import OptionalPageNumberPagination
 
@@ -71,23 +73,29 @@ class BaseFactActionView(APIView):
         reason = serializer.resolved_reason()
         new_value = self.get_new_value(serializer) if self.changes_value else None
 
-        FactReviewHistory.objects.create(
-            fact=fact,
-            action=self.action_name,
-            original_value=fact.value,
-            new_value=new_value,
-            user=request.user,
-            reason=reason,
-        )
+        with transaction.atomic():
+            FactReviewHistory.objects.create(
+                fact=fact,
+                action=self.action_name,
+                original_value=fact.value,
+                new_value=new_value,
+                user=request.user,
+                reason=reason,
+            )
 
-        update_fields = ['status', 'reviewed_by', 'reviewed_at', 'updated_at']
-        if self.changes_value:
-            fact.value = new_value
-            update_fields.append('value')
-        fact.status = self.new_status
-        fact.reviewed_by = request.user
-        fact.reviewed_at = timezone.now()
-        fact.save(update_fields=update_fields)
+            update_fields = ['status', 'reviewed_by', 'reviewed_at', 'updated_at']
+            if self.changes_value:
+                fact.value = new_value
+                update_fields.append('value')
+            fact.status = self.new_status
+            fact.reviewed_by = request.user
+            fact.reviewed_at = timezone.now()
+            fact.save(update_fields=update_fields)
+
+            # Confirmed/Corrected closes this fact's own "unconfirmed fact" gap
+            # (and its -3 CRI penalty). A no-op for reject/request-evidence;
+            # genuine gaps (conflicts, missing documents, ...) are untouched.
+            resolve_unconfirmed_fact_gap(fact, user=request.user)
 
         return Response(ExtractedFactDetailSerializer(fact).data)
 

@@ -37,7 +37,7 @@ from .services.openai_client import OpenAIExtractionService, OpenAIResponseError
 from .services.openai_fact_extractor import OpenAIFactExtractor
 from .services.pdf_reader import PDFPageReader
 from .services.text_cleaning import clean_text, is_meaningful_text, remove_repeated_headers_footers
-from .tasks import _handle_recoverable
+from .tasks import _handle_recoverable, run_extraction_job
 
 PASSWORD = 'Str0ng!DevPassw0rd'
 
@@ -450,6 +450,87 @@ class FailureTests(ExtractionJobTestBase):
         self.assertIn('transient glitch', job.error_message)
 
 
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
+class StopAndProcessTests(ExtractionJobTestBase):
+    """Per-row Stop / Process on the AI Processing Monitor, and the worker
+    honouring a stop."""
+
+    def _job(self, status_value, **extra):
+        return ExtractionJob.objects.create(
+            sprint=self.sprint, document=self.document, status=status_value, **extra,
+        )
+
+    def test_worker_never_starts_a_job_stopped_while_queued(self):
+        job = self._job(ExtractionJob.Status.CANCELLED)
+        run_extraction_job.apply(args=[str(job.id)])
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.CANCELLED)
+        self.assertEqual(job.current_step, '')
+
+    def test_running_job_stops_at_next_step_and_stays_cancelled(self):
+        job = self._job(ExtractionJob.Status.PENDING)
+
+        def stop_during_classification(document):
+            ExtractionJob.objects.filter(id=job.id).update(status=ExtractionJob.Status.CANCELLED)
+            return dict(FAKE_CLASSIFICATION_RESULT)
+
+        with patch('apps.extraction.services.openai_classifier.OpenAIDocumentClassifier.classify',
+                   side_effect=stop_during_classification):
+            run_extraction_job.apply(args=[str(job.id)])
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.CANCELLED)
+        self.assertEqual(job.current_step, ExtractionJob.Step.CLASSIFYING_DOCUMENTS)
+
+    def test_stop_endpoint_stops_one_active_job(self):
+        job = self._job(ExtractionJob.Status.RUNNING)
+        self._auth(self.iqac)
+        response = self.client.post(f'/api/v1/extraction-jobs/{job.id}/cancel')
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['status'], 'cancelled')
+
+    def test_stop_endpoint_rejects_finished_job(self):
+        job = self._job(ExtractionJob.Status.COMPLETED)
+        self._auth(self.iqac)
+        response = self.client.post(f'/api/v1/extraction-jobs/{job.id}/cancel')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch('apps.extraction.views.run_extraction_job')
+    def test_process_endpoint_requeues_the_same_row(self, mock_task):
+        mock_task.delay.return_value = MagicMock(id='task-2')
+        job = self._job(ExtractionJob.Status.CANCELLED, progress_percentage=45, error_message='x')
+        self._auth(self.iqac)
+        response = self.client.post(f'/api/v1/extraction-jobs/{job.id}/process')
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.PENDING)
+        self.assertEqual(job.progress_percentage, 0)
+        self.assertEqual(job.celery_task_id, 'task-2')
+        self.assertEqual(ExtractionJob.objects.filter(document=self.document).count(), 1)
+
+    def test_process_endpoint_rejects_completed_job(self):
+        job = self._job(ExtractionJob.Status.COMPLETED)
+        self._auth(self.iqac)
+        response = self.client.post(f'/api/v1/extraction-jobs/{job.id}/process')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch('apps.extraction.views.run_extraction_job')
+    def test_process_incomplete_requeues_only_unfinished_documents(self, mock_task):
+        mock_task.delay.return_value = MagicMock(id='task-3')
+        stopped = self._job(ExtractionJob.Status.CANCELLED)
+        done_doc = Document.objects.create(
+            sprint=self.sprint, document_type='aqar_report', original_filename='aqar.pdf',
+            mime_type='application/pdf', status=Document.Status.PROCESSED,
+        )
+        ExtractionJob.objects.create(sprint=self.sprint, document=done_doc, status=ExtractionJob.Status.FAILED)
+        ExtractionJob.objects.create(sprint=self.sprint, document=done_doc, status=ExtractionJob.Status.COMPLETED)
+
+        self._auth(self.iqac)
+        response = self.client.post(f'/api/v1/extraction-jobs/sprints/{self.sprint.id}/process-incomplete')
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual([row['id'] for row in response.data], [str(stopped.id)])
+
+
 class RetryDecisionLogicTests(TestCase):
     """Unit tests for the retry/backoff/exhaustion decision logic itself.
 
@@ -582,6 +663,52 @@ class OpenAIExtractionServiceTests(SimpleTestCase):
         fake_client = MagicMock()
         service = self._service(client=fake_client)
         self.assertIs(service._client, fake_client)
+
+    # -- OpenAI-compatible routers (AI_BASE_URL, e.g. 9router) -------------
+
+    def _router_service(self, client):
+        return OpenAIExtractionService(
+            api_key='router-key', model='my-combo', base_url='http://localhost:20128/v1', client=client,
+        )
+
+    def test_router_gets_the_schema_in_the_system_prompt(self):
+        """Routers often drop response_format, so the schema must also be in
+        the prompt; direct OpenAI keeps the prompt untouched."""
+        fake_client = MagicMock()
+        fake_client.chat.completions.create.return_value = _fake_completion(content='{"a": 1}')
+        self._call(self._router_service(fake_client))
+        system = fake_client.chat.completions.create.call_args.kwargs['messages'][0]['content']
+        self.assertTrue(system.startswith('Extract facts from this document.'))
+        self.assertIn('ONLY one JSON value', system)
+        self.assertIn('{"type":"object"}', system)
+
+        direct_client = MagicMock()
+        direct_client.chat.completions.create.return_value = _fake_completion(content='{"a": 1}')
+        self._call(self._service(client=direct_client))
+        direct_system = direct_client.chat.completions.create.call_args.kwargs['messages'][0]['content']
+        self.assertEqual(direct_system, 'Extract facts from this document.')
+
+    def test_fenced_or_wrapped_json_is_still_parsed(self):
+        for content in ('```json\n{"a": 1}\n```', 'Here is the result:\n{"a": 1}\nHope this helps.'):
+            fake_client = MagicMock()
+            fake_client.chat.completions.create.return_value = _fake_completion(content=content)
+            self.assertEqual(self._call(self._router_service(fake_client)), {'a': 1})
+
+    def test_router_prose_reply_is_retried_once_then_succeeds(self):
+        fake_client = MagicMock()
+        fake_client.chat.completions.create.side_effect = [
+            _fake_completion(content='Mumbai is the largest city.'),
+            _fake_completion(content='{"a": 1}'),
+        ]
+        self.assertEqual(self._call(self._router_service(fake_client)), {'a': 1})
+        self.assertEqual(fake_client.chat.completions.create.call_count, 2)
+
+    def test_router_prose_reply_twice_raises(self):
+        fake_client = MagicMock()
+        fake_client.chat.completions.create.return_value = _fake_completion(content='Just prose, no JSON.')
+        with self.assertRaises(OpenAIResponseError):
+            self._call(self._router_service(fake_client))
+        self.assertEqual(fake_client.chat.completions.create.call_count, 2)
 
     # -- successful response ---------------------------------------------
 

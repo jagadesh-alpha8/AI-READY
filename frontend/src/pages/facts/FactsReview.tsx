@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { listSprintFacts, confirmFact, correctFact, rejectFact, requestFactEvidence } from '../../api/facts';
 import { useApiResource } from '../../hooks/useApiResource';
@@ -7,6 +7,7 @@ import { ErrorState, InlineError, LoadingState } from '../../components/ApiState
 import type { Fact } from '../../types';
 import { FileSearch, ArrowRight } from 'lucide-react';
 import { ScrollableTable } from '../../components/ScrollableTable';
+import { TableFilters, matchesSearch, optionsFrom } from '../../components/TableFilters';
 
 export const FactsReview: React.FC = () => {
   const { sprintId } = useParams<{ sprintId: string }>();
@@ -25,6 +26,26 @@ export const FactsReview: React.FC = () => {
   const [correctionValue, setCorrectionValue] = useState('');
   const [actionError, setActionError] = useState('');
   const [actingOnId, setActingOnId] = useState<string | null>(null);
+
+  // Filters (client-side: the full fact list is already loaded).
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [pillarFilter, setPillarFilter] = useState('');
+  const [ownerFilter, setOwnerFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [confidenceFilter, setConfidenceFilter] = useState('');
+  const filteredFacts = useMemo(
+    () => facts.filter((fact) =>
+      (!statusFilter || fact.status === statusFilter)
+      && (!pillarFilter || (fact.pillar_label || fact.pillar || '') === pillarFilter)
+      && (!ownerFilter || (fact.owner_role || '') === ownerFilter)
+      && (!sourceFilter || (fact.source_document_filename || '') === sourceFilter)
+      && (!confidenceFilter || confidenceBand(fact.confidence) === confidenceFilter)
+      && matchesSearch(
+        search, fact.audit_field_id, fact.field_name, fact.value, fact.source_snippet, fact.source_document_filename,
+      )),
+    [facts, search, statusFilter, pillarFilter, ownerFilter, sourceFilter, confidenceFilter],
+  );
 
   const handleConfirm = async (factId: string) => {
     setActingOnId(factId);
@@ -135,6 +156,31 @@ export const FactsReview: React.FC = () => {
             </button>
           </div>
         ) : (
+          <>
+          <TableFilters
+            search={search}
+            onSearch={setSearch}
+            placeholder="Search field ID, value, snippet or document…"
+            shown={filteredFacts.length}
+            total={facts.length}
+            selects={[
+              { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
+                options: optionsFrom(facts, (f) => f.status, (v: string) => v.replace(/_/g, ' ')) },
+              { key: 'pillar', label: 'Pillar', value: pillarFilter, onChange: setPillarFilter,
+                options: optionsFrom(facts, (f) => f.pillar_label || f.pillar) },
+              { key: 'confidence', label: 'Confidence', value: confidenceFilter, onChange: setConfidenceFilter,
+                options: optionsFrom(facts, (f) => confidenceBand(f.confidence)) },
+              { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
+                options: optionsFrom(facts, (f) => f.owner_role) },
+              { key: 'source', label: 'Source document', value: sourceFilter, onChange: setSourceFilter,
+                options: optionsFrom(facts, (f) => f.source_document_filename) },
+            ]}
+          />
+          {filteredFacts.length === 0 ? (
+            <div className="panel-muted">
+              <p className="text-sm text-ink-500">No facts match these filters.</p>
+            </div>
+          ) : (
           <ScrollableTable>
             <table className="table-base min-w-[1400px]">
               <thead>
@@ -152,7 +198,7 @@ export const FactsReview: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {facts.map((fact, index) => (
+                {filteredFacts.map((fact, index) => (
                   <tr key={fact.id}>
                     <td className="text-ink-500 tabular-nums">{index + 1}</td>
                     <td className="font-mono text-xs font-bold text-brand-800">
@@ -245,8 +291,17 @@ export const FactsReview: React.FC = () => {
               </tbody>
             </table>
           </ScrollableTable>
+          )}
+          </>
         )}
       </div>
     </div>
   );
 };
+
+/** Same bands a reviewer reads off the Confidence column. */
+function confidenceBand(confidence: number): string {
+  if (confidence >= 0.8) return 'High (80%+)';
+  if (confidence >= 0.5) return 'Medium (50-79%)';
+  return 'Low (<50%)';
+}

@@ -17,6 +17,21 @@ export function cancelSprintExtraction(sprintId: string) {
   return api.post<{ cancelled_count: number }>(`/extraction-jobs/sprints/${sprintId}/cancel`);
 }
 
+/** Stop one queued/running job (per-row Stop). */
+export function cancelExtractionJob(jobId: string) {
+  return api.post<ExtractionJob>(`/extraction-jobs/${jobId}/cancel`);
+}
+
+/** Run a failed/stopped job again, as the same row (per-row Process). */
+export function processExtractionJob(jobId: string) {
+  return api.post<ExtractionJob>(`/extraction-jobs/${jobId}/process`);
+}
+
+/** Run every not-completed document in the sprint again. */
+export function processIncompleteExtraction(sprintId: string) {
+  return api.post<ExtractionJob[]>(`/extraction-jobs/sprints/${sprintId}/process-incomplete`);
+}
+
 export function deleteExtractionJob(jobId: string) {
   return api.delete<void>(`/extraction-jobs/${jobId}`);
 }

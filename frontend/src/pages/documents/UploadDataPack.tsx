@@ -6,6 +6,7 @@ import { listDriveImportJobs, startDriveImport, stopDriveImport } from '../../ap
 import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
+import { TableFilters, matchesSearch, optionsFrom } from '../../components/TableFilters';
 import {
   ACTIVE_DRIVE_IMPORT_STATUSES,
   type DriveImportAdditionalFile,
@@ -67,6 +68,12 @@ export const UploadDataPack: React.FC = () => {
   const [driveStopping, setDriveStopping] = useState(false);
   // Documents ticked in the records table for the next AI extraction run.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Records-table filters.
+  const [docSearch, setDocSearch] = useState('');
+  const [docTypeFilter, setDocTypeFilter] = useState('');
+  const [docOwnerFilter, setDocOwnerFilter] = useState('');
+  const [docStatusFilter, setDocStatusFilter] = useState('');
+  const [docTextFilter, setDocTextFilter] = useState('');
 
   const handleFileUpload = async (file: File) => {
     if (!isRealSprint) {
@@ -183,10 +190,22 @@ export const UploadDataPack: React.FC = () => {
 
   const uploadedTypes = new Set(documents.map((d) => d.document_type));
 
+  // Records-table filters (client-side: every document is already loaded).
+  const filteredDocuments = documents.filter((d) =>
+    (!docTypeFilter || d.document_type === docTypeFilter)
+    && (!docOwnerFilter || (d.owner_role || '') === docOwnerFilter)
+    && (!docStatusFilter || d.status === docStatusFilter)
+    && (!docTextFilter || textCheck(d) === docTextFilter)
+    && matchesSearch(docSearch, d.original_filename, d.title, d.document_type));
+
   // Only count ticks for documents that still exist (one may have been deleted).
   const selectedCount = documents.filter((d) => selectedIds.has(d.id)).length;
-  const allSelected = documents.length > 0 && selectedCount === documents.length;
-  const notExtractedIds = documents
+  // Select-all / header checkbox / "not extracted" act on the rows currently
+  // shown, so a filter can narrow down exactly what to extract; ticks on rows
+  // hidden by the filter are kept.
+  const visibleSelectedCount = filteredDocuments.filter((d) => selectedIds.has(d.id)).length;
+  const allSelected = filteredDocuments.length > 0 && visibleSelectedCount === filteredDocuments.length;
+  const notExtractedIds = filteredDocuments
     .filter((d) => d.status === 'uploaded' || d.status === 'failed')
     .map((d) => d.id);
   const toggleSelected = (id: string) =>
@@ -196,8 +215,12 @@ export const UploadDataPack: React.FC = () => {
       else next.add(id);
       return next;
     });
-  const selectAll = (checked: boolean) =>
-    setSelectedIds(checked ? new Set(documents.map((d) => d.id)) : new Set());
+  const setVisibleSelected = (checked: boolean, ids = filteredDocuments.map((d) => d.id)) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => (checked ? next.add(id) : next.delete(id)));
+      return next;
+    });
 
   return (
     <div className="space-y-6">
@@ -402,20 +425,22 @@ export const UploadDataPack: React.FC = () => {
               <span className="text-ink-600 font-semibold">
                 {selectedCount} of {documents.length} selected for AI extraction
               </span>
-              <button onClick={() => selectAll(true)} className="btn-secondary btn-sm">
-                Select all
+              <button onClick={() => setVisibleSelected(true)} className="btn-secondary btn-sm">
+                {filteredDocuments.length === documents.length
+                  ? 'Select all'
+                  : `Select all shown (${filteredDocuments.length})`}
               </button>
               <button
-                onClick={() => setSelectedIds(new Set(notExtractedIds))}
+                onClick={() => setVisibleSelected(true, notExtractedIds)}
                 disabled={notExtractedIds.length === 0}
                 className="btn-secondary btn-sm"
-                title="Documents not yet extracted, or whose last extraction failed"
+                title="Shown documents not yet extracted, or whose last extraction failed"
               >
                 Select not extracted ({notExtractedIds.length})
               </button>
               {selectedCount > 0 && (
-                <button onClick={() => selectAll(false)} className="btn-secondary btn-sm">
-                  Clear
+                <button onClick={() => setSelectedIds(new Set())} className="btn-secondary btn-sm">
+                  Clear selection
                 </button>
               )}
             </div>
@@ -430,6 +455,29 @@ export const UploadDataPack: React.FC = () => {
             <p className="text-sm text-ink-500">No documents uploaded yet. Upload files above.</p>
           </div>
         ) : (
+          <>
+          <TableFilters
+            search={docSearch}
+            onSearch={setDocSearch}
+            placeholder="Search file name or type…"
+            shown={filteredDocuments.length}
+            total={documents.length}
+            selects={[
+              { key: 'type', label: 'Document type', value: docTypeFilter, onChange: setDocTypeFilter,
+                options: optionsFrom(documents, (d) => d.document_type) },
+              { key: 'owner', label: 'Owner', value: docOwnerFilter, onChange: setDocOwnerFilter,
+                options: optionsFrom(documents, (d) => d.owner_role) },
+              { key: 'status', label: 'Status', value: docStatusFilter, onChange: setDocStatusFilter,
+                options: optionsFrom(documents, (d) => d.status) },
+              { key: 'text', label: 'Text check', value: docTextFilter, onChange: setDocTextFilter,
+                options: optionsFrom(documents, textCheck) },
+            ]}
+          />
+          {filteredDocuments.length === 0 ? (
+            <div className="panel-muted">
+              <p className="text-sm text-ink-500">No documents match these filters.</p>
+            </div>
+          ) : (
           <div className="table-shell table-scroll">
             <table className="table-base">
               <thead>
@@ -440,9 +488,9 @@ export const UploadDataPack: React.FC = () => {
                       aria-label="Select all documents for AI extraction"
                       checked={allSelected}
                       ref={(el) => {
-                        if (el) el.indeterminate = selectedCount > 0 && !allSelected;
+                        if (el) el.indeterminate = visibleSelectedCount > 0 && !allSelected;
                       }}
-                      onChange={(e) => selectAll(e.target.checked)}
+                      onChange={(e) => setVisibleSelected(e.target.checked)}
                       className="w-4 h-4 accent-brand-500 cursor-pointer align-middle"
                     />
                   </th>
@@ -457,7 +505,7 @@ export const UploadDataPack: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {documents.map((doc, index) => (
+                {filteredDocuments.map((doc, index) => (
                   <tr
                     key={doc.id}
                     onClick={() => toggleSelected(doc.id)}
@@ -518,6 +566,8 @@ export const UploadDataPack: React.FC = () => {
               </tbody>
             </table>
           </div>
+          )}
+          </>
         )}
       </div>
     </div>
@@ -695,3 +745,9 @@ const DriveImportPanel: React.FC<{
     </div>
   );
 };
+
+/** The "Processing Notes" column as a filterable value. */
+function textCheck(doc: SprintDocument): string {
+  if (doc.page_count === null) return 'Pending extraction';
+  return doc.ocr_required ? 'Needs OCR' : 'Text OK';
+}

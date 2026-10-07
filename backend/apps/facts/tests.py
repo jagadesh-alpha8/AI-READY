@@ -440,3 +440,143 @@ class FactRequestEvidenceActionTests(FactTestBase):
         self._auth(self.outsider)
         response = self.client.post(f'/api/v1/facts/{fact.id}/request-evidence/', {})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+
+class ConfirmingFactClosesUnconfirmedGapTests(FactTestBase):
+    """Confirmed/Corrected closes only the fact's own "unconfirmed fact" gap
+    (removing its -3 CRI penalty). Genuine gaps stay open, and the CRI score
+    and Evidence Confidence both come only from Confirmed/Corrected facts."""
+
+    PILLAR = 'faculty_ai_capability'
+
+    def _gap(self, gap_type, *, fact=None, priority='medium'):
+        from apps.gaps.models import GapItem
+        return GapItem.objects.create(
+            sprint=self.sprint, gap_type=gap_type, title='t', pillar=self.PILLAR,
+            priority=priority, source_fact=fact,
+        )
+
+    def _pillar(self):
+        from apps.scoring.services.cri_engine import run_scoring_engine
+        run = run_scoring_engine(self.sprint)
+        pillar = next(p for p in run.pillar_snapshot if p['pillar'] == self.PILLAR)
+        return run, pillar
+
+    # -- which gaps close ------------------------------------------------
+
+    def test_confirm_closes_only_its_own_unconfirmed_fact_gap(self):
+        from apps.gaps.models import GapItem
+        fact = self._make_fact()
+        other_fact = self._make_fact(field_key='other')
+        own_gap = self._gap(GapItem.GapType.UNCONFIRMED_FACT, fact=fact)
+        other_facts_gap = self._gap(GapItem.GapType.UNCONFIRMED_FACT, fact=other_fact)
+        genuine = [
+            self._gap(GapItem.GapType.CONFLICT, fact=fact, priority='high'),
+            self._gap(GapItem.GapType.LOW_CONFIDENCE, fact=fact),
+            self._gap(GapItem.GapType.MISSING_DOCUMENT, priority='blocking'),
+            self._gap(GapItem.GapType.STALE_DATA),
+        ]
+
+        self._auth(self.hod)
+        response = self.client.post(f'/api/v1/facts/{fact.id}/confirm/', {'reason': 'ok'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        own_gap.refresh_from_db()
+        self.assertEqual(own_gap.status, GapItem.Status.RESOLVED)
+        self.assertEqual(own_gap.resolved_by, self.hod)
+        self.assertIsNotNone(own_gap.resolved_at)
+        for gap in [other_facts_gap, *genuine]:
+            gap.refresh_from_db()
+            self.assertEqual(gap.status, GapItem.Status.OPEN, gap.gap_type)
+
+    def test_correct_closes_its_unconfirmed_fact_gap(self):
+        from apps.gaps.models import GapItem
+        fact = self._make_fact()
+        gap = self._gap(GapItem.GapType.UNCONFIRMED_FACT, fact=fact)
+        self._auth(self.hod)
+        response = self.client.post(
+            f'/api/v1/facts/{fact.id}/correct/', {'new_value': 75.0, 'reason': 'recount'}, format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        gap.refresh_from_db()
+        self.assertEqual(gap.status, GapItem.Status.RESOLVED)
+
+    def test_reject_and_request_evidence_leave_the_gap_open(self):
+        from apps.gaps.models import GapItem
+        rejected = self._make_fact(field_key='r')
+        pending = self._make_fact(field_key='p')
+        rejected_gap = self._gap(GapItem.GapType.UNCONFIRMED_FACT, fact=rejected)
+        pending_gap = self._gap(GapItem.GapType.UNCONFIRMED_FACT, fact=pending)
+
+        self._auth(self.iqac)
+        self.assertEqual(
+            self.client.post(f'/api/v1/facts/{rejected.id}/reject/', {'reason': 'n/a'}).status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            self.client.post(f'/api/v1/facts/{pending.id}/request-evidence/', {'reason': 'need it'}).status_code,
+            status.HTTP_200_OK,
+        )
+        for gap in (rejected_gap, pending_gap):
+            gap.refresh_from_db()
+            self.assertEqual(gap.status, GapItem.Status.OPEN)
+
+    # -- effect on the CRI -----------------------------------------------
+
+    def test_confirming_raises_pillar_score_and_removes_the_penalty(self):
+        from apps.gaps.models import GapItem
+        fact = self._make_fact(confidence_score=0.85)
+        self._gap(GapItem.GapType.UNCONFIRMED_FACT, fact=fact)
+        # A second, still-unconfirmed fact keeps its gap: only the confirmed
+        # fact's own -3 should disappear.
+        pending = self._make_fact(field_key='pending', confidence_score=0.4)
+        self._gap(GapItem.GapType.UNCONFIRMED_FACT, fact=pending)
+
+        _run, before = self._pillar()
+        self.assertEqual(before['raw_score'], 0.0)      # no reviewed evidence yet
+        self.assertEqual(before['evidence_count'], 0)
+        self.assertEqual(before['gap_count'], 2)
+
+        self._auth(self.hod)
+        self.client.post(f'/api/v1/facts/{fact.id}/confirm/', {'reason': 'ok'})
+
+        _run, after = self._pillar()
+        self.assertEqual(after['evidence_count'], 1)
+        self.assertEqual(after['gap_count'], 1)          # the confirmed fact's gap is gone
+        self.assertEqual(after['raw_score'], 85.0 - 3.0)  # only the pending fact's -3 remains
+        self.assertGreater(after['raw_score'], before['raw_score'])
+
+    def test_genuine_gap_penalty_is_kept_after_confirming(self):
+        from apps.gaps.models import GapItem
+        fact = self._make_fact(confidence_score=0.85)
+        self._gap(GapItem.GapType.UNCONFIRMED_FACT, fact=fact)
+        self._gap(GapItem.GapType.CONFLICT, fact=fact, priority='high')  # -5, real problem
+
+        self._auth(self.hod)
+        self.client.post(f'/api/v1/facts/{fact.id}/confirm/', {'reason': 'ok'})
+
+        _run, pillar = self._pillar()
+        self.assertEqual(pillar['raw_score'], 85.0 - 5.0)
+
+    def test_score_and_confidence_use_only_confirmed_or_corrected_facts(self):
+        confirmed = self._make_fact(field_key='c1', confidence_score=0.9)
+        corrected = self._make_fact(field_key='c2', confidence_score=0.7)
+        # Unreviewed / rejected facts must not move the score or the confidence.
+        self._make_fact(field_key='x1', confidence_score=0.1)
+        self._make_fact(field_key='x2', confidence_score=0.2, status=ExtractedFact.Status.REJECTED)
+        self._make_fact(field_key='x3', confidence_score=0.3, status=ExtractedFact.Status.EVIDENCE_REQUESTED)
+
+        self._auth(self.hod)
+        self.client.post(f'/api/v1/facts/{confirmed.id}/confirm/', {'reason': 'ok'})
+        self.client.post(
+            f'/api/v1/facts/{corrected.id}/correct/', {'new_value': 1, 'reason': 'fix'}, format='json',
+        )
+
+        run, pillar = self._pillar()
+        self.assertEqual(pillar['evidence_count'], 2)
+        self.assertEqual(pillar['raw_score'], 80.0)          # avg(0.9, 0.7) * 100
+        self.assertEqual(pillar['confidence_score'], 0.8)    # same two facts
+        # Overall confidence = pillar confidence x the (unchanged) pillar weight.
+        self.assertAlmostEqual(run.overall_confidence, round(0.8 * pillar['weight'], 4))
+        self.assertAlmostEqual(run.overall_cri, round(80.0 * pillar['weight'], 2))

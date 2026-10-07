@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from apps.documents.models import Document
 
+from ..exceptions import ExtractionCancelled
 from ..models import ExtractionJob
 from . import stub
 from .conflict_checker import OpenAIConflictChecker
@@ -95,6 +96,9 @@ class ExtractionPipeline:
             document.save(update_fields=[*update_fields, 'updated_at'])
 
         self._advance(job, Step.EXTRACTING_FACTS)
+        # Fact extraction is many AI calls on a big document; let it check for
+        # a Stop between calls instead of only at the next step.
+        self.fact_extractor.should_stop = lambda: _is_cancelled(job)
         raw_facts = self.fact_extractor.extract_facts(document, pages)
 
         self._advance(job, Step.MAPPING_AUDIT_FIELDS)
@@ -125,6 +129,8 @@ class ExtractionPipeline:
         }
 
     def _advance(self, job, step):
+        if _is_cancelled(job):
+            raise ExtractionCancelled(f'Extraction job {job.id} was stopped by the user.')
         job.current_step = step
         job.progress_percentage = STEP_PROGRESS[step]
         job.save(update_fields=['current_step', 'progress_percentage', 'updated_at'])
@@ -172,3 +178,8 @@ class ExtractionPipeline:
             if create_gap_if_new(job.sprint, **item):
                 count += 1
         return count
+
+
+def _is_cancelled(job):
+    """The user pressed Stop for this job (see ExtractionCancelled)."""
+    return ExtractionJob.objects.filter(id=job.id, status=ExtractionJob.Status.CANCELLED).exists()

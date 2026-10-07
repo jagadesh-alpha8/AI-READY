@@ -1,13 +1,22 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { listExtractionJobs, cancelSprintExtraction, deleteExtractionJob } from '../../api/extraction';
+import {
+  listExtractionJobs,
+  cancelSprintExtraction,
+  cancelExtractionJob,
+  deleteExtractionJob,
+  processExtractionJob,
+  processIncompleteExtraction,
+} from '../../api/extraction';
 import { listSprintFacts } from '../../api/facts';
 import { listSprintGaps } from '../../api/gaps';
 import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, LoadingState } from '../../components/ApiStates';
-import { humanizeExtractionError } from '../../utils/errors';
+import { getErrorMessage, humanizeExtractionError } from '../../utils/errors';
 import { ACTIVE_EXTRACTION_STATUSES, type ExtractionJob, type Fact, type Gap } from '../../types';
-import { Activity, CheckCircle2, AlertTriangle, ArrowRight, Cpu, Layers, XCircle, Loader2, Trash2 } from 'lucide-react';
+import {
+  Activity, CheckCircle2, AlertTriangle, ArrowRight, Cpu, Layers, XCircle, Loader2, Trash2, Square, Play, RotateCcw,
+} from 'lucide-react';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -52,6 +61,38 @@ export const AIProcessingMonitor: React.FC = () => {
   const conflictCount = gaps.filter((g) => g.gap_type === 'conflict').length;
 
   const hasActiveJob = jobs.some((j) => ACTIVE_EXTRACTION_STATUSES.includes(j.status));
+  // Rows the user can run again: failed or stopped.
+  const incompleteCount = jobs.filter((j) => j.status === 'failed' || j.status === 'cancelled').length;
+  const [busyJobId, setBusyJobId] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
+
+  const runRowAction = async (job: ExtractionJob, action: 'stop' | 'process') => {
+    setBusyJobId(job.id);
+    setActionError('');
+    try {
+      if (action === 'stop') await cancelExtractionJob(job.id);
+      else await processExtractionJob(job.id);
+      refetchAllRef.current();
+    } catch (err) {
+      setActionError(getErrorMessage(err, `Failed to ${action} "${job.document_filename}".`));
+    } finally {
+      setBusyJobId(null);
+    }
+  };
+
+  const handleProcessIncomplete = async () => {
+    setBulkBusy(true);
+    setActionError('');
+    try {
+      await processIncompleteExtraction(sprintId!);
+      refetchAllRef.current();
+    } catch (err) {
+      setActionError(getErrorMessage(err, 'Failed to start processing the unfinished documents.'));
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   const handleStop = async () => {
     if (!window.confirm('Are you sure you want to stop the AI monitoring process? All active jobs will be cancelled.')) {
@@ -113,6 +154,12 @@ export const AIProcessingMonitor: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
+            {incompleteCount > 0 && (
+              <button onClick={handleProcessIncomplete} disabled={bulkBusy} className="btn-secondary">
+                <RotateCcw className={`w-4 h-4 ${bulkBusy ? 'animate-spin' : ''}`} />
+                <span>{bulkBusy ? 'Starting…' : `Process Unfinished (${incompleteCount})`}</span>
+              </button>
+            )}
             {hasActiveJob && (
               <button onClick={handleStop} className="btn-secondary text-danger">
                 <XCircle className="w-4 h-4" />
@@ -126,6 +173,13 @@ export const AIProcessingMonitor: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {actionError && (
+        <div className="p-3 rounded-lg border border-danger-line bg-danger-bg text-danger text-sm flex items-start justify-between gap-3">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError('')} className="text-xs font-semibold shrink-0">Dismiss</button>
+        </div>
+      )}
 
       {loading ? (
         <LoadingState message="Loading extraction jobs..." />
@@ -188,13 +242,24 @@ export const AIProcessingMonitor: React.FC = () => {
             <div className="space-y-3">
               {jobs.map((job) => {
                 const stepIndex = STEP_LABELS.indexOf(job.current_step);
+                const isActive = ACTIVE_EXTRACTION_STATUSES.includes(job.status);
+                const canProcess = job.status === 'failed' || job.status === 'cancelled';
+                const rowBusy = busyJobId === job.id;
                 const Icon =
-                  job.status === 'completed' ? CheckCircle2 : job.status === 'failed' ? XCircle : Loader2;
+                  job.status === 'completed'
+                    ? CheckCircle2
+                    : job.status === 'failed'
+                    ? XCircle
+                    : job.status === 'cancelled'
+                    ? Square
+                    : Loader2;
                 const iconClass =
                   job.status === 'completed'
                     ? 'text-success bg-success-bg border-success-line'
                     : job.status === 'failed'
                     ? 'text-danger bg-danger-bg border-danger-line'
+                    : job.status === 'cancelled'
+                    ? 'text-ink-500 bg-line-100 border-line-300'
                     : 'text-brand-800 bg-brand-500/10 border-brand-500/30';
                 const badgeClass =
                   job.status === 'completed'
@@ -216,7 +281,11 @@ export const AIProcessingMonitor: React.FC = () => {
                       <div className="min-w-0">
                         <p className="text-sm font-bold text-ink-900 truncate">{job.document_filename}</p>
                         <p className="text-xs text-ink-500">
-                          {job.current_step_label || 'Queued'}
+                          {job.status === 'cancelled'
+                            ? job.current_step_label
+                              ? `Stopped at: ${job.current_step_label}`
+                              : 'Stopped before it started'
+                            : job.current_step_label || 'Queued'}
                           {stepIndex >= 0 && ` (step ${stepIndex + 1} of ${STEP_LABELS.length})`}
                         </p>
                         {job.status === 'failed' && job.error_message && (
@@ -233,7 +302,29 @@ export const AIProcessingMonitor: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-mono text-ink-500 tabular-nums">{job.progress_percentage}%</span>
-                      <span className={badgeClass}>{job.status}</span>
+                      <span className={badgeClass}>{job.status === 'cancelled' ? 'stopped' : job.status}</span>
+                      {isActive && (
+                        <button
+                          onClick={() => runRowAction(job, 'stop')}
+                          disabled={rowBusy}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-danger/40 text-danger hover:bg-danger/10 transition-colors disabled:opacity-60"
+                          title={job.status === 'pending' ? 'Remove from the queue' : 'Stop after the current step'}
+                        >
+                          <Square className="w-3 h-3 fill-current" />
+                          <span>{rowBusy ? 'Stopping…' : 'Stop'}</span>
+                        </button>
+                      )}
+                      {canProcess && (
+                        <button
+                          onClick={() => runRowAction(job, 'process')}
+                          disabled={rowBusy}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-brand-500 text-on-brand hover:brightness-95 transition-all disabled:opacity-60"
+                          title="Run AI extraction for this document again"
+                        >
+                          <Play className="w-3 h-3 fill-current" />
+                          <span>{rowBusy ? 'Starting…' : 'Process'}</span>
+                        </button>
+                      )}
                       {job.status === 'failed' && (
                         <button
                           onClick={() => handleDeleteJob(job)}

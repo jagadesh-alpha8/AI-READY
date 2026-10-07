@@ -21,7 +21,9 @@ from django.conf import settings
 from apps.facts.models import ExtractedFact
 from apps.scoring.constants import PILLAR_CHOICES
 
-from ..exceptions import AIResponseError, PermanentExtractionError, RecoverableExtractionError
+from ..exceptions import (
+    AIResponseError, ExtractionCancelled, PermanentExtractionError, RecoverableExtractionError,
+)
 from .ai_service import get_ai_service
 from .base import AuditFieldMapper, FactExtractor
 
@@ -231,6 +233,11 @@ class OpenAIFactExtractor(FactExtractor):
         facts_by_key = {}
 
         for chunk_index, chunk_pages in enumerate(chunks, start=1):
+            # Set by ExtractionPipeline: stop between AI calls when the user
+            # presses Stop, rather than finishing a long document first.
+            should_stop = getattr(self, 'should_stop', None)
+            if should_stop is not None and should_stop():
+                raise ExtractionCancelled(f'Fact extraction for document {document.id} was stopped by the user.')
             try:
                 raw_facts = self._extract_chunk(service, document, chunk_pages, chunk_index, len(chunks))
             except RecoverableExtractionError:

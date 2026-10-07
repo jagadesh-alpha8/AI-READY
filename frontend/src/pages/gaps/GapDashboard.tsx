@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { listSprintGaps, resolveGap, markGapUnavailable, skipGap } from '../../api/gaps';
 import { useApiResource } from '../../hooks/useApiResource';
@@ -7,6 +7,7 @@ import { ErrorState, InlineError, LoadingState } from '../../components/ApiState
 import type { Gap } from '../../types';
 import { AlertCircle, ArrowRight } from 'lucide-react';
 import { ScrollableTable } from '../../components/ScrollableTable';
+import { TableFilters, matchesSearch, optionsFrom } from '../../components/TableFilters';
 
 export const GapDashboard: React.FC = () => {
   const { sprintId } = useParams<{ sprintId: string }>();
@@ -28,6 +29,24 @@ export const GapDashboard: React.FC = () => {
 
   const [actionError, setActionError] = useState('');
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+
+  // Filters (client-side: the full gap list is already loaded).
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [ownerFilter, setOwnerFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const filteredGaps = useMemo(
+    () => gaps.filter((gap) =>
+      (!typeFilter || gap.gap_type === typeFilter)
+      && (!priorityFilter || gap.priority === priorityFilter)
+      && (!statusFilter || gap.status === statusFilter)
+      && (!ownerFilter || (gap.owner_role || '') === ownerFilter)
+      && (!sourceFilter || (gap.source_document_filename || '') === sourceFilter)
+      && matchesSearch(search, gap.title, gap.description, gap.audit_field_id, gap.source_document_filename)),
+    [gaps, search, typeFilter, priorityFilter, statusFilter, ownerFilter, sourceFilter],
+  );
 
   const handleResolveGap = async (gapId: string) => {
     setResolvingId(gapId);
@@ -129,6 +148,31 @@ export const GapDashboard: React.FC = () => {
             </button>
           </div>
         ) : (
+          <>
+          <TableFilters
+            search={search}
+            onSearch={setSearch}
+            placeholder="Search title, field ID or source…"
+            shown={filteredGaps.length}
+            total={gaps.length}
+            selects={[
+              { key: 'type', label: 'Gap type', value: typeFilter, onChange: setTypeFilter,
+                options: optionsFrom(gaps, (g) => g.gap_type, (v: string) => v.replace(/_/g, ' ')) },
+              { key: 'priority', label: 'Priority', value: priorityFilter, onChange: setPriorityFilter,
+                options: optionsFrom(gaps, (g) => g.priority) },
+              { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
+                options: optionsFrom(gaps, (g) => g.status, (v: string) => v.replace(/_/g, ' ')) },
+              { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
+                options: optionsFrom(gaps, (g) => g.owner_role) },
+              { key: 'source', label: 'Source', value: sourceFilter, onChange: setSourceFilter,
+                options: optionsFrom(gaps, (g) => g.source_document_filename) },
+            ]}
+          />
+          {filteredGaps.length === 0 ? (
+            <div className="panel-muted">
+              <p className="text-sm text-ink-500">No gaps match these filters.</p>
+            </div>
+          ) : (
           <ScrollableTable>
             <table className="table-base min-w-[1280px]">
               <thead>
@@ -146,7 +190,7 @@ export const GapDashboard: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {gaps.map((gap, index) => (
+                {filteredGaps.map((gap, index) => (
                   <tr key={gap.id}>
                     <td className="text-ink-500 tabular-nums">{index + 1}</td>
                     <td className="font-mono text-xs font-bold text-brand-800">
@@ -206,6 +250,8 @@ export const GapDashboard: React.FC = () => {
               </tbody>
             </table>
           </ScrollableTable>
+          )}
+          </>
         )}
       </div>
     </div>

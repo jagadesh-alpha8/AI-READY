@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from apps.documents.models import Document
 
-from .exceptions import PermanentExtractionError, RecoverableExtractionError
+from .exceptions import ExtractionCancelled, PermanentExtractionError, RecoverableExtractionError
 from .services import ExtractionPipeline
 
 logger = logging.getLogger(__name__)
@@ -31,15 +31,21 @@ def run_extraction_job(self, job_id):
         logger.error('extraction.task.missing_job job_id=%s', job_id)
         return None
 
-    job.status = ExtractionJob.Status.RUNNING
-    if job.started_at is None:
-        job.started_at = timezone.now()
-    job.error_message = ''
-    job.save(update_fields=['status', 'started_at', 'error_message', 'updated_at'])
+    # Stopped while still queued: never start it. (A Celery revoke alone isn't
+    # enough -- a worker restart forgets revoked task ids.)
+    if not _set_status(
+        job, ExtractionJob.Status.RUNNING, started_at=job.started_at or timezone.now(), error_message='',
+    ):
+        logger.info('extraction.task.skipped_cancelled job_id=%s', job.id)
+        return None
     logger.info('extraction.task.running job_id=%s attempt=%d', job.id, self.request.retries + 1)
 
     try:
         ExtractionPipeline().run(job)
+    except ExtractionCancelled:
+        logger.info('extraction.task.stopped job_id=%s step=%s', job.id, job.current_step)
+        _advance_sprint_if_all_jobs_done(job.sprint)
+        return None
     except PermanentExtractionError as exc:
         logger.error('extraction.task.failed_permanent job_id=%s error=%s', job.id, exc)
         _fail(job, str(exc))
@@ -51,9 +57,12 @@ def run_extraction_job(self, job_id):
         _fail(job, f'Unexpected error: {exc}')
         return None
 
-    job.status = ExtractionJob.Status.COMPLETED
-    job.completed_at = timezone.now()
-    job.save(update_fields=['status', 'completed_at', 'updated_at'])
+    if not _set_status(job, ExtractionJob.Status.COMPLETED, completed_at=timezone.now()):
+        # Stopped in the last instant, after its facts were saved: keep the
+        # facts, and keep the "cancelled" status the user chose.
+        logger.info('extraction.task.stopped_after_finish job_id=%s', job.id)
+        _advance_sprint_if_all_jobs_done(job.sprint)
+        return None
     logger.info('extraction.task.completed job_id=%s', job.id)
 
     _queue_vector_indexing(job.document)
@@ -96,10 +105,8 @@ def _handle_recoverable(task, job, exc):
 
     from .models import ExtractionJob
 
-    job.status = ExtractionJob.Status.RETRYING
-    job.retry_count = attempt
-    job.error_message = str(exc)
-    job.save(update_fields=['status', 'retry_count', 'error_message', 'updated_at'])
+    if not _set_status(job, ExtractionJob.Status.RETRYING, retry_count=attempt, error_message=str(exc)):
+        return None  # stopped by the user -- don't schedule a retry
     logger.warning('extraction.task.retrying job_id=%s attempt=%d error=%s', job.id, attempt, exc)
 
     countdown = settings.EXTRACTION_RETRY_BACKOFF_SECONDS * (2 ** task.request.retries)
@@ -109,10 +116,8 @@ def _handle_recoverable(task, job, exc):
 def _fail(job, message):
     from .models import ExtractionJob
 
-    job.status = ExtractionJob.Status.FAILED
-    job.error_message = message
-    job.completed_at = timezone.now()
-    job.save(update_fields=['status', 'error_message', 'completed_at', 'updated_at'])
+    if not _set_status(job, ExtractionJob.Status.FAILED, error_message=message, completed_at=timezone.now()):
+        return  # stopped by the user; a stop is not a failure
 
     if job.document.status != Document.Status.PROCESSED:
         job.document.status = Document.Status.FAILED
@@ -137,3 +142,24 @@ def _advance_sprint_if_all_jobs_done(sprint):
         logger.info(
             'extraction.task.gaps_generated sprint_id=%s gaps_created=%d', sprint.id, len(created_gaps),
         )
+
+
+def _set_status(job, status, **fields):
+    """Move the job to `status` unless the user has stopped it.
+
+    A conditional UPDATE rather than `job.save()`, so a Stop pressed while this
+    worker is mid-document can never be overwritten back to running,
+    completed or failed. Returns False if the job was cancelled.
+    """
+    from .models import ExtractionJob
+
+    updated = ExtractionJob.objects.filter(id=job.id).exclude(
+        status=ExtractionJob.Status.CANCELLED,
+    ).update(status=status, updated_at=timezone.now(), **fields)
+    if not updated:
+        job.status = ExtractionJob.Status.CANCELLED
+        return False
+    job.status = status
+    for name, value in fields.items():
+        setattr(job, name, value)
+    return True

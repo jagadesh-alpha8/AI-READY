@@ -206,3 +206,33 @@ def _detect_stale_data(sprint):
 
 def _hashable_value(value):
     return json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else value
+
+
+#: Fact statuses that count as reviewed evidence -- the same two the CRI
+#: engine scores (apps.scoring.services.cri_engine._EVIDENCE_STATUSES).
+CONFIRMING_FACT_STATUSES = [ExtractedFact.Status.CONFIRMED, ExtractedFact.Status.CORRECTED]
+
+
+def resolve_unconfirmed_fact_gap(fact, *, user=None):
+    """Close the fact's own open "unconfirmed fact" gap once it has been
+    Confirmed or Corrected, so that gap's -3 CRI penalty goes away with no
+    separate Resolve click. Returns how many gaps were closed.
+
+    Deliberately narrow: only gap_type=UNCONFIRMED_FACT tied to this fact.
+    Genuine gaps -- conflicts, missing documents, low-confidence flags and any
+    other deficiency -- stay open until someone deals with them, and a
+    Rejected fact closes nothing.
+    """
+    if fact.status not in CONFIRMING_FACT_STATUSES:
+        return 0
+    return GapItem.objects.filter(
+        source_fact=fact,
+        gap_type=GapItem.GapType.UNCONFIRMED_FACT,
+        status__in=GapItem.ACTIVE_STATUSES,
+    ).update(
+        status=GapItem.Status.RESOLVED,
+        resolution=f'Automatically resolved: fact {fact.get_status_display().lower()} by a reviewer.',
+        resolved_by=user,
+        resolved_at=timezone.now(),
+        updated_at=timezone.now(),
+    )
