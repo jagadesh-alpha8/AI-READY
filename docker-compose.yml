@@ -94,8 +94,13 @@ services:
       - backend
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - static_data:/usr/share/nginx/html/static:ro
+      # HTTPS: certbot on the VM writes the domain check files and the
+      # certificate here (see frontend/nginx.conf).
+      - /var/www/certbot:/var/www/certbot:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
 
 volumes:
   postgres_data:

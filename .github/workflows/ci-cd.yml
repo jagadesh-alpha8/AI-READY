@@ -145,6 +145,7 @@ jobs:
             if [ -n "$APP_DOMAIN" ]; then
               add_to_env_list ALLOWED_HOSTS "$APP_DOMAIN"
               add_to_env_list CORS_ALLOWED_ORIGINS "http://$APP_DOMAIN"
+              add_to_env_list CORS_ALLOWED_ORIGINS "https://$APP_DOMAIN"
             fi
 
             # Free disk space BEFORE pulling. The backend image is large since
