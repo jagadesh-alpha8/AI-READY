@@ -102,17 +102,74 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
+          # Public domain of the site (DNS A record -> the VM). Added to the
+          # server's .env on every deploy -- see "Make sure the domain is allowed".
+          APP_DOMAIN: ai.ingageedutech.com
         with:
           host: ${{ secrets.GCP_HOST }}
           username: ${{ secrets.GCP_SSH_USER }}
           key: ${{ secrets.GCP_SSH_KEY }}
           port: ${{ secrets.GCP_SSH_PORT || 22 }}
-          envs: GHCR_TOKEN,GHCR_ACTOR
+          envs: GHCR_TOKEN,GHCR_ACTOR,APP_DOMAIN
           script: |
             set -e
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
             cd /opt/ai-ready
-            git pull --ff-only
+            # Pull with this run's short-lived GitHub token over HTTPS instead of
+            # an SSH key stored on the VM (which can be lost or rotated). The
+            # token is used for this one fetch and not saved in the git config.
+            git fetch "https://x-access-token:${GHCR_TOKEN}@github.com/${{ github.repository }}.git" main
+            git merge --ff-only FETCH_HEAD
+
+            # Make sure the domain is allowed. Django answers "Bad Request (400)"
+            # to any host name missing from ALLOWED_HOSTS, so the domain must be
+            # in the server's .env. Only ADDS the domain to the existing lists
+            # (the IP and anything else already there stay); does nothing when
+            # it is already present; keeps a one-time backup of the original.
+            ENV_CHANGED=0
+            add_to_env_list() {
+              key="$1"; value="$2"
+              current=$(grep "^${key}=" .env | tail -1 | cut -d= -f2- | tr -d '\r')
+              case ",${current}," in
+                *",${value},"*) return 0 ;;
+              esac
+              [ -f .env.before-domain ] || cp -p .env .env.before-domain
+              if grep -q "^${key}=" .env; then
+                sed -i "s|^${key}=.*|${key}=${current:+${current},}${value}|" .env
+              else
+                printf '\n%s=%s\n' "$key" "$value" >> .env
+              fi
+              echo "Added ${value} to ${key} in .env"
+              ENV_CHANGED=1
+            }
+            if [ -n "$APP_DOMAIN" ]; then
+              add_to_env_list ALLOWED_HOSTS "$APP_DOMAIN"
+              add_to_env_list CORS_ALLOWED_ORIGINS "http://$APP_DOMAIN"
+            fi
+
+            # Free disk space BEFORE pulling. The backend image is large since
+            # OCR (PaddleOCR/PyMuPDF) was added, and a pull needs room for the
+            # old image, the download and the extracted new layers at once.
+            # Only images and build cache are pruned -- NEVER volumes: they hold
+            # the PostgreSQL database (postgres_data) and uploaded files (media_data).
+            # Images used by running containers are kept, so the site stays up.
+            docker image prune -af
+            docker builder prune -af || true
+
+            FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc '0-9')
+            echo "Free disk before pull: ${FREE_GB} GB"
+            if [ "$FREE_GB" -lt 6 ]; then
+              echo "Only ${FREE_GB} GB free on the VM; pulling the new images needs about 6 GB."
+              echo "Increase the VM boot disk (see deploy notes). The running site was not changed."
+              docker system df
+              exit 1
+            fi
+
             docker compose pull
             docker compose up -d --remove-orphans
-            docker image prune -f
+            # A changed .env only reaches a container when it is recreated.
+            if [ "$ENV_CHANGED" = "1" ]; then
+              docker compose up -d --force-recreate --no-deps backend celery
+            fi
+            # Remove the now-unused previous images.
+            docker image prune -af
