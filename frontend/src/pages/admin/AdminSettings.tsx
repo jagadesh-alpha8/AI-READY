@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Info, KeyRound, Settings, Sliders, UserCog } from 'lucide-react';
+import { Check, Coins, Info, KeyRound, Settings, Sliders, UserCog } from 'lucide-react';
 
 import { changePassword } from '../../api/auth';
 import { getScoringConfig } from '../../api/config';
@@ -9,6 +9,7 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { UsersTab } from './UsersTab';
+import { AIUsageTab } from './AIUsageTab';
 import { PageHeader, TabStrip } from '../../components/PageHeader';
 
 /**
@@ -27,13 +28,17 @@ import { PageHeader, TabStrip } from '../../components/PageHeader';
  *                     eleven roles, via `/api/v1/users`. The server scopes an
  *                     institution admin to their own college and refuses
  *                     privilege escalation; see `apps/accounts/user_admin.py`.
+ *   AI usage        — super admin / consultant only: real AI tokens and cost
+ *                     per college, sprint and month, for billing.
  */
 
-type Tab = 'rubric' | 'account' | 'users';
+type Tab = 'rubric' | 'account' | 'users' | 'usage';
 
 export const AdminSettings: React.FC = () => {
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('rubric');
+  // The server also enforces this (IsSuperAdmin | IsConsultant).
+  const canSeeUsage = user?.role === 'super_admin' || user?.role === 'consultant';
 
   const { data: pillars, loading, error, refetch } =
     useApiResource<PillarConfig[]>(() => getScoringConfig(), []);
@@ -51,6 +56,7 @@ export const AdminSettings: React.FC = () => {
           { id: 'rubric', label: 'Scoring rubric', icon: Sliders, count: pillars?.length },
           { id: 'account', label: 'Account', icon: KeyRound },
           { id: 'users', label: 'Users', icon: UserCog },
+          ...(canSeeUsage ? [{ id: 'usage' as Tab, label: 'AI Usage & Billing', icon: Coins }] : []),
         ]}
         active={tab}
         onChange={setTab}
@@ -66,6 +72,7 @@ export const AdminSettings: React.FC = () => {
 
       {tab === 'account' && <Account user={user} />}
       {tab === 'users' && <UsersTab />}
+      {tab === 'usage' && canSeeUsage && <AIUsageTab />}
     </div>
   );
 };

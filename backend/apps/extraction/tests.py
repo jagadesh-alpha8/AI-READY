@@ -1976,3 +1976,575 @@ class EndToEndGapAndConflictTests(ExtractionJobTestBase):
 
         self.assertEqual(GapItem.objects.filter(gap_type=GapItem.GapType.CONFLICT).count(), 0)
         mock_conflict_openai_cls.return_value.extract_structured_data.assert_not_called()
+
+
+
+class AIPricingTests(SimpleTestCase):
+    def test_cost_from_price_table(self):
+        from decimal import Decimal
+        from .pricing import cost_usd
+        # Sonnet 5: $2 in / $10 out per million.
+        self.assertEqual(cost_usd('claude-sonnet-5', input_tokens=1_000_000, output_tokens=500_000), Decimal('7.000000'))
+        # Dated / prefixed names resolve to the base model.
+        self.assertEqual(cost_usd('anthropic/claude-haiku-4-5-20251001', input_tokens=1_000_000), Decimal('1.000000'))
+        # Longest match wins: opus-5-5 is not priced as opus-5.
+        self.assertEqual(cost_usd('claude-opus-5-5', input_tokens=1_000_000), Decimal('4.000000'))
+
+    def test_unknown_model_has_no_price_until_configured(self):
+        from decimal import Decimal
+        from .pricing import cost_usd
+        self.assertIsNone(cost_usd('my-combo', input_tokens=1000, output_tokens=1000))
+        with override_settings(AI_PRICING_JSON='{"my-combo": {"input": 1, "output": 2}}'):
+            self.assertEqual(cost_usd('my-combo', input_tokens=1_000_000, output_tokens=1_000_000), Decimal('3.000000'))
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True, AI_BASE_URL='')
+class AIUsageRecordingTests(ExtractionJobTestBase):
+    """Every AI response made during an extraction is stored with its tokens
+    and cost, attributed to the sprint / document / job / stage."""
+
+    def _job(self):
+        return ExtractionJob.objects.create(sprint=self.sprint, document=self.document)
+
+    def test_openai_compatible_call_is_recorded_inside_a_scope_only(self):
+        from .models import AIUsage
+        from .usage import usage_scope
+        completion = _fake_completion(content='{"a": 1}')
+        completion.usage.prompt_tokens = 1200
+        completion.usage.prompt_tokens_details.cached_tokens = 200
+        completion.usage.completion_tokens = 300
+        completion.usage.completion_tokens_details.reasoning_tokens = 100
+        client = MagicMock()
+        client.chat.completions.create.return_value = completion
+        service = OpenAIExtractionService(api_key='k', model='claude-sonnet-5', client=client)
+
+        service.extract_structured_data(system_prompt='s', user_content='u', response_schema={'type': 'object'})
+        self.assertEqual(AIUsage.objects.count(), 0)  # outside an extraction: not recorded
+
+        job = self._job()
+        with usage_scope(job=job, stage=AIUsage.Stage.FACT_EXTRACTION):
+            service.extract_structured_data(system_prompt='s', user_content='u', response_schema={'type': 'object'})
+        row = AIUsage.objects.get()
+        self.assertEqual((row.sprint, row.document, row.extraction_job), (self.sprint, self.document, job))
+        self.assertEqual(row.institution_id, self.sprint.institution_id)
+        self.assertEqual(row.stage, 'fact_extraction')
+        self.assertEqual(row.provider, 'openai')
+        self.assertEqual(
+            (row.input_tokens, row.cache_read_tokens, row.output_tokens, row.reasoning_tokens), (1000, 200, 300, 100),
+        )
+        # 1000 x $2 + 200 x $0.2 + 300 x $10, per million tokens
+        self.assertEqual(str(row.cost_usd), '0.005040')
+
+    def test_anthropic_call_is_recorded_even_when_the_reply_is_unusable(self):
+        from .models import AIUsage
+        from .services.anthropic_client import AnthropicExtractionService
+        from .usage import usage_scope
+        message = _fake_tool_use_message(input_data=None)  # no tool call -> parse error
+        message.usage.input_tokens = 900
+        message.usage.output_tokens = 2100  # includes thinking
+        message.usage.cache_read_input_tokens = 0
+        message.usage.cache_creation_input_tokens = 0
+        client = MagicMock()
+        client.messages.create.return_value = message
+        service = AnthropicExtractionService(api_key='sk-ant-x', model='claude-haiku-4-5', client=client)
+        with usage_scope(job=self._job(), stage=AIUsage.Stage.CLASSIFICATION):
+            with self.assertRaises(Exception):
+                service.extract_structured_data(system_prompt='s', user_content='u', response_schema={'type': 'object'})
+        row = AIUsage.objects.get()
+        self.assertEqual(
+            (row.provider, row.stage, row.input_tokens, row.output_tokens), ('anthropic', 'classification', 900, 2100),
+        )
+        self.assertEqual(str(row.cost_usd), '0.011400')  # 900 x $1 + 2100 x $5, per million
+
+    def _usage_rows(self):
+        from decimal import Decimal
+        from .models import AIUsage
+        job = self._job()
+        common = dict(
+            institution=self.sprint.institution, sprint=self.sprint, document=self.document, extraction_job=job,
+        )
+        AIUsage.objects.create(stage='classification', model='claude-sonnet-5', input_tokens=1000,
+                               output_tokens=200, cost_usd=Decimal('0.004'), **common)
+        AIUsage.objects.create(stage='fact_extraction', model='claude-sonnet-5', input_tokens=5000,
+                               output_tokens=1500, cost_usd=Decimal('0.025'), **common)
+        AIUsage.objects.create(stage='fact_extraction', model='my-combo', input_tokens=100,
+                               output_tokens=50, cost_usd=None, **common)
+        return job
+
+    def test_sprint_usage_endpoint_totals_and_breakdowns(self):
+        self._usage_rows()
+        self._auth(self.iqac)
+        response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/ai-usage')
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['calls'], 3)
+        self.assertEqual(response.data['input_tokens'], 6100)
+        self.assertEqual(response.data['output_tokens'], 1750)
+        self.assertEqual(response.data['cost_usd'], '0.029000')
+        self.assertEqual(response.data['unpriced_calls'], 1)
+        self.assertEqual(response.data['unpriced_models'], ['my-combo'])
+        self.assertEqual(
+            {r['stage']: r['calls'] for r in response.data['by_stage']}, {'classification': 1, 'fact_extraction': 2},
+        )
+        self.assertEqual(response.data['top_documents'][0]['filename'], self.document.original_filename)
+
+    def test_job_list_includes_each_jobs_tokens_and_cost(self):
+        job = self._usage_rows()
+        self._auth(self.iqac)
+        rows = self.client.get(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/').data
+        row = next(r for r in rows if r['id'] == str(job.id))
+        self.assertEqual(
+            (row['ai_input_tokens'], row['ai_output_tokens'], row['ai_cost_usd']), (6100, 1750, '0.029000'),
+        )
+
+    def test_usage_survives_deleting_the_job(self):
+        from .models import AIUsage
+        job = self._usage_rows()
+        job.delete()
+        self.assertEqual(AIUsage.objects.filter(sprint=self.sprint).count(), 3)
+
+    def test_billing_report_command(self):
+        from io import StringIO
+        from django.core.management import call_command
+        self._usage_rows()
+        out = StringIO()
+        call_command('ai_usage_report', stdout=out)
+        text = out.getvalue()
+        self.assertIn(self.sprint.institution.name, text)
+        self.assertIn('cost=$0.0290', text)
+
+    def test_platform_usage_report_is_admin_only(self):
+        self._usage_rows()
+        self._auth(self.iqac)
+        self.assertEqual(self.client.get('/api/v1/extraction-jobs/usage-report').status_code, status.HTTP_403_FORBIDDEN)
+
+        admin_user = self._make_user('platform-admin@test.edu', User.Role.SUPER_ADMIN, None)
+        self._auth(admin_user)
+        response = self.client.get('/api/v1/extraction-jobs/usage-report')
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['calls'], 3)
+        self.assertEqual(response.data['cost_usd'], '0.029000')
+        row = response.data['rows'][0]
+        self.assertEqual(row['institution'], self.sprint.institution.name)
+        self.assertEqual((row['calls'], row['input_tokens'], row['output_tokens']), (3, 6100, 1750))
+        self.assertEqual(row['unpriced_calls'], 1)
+
+        # Date filter: nothing before today.
+        empty = self.client.get('/api/v1/extraction-jobs/usage-report?until=2000-01-01')
+        self.assertEqual((empty.data['calls'], empty.data['rows']), (0, []))
+        bad = self.client.get('/api/v1/extraction-jobs/usage-report?since=yesterday')
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_import_from_dashboard_is_labelled_counted_and_not_doubled(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from .models import AIUsage
+        args = ['import_ai_usage', '--sprint', str(self.sprint.id), '--requests', '711',
+                '--input-tokens', '1369687', '--output-tokens', '227699', '--cost', '3.11',
+                '--model', 'my-combo', '--date', '2026-10-07', '--note', '9Router 7-day total']
+        call_command(*args, stdout=__import__('io').StringIO())
+        row = AIUsage.objects.get(sprint=self.sprint)
+        self.assertEqual((row.source, row.request_count, str(row.cost_usd)), ('imported', 711, '3.110000'))
+        self.assertEqual(row.created_at.date().isoformat(), '2026-10-07')
+        with self.assertRaises(CommandError):
+            call_command(*args, stdout=__import__('io').StringIO())
+
+        self._auth(self.iqac)
+        usage = self.client.get(f'/api/v1/sprints/{self.sprint.id}/ai-usage').data
+        self.assertEqual((usage['calls'], usage['imported_calls'], usage['cost_usd']), (711, 711, '3.110000'))
+        self.assertEqual(usage['notes'], ['9Router 7-day total'])
+
+
+# -- several AI routers (AI_ROUTER_URLS) --------------------------------------
+
+class FakeRedis:
+    """Just enough of redis-py for RouterPool: mget / set(nx, ex) / expire /
+    eval (the release script)."""
+
+    def __init__(self):
+        self.data = {}
+
+    def mget(self, keys):
+        return [self.data.get(k) for k in keys]
+
+    def set(self, key, value, nx=False, ex=None):
+        if nx and key in self.data:
+            return None
+        self.data[key] = value
+        return True
+
+    def expire(self, key, seconds):
+        return key in self.data
+
+    def eval(self, script, numkeys, key, token):
+        if self.data.get(key) == token:
+            del self.data[key]
+            return 1
+        return 0
+
+
+FOUR_ROUTERS = ','.join(f'http://localhost:{port}' for port in (20228, 20229, 20230, 20231))
+
+
+@override_settings(AI_PROCESSING_MODE='multi_router', AI_ROUTER_MODEL='',
+                   AI_ROUTER_URLS=FOUR_ROUTERS, AI_ROUTER_API_KEYS='k1,k2,k3,k4', AI_ROUTER_MAX_CONCURRENT=2,
+                   AI_ROUTER_WAIT_SECONDS=0, AI_MODEL='my-combo')
+class RouterPoolTests(SimpleTestCase):
+    def _pool(self):
+        from .services.router_pool import RouterPool, configured_routers
+        return RouterPool(configured_routers(), redis_client=FakeRedis())
+
+    def test_routers_are_read_from_settings_with_v1_added(self):
+        from .services.router_pool import configured_routers
+        routers = configured_routers()
+        self.assertEqual([r.base_url for r in routers][0], 'http://localhost:20228/v1')
+        self.assertEqual([r.api_key for r in routers], ['k1', 'k2', 'k3', 'k4'])
+        self.assertEqual(routers[1].label, 'router2 (localhost:20229)')
+
+    @override_settings(AI_ROUTER_API_KEYS='shared')
+    def test_one_key_is_shared_by_every_router(self):
+        from .services.router_pool import configured_routers
+        self.assertEqual({r.api_key for r in configured_routers()}, {'shared'})
+
+    @override_settings(AI_ROUTER_API_KEYS='k1,k2')
+    def test_mismatched_key_count_is_rejected(self):
+        from .services.router_pool import configured_routers
+        with self.assertRaises(ImproperlyConfigured):
+            configured_routers()
+
+    @override_settings(AI_ROUTER_URLS='')
+    def test_multi_router_mode_without_routers_is_a_config_error(self):
+        from .services.router_pool import get_router_pool
+        with self.assertRaisesMessage(ImproperlyConfigured, 'AI_ROUTER_URLS is empty'):
+            get_router_pool()
+
+    @override_settings(AI_PROCESSING_MODE='single')
+    def test_single_mode_ignores_configured_routers(self):
+        from .services.router_pool import get_router_pool
+        self.assertIsNone(get_router_pool())
+
+    def test_eight_jobs_spread_two_per_router_and_the_ninth_waits(self):
+        pool = self._pool()
+        leases = [pool.acquire() for _ in range(8)]
+        counts = {}
+        for lease in leases:
+            counts[lease.router.index] = counts.get(lease.router.index, 0) + 1
+        self.assertEqual(counts, {1: 2, 2: 2, 3: 2, 4: 2})
+
+        with self.assertRaises(RecoverableExtractionError):
+            pool.acquire()
+        pool.release(leases[5])
+        self.assertEqual(pool.acquire().router, leases[5].router)
+
+    def test_retry_avoids_the_router_that_just_failed(self):
+        pool = self._pool()
+        failed = pool.acquire()
+        pool.release(failed)
+        pool.mark_unhealthy(failed.router)
+        for _ in range(5):
+            lease = pool.acquire(avoid=failed.router.label)
+            self.assertNotEqual(lease.router, failed.router)
+            pool.release(lease)
+
+    def test_failed_router_is_still_used_when_nothing_else_is_free(self):
+        pool = self._pool()
+        held = [pool.acquire() for _ in range(7)]
+        lease = pool.acquire(avoid='whatever')
+        self.assertNotIn(lease.slot_key, {h.slot_key for h in held})
+
+    def test_redis_down_still_returns_a_router(self):
+        from .services.router_pool import RouterPool, configured_routers
+        broken = MagicMock()
+        broken.mget.side_effect = ConnectionError('redis down')
+        lease = RouterPool(configured_routers(), redis_client=broken).acquire()
+        self.assertIn(lease.router, configured_routers())
+
+    def test_ai_calls_inside_a_lease_go_to_that_router(self):
+        from .services.router_pool import use_lease
+        lease = self._pool().acquire()
+        with use_lease(lease):
+            service = get_ai_service()
+        self.assertEqual(service.base_url, lease.router.base_url)
+        self.assertEqual(service.api_key, lease.router.api_key)
+        self.assertEqual(service.model, 'my-combo')
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True,
+                   AI_PROCESSING_MODE='multi_router', AI_ROUTER_MODEL='',
+                   AI_ROUTER_URLS=FOUR_ROUTERS, AI_ROUTER_API_KEYS='k1,k2,k3,k4', AI_ROUTER_WAIT_SECONDS=0)
+class RouterTaskTests(ExtractionJobTestBase):
+    def setUp(self):
+        super().setUp()
+        self.redis = FakeRedis()
+        patcher = patch('apps.extraction.services.router_pool.RouterPool._client', return_value=self.redis)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _job(self, **extra):
+        return ExtractionJob.objects.create(sprint=self.sprint, document=self.document, **extra)
+
+    @patch('apps.extraction.tasks.ExtractionPipeline')
+    def test_job_records_its_router_and_frees_the_slot(self, mock_pipeline_cls):
+        job = self._job()
+        run_extraction_job.apply(args=[str(job.id)])
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.COMPLETED)
+        self.assertRegex(job.ai_router, r'^router[1-4] \(localhost:202(28|29|30|31)\)$')
+        self.assertEqual([v for v in self.redis.data if ':slot:' in v], [])
+
+    @patch('apps.extraction.tasks.ExtractionPipeline')
+    def test_recoverable_failure_retries_on_another_router(self, mock_pipeline_cls):
+        mock_pipeline_cls.return_value.run.side_effect = RecoverableExtractionError('rate limited')
+        from celery.exceptions import Retry as CeleryRetry
+        job = self._job()
+        with self.assertRaises(CeleryRetry):  # eager mode re-raises the scheduled retry
+            run_extraction_job.apply(args=[str(job.id)])
+        job.refresh_from_db()
+        first = job.ai_router
+        self.assertEqual(job.status, ExtractionJob.Status.RETRYING)
+
+        mock_pipeline_cls.return_value.run.side_effect = None
+        run_extraction_job.apply(args=[str(job.id)])
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.COMPLETED)
+        self.assertNotEqual(job.ai_router, first)
+
+    @patch('apps.extraction.tasks.ExtractionPipeline')
+    def test_duplicate_delivery_of_a_finished_job_is_skipped(self, mock_pipeline_cls):
+        for status_value in (ExtractionJob.Status.COMPLETED, ExtractionJob.Status.FAILED):
+            job = self._job(status=status_value)
+            run_extraction_job.apply(args=[str(job.id)])
+            job.refresh_from_db()
+            self.assertEqual(job.status, status_value)
+        mock_pipeline_cls.return_value.run.assert_not_called()
+
+    @override_settings(AI_PROCESSING_MODE='single')  # routers still listed: single mode ignores them
+    @patch('apps.extraction.tasks.ExtractionPipeline')
+    def test_single_router_setup_is_unchanged(self, mock_pipeline_cls):
+        job = self._job()
+        run_extraction_job.apply(args=[str(job.id)])
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.COMPLETED)
+        self.assertEqual(job.ai_router, '')
+
+    @patch('apps.extraction.tasks.ExtractionPipeline')
+    def test_stale_message_for_a_reprocessed_job_is_skipped(self, mock_pipeline_cls):
+        job = self._job(celery_task_id='new-task-id')
+        run_extraction_job.apply(args=[str(job.id)], task_id='old-task-id')
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.PENDING)
+        mock_pipeline_cls.return_value.run.assert_not_called()
+
+        run_extraction_job.apply(args=[str(job.id)], task_id='new-task-id')
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.COMPLETED)
+
+
+class ResponseFormatFallbackTests(SimpleTestCase):
+    """A gateway that rejects `response_format` gets the request again without
+    it (the schema is in the prompt), and isn't sent it again afterwards."""
+
+    def setUp(self):
+        from .services import openai_client
+        openai_client._NO_RESPONSE_FORMAT.clear()
+        self.addCleanup(openai_client._NO_RESPONSE_FORMAT.clear)
+
+    def _rejection(self):
+        request = httpx.Request('POST', 'http://gateway.test/v1/chat/completions')
+        response = httpx.Response(400, request=request)
+        return APIStatusError(
+            "The capability 'response_format' is not supported by this gateway profile.",
+            response=response, body=None,
+        )
+
+    def _ok(self):
+        message = MagicMock(content='{"answer": "yes"}')
+        return MagicMock(choices=[MagicMock(finish_reason='stop', message=message)], usage=None)
+
+    def test_resends_without_response_format_and_remembers(self):
+        client = MagicMock()
+        client.chat.completions.create.side_effect = [self._rejection(), self._ok(), self._ok()]
+        service = OpenAIExtractionService(api_key='k', model='m', base_url='http://gateway.test/v1', client=client)
+        schema = {'type': 'object', 'properties': {'answer': {'type': 'string'}}}
+
+        self.assertEqual(service.extract_structured_data(system_prompt='s', user_content='u', response_schema=schema),
+                         {'answer': 'yes'})
+        service.extract_structured_data(system_prompt='s', user_content='u', response_schema=schema)
+
+        calls = client.chat.completions.create.call_args_list
+        self.assertIn('response_format', calls[0].kwargs)
+        self.assertNotIn('response_format', calls[1].kwargs)
+        self.assertNotIn('response_format', calls[2].kwargs)
+
+    def test_other_400s_still_fail_permanently(self):
+        client = MagicMock()
+        request = httpx.Request('POST', 'http://gateway.test/v1/chat/completions')
+        client.chat.completions.create.side_effect = APIStatusError(
+            'bad model', response=httpx.Response(400, request=request), body=None,
+        )
+        service = OpenAIExtractionService(api_key='k', model='m', base_url='http://gateway.test/v1', client=client)
+        with self.assertRaises(PermanentExtractionError):
+            service.extract_structured_data(system_prompt='s', user_content='u', response_schema={'type': 'object'})
+
+
+# -- AI_PROCESSING_MODE: single | multi_router -------------------------------
+
+class ProcessingModeConfigTests(SimpleTestCase):
+    def test_default_mode_is_single(self):
+        from config.ai_processing_mode import parse_mode
+        self.assertEqual(parse_mode(None), 'single')
+        self.assertEqual(parse_mode(''), 'single')
+        self.assertEqual(parse_mode(' Multi_Router '), 'multi_router')
+
+    def test_invalid_mode_is_a_clear_config_error(self):
+        from config.ai_processing_mode import parse_mode
+        with self.assertRaisesMessage(ImproperlyConfigured, "AI_PROCESSING_MODE='turbo' is not valid"):
+            parse_mode('turbo')
+
+    @override_settings(AI_PROCESSING_MODE='turbo')
+    def test_invalid_mode_is_reported_by_the_system_check(self):
+        from .checks import check_ai_processing_mode
+        self.assertEqual([e.id for e in check_ai_processing_mode(None)], ['extraction.E001'])
+
+    def test_worker_slots_per_mode(self):
+        from config.ai_processing_mode import default_worker_concurrency
+        self.assertEqual(default_worker_concurrency('single', routers=4, per_router=2), 2)
+        self.assertEqual(default_worker_concurrency('multi_router', routers=4, per_router=2), 8)
+        self.assertEqual(default_worker_concurrency('multi_router', routers=3, per_router=2), 6)
+
+
+@override_settings(AI_PROCESSING_MODE='single', AI_API_KEY='single-key', AI_MODEL='single-model',
+                   AI_BASE_URL='http://gateway.test/v1', AI_ROUTER_URLS=FOUR_ROUTERS, AI_ROUTER_API_KEYS='k1,k2,k3,k4')
+class SingleModeTests(SimpleTestCase):
+    def test_uses_the_single_connection_even_with_routers_listed(self):
+        from .services.router_pool import get_router_pool
+        self.assertIsNone(get_router_pool())
+        service = get_ai_service()
+        self.assertEqual((service.base_url, service.api_key, service.model),
+                         ('http://gateway.test/v1', 'single-key', 'single-model'))
+
+    def test_status_describes_single_mode_without_secrets(self):
+        from .services.processing_status import describe, summary_line
+        info = describe()
+        self.assertEqual((info['mode'], info['endpoint'], info['key']), ('single', 'gateway.test', 'set'))
+        self.assertNotIn('single-key', summary_line(info))
+
+
+@override_settings(AI_PROCESSING_MODE='multi_router', AI_MODEL='single-model', AI_ROUTER_MODEL='my-combo',
+                   AI_BASE_URL='http://gateway.test/v1', AI_ROUTER_URLS=FOUR_ROUTERS,
+                   AI_ROUTER_API_KEYS='k1,k2,k3,k4', AI_ROUTER_MAX_CONCURRENT=2, AI_ROUTER_WAIT_SECONDS=0,
+                   CELERY_WORKER_CONCURRENCY=8)
+class MultiRouterModeTests(SimpleTestCase):
+    def _pool(self):
+        from .services.router_pool import RouterPool, configured_routers
+        return RouterPool(configured_routers(), redis_client=FakeRedis())
+
+    def test_four_routers_with_two_worker_slots_each(self):
+        from .services.processing_status import configuration_problems, describe
+        from .services.router_pool import get_router_pool
+        pool = get_router_pool()
+        self.assertEqual([r.label for r in pool.routers], [
+            'router1 (localhost:20228)', 'router2 (localhost:20229)',
+            'router3 (localhost:20230)', 'router4 (localhost:20231)'])
+        self.assertEqual(pool.max_concurrent, 2)
+        info = describe()
+        self.assertEqual((info['mode'], len(info['routers']), info['slots_per_router']), ('multi_router', 4, 2))
+        self.assertEqual(configuration_problems(), ([], []))
+
+    def test_requests_go_to_the_leased_router_with_the_router_model(self):
+        from .services.router_pool import use_lease
+        pool = self._pool()
+        for _ in range(4):
+            lease = pool.acquire()
+            with use_lease(lease):
+                service = get_ai_service()
+            self.assertEqual((service.base_url, service.api_key, service.model),
+                             (lease.router.base_url, lease.router.api_key, 'my-combo'))
+            self.assertNotEqual(service.base_url, 'http://gateway.test/v1')
+
+    def test_ai_call_outside_a_router_lease_is_refused(self):
+        with self.assertRaisesMessage(ImproperlyConfigured, 'Refusing to fall back to AI_BASE_URL'):
+            get_ai_service()
+
+    def test_status_never_contains_router_keys(self):
+        from .services.processing_status import describe, summary_line
+        text = str(describe()) + summary_line()
+        for key in ('k1', 'k2', 'k3', 'k4'):
+            self.assertNotIn(f"'{key}'", text)
+
+    @override_settings(CELERY_WORKER_CONCURRENCY=2)
+    def test_too_few_workers_for_the_router_slots_is_a_warning(self):
+        from .services.processing_status import configuration_problems
+        errors, warnings = configuration_problems()
+        self.assertEqual(errors, [])
+        self.assertIn('some slots will stay unused', warnings[0])
+
+    @override_settings(AI_ROUTER_API_KEYS='k1,k2')
+    def test_wrong_number_of_keys_is_a_config_error(self):
+        from .checks import check_ai_processing_mode
+        self.assertEqual([e.id for e in check_ai_processing_mode(None)], ['extraction.E001'])
+
+    def test_token_usage_and_duration_are_recorded_for_a_router_call(self):
+        """Usage recording is mode-independent: a call on a router writes the
+        same AIUsage row (tokens, duration, model) as a single-mode call."""
+        from types import SimpleNamespace
+
+        from .services.router_pool import use_lease
+        from .usage import usage_scope
+
+        usage = SimpleNamespace(prompt_tokens=1200, completion_tokens=300,
+                                prompt_tokens_details=None, completion_tokens_details=None)
+        message = SimpleNamespace(content='{"answer": "yes"}')
+        response = SimpleNamespace(choices=[SimpleNamespace(finish_reason='stop', message=message)], usage=usage)
+        lease = self._pool().acquire()
+        with use_lease(lease):
+            service = get_ai_service()
+        service._client = MagicMock()
+        service._client.chat.completions.create.return_value = response
+        with patch('apps.extraction.models.AIUsage.objects.create') as create, usage_scope(stage='fact_extraction'):
+            service.extract_structured_data(system_prompt='s', user_content='u',
+                                            response_schema={'type': 'object'})
+        row = create.call_args.kwargs
+        self.assertEqual((row['input_tokens'], row['output_tokens'], row['model'], row['provider']),
+                         (1200, 300, 'my-combo', 'openai_compatible'))
+        self.assertGreaterEqual(row['duration_ms'], 0)
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True,
+                   AI_PROCESSING_MODE='multi_router', AI_ROUTER_URLS='')
+class MultiRouterMisconfiguredTaskTests(ExtractionJobTestBase):
+    @patch('apps.extraction.tasks.ExtractionPipeline')
+    def test_job_fails_clearly_instead_of_sticking_at_running(self, mock_pipeline_cls):
+        job = ExtractionJob.objects.create(sprint=self.sprint, document=self.document)
+        run_extraction_job.apply(args=[str(job.id)])
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.FAILED)
+        self.assertIn('AI_ROUTER_URLS is empty', job.error_message)
+        mock_pipeline_cls.return_value.run.assert_not_called()
+
+
+class ModeSwitchAfterRestartTests(SimpleTestCase):
+    """A fresh process = a restarted worker: the mode and worker slots come
+    from the environment it starts with, and a bad value stops the start."""
+
+    def _start(self, mode, extra=None):
+        import os
+        import subprocess
+        import sys
+        env = {**os.environ, 'AI_PROCESSING_MODE': mode, 'AI_ROUTER_URLS': FOUR_ROUTERS,
+               'AI_ROUTER_MAX_CONCURRENT': '2', 'CELERY_WORKER_CONCURRENCY': '',
+               'DJANGO_SETTINGS_MODULE': 'config.settings', **(extra or {})}
+        code = ('import django; django.setup(); from django.conf import settings; '
+                'print(settings.AI_PROCESSING_MODE, settings.CELERY_WORKER_CONCURRENCY)')
+        return subprocess.run([sys.executable, '-c', code], cwd=settings.BASE_DIR, env=env,
+                              capture_output=True, text=True, timeout=120)
+
+    def test_switching_modes_takes_effect_on_restart(self):
+        self.assertEqual(self._start('single').stdout.split()[-2:], ['single', '2'])
+        self.assertEqual(self._start('multi_router').stdout.split()[-2:], ['multi_router', '8'])
+        self.assertEqual(self._start('multi_router', {'CELERY_WORKER_CONCURRENCY': '6'}).stdout.split()[-2:],
+                         ['multi_router', '6'])
+
+    def test_invalid_mode_stops_startup(self):
+        result = self._start('turbo')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("AI_PROCESSING_MODE='turbo' is not valid", result.stderr)

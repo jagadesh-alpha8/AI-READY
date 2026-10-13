@@ -1,7 +1,9 @@
+import datetime
 import logging
 
 from celery.exceptions import Retry as CeleryRetry
 from celery import current_app
+from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
@@ -10,14 +12,15 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import IsInstitutionMember
+from apps.accounts.permissions import IsConsultant, IsInstitutionMember, IsSuperAdmin
 from apps.documents.models import Document
 from apps.sprints.access import get_authorized_sprint
 from apps.sprints.models import Sprint
 
-from .models import ExtractionJob
+from .models import AIUsage, ExtractionJob
 from .serializers import ExtractionJobCreateSerializer, ExtractionJobSerializer
 from .tasks import run_extraction_job
+from .usage import billing_rows, summarize_usage
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +32,11 @@ class SprintExtractionJobListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         get_authorized_sprint(self.request.user, self.kwargs['sprint_id'])
-        return ExtractionJob.objects.filter(sprint_id=self.kwargs['sprint_id']).select_related('document')
+        return ExtractionJob.objects.filter(sprint_id=self.kwargs['sprint_id']).select_related('document').annotate(
+            ai_input_tokens=Sum('ai_usage__input_tokens'),
+            ai_output_tokens=Sum('ai_usage__output_tokens'),
+            ai_cost_usd=Sum('ai_usage__cost_usd'),
+        )
 
     @extend_schema(request=ExtractionJobCreateSerializer, responses=ExtractionJobSerializer(many=True))
     def create(self, request, *args, **kwargs):
@@ -247,3 +254,46 @@ class SprintExtractionProcessIncompleteView(APIView):
                 latest_per_document.setdefault(job.document_id, job)
         requeued = [_requeue(job) for job in latest_per_document.values()]
         return Response(ExtractionJobSerializer(requeued, many=True).data)
+
+
+class SprintAIUsageView(APIView):
+    """GET: AI tokens and cost for a sprint -- totals, by stage, by model and
+    the costliest documents. Optional ?since=YYYY-MM-DD&until=YYYY-MM-DD
+    (inclusive dates) to bill a period."""
+    permission_classes = [IsInstitutionMember]
+
+    def get(self, request, sprint_id):
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        queryset = AIUsage.objects.filter(sprint=sprint)
+        for param, lookup in (('since', 'created_at__date__gte'), ('until', 'created_at__date__lte')):
+            value = request.query_params.get(param)
+            if value:
+                try:
+                    queryset = queryset.filter(**{lookup: datetime.date.fromisoformat(value)})
+                except ValueError:
+                    raise ValidationError({param: 'Use a date like 2026-10-31.'})
+        return Response({'sprint_id': str(sprint.id), **summarize_usage(queryset)})
+
+
+class PlatformAIUsageView(APIView):
+    """GET (super admin / InGage consultant only): AI tokens and cost across
+    all institutions -- the admin "AI Usage & Billing" page. Totals plus one
+    row per institution x sprint x month. Filters: ?since=YYYY-MM-DD,
+    ?until=YYYY-MM-DD (inclusive), ?institution=<uuid>."""
+    permission_classes = [IsSuperAdmin | IsConsultant]
+
+    def get(self, request):
+        queryset = AIUsage.objects.all()
+        for param, lookup in (('since', 'created_at__date__gte'), ('until', 'created_at__date__lte')):
+            value = request.query_params.get(param)
+            if value:
+                try:
+                    queryset = queryset.filter(**{lookup: datetime.date.fromisoformat(value)})
+                except ValueError:
+                    raise ValidationError({param: 'Use a date like 2026-10-31.'})
+        institution = request.query_params.get('institution')
+        if institution:
+            queryset = queryset.filter(institution_id=institution)
+        totals = summarize_usage(queryset, top_documents=0)
+        totals.pop('top_documents', None)
+        return Response({**totals, 'rows': billing_rows(queryset)})

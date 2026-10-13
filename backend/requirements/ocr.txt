@@ -1,0 +1,9 @@
+# OCR for scanned PDF pages (apps.extraction.services.paddle_ocr). Large
+# (>1 GB installed), so the Dockerfile installs THIS file in its own layer,
+# before everything else: as long as this file is unchanged, that layer is
+# reused and a deploy only downloads the small layers above it.
+# Change these pins rarely. Models download on first use (cached in the
+# paddle_models volume). Set OCR_PROVIDER=none to run without OCR.
+# paddlepaddle <3.3: 3.3.x crashes with oneDNN (OCR_ENABLE_MKLDNN) on Windows.
+paddlepaddle>=3.0.0,<3.3
+paddleocr>=3.0.0

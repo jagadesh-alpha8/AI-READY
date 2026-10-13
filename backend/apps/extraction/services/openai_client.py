@@ -17,6 +17,7 @@ real network access.
 import json
 import logging
 import time
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -30,6 +31,7 @@ from openai import (
 )
 
 from ..exceptions import AIResponseError, PermanentExtractionError, RecoverableExtractionError
+from ..usage import record_openai_usage
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,17 @@ _JSON_INSTRUCTIONS = (
     'conforms to the JSON Schema below. No markdown, no code fences, no text before '
     'or after the JSON.\nJSON Schema:\n{schema}'
 )
+
+
+#: Base URLs of compatible endpoints that rejected `response_format` with a
+#: 400 (some gateways don't support it at all). Requests to them go without
+#: it -- the schema is in the system prompt anyway -- for the rest of this
+#: process, so only the first call pays for the rejected attempt.
+_NO_RESPONSE_FORMAT = set()
+
+
+def _rejects_response_format(exc):
+    return exc.status_code == 400 and 'response_format' in str(exc)
 
 
 class OpenAIResponseError(AIResponseError):
@@ -148,13 +161,26 @@ class OpenAIExtractionService:
         return result
 
     def _send(self, started, messages, response_format, timeout):
+        if self.base_url and self.base_url in _NO_RESPONSE_FORMAT:
+            response_format = None
+        call_started = time.monotonic()
         try:
-            return self._client.chat.completions.create(
+            kwargs = {'response_format': response_format} if response_format else {}
+            response = self._client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                response_format=response_format,
                 timeout=timeout,
+                **kwargs,
             )
+            # Every response is billed, even one that later fails to parse --
+            # record it now (no-op outside an extraction's usage scope).
+            record_openai_usage(
+                response,
+                provider='openai_compatible' if self.base_url else 'openai',
+                model=self.model,
+                duration_ms=(time.monotonic() - call_started) * 1000,
+            )
+            return response
         except RateLimitError as exc:
             self._log_outcome(started, success=False, error='rate_limited')
             raise RecoverableExtractionError(f'OpenAI rate limit hit: {exc}') from exc
@@ -165,6 +191,10 @@ class OpenAIExtractionService:
             self._log_outcome(started, success=False, error='connection_error')
             raise RecoverableExtractionError(f'Could not reach OpenAI: {exc}') from exc
         except APIStatusError as exc:
+            if response_format and self.base_url and _rejects_response_format(exc):
+                logger.warning('openai.request base_url=%s response_format_unsupported resending_without_it', self.base_url)
+                _NO_RESPONSE_FORMAT.add(self.base_url)
+                return self._send(started, messages, None, timeout)
             # 5xx is transient (OpenAI's side) and worth retrying; any other
             # 4xx means the request itself was bad and won't succeed on retry.
             if exc.status_code >= 500:
@@ -179,12 +209,15 @@ class OpenAIExtractionService:
 
     def _log_outcome(self, started, *, success, error=None):
         duration_ms = (time.monotonic() - started) * 1000
+        # Host only (which router / gateway) -- never the key or the full URL's query.
+        endpoint = urlsplit(self.base_url).netloc if self.base_url else 'api.openai.com'
         if success:
-            logger.info('openai.request model=%s duration_ms=%.1f success=true', self.model, duration_ms)
+            logger.info('openai.request model=%s endpoint=%s duration_ms=%.1f success=true',
+                        self.model, endpoint, duration_ms)
         else:
             logger.warning(
-                'openai.request model=%s duration_ms=%.1f success=false error=%s',
-                self.model, duration_ms, error,
+                'openai.request model=%s endpoint=%s duration_ms=%.1f success=false error=%s',
+                self.model, endpoint, duration_ms, error,
             )
 
     @staticmethod

@@ -52,6 +52,14 @@ class IsConsultant(BasePermission):
         return _is_authenticated(request) and request.user.role == User.Role.CONSULTANT
 
 
+class IsInGageStaff(BasePermission):
+    """InGage's own people (super admins and consultants) -- e.g. the benchmark
+    source library, which is InGage IP and never shown to institutions."""
+
+    def has_permission(self, request, view):
+        return _is_authenticated(request) and request.user.role in User.CROSS_INSTITUTION_ROLES
+
+
 class IsInstitutionAdmin(BasePermission):
     message = 'This action requires an institution admin account.'
 

@@ -16,13 +16,16 @@ openai>=1.50.0,<2.0.0
 anthropic>=0.40.0,<1.0.0
 pdfplumber>=0.11.0,<0.12.0
 # PDF reading (apps.extraction.services.pdf_reader): PyMuPDF for the text
-# layer and page rendering, PaddleOCR for scanned / image-only pages. Paddle
-# models download on first use. Set OCR_PROVIDER=none to run without OCR.
-# paddlepaddle <3.3: 3.3.x crashes with oneDNN (OCR_ENABLE_MKLDNN) on Windows.
+# layer and page rendering; PaddleOCR (requirements/ocr.txt) for scanned pages.
 pymupdf>=1.24.0
-paddlepaddle>=3.0.0,<3.3
-paddleocr>=3.0.0
+-r ocr.txt
+# Page images for OCR (pdf_reader); used to arrive only as a PaddleOCR dependency.
+numpy>=1.26
 requests>=2.31.0
+# Benchmark library: daily watcher (HTML parsing) and the Source Register /
+# Source Pack workbook imports (apps.benchmarks.services.*_import).
+beautifulsoup4>=4.12
+openpyxl>=3.1
 # Vector store for college-evidence retrieval (apps.vector_store).
 # Optional at runtime: the app only imports the SDK when Pinecone is actually
 # configured, so the project still boots without it.

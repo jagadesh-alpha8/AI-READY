@@ -17,6 +17,7 @@ import { AdminSettings } from './pages/admin/AdminSettings';
 import { EvidenceIntelligence } from './pages/evidence/EvidenceIntelligence';
 import { CriBenchmarkIntelligence } from './pages/benchmark/CriBenchmarkIntelligence';
 import { BenchmarkStudio } from './pages/benchmark/BenchmarkStudio';
+import { BenchmarkAssessments } from './pages/assessments/BenchmarkAssessments';
 import { TransformationPlan } from './pages/workspace/TransformationPlan';
 import { GoalsTasks } from './pages/workspace/GoalsTasks';
 import { AICopilot } from './pages/chat/AICopilot';
@@ -91,6 +92,7 @@ function AppRoutes() {
       <Route path="/evidence" element={<ProtectedLayout><EvidenceIntelligence /></ProtectedLayout>} />
       <Route path="/cri-benchmark" element={<ProtectedLayout><CriBenchmarkIntelligence /></ProtectedLayout>} />
       <Route path="/benchmark-studio" element={<ProtectedLayout><BenchmarkStudio /></ProtectedLayout>} />
+      <Route path="/benchmark-assessment" element={<ProtectedLayout><BenchmarkAssessments /></ProtectedLayout>} />
       <Route path="/transformation-plan" element={<ProtectedLayout><TransformationPlan /></ProtectedLayout>} />
       <Route path="/goals-tasks" element={<ProtectedLayout><GoalsTasks /></ProtectedLayout>} />
       <Route path="/ai-copilot" element={<ProtectedLayout><AICopilot /></ProtectedLayout>} />

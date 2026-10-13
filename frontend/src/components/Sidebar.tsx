@@ -4,7 +4,7 @@ import {
   Gauge, Building2, ShieldCheck, Layers, Target, ListChecks, Bot, Bell,
   Network, ClipboardCheck, Settings, Award, BookOpen,
   FolderPlus, Upload, Activity, FileSearch, AlertCircle, CheckSquare,
-  BarChart3, Lock, Sparkles, FileText, X,
+  BarChart3, Lock, Sparkles, FileText, X, ClipboardList,
 } from 'lucide-react';
 
 type LucideIcon = typeof Gauge;
@@ -116,6 +116,13 @@ function buildModules(sprintId: string): NavModule[] {
       icon: BookOpen,
       status: 'admin',
       to: '/benchmark-studio',
+    },
+    {
+      key: 'benchmark-assessment',
+      label: 'Benchmark Assessment',
+      icon: ClipboardList,
+      status: 'live',
+      to: '/benchmark-assessment',
     },
     { key: 'transformation-plan', label: 'Transformation Plan', icon: Target, status: 'live', to: '/transformation-plan' },
     { key: 'goals-tasks', label: 'Goals & Tasks', icon: ListChecks, status: 'live', to: '/goals-tasks' },

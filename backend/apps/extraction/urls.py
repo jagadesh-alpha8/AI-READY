@@ -4,11 +4,14 @@ from .views import (
     ExtractionJobCancelView,
     ExtractionJobDetailView,
     ExtractionJobProcessView,
+    PlatformAIUsageView,
     SprintExtractionCancelView,
     SprintExtractionProcessIncompleteView,
 )
 
 urlpatterns = [
+    path('/usage-report', PlatformAIUsageView.as_view(), name='platform-ai-usage'),
+    path('/usage-report/', PlatformAIUsageView.as_view(), name='platform-ai-usage-slash'),
     path('/<uuid:pk>', ExtractionJobDetailView.as_view(), name='extraction-job-detail'),
     path('/<uuid:pk>/', ExtractionJobDetailView.as_view(), name='extraction-job-detail-slash'),
     path('/<uuid:pk>/cancel', ExtractionJobCancelView.as_view(), name='extraction-job-cancel'),

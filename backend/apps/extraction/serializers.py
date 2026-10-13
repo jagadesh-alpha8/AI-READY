@@ -8,16 +8,42 @@ class ExtractionJobSerializer(serializers.ModelSerializer):
     document_id = serializers.PrimaryKeyRelatedField(source='document', read_only=True)
     document_filename = serializers.CharField(source='document.original_filename', read_only=True)
     current_step_label = serializers.CharField(source='get_current_step_display', read_only=True)
+    # AI tokens and cost of this job (all its attempts). The job list
+    # annotates these in one query; anywhere else they're summed per job.
+    ai_input_tokens = serializers.SerializerMethodField()
+    ai_output_tokens = serializers.SerializerMethodField()
+    ai_cost_usd = serializers.SerializerMethodField()
 
     class Meta:
         model = ExtractionJob
         fields = [
             'id', 'sprint_id', 'document_id', 'document_filename', 'status',
             'current_step', 'current_step_label', 'progress_percentage',
-            'started_at', 'completed_at', 'error_message', 'retry_count',
-            'created_at', 'updated_at',
+            'started_at', 'completed_at', 'error_message', 'retry_count', 'ai_router',
+            'created_at', 'updated_at', 'ai_input_tokens', 'ai_output_tokens', 'ai_cost_usd',
         ]
         read_only_fields = fields
+
+    @staticmethod
+    def _usage(obj):
+        if not hasattr(obj, 'ai_input_tokens'):
+            from django.db.models import Sum
+            totals = obj.ai_usage.aggregate(
+                ai_input_tokens=Sum('input_tokens'), ai_output_tokens=Sum('output_tokens'), ai_cost_usd=Sum('cost_usd'),
+            )
+            for key, value in totals.items():
+                setattr(obj, key, value)
+        return obj
+
+    def get_ai_input_tokens(self, obj):
+        return self._usage(obj).ai_input_tokens or 0
+
+    def get_ai_output_tokens(self, obj):
+        return self._usage(obj).ai_output_tokens or 0
+
+    def get_ai_cost_usd(self, obj):
+        from .usage import money
+        return money(self._usage(obj).ai_cost_usd)
 
 
 class ExtractionJobCreateSerializer(serializers.Serializer):

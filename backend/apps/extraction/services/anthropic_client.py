@@ -26,6 +26,7 @@ from anthropic import (
 )
 
 from ..exceptions import AIResponseError, PermanentExtractionError, RecoverableExtractionError
+from ..usage import record_anthropic_usage
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,10 @@ class AnthropicExtractionService:
             # Catch-all for any other SDK-raised error not covered above.
             self._log_outcome(started, success=False, error='api_error')
             raise PermanentExtractionError(f'Claude API error: {exc}') from exc
+
+        # Billed even if it then fails to parse -- record it now (no-op outside
+        # an extraction's usage scope).
+        record_anthropic_usage(response, model=self.model, duration_ms=(time.monotonic() - started) * 1000)
 
         try:
             result = self._parse_response(response, schema_name)

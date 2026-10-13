@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 _engine = None
 _engine_lock = threading.Lock()
+_infer_lock = threading.Lock()
 _engine_failed = False
 
 
@@ -85,7 +86,10 @@ class PaddleOCRProvider(OCRProvider):
         if engine is None:
             return None
         try:
-            lines = self._run(engine, image)
+            # One engine per process; with a threads worker pool several jobs
+            # share it, and a Paddle predictor isn't safe to call concurrently.
+            with _infer_lock:
+                lines = self._run(engine, image)
         except Exception as exc:
             logger.warning(
                 'paddle_ocr.page_failed document_id=%s page=%s error=%s', document.id, page_number, exc,

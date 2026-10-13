@@ -5,7 +5,8 @@ from django.utils import timezone
 from apps.documents.models import Document
 
 from ..exceptions import ExtractionCancelled
-from ..models import ExtractionJob
+from ..models import AIUsage, ExtractionJob
+from ..usage import usage_scope
 from . import stub
 from .conflict_checker import OpenAIConflictChecker
 from .gap_detector import RuleBasedGapDetector
@@ -74,7 +75,10 @@ class ExtractionPipeline:
         )
 
         self._advance(job, Step.CLASSIFYING_DOCUMENTS)
-        self.classifier.classify(document)
+        # Every AI call is recorded (tokens + cost) against this job and step
+        # -- see apps.extraction.usage / AIUsage.
+        with usage_scope(job=job, stage=AIUsage.Stage.CLASSIFICATION):
+            self.classifier.classify(document)
         document.processing_status = 'classified'
         document.save(update_fields=['processing_status', 'updated_at'])
 
@@ -99,7 +103,8 @@ class ExtractionPipeline:
         # Fact extraction is many AI calls on a big document; let it check for
         # a Stop between calls instead of only at the next step.
         self.fact_extractor.should_stop = lambda: _is_cancelled(job)
-        raw_facts = self.fact_extractor.extract_facts(document, pages)
+        with usage_scope(job=job, stage=AIUsage.Stage.FACT_EXTRACTION):
+            raw_facts = self.fact_extractor.extract_facts(document, pages)
 
         self._advance(job, Step.MAPPING_AUDIT_FIELDS)
         mapped_facts = self.field_mapper.map_fields(document, raw_facts)
@@ -110,7 +115,8 @@ class ExtractionPipeline:
         gaps_created = self._persist_gaps(job, gaps)
 
         self._advance(job, Step.CHECKING_CONFLICTS)
-        conflicts = self.conflict_checker.check_conflicts(document, mapped_facts)
+        with usage_scope(job=job, stage=AIUsage.Stage.CONFLICT_CHECK):
+            conflicts = self.conflict_checker.check_conflicts(document, mapped_facts)
         conflicts_created = self._persist_conflicts(job, conflicts)
 
         self._advance(job, Step.PREPARING_REVIEW_WORKSPACE)

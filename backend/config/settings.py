@@ -51,6 +51,8 @@ INSTALLED_APPS = [
     'apps.gaps',
     'apps.scoring',
     'apps.recommendations',
+    'apps.benchmarks',
+    'apps.assessments',
     'apps.reports',
     'apps.dashboard',
     'apps.vector_store',
@@ -215,9 +217,35 @@ CELERY_TIMEZONE = TIME_ZONE
 # broker-unreachable error this project already handles gracefully ever
 # gets a chance to raise. Ignoring results skips that entirely.
 CELERY_TASK_IGNORE_RESULT = True
-# No periodic/scheduled tasks exist in this project (every task is
-# triggered on-demand from an API call), so Celery Beat is not configured.
-# Add CELERY_BEAT_SCHEDULE here if a recurring job is ever introduced.
+# Each worker slot takes one job at a time, so a sprint's documents go to
+# whichever slot frees up next instead of piling up behind a busy one.
+CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv('CELERY_WORKER_PREFETCH_MULTIPLIER', 1))
+# Worker pool and size, so `celery -A config worker` needs no flags: e.g.
+# CELERY_WORKER_POOL=threads + CELERY_WORKER_CONCURRENCY=8 on Windows (where
+# the default prefork pool doesn't work) to run 8 extraction jobs at once.
+if os.getenv('CELERY_WORKER_POOL'):
+    CELERY_WORKER_POOL = os.getenv('CELERY_WORKER_POOL')
+# CELERY_WORKER_CONCURRENCY is set further down, from AI_PROCESSING_MODE.
+# Tasks are acks_late: Redis hands an unacknowledged task to another worker
+# after this long. Must outlast the slowest document, or a long one would be
+# processed twice.
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    'visibility_timeout': int(os.getenv('CELERY_VISIBILITY_TIMEOUT_SECONDS', 6 * 60 * 60)),
+}
+# The only periodic job: the Stage 4 source watcher (checks the official pages
+# of ENABLED source feeds once a day and records changes for review). It needs
+# a beat process (`celery -A config beat`) and WATCHER_ENABLED=true; off by
+# default so a dev machine never contacts government sites by surprise.
+WATCHER_ENABLED = os.getenv('WATCHER_ENABLED', 'false').lower() in ('1', 'true', 'yes')
+WATCHER_HOUR_UTC = int(os.getenv('WATCHER_HOUR_UTC', 20))  # 20:30 UTC = 02:00 IST
+CELERY_BEAT_SCHEDULE = {}
+if WATCHER_ENABLED:
+    from celery.schedules import crontab
+    CELERY_BEAT_SCHEDULE['daily-source-watcher'] = {
+        'task': 'apps.benchmarks.tasks.run_source_watcher',
+        'schedule': crontab(hour=WATCHER_HOUR_UTC, minute=30),
+        'kwargs': {'trigger': 'schedule'},
+    }
 
 # AI provider -- apps.extraction.services.ai_service.get_ai_service() picks
 # OpenAI or Anthropic purely from which of these keys is set and what its
@@ -246,6 +274,42 @@ AI_MODEL = os.getenv('AI_MODEL', '')
 AI_BASE_URL = os.getenv('AI_BASE_URL', '')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 OPENAI_EXTRACTION_MODEL = os.getenv('OPENAI_EXTRACTION_MODEL', '')
+# Extra / overriding AI prices (USD per 1M tokens) as JSON -- see
+# apps.extraction.pricing, e.g. {"my-combo": {"input": 0, "output": 0}}.
+AI_PRICING_JSON = os.getenv('AI_PRICING_JSON', '')
+
+# Several OpenAI-compatible routers to spread extraction jobs across -- see
+# apps.extraction.services.router_pool. Empty = the single AI_BASE_URL above.
+# AI_ROUTER_URLS: comma-separated base URLs (a missing /v1 is added).
+# AI_ROUTER_API_KEYS: one key per router in the same order, or one key for all
+#   (empty = AI_API_KEY). Every router must serve AI_MODEL.
+# AI_ROUTER_MAX_CONCURRENT: jobs one router runs at once.
+# AI_ROUTER_WAIT_SECONDS: how long a job waits for a free router before retrying.
+# AI_ROUTER_LEASE_SECONDS: a slot held by a crashed worker frees itself after this.
+# AI_ROUTER_COOLDOWN_SECONDS: a router that just failed is used last for this long.
+AI_ROUTER_URLS = os.getenv('AI_ROUTER_URLS', '')
+AI_ROUTER_API_KEYS = os.getenv('AI_ROUTER_API_KEYS', '')
+AI_ROUTER_MAX_CONCURRENT = int(os.getenv('AI_ROUTER_MAX_CONCURRENT', 2))
+AI_ROUTER_WAIT_SECONDS = int(os.getenv('AI_ROUTER_WAIT_SECONDS', 300))
+AI_ROUTER_LEASE_SECONDS = int(os.getenv('AI_ROUTER_LEASE_SECONDS', 30 * 60))
+AI_ROUTER_COOLDOWN_SECONDS = int(os.getenv('AI_ROUTER_COOLDOWN_SECONDS', 60))
+AI_ROUTER_REDIS_URL = os.getenv('AI_ROUTER_REDIS_URL', '')  # empty = CELERY_BROKER_URL
+# Model every router serves (e.g. a 9router combo); empty = AI_MODEL. Separate so
+# switching AI_PROCESSING_MODE needs no other edit when the two setups differ.
+AI_ROUTER_MODEL = os.getenv('AI_ROUTER_MODEL', '')
+
+# Which of the two AI processing methods is active -- the only switch; see
+# config/ai_processing_mode.py. 'single' (default): AI_BASE_URL alone, 2 worker
+# slots. 'multi_router': the routers above, AI_ROUTER_MAX_CONCURRENT slots each.
+# An invalid value stops the app from starting. Restart the Celery worker after
+# changing it (switch-ai-mode.ps1 does that).
+from config.ai_processing_mode import default_worker_concurrency, parse_mode, router_count  # noqa: E402
+
+AI_PROCESSING_MODE = parse_mode(os.getenv('AI_PROCESSING_MODE'))
+# Worker slots: CELERY_WORKER_CONCURRENCY wins when set, else what the mode needs.
+CELERY_WORKER_CONCURRENCY = int(os.getenv('CELERY_WORKER_CONCURRENCY') or default_worker_concurrency(
+    AI_PROCESSING_MODE, routers=router_count(AI_ROUTER_URLS), per_router=AI_ROUTER_MAX_CONCURRENT,
+))
 
 # apps.extraction.services.openai_classifier: how many pages of a document's
 # extracted text get sampled and sent to OpenAI for classification.

@@ -3,10 +3,19 @@
 # built on the VM itself. Requires a `.env` file next to this one -- copy
 # `.env.production.example` and fill in real values.
 
+# Cap each container's log at 3 x 10 MB -- Docker's default log grows forever
+# and eventually fills the VM disk.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -22,12 +31,14 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - redis_data:/data
 
   backend:
     image: ghcr.io/jagadesh-alpha8/ai-ready-backend:latest
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     depends_on:
       db:
@@ -42,6 +53,7 @@ services:
   celery:
     image: ghcr.io/jagadesh-alpha8/ai-ready-backend:latest
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     depends_on:
       db:
@@ -52,11 +64,32 @@ services:
         condition: service_started
     volumes:
       - media_data:/app/media
-    command: ["celery", "-A", "config", "worker", "-l", "info", "--concurrency=2"]
+      # PaddleOCR downloads its models on first use into ~/.paddlex; keep them
+      # across deploys instead of re-downloading into each new container.
+      - paddle_models:/root/.paddlex
+    # Worker slots come from settings: AI_PROCESSING_MODE (single = 2,
+    # multi_router = routers x AI_ROUTER_MAX_CONCURRENT), or CELERY_WORKER_CONCURRENCY
+    # if set. No --concurrency flag here, so the mode decides.
+    command: ["celery", "-A", "config", "worker", "-l", "info"]
+
+  # Daily scheduler. Only sends the source-watcher job (when WATCHER_ENABLED=true);
+  # the celery worker above does the work. Exactly one beat must run.
+  celery-beat:
+    image: ghcr.io/jagadesh-alpha8/ai-ready-backend:latest
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_started
+      celery:
+        condition: service_started
+    command: ["celery", "-A", "config", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
 
   frontend:
     image: ghcr.io/jagadesh-alpha8/ai-ready-frontend:latest
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - backend
     ports:
@@ -69,3 +102,4 @@ volumes:
   redis_data:
   media_data:
   static_data:
+  paddle_models:

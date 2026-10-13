@@ -11,3 +11,6 @@ dump.rdb
 Thumbs.db
 .vscode/
 .idea/
+
+# Local DB/media exports for moving data to the server -- contain user data, never commit
+transfer/

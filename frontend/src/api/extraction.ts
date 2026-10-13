@@ -1,5 +1,5 @@
 import api from './client';
-import type { ExtractionJob } from '../types';
+import type { ExtractionJob, PlatformAIUsage, SprintAIUsage } from '../types';
 
 export function listExtractionJobs(sprintId: string) {
   return api.get<ExtractionJob[]>(`/sprints/${sprintId}/extraction-jobs`);
@@ -36,3 +36,13 @@ export function deleteExtractionJob(jobId: string) {
   return api.delete<void>(`/extraction-jobs/${jobId}`);
 }
 
+
+/** AI tokens and cost for the sprint (totals, by stage, by model, top documents). */
+export function getSprintAIUsage(sprintId: string) {
+  return api.get<SprintAIUsage>(`/sprints/${sprintId}/ai-usage`);
+}
+
+/** Admin only: AI tokens and cost across all colleges, per college x sprint x month. */
+export function getPlatformAIUsage(params: { since?: string; until?: string; institution?: string } = {}) {
+  return api.get<PlatformAIUsage>('/extraction-jobs/usage-report', { params });
+}

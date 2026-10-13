@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
+  getSprintAIUsage,
   listExtractionJobs,
   cancelSprintExtraction,
   cancelExtractionJob,
@@ -13,9 +14,13 @@ import { listSprintGaps } from '../../api/gaps';
 import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage, humanizeExtractionError } from '../../utils/errors';
-import { ACTIVE_EXTRACTION_STATUSES, type ExtractionJob, type Fact, type Gap } from '../../types';
+import { formatDuration, formatEstimate, latestRunTiming, type RunTiming } from '../../utils/extractionTiming';
+import {
+  ACTIVE_EXTRACTION_STATUSES, type ExtractionJob, type Fact, type Gap, type SprintAIUsage,
+} from '../../types';
 import {
   Activity, CheckCircle2, AlertTriangle, ArrowRight, Cpu, Layers, XCircle, Loader2, Trash2, Square, Play, RotateCcw,
+  Timer, Coins,
 } from 'lucide-react';
 
 const POLL_INTERVAL_MS = 3000;
@@ -53,6 +58,11 @@ export const AIProcessingMonitor: React.FC = () => {
   );
   const { data: gapsData, refetch: refetchGaps } = useApiResource<Gap[]>(
     () => listSprintGaps(sprintId!),
+    [sprintId],
+    isRealSprint,
+  );
+  const { data: usage, refetch: refetchUsage } = useApiResource<SprintAIUsage>(
+    () => getSprintAIUsage(sprintId!),
     [sprintId],
     isRealSprint,
   );
@@ -126,11 +136,13 @@ export const AIProcessingMonitor: React.FC = () => {
     refetch();
     refetchFacts();
     refetchGaps();
+    refetchUsage();
   });
   refetchAllRef.current = () => {
     refetch();
     refetchFacts();
     refetchGaps();
+    refetchUsage();
   };
 
   useEffect(() => {
@@ -140,6 +152,16 @@ export const AIProcessingMonitor: React.FC = () => {
   }, [hasActiveJob]);
 
   const completedCount = jobs.filter((j) => j.status === 'completed').length;
+
+  // Ticks every second while a run is active, so elapsed / time-left update
+  // between the 3-second data polls.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!hasActiveJob) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hasActiveJob]);
+  const run = latestRunTiming(jobs, hasActiveJob ? now : Date.now());
 
   return (
     <div className="space-y-6">
@@ -193,6 +215,9 @@ export const AIProcessingMonitor: React.FC = () => {
         </div>
       ) : (
         <>
+          {run && <RunTimingPanel run={run} />}
+          {usage && usage.calls > 0 && <AIUsagePanel usage={usage} />}
+
           {/* Progress Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="glass-card p-5">
@@ -287,6 +312,7 @@ export const AIProcessingMonitor: React.FC = () => {
                               : 'Stopped before it started'
                             : job.current_step_label || 'Queued'}
                           {stepIndex >= 0 && ` (step ${stepIndex + 1} of ${STEP_LABELS.length})`}
+                          {job.ai_router && ` · ${job.ai_router}`}
                         </p>
                         {job.status === 'failed' && job.error_message && (
                           <p className="text-xs text-danger mt-0.5">
@@ -301,6 +327,15 @@ export const AIProcessingMonitor: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
+                      {job.ai_input_tokens + job.ai_output_tokens > 0 && (
+                        <span
+                          className="text-xs text-ink-500 tabular-nums"
+                          title={`AI: ${job.ai_input_tokens.toLocaleString()} input + ${job.ai_output_tokens.toLocaleString()} output tokens`}
+                        >
+                          {formatTokens(job.ai_input_tokens + job.ai_output_tokens)} tokens
+                          {job.ai_cost_usd !== null && ` · ${formatUsd(job.ai_cost_usd)}`}
+                        </span>
+                      )}
                       <span className="text-sm font-mono text-ink-500 tabular-nums">{job.progress_percentage}%</span>
                       <span className={badgeClass}>{job.status === 'cancelled' ? 'stopped' : job.status}</span>
                       {isActive && (
@@ -345,3 +380,141 @@ export const AIProcessingMonitor: React.FC = () => {
     </div>
   );
 };
+
+const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** Elapsed time, rounded time-left estimate, and a finished-run summary. */
+const RunTimingPanel: React.FC<{ run: RunTiming }> = ({ run }) => {
+  const finished = run.completed + run.failed + run.stopped;
+  const outcome = [
+    run.failed > 0 && `${run.failed} failed`,
+    run.stopped > 0 && `${run.stopped} stopped`,
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <div className="glass-card p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+      <div className="w-10 h-10 rounded-lg border border-brand-500/30 bg-brand-500/10 text-brand-800 flex items-center justify-center shrink-0">
+        <Timer className="w-5 h-5" />
+      </div>
+
+      {run.waitingToStart ? (
+        <div>
+          <p className="text-sm font-bold text-ink-900">Queued: waiting for the extraction worker to start</p>
+          <p className="text-xs text-ink-500 mt-0.5">
+            {run.total} document{run.total === 1 ? '' : 's'} in the queue. If this doesn't change for a few minutes,
+            the worker may not be running.
+          </p>
+        </div>
+      ) : run.active ? (
+        <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <p className="text-xs text-ink-500">Running for</p>
+            <p className="text-lg font-bold text-ink-900 tabular-nums">{formatDuration(run.elapsedMs)}</p>
+            {run.startedAt !== null && <p className="text-xs text-ink-500">started {clock(run.startedAt)}</p>}
+          </div>
+          <div>
+            <p className="text-xs text-ink-500">Progress this run</p>
+            <p className="text-lg font-bold text-ink-900 tabular-nums">{finished} / {run.total}</p>
+            <p className="text-xs text-ink-500">{run.remaining} remaining{outcome && ` · ${outcome}`}</p>
+          </div>
+          <div>
+            <p className="text-xs text-ink-500">Estimated time left</p>
+            {run.etaRangeMs ? (
+              <>
+                <p className="text-lg font-bold text-ink-900">{formatEstimate(run.etaRangeMs)}</p>
+                <p className="text-xs text-ink-500">based on documents finished so far; sizes vary</p>
+              </>
+            ) : (
+              <>
+                <p className="text-lg font-bold text-ink-500">Calculating…</p>
+                <p className="text-xs text-ink-500">shown after a few documents finish</p>
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div>
+          <p className="text-sm font-bold text-ink-900">
+            Last run: {finished} document{finished === 1 ? '' : 's'} in {formatDuration(run.elapsedMs)}
+          </p>
+          <p className="text-xs text-ink-500 mt-0.5">
+            {run.startedAt !== null && `${clock(run.startedAt)} – ${clock(run.finishedAt ?? run.startedAt)}`}
+            {run.avgPerDocMs !== null && ` · about ${formatDuration(run.avgPerDocMs)} per document`}
+            {` · ${run.completed} completed`}
+            {outcome && ` · ${outcome}`}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  classification: 'Classification',
+  fact_extraction: 'Fact extraction',
+  conflict_check: 'Conflict check',
+  other: 'Other',
+};
+
+/** 1234 -> "1.2K", 3456789 -> "3.46M". */
+const formatTokens = (n: number) =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}K` : String(n);
+
+/** Exact decimal string -> "$0.021", "$3.14". */
+const formatUsd = (value: string) => {
+  const n = Number(value);
+  return `$${n >= 1 ? n.toFixed(2) : n.toFixed(3)}`;
+};
+
+/** Real AI tokens and cost recorded for this sprint -- the basis for billing. */
+const AIUsagePanel: React.FC<{ usage: SprintAIUsage }> = ({ usage }) => (
+  <div className="glass-card p-5 space-y-3">
+    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+      <div className="w-10 h-10 rounded-lg border border-brand-500/30 bg-brand-500/10 text-brand-800 flex items-center justify-center shrink-0">
+        <Coins className="w-5 h-5" />
+      </div>
+      <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div>
+          <p className="text-xs text-ink-500">AI cost (this sprint)</p>
+          <p className="text-lg font-bold text-ink-900 tabular-nums">{formatUsd(usage.cost_usd)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-ink-500">Input tokens</p>
+          <p className="text-lg font-bold text-ink-900 tabular-nums">{formatTokens(usage.input_tokens + usage.cache_read_tokens)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-ink-500">Output tokens</p>
+          <p className="text-lg font-bold text-ink-900 tabular-nums">{formatTokens(usage.output_tokens)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-ink-500">AI calls · documents</p>
+          <p className="text-lg font-bold text-ink-900 tabular-nums">{usage.calls} · {usage.documents || '—'}</p>
+        </div>
+      </div>
+    </div>
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-500">
+      {usage.by_stage.map((row) => (
+        <span key={row.stage}>
+          {STAGE_LABELS[row.stage] || row.stage}: {formatTokens(row.total_tokens)} tokens · {formatUsd(row.cost_usd)}
+        </span>
+      ))}
+      {usage.by_model.length > 0 && (
+        <span>Model{usage.by_model.length > 1 ? 's' : ''}: {usage.by_model.map((m) => m.model).join(', ')}</span>
+      )}
+    </div>
+    {usage.imported_calls + usage.estimated_calls > 0 && (
+      <p className="text-xs text-info" title={usage.notes.join(' | ')}>
+        Includes {usage.imported_calls > 0 && `${usage.imported_calls} request${usage.imported_calls === 1 ? '' : 's'} imported from a provider dashboard`}
+        {usage.imported_calls > 0 && usage.estimated_calls > 0 && ' and '}
+        {usage.estimated_calls > 0 && `${usage.estimated_calls} estimated`} (totals only, not per document).
+        {usage.notes.length > 0 && ` Source: ${usage.notes.join(' | ')}`}
+      </p>
+    )}
+    {usage.unpriced_calls > 0 && (
+      <p className="text-xs text-warning">
+        {usage.unpriced_calls} call{usage.unpriced_calls === 1 ? '' : 's'} used a model with no configured price
+        ({usage.unpriced_models.join(', ')}), so the cost above is incomplete. Tokens are still counted.
+      </p>
+    )}
+  </div>
+);

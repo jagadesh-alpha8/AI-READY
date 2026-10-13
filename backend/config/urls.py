@@ -26,6 +26,8 @@ urlpatterns = [
     path('api/v1/recommendations', include('apps.recommendations.urls')),
     path('api/v1/reports', include('apps.reports.urls')),
     path('api/v1/dashboard', include('apps.dashboard.urls')),
+    path('api/v1/benchmarks', include('apps.benchmarks.urls')),
+    path('api/v1/assessments', include('apps.assessments.urls')),
 ]
 
 if settings.DEBUG:

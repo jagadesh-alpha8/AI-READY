@@ -83,7 +83,27 @@ def get_ai_service(*, api_key=None, model=None, base_url=None):
     requests, so guessing a provider from what the key looks like would
     only be wrong -- these services' keys don't follow OpenAI's or
     Anthropic's format at all.
+
+    Inside an extraction job leased to one of several routers
+    (AI_ROUTER_URLS, see router_pool.py), that router's URL and key are used
+    instead -- same model, so results don't depend on which router ran.
     """
+    from config.ai_processing_mode import MULTI_ROUTER
+
+    from .router_pool import current_lease, processing_mode
+
+    lease = current_lease()
+    if lease is not None and api_key is None and base_url is None:
+        lease.touch()  # a long document keeps its router slot
+        api_key, base_url = lease.router.api_key, lease.router.base_url
+        model = model or settings.AI_ROUTER_MODEL or None  # same model on every router
+    elif lease is None and api_key is None and base_url is None and processing_mode() == MULTI_ROUTER:
+        # multi_router mode must never fall back to AI_BASE_URL unnoticed.
+        raise ImproperlyConfigured(
+            'AI_PROCESSING_MODE=multi_router: AI calls must run inside a router lease '
+            '(run_extraction_job takes one). Refusing to fall back to AI_BASE_URL.'
+        )
+
     resolved_key = api_key or settings.AI_API_KEY or settings.OPENAI_API_KEY
     if not resolved_key:
         raise ImproperlyConfigured(
@@ -96,8 +116,8 @@ def get_ai_service(*, api_key=None, model=None, base_url=None):
         resolved_model = model or settings.AI_MODEL or settings.OPENAI_EXTRACTION_MODEL
         if not resolved_model:
             raise ImproperlyConfigured(
-                'AI_BASE_URL is set but no model is configured. Set AI_MODEL to the model ID '
-                'your OpenAI-compatible endpoint expects.'
+                'AI_BASE_URL (or AI_ROUTER_URLS) is set but no model is configured. Set AI_MODEL '
+                'to the model ID your OpenAI-compatible endpoint expects.'
             )
         from .openai_client import OpenAIExtractionService
         return OpenAIExtractionService(api_key=resolved_key, model=resolved_model, base_url=resolved_base_url)

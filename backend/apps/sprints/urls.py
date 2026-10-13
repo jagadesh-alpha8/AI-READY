@@ -6,7 +6,7 @@ from apps.documents.views import (
     SprintDriveImportJobListCreateView,
     SprintDriveImportJobStopView,
 )
-from apps.extraction.views import SprintExtractionJobListCreateView
+from apps.extraction.views import SprintAIUsageView, SprintExtractionJobListCreateView
 from apps.facts.views import SprintFactListView
 from apps.gaps.views import SprintGapListView
 from apps.recommendations.views import SprintRecommendationGenerateView, SprintRecommendationListView
@@ -55,6 +55,8 @@ urlpatterns = [
     path('/<uuid:sprint_id>/documents/', SprintDocumentListView.as_view(), name='sprint-documents-slash'),
     path('/<uuid:sprint_id>/upload-file', SprintDocumentUploadView.as_view(), name='sprint-upload-file'),
     path('/<uuid:sprint_id>/upload-file/', SprintDocumentUploadView.as_view(), name='sprint-upload-file-slash'),
+    path('/<uuid:sprint_id>/ai-usage', SprintAIUsageView.as_view(), name='sprint-ai-usage'),
+    path('/<uuid:sprint_id>/ai-usage/', SprintAIUsageView.as_view(), name='sprint-ai-usage-slash'),
     path(
         '/<uuid:sprint_id>/extraction-jobs',
         SprintExtractionJobListCreateView.as_view(),
