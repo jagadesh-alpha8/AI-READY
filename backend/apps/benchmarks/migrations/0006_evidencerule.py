@@ -142,7 +142,7 @@ class Migration(migrations.Migration):
                 ],
                 "constraints": [
                     models.CheckConstraint(
-                        condition=models.Q(
+                        check=models.Q(
                             models.Q(
                                 ("benchmark__isnull", True),
                                 ("level", ""),

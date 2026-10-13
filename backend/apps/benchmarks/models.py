@@ -539,8 +539,8 @@ class EvidenceRule(models.Model):
         ordering = ['benchmark__benchmark_code', 'requirement__code', '-level', 'evidence_type__code', 'title']
         constraints = [
             models.CheckConstraint(
-                condition=(models.Q(requirement__isnull=False, benchmark__isnull=True, level='')
-                           | models.Q(requirement__isnull=True, benchmark__isnull=False)),
+                check=(models.Q(requirement__isnull=False, benchmark__isnull=True, level='')
+                       | models.Q(requirement__isnull=True, benchmark__isnull=False)),
                 name='evidence_rule_one_target'),
             # schema: UNIQUE (requirement_id, evidence_type_id)
             models.UniqueConstraint(fields=['requirement', 'evidence_type'], condition=models.Q(requirement__isnull=False),
@@ -623,8 +623,8 @@ class ApplicabilityRule(models.Model):
     class Meta:
         ordering = ['priority', 'created_at']
         constraints = [models.CheckConstraint(
-            condition=(models.Q(benchmark__isnull=False, requirement__isnull=True)
-                       | models.Q(benchmark__isnull=True, requirement__isnull=False)),
+            check=(models.Q(benchmark__isnull=False, requirement__isnull=True)
+                   | models.Q(benchmark__isnull=True, requirement__isnull=False)),
             name='applicability_rule_one_target')]
 
     def __str__(self):

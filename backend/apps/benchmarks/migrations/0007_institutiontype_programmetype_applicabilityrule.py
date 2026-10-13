@@ -161,7 +161,7 @@ class Migration(migrations.Migration):
                 "ordering": ["priority", "created_at"],
                 "constraints": [
                     models.CheckConstraint(
-                        condition=models.Q(
+                        check=models.Q(
                             models.Q(
                                 ("benchmark__isnull", False),
                                 ("requirement__isnull", True),
