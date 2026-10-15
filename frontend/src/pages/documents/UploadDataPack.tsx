@@ -17,6 +17,7 @@ import {
   type SprintDocument,
 } from '../../types';
 import { Upload, CheckCircle2, AlertCircle, Play, File, Trash2, Link2, Loader2, Square } from 'lucide-react';
+import { useAccess } from '../../utils/access';
 
 const POLL_INTERVAL_MS = 3000; // matches AIProcessingMonitor.tsx
 
@@ -34,6 +35,7 @@ const REQUIRED_CHECKLIST = [
 ];
 
 export const UploadDataPack: React.FC = () => {
+  const { can, userId } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
@@ -250,10 +252,12 @@ export const UploadDataPack: React.FC = () => {
         <div className="p-4 bg-warning-bg border border-warning-line rounded-lg text-sm text-warning flex items-center justify-between gap-3 flex-wrap">
           <span className="flex items-center gap-1.5">
             <AlertCircle className="w-4 h-4 shrink-0" />
-            No active sprint is selected, so uploads and extraction can't run yet. Set up a sprint first.
+            No active sprint is selected, so uploads and extraction can't run yet.
+            {can('sprint.manage') ? ' Set up a sprint first.' : ' Open your sprint from the dashboard.'}
           </span>
-          <button onClick={() => navigate('/sprint/setup')} className="btn-secondary btn-sm shrink-0">
-            Go to Sprint Setup
+          <button onClick={() => navigate(can('sprint.manage') ? '/sprint/setup' : '/dashboard')}
+            className="btn-secondary btn-sm shrink-0">
+            {can('sprint.manage') ? 'Go to Sprint Setup' : 'Go to the dashboard'}
           </button>
         </div>
       )}
@@ -556,14 +560,16 @@ export const UploadDataPack: React.FC = () => {
                     </td>
                     <td className="text-ink-500">{new Date(doc.created_at).toLocaleTimeString()}</td>
                     <td className="text-right" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => handleDelete(doc)}
-                        disabled={deletingId === doc.id}
-                        title="Delete document"
-                        className="btn-icon hover:text-danger hover:bg-danger-bg"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {(can('documents.manageAll') || doc.uploaded_by === userId) && (
+                        <button
+                          onClick={() => handleDelete(doc)}
+                          disabled={deletingId === doc.id}
+                          title="Delete document"
+                          className="btn-icon hover:text-danger hover:bg-danger-bg"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

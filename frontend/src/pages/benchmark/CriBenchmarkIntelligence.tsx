@@ -15,6 +15,7 @@ import { PageHeader, TabStrip } from '../../components/PageHeader';
 import type {
   Gap, GapPriority, PillarScore, PillarStatus, Recommendation, Scorecard, Sprint,
 } from '../../types';
+import { useAccess } from '../../utils/access';
 
 /**
  * CRI & Benchmark Intelligence — the institution's readiness score, the gaps
@@ -53,6 +54,7 @@ const PRIORITY_BADGE: Record<GapPriority, string> = {
 };
 
 export const CriBenchmarkIntelligence: React.FC = () => {
+  const { can } = useAccess();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('score');
   const [sprintId, setSprintId] = useState('');
@@ -115,7 +117,7 @@ export const CriBenchmarkIntelligence: React.FC = () => {
         />
         <EmptyState
           message="No sprints yet. A readiness score is produced by a discovery sprint — start one to see it here."
-          action={{ label: 'Start a sprint', onClick: () => navigate('/sprint/setup') }}
+          action={can('sprint.manage') ? { label: 'Start a sprint', onClick: () => navigate('/sprint/setup') } : undefined}
         />
       </div>
     );

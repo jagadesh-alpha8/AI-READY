@@ -11,6 +11,7 @@ import { ErrorState, InlineError, LoadingState } from '../../components/ApiState
 import { UsersTab } from './UsersTab';
 import { AIUsageTab } from './AIUsageTab';
 import { PageHeader, TabStrip } from '../../components/PageHeader';
+import { canSeeSettingsTab } from '../../utils/access';
 
 /**
  * Admin / Settings.
@@ -36,9 +37,11 @@ type Tab = 'rubric' | 'account' | 'users' | 'usage';
 
 export const AdminSettings: React.FC = () => {
   const { user } = useAuth();
-  const [tab, setTab] = useState<Tab>('rubric');
+  // Tabs per role (utils/access.ts SETTINGS_TAB_ROLES); everyone has their account.
+  const sees = (t: Tab) => canSeeSettingsTab(user?.role, t);
+  const [tab, setTab] = useState<Tab>(sees('rubric') ? 'rubric' : 'account');
   // The server also enforces this (IsSuperAdmin | IsConsultant).
-  const canSeeUsage = user?.role === 'super_admin' || user?.role === 'consultant';
+  const canSeeUsage = sees('usage');
 
   const { data: pillars, loading, error, refetch } =
     useApiResource<PillarConfig[]>(() => getScoringConfig(), []);
@@ -47,22 +50,22 @@ export const AdminSettings: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         icon={Settings}
-        title="Admin / Settings"
-        description="The scoring rubric the engine runs on, and your own account."
+        title="Settings"
+        description="Your account, and -- depending on your role -- the scoring rubric, users and AI usage."
       />
 
       <TabStrip
         tabs={[
-          { id: 'rubric', label: 'Scoring rubric', icon: Sliders, count: pillars?.length },
+          ...(sees('rubric') ? [{ id: 'rubric' as Tab, label: 'Scoring rubric', icon: Sliders, count: pillars?.length }] : []),
           { id: 'account', label: 'Account', icon: KeyRound },
-          { id: 'users', label: 'Users', icon: UserCog },
+          ...(sees('users') ? [{ id: 'users' as Tab, label: 'Users', icon: UserCog }] : []),
           ...(canSeeUsage ? [{ id: 'usage' as Tab, label: 'AI Usage & Billing', icon: Coins }] : []),
         ]}
         active={tab}
         onChange={setTab}
       />
 
-      {tab === 'rubric' && (
+      {tab === 'rubric' && sees('rubric') && (
         <>
           {loading && <LoadingState message="Loading the scoring rubric…" />}
           {error && <ErrorState message={error} onRetry={refetch} />}
@@ -71,7 +74,7 @@ export const AdminSettings: React.FC = () => {
       )}
 
       {tab === 'account' && <Account user={user} />}
-      {tab === 'users' && <UsersTab />}
+      {tab === 'users' && sees('users') && <UsersTab />}
       {tab === 'usage' && canSeeUsage && <AIUsageTab />}
     </div>
   );

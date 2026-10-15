@@ -6,8 +6,10 @@ import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { Recommendation } from '../../types';
 import { Sparkles, ArrowRight } from 'lucide-react';
+import { useAccess } from '../../utils/access';
 
 export const RecommendationsReview: React.FC = () => {
+  const { can } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
@@ -85,10 +87,12 @@ export const RecommendationsReview: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <button onClick={handleGenerate} disabled={generating} className="btn-secondary">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>{generating ? 'Generating...' : 'Generate Recommendations'}</span>
-            </button>
+            {can('recommendations.generate') && (
+              <button onClick={handleGenerate} disabled={generating} className="btn-secondary">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{generating ? 'Generating...' : 'Generate Recommendations'}</span>
+              </button>
+            )}
             <button onClick={() => navigate(`/sprint/${sprintId}/report`)} className="btn-primary shrink-0">
               <span>Proceed to Executive Report</span>
               <ArrowRight className="w-4 h-4" />
@@ -107,10 +111,16 @@ export const RecommendationsReview: React.FC = () => {
           <ErrorState message={error} onRetry={refetch} />
         ) : recs.length === 0 ? (
           <div className="glass-card p-8 text-center space-y-3">
-            <p className="text-sm text-ink-500">No recommendations generated yet. Click 'Generate Recommendations'.</p>
-            <button onClick={handleGenerate} disabled={generating} className="btn-primary btn-sm">
-              {generating ? 'Generating...' : 'Generate Recommendations Now'}
-            </button>
+            {can('recommendations.generate') ? (
+              <>
+                <p className="text-sm text-ink-500">No recommendations generated yet. Click 'Generate Recommendations'.</p>
+                <button onClick={handleGenerate} disabled={generating} className="btn-primary btn-sm">
+                  {generating ? 'Generating...' : 'Generate Recommendations Now'}
+                </button>
+              </>
+            ) : (
+              <p className="text-sm text-ink-500">No recommendations yet. They appear here once InGage or your institution generates them.</p>
+            )}
           </div>
         ) : (
           recs.map((rec) => (
@@ -164,7 +174,7 @@ export const RecommendationsReview: React.FC = () => {
 
               <div className="flex items-center justify-between pt-2 flex-wrap gap-2">
                 <span className="text-xs text-ink-500">Status: <strong className="text-brand-800 uppercase">{rec.status}</strong></span>
-                <div className="flex items-center gap-2 flex-wrap">
+                {can('recommendations.edit') && <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => handleStatusUpdate(rec.id, 'accepted')}
                     disabled={updatingId === rec.id}
@@ -189,7 +199,7 @@ export const RecommendationsReview: React.FC = () => {
                   >
                     Hide
                   </button>
-                </div>
+                </div>}
               </div>
             </div>
           ))

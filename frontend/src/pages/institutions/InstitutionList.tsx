@@ -8,19 +8,12 @@ import { useAuth } from '../../context/AuthContext';
 import { getErrorMessage } from '../../utils/errors';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { CreateInstitutionPayload, Institution } from '../../types';
+import { canDo } from '../../utils/access';
 
-/** Roles allowed to delete an institution outright — mirrors the backend's
- * DELETE_INSTITUTION_ROLES. Narrower than the roles that can edit an
- * institution's DNA, because deleting the institution itself takes every
- * sprint, document, fact, gap, score, recommendation and report scoped to it
- * down with it. */
-const DELETE_ROLES = ['super_admin', 'consultant'];
-
-/** Roles allowed to create an institution — mirrors the backend's
- * WRITE_INSTITUTION_ROLES, so it is wider than DELETE_ROLES. The server is
- * still the authority; this only decides whether to offer an action that
- * would otherwise come back a 403. */
-const CREATE_ROLES = ['super_admin', 'consultant', 'institution_admin'];
+// Who may create / delete a college: utils/access.ts ('institution.edit', the
+// backend's WRITE_INSTITUTION_ROLES, and the narrower 'institution.delete' --
+// deleting a college takes every sprint, document, fact, score and report
+// scoped to it down with it).
 
 /** Only `name` is required. The rest are the fields the create endpoint
  * accepts; everything else about an institution — headcounts, priorities,
@@ -45,8 +38,8 @@ type FormField = keyof typeof BLANK_FORM;
 export const InstitutionList: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canDelete = !!user && DELETE_ROLES.includes(user.role);
-  const canCreate = !!user && CREATE_ROLES.includes(user.role);
+  const canDelete = canDo(user?.role, 'institution.delete');
+  const canCreate = canDo(user?.role, 'institution.edit');
 
   const { data: institutions, loading, error, refetch } =
     useApiResource<Institution[]>(() => listInstitutions(), []);

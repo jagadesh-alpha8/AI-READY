@@ -4,6 +4,9 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AppShell } from './layouts/AppShell';
 import { ScrollToTop } from './components/ScrollToTop';
+import { NoAccess } from './components/NoAccess';
+import { canSeeMenu } from './utils/access';
+import type { MenuKey } from './utils/access';
 
 import { Login } from './pages/auth/Login';
 import { ForgotPassword, ResetPassword } from './pages/auth/PasswordReset';
@@ -45,14 +48,17 @@ const LoginRoute: React.FC = () => {
 };
 
 /** Every other route: requires a session, then wraps the page in the
- * Navbar/Sidebar shell (aware of :sprintId when the current route has one). */
-const ProtectedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+ * Navbar/Sidebar shell (aware of :sprintId when the current route has one).
+ * `menu` names the menu entry the page belongs to; a role that may not see
+ * that menu (utils/access.ts) gets "No access" instead of the page. */
+const ProtectedLayout: React.FC<{ children: React.ReactNode; menu?: MenuKey }> = ({ children, menu }) => {
   const { user, loading } = useAuth();
   const { sprintId } = useParams<{ sprintId: string }>();
 
   if (loading) return <FullScreenLoading />;
   if (!user) return <Navigate to="/login" replace />;
-  return <AppShell activeSprintId={sprintId}>{children}</AppShell>;
+  const allowed = !menu || canSeeMenu(user.role, menu);
+  return <AppShell activeSprintId={sprintId}>{allowed ? children : <NoAccess />}</AppShell>;
 };
 
 /** A session-guarded page with no Navbar and no Sidebar.
@@ -82,9 +88,9 @@ function AppRoutes() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
 
-      <Route path="/dashboard" element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
-      <Route path="/institution-dna" element={<ProtectedLayout><InstitutionList /></ProtectedLayout>} />
-      <Route path="/institution-dna/:institutionId" element={<ProtectedLayout><InstitutionDetail /></ProtectedLayout>} />
+      <Route path="/dashboard" element={<ProtectedLayout menu="dashboard"><Dashboard /></ProtectedLayout>} />
+      <Route path="/institution-dna" element={<ProtectedLayout menu="institution-dna"><InstitutionList /></ProtectedLayout>} />
+      <Route path="/institution-dna/:institutionId" element={<ProtectedLayout menu="institution-dna"><InstitutionDetail /></ProtectedLayout>} />
       {/* Build-progress report, deliberately OUTSIDE the app shell and absent
           from the sidebar: it reports on how much of the product plan exists,
           which makes it a report about the app rather than a module of it.
@@ -92,37 +98,37 @@ function AppRoutes() {
       <Route path="/status-dashboard" element={<StandaloneRoute><StatusDashboard /></StandaloneRoute>} />
 
       {/* Ported from the InGage prototype: real screens, demo data. */}
-      <Route path="/evidence" element={<ProtectedLayout><EvidenceIntelligence /></ProtectedLayout>} />
-      <Route path="/cri-benchmark" element={<ProtectedLayout><CriBenchmarkIntelligence /></ProtectedLayout>} />
-      <Route path="/benchmark-studio" element={<ProtectedLayout><BenchmarkStudio /></ProtectedLayout>} />
-      <Route path="/benchmark-assessment" element={<ProtectedLayout><BenchmarkAssessments /></ProtectedLayout>} />
-      <Route path="/transformation-plan" element={<ProtectedLayout><TransformationPlan /></ProtectedLayout>} />
-      <Route path="/goals-tasks" element={<ProtectedLayout><GoalsTasks /></ProtectedLayout>} />
-      <Route path="/ai-copilot" element={<ProtectedLayout><AICopilot /></ProtectedLayout>} />
-      <Route path="/reminders" element={<ProtectedLayout><Reminders /></ProtectedLayout>} />
-      <Route path="/compliance" element={<ProtectedLayout><ComplianceMapping /></ProtectedLayout>} />
-      <Route path="/uat-readiness" element={<ProtectedLayout><UatReadiness /></ProtectedLayout>} />
-      <Route path="/admin-settings" element={<ProtectedLayout><AdminSettings /></ProtectedLayout>} />
+      <Route path="/evidence" element={<ProtectedLayout menu="evidence-intelligence"><EvidenceIntelligence /></ProtectedLayout>} />
+      <Route path="/cri-benchmark" element={<ProtectedLayout menu="cri-benchmark-intelligence"><CriBenchmarkIntelligence /></ProtectedLayout>} />
+      <Route path="/benchmark-studio" element={<ProtectedLayout menu="benchmark-studio"><BenchmarkStudio /></ProtectedLayout>} />
+      <Route path="/benchmark-assessment" element={<ProtectedLayout menu="benchmark-assessment"><BenchmarkAssessments /></ProtectedLayout>} />
+      <Route path="/transformation-plan" element={<ProtectedLayout menu="transformation-plan"><TransformationPlan /></ProtectedLayout>} />
+      <Route path="/goals-tasks" element={<ProtectedLayout menu="goals-tasks"><GoalsTasks /></ProtectedLayout>} />
+      <Route path="/ai-copilot" element={<ProtectedLayout menu="ai-copilot"><AICopilot /></ProtectedLayout>} />
+      <Route path="/reminders" element={<ProtectedLayout menu="reminders"><Reminders /></ProtectedLayout>} />
+      <Route path="/compliance" element={<ProtectedLayout menu="compliance-mapping"><ComplianceMapping /></ProtectedLayout>} />
+      <Route path="/uat-readiness" element={<ProtectedLayout menu="uat-readiness"><UatReadiness /></ProtectedLayout>} />
+      <Route path="/admin-settings" element={<ProtectedLayout menu="admin-settings"><AdminSettings /></ProtectedLayout>} />
 
       {/* Design previews for the modules with no prototype screen to port.
           Every one of these says so at the top — see ModulePreview. */}
       <Route path="/preview/:moduleKey" element={<ProtectedLayout><ModulePreview /></ProtectedLayout>} />
-      <Route path="/sprint/setup" element={<ProtectedLayout><SprintSetup /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/upload" element={<ProtectedLayout><UploadDataPack /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/monitor" element={<ProtectedLayout><AIProcessingMonitor /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/facts" element={<ProtectedLayout><FactsReview /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/gaps" element={<ProtectedLayout><GapDashboard /></ProtectedLayout>} />
+      <Route path="/sprint/setup" element={<ProtectedLayout menu="sprint-setup"><SprintSetup /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/upload" element={<ProtectedLayout menu="sprint-upload"><UploadDataPack /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/monitor" element={<ProtectedLayout menu="sprint-monitor"><AIProcessingMonitor /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/facts" element={<ProtectedLayout menu="sprint-facts"><FactsReview /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/gaps" element={<ProtectedLayout menu="sprint-gaps"><GapDashboard /></ProtectedLayout>} />
       <Route
         path="/sprint/:sprintId/confirmation"
-        element={<ProtectedLayout><ConfirmationWorkspace /></ProtectedLayout>}
+        element={<ProtectedLayout menu="sprint-confirmation"><ConfirmationWorkspace /></ProtectedLayout>}
       />
-      <Route path="/sprint/:sprintId/score" element={<ProtectedLayout><LiveCRIPreview /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/approval" element={<ProtectedLayout><BaselineApproval /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/score" element={<ProtectedLayout menu="sprint-score"><LiveCRIPreview /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/approval" element={<ProtectedLayout menu="sprint-approval"><BaselineApproval /></ProtectedLayout>} />
       <Route
         path="/sprint/:sprintId/recommendations"
-        element={<ProtectedLayout><RecommendationsReview /></ProtectedLayout>}
+        element={<ProtectedLayout menu="sprint-recommendations"><RecommendationsReview /></ProtectedLayout>}
       />
-      <Route path="/sprint/:sprintId/report" element={<ProtectedLayout><ReportPreviewExport /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/report" element={<ProtectedLayout menu="sprint-report"><ReportPreviewExport /></ProtectedLayout>} />
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

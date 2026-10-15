@@ -12,6 +12,7 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ApiStates';
 import { FilterPills, PageHeader, TabStrip } from '../../components/PageHeader';
 import type { Fact, Gap, Recommendation, RecommendationPriority, Sprint } from '../../types';
+import { useAccess } from '../../utils/access';
 
 /**
  * Goals & Tasks — who owes what, derived from the audit's own work items.
@@ -67,6 +68,7 @@ function humanRole(role: string): string {
 const PER_ROLE_LIMIT = 25;
 
 export const GoalsTasks: React.FC = () => {
+  const { can } = useAccess();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('tasks');
   const [sprintId, setSprintId] = useState('');
@@ -154,7 +156,7 @@ export const GoalsTasks: React.FC = () => {
         />
         <EmptyState
           message="No sprints yet. Work items come from a discovery sprint's gaps and facts."
-          action={{ label: 'Start a sprint', onClick: () => navigate('/sprint/setup') }}
+          action={can('sprint.manage') ? { label: 'Start a sprint', onClick: () => navigate('/sprint/setup') } : undefined}
         />
       </div>
     );

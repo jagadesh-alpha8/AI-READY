@@ -7,6 +7,7 @@ import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { Report } from '../../types';
 import { FileText, Download, Sparkles, Printer, Globe } from 'lucide-react';
+import { useAccess } from '../../utils/access';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -20,6 +21,7 @@ async function fetchLatestReport(sprintId: string): Promise<{ data: Report | nul
 }
 
 export const ReportPreviewExport: React.FC = () => {
+  const { can } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
 
@@ -102,10 +104,12 @@ export const ReportPreviewExport: React.FC = () => {
               <Printer className="w-3.5 h-3.5" />
               <span>Print / Save PDF</span>
             </button>
-            <button onClick={handleGenerate} disabled={generating} className="btn-primary shrink-0">
-              <Globe className="w-4 h-4" />
-              <span>{generating ? 'Generating...' : 'Publish Final Report'}</span>
-            </button>
+            {can('sprint.manage') && (
+              <button onClick={handleGenerate} disabled={generating} className="btn-primary shrink-0">
+                <Globe className="w-4 h-4" />
+                <span>{generating ? 'Generating...' : 'Publish Final Report'}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -119,9 +123,11 @@ export const ReportPreviewExport: React.FC = () => {
       ) : !report ? (
         <div className="glass-card p-8 text-center space-y-3 max-w-4xl mx-auto">
           <p className="text-sm text-ink-500">No report generated yet for this sprint.</p>
-          <button onClick={handleGenerate} disabled={generating} className="btn-primary btn-sm">
-            {generating ? 'Generating...' : 'Generate Report Now'}
-          </button>
+          {can('sprint.manage') && (
+            <button onClick={handleGenerate} disabled={generating} className="btn-primary btn-sm">
+              {generating ? 'Generating...' : 'Generate Report Now'}
+            </button>
+          )}
         </div>
       ) : report.status !== 'ready' || !data ? (
         <LoadingState
@@ -229,9 +235,11 @@ export const ReportPreviewExport: React.FC = () => {
               >
                 <Download className="w-3.5 h-3.5" /> {downloading === 'docx' ? 'Downloading...' : 'Download DOCX'}
               </button>
-              <button onClick={handleGenerate} disabled={generating} className="btn-secondary btn-sm">
-                <Sparkles className="w-3.5 h-3.5" /> {generating ? 'Regenerating...' : 'Regenerate Report'}
-              </button>
+              {can('sprint.manage') && (
+                <button onClick={handleGenerate} disabled={generating} className="btn-secondary btn-sm">
+                  <Sparkles className="w-3.5 h-3.5" /> {generating ? 'Regenerating...' : 'Regenerate Report'}
+                </button>
+              )}
             </div>
 
             {/* Footer */}

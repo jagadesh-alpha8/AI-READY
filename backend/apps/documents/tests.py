@@ -872,3 +872,29 @@ class DriveImportJobEndpointTests(APITestCase):
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/drive-import-jobs/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([j['id'] for j in response.data], [str(newer.id), str(older.id)])
+
+
+class ViewerIsReadOnlyTests(APITestCase):
+    """A viewer can read a sprint's documents but not upload, import or run AI processing."""
+
+    setUp = DocumentUploadTests.setUp
+    _make_user = staticmethod(DocumentUploadTests._make_user)
+    _auth = DocumentUploadTests._auth
+    _upload = DocumentUploadTests._upload
+
+    def test_viewer_cannot_upload_but_hod_can(self):
+        self._auth(self.viewer)
+        self.assertEqual(self._upload().status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(f'/api/v1/sprints/{self.sprint.id}/documents').status_code, status.HTTP_200_OK)
+        self._auth(self.hod)
+        self.assertEqual(self._upload().status_code, status.HTTP_201_CREATED)
+
+    def test_viewer_cannot_import_from_drive_or_start_extraction(self):
+        self._auth(self.viewer)
+        drive = self.client.post(f'/api/v1/sprints/{self.sprint.id}/drive-import-jobs',
+                                 {'folder_url': 'https://drive.google.com/drive/folders/abc'}, format='json')
+        self.assertEqual(drive.status_code, status.HTTP_403_FORBIDDEN)
+        start = self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs', {}, format='json')
+        self.assertEqual(start.status_code, status.HTTP_403_FORBIDDEN)
+        cancel = self.client.post(f'/api/v1/extraction-jobs/sprints/{self.sprint.id}/cancel', {}, format='json')
+        self.assertEqual(cancel.status_code, status.HTTP_403_FORBIDDEN)

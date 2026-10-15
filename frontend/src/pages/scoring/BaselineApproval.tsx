@@ -7,6 +7,7 @@ import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { SprintBaseline } from '../../types';
 import { Lock, ArrowRight, ShieldCheck, AlertTriangle, TrendingUp, TrendingDown, Undo2 } from 'lucide-react';
+import { useAccess } from '../../utils/access';
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Provisional Baseline Active',
@@ -23,6 +24,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
 };
 
 export const BaselineApproval: React.FC = () => {
+  const { can } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
 
@@ -169,6 +171,10 @@ export const BaselineApproval: React.FC = () => {
               {isDecided ? (
                 <div className="w-full mt-4 py-2.5 px-3 text-sm font-bold rounded-lg bg-line-100 text-ink-500 text-center border border-line-200">
                   This baseline is locked -- {baseline.status === 'returned' ? 'a new scoring run is required to submit a fresh baseline.' : 'its decision cannot be changed.'}
+                </div>
+              ) : !can('sprint.manage') ? (
+                <div className="w-full mt-4 py-2.5 px-3 text-sm rounded-lg bg-line-100 text-ink-500 text-center border border-line-200">
+                  Waiting for a decision. InGage or the institution admin approves or returns the baseline.
                 </div>
               ) : (
                 <div className="space-y-2 mt-4">

@@ -7,6 +7,7 @@ import { ErrorState, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage } from '../../utils/errors';
 import type { DashboardData, Sprint } from '../../types';
 import { Building, Plus, Play, CheckCircle2, ArrowRight, ShieldCheck, Trash2, Archive } from 'lucide-react';
+import { useAccess } from '../../utils/access';
 
 /** Average of the non-null values in `values`, or null if none are scored
  * yet -- never a fabricated number standing in for "not measured". */
@@ -17,6 +18,7 @@ function average(values: (number | null)[]): number | null {
 }
 
 export const Dashboard: React.FC = () => {
+  const { can, canSee } = useAccess();
   const navigate = useNavigate();
 
   const {
@@ -89,10 +91,12 @@ export const Dashboard: React.FC = () => {
               Execute fast-track AI readiness audits across governance, curriculum, faculty capability, student readiness, labs, research, and placements.
             </p>
           </div>
-          <button onClick={() => navigate('/sprint/setup')} className="btn-primary shrink-0">
-            <Plus className="w-4 h-4" />
-            <span>Create New Discovery Sprint</span>
-          </button>
+          {can('sprint.manage') && (
+            <button onClick={() => navigate('/sprint/setup')} className="btn-primary shrink-0">
+              <Plus className="w-4 h-4" />
+              <span>Create New Discovery Sprint</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -163,9 +167,11 @@ export const Dashboard: React.FC = () => {
         ) : sprints.length === 0 ? (
           <div className="panel-muted">
             <p className="text-sm text-ink-500">No active discovery sprints found.</p>
-            <button onClick={() => navigate('/sprint/setup')} className="btn-primary btn-sm mt-3">
-              Start First Sprint
-            </button>
+            {can('sprint.manage') && (
+              <button onClick={() => navigate('/sprint/setup')} className="btn-primary btn-sm mt-3">
+                Start First Sprint
+              </button>
+            )}
           </div>
         ) : (
           <div className="table-shell">
@@ -207,7 +213,7 @@ export const Dashboard: React.FC = () => {
                     </td>
                     <td className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {['draft', 'completed', 'archived'].includes(sprint.status) ? (
+                        {!can('sprint.manage') ? null : ['draft', 'completed', 'archived'].includes(sprint.status) ? (
                           <button
                             onClick={() => handleDeleteSprint(sprint)}
                             className="btn-icon hover:text-danger hover:bg-danger-bg"
@@ -225,7 +231,7 @@ export const Dashboard: React.FC = () => {
                           </button>
                         )}
                         <button
-                          onClick={() => navigate(`/sprint/${sprint.id}/upload`)}
+                          onClick={() => navigate(`/sprint/${sprint.id}/${canSee('sprint-upload') ? 'upload' : 'score'}`)}
                           className="btn-secondary btn-sm ml-1"
                         >
                           <span>Open</span>

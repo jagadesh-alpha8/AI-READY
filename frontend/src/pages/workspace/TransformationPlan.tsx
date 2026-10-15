@@ -12,6 +12,7 @@ import { getErrorMessage } from '../../utils/errors';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { PageHeader } from '../../components/PageHeader';
 import type { Recommendation, RecommendationPriority, Scorecard, Sprint } from '../../types';
+import { useAccess } from '../../utils/access';
 
 /**
  * Transformation Plan — the audit's recommendations sequenced into dated
@@ -49,6 +50,7 @@ const PRIORITY_DOT: Record<RecommendationPriority, string> = {
 };
 
 export const TransformationPlan: React.FC = () => {
+  const { can } = useAccess();
   const navigate = useNavigate();
   const [sprintId, setSprintId] = useState('');
   const [expanded, setExpanded] = useState<string | null>(HORIZONS[0].timeline);
@@ -128,7 +130,7 @@ export const TransformationPlan: React.FC = () => {
         />
         <EmptyState
           message="No sprints yet. A plan is generated from a completed discovery sprint."
-          action={{ label: 'Start a sprint', onClick: () => navigate('/sprint/setup') }}
+          action={can('sprint.manage') ? { label: 'Start a sprint', onClick: () => navigate('/sprint/setup') } : undefined}
         />
       </div>
     );

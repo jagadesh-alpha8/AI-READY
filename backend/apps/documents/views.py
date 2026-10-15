@@ -16,7 +16,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
-from apps.accounts.permissions import IsInstitutionMember
+from apps.accounts.permissions import CanContribute, IsInstitutionMember
 from apps.sprints.access import get_authorized_sprint
 
 from .models import Document, DriveImportJob
@@ -66,6 +66,7 @@ class SprintDocumentListView(generics.ListAPIView):
 
 class SprintDocumentUploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [CanContribute]
 
     @extend_schema(request=DocumentUploadSerializer, responses=DocumentSerializer)
     def post(self, request, sprint_id):
@@ -90,6 +91,7 @@ class SprintDriveImportJobListCreateView(generics.ListCreateAPIView):
     required checklist, and imports matches through the same
     create_document_from_file() path as a manual upload -- see
     apps.documents.tasks.run_drive_import_job."""
+    permission_classes = [CanContribute]
     serializer_class = DriveImportJobSerializer
 
     def get_queryset(self):
@@ -130,6 +132,7 @@ class SprintDriveImportJobListCreateView(generics.ListCreateAPIView):
 class SprintDriveImportJobStopView(APIView):
     """POST: stop a running Drive import. The worker checks between files,
     so documents already imported stay; nothing further is imported."""
+    permission_classes = [CanContribute]
 
     @extend_schema(request=None, responses=DriveImportJobSerializer)
     def post(self, request, sprint_id, job_id):

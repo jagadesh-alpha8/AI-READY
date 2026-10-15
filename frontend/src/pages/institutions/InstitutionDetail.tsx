@@ -28,11 +28,10 @@ import type {
   InstitutionSystem,
   InstitutionSystemTag,
 } from '../../types';
+import { canDo } from '../../utils/access';
 
-/** Roles allowed to write institution DNA — mirrors the backend's
- * WRITE_INSTITUTION_ROLES. The server is still the authority; this only
- * decides whether to *offer* an action that would otherwise 403. */
-const WRITE_ROLES = ['super_admin', 'consultant', 'institution_admin'];
+// Who may write institution DNA: utils/access.ts 'institution.edit' (the
+// backend's WRITE_INSTITUTION_ROLES; the server is still the authority).
 
 const TABS = [
   { key: 'profile', label: 'Institution Profile' },
@@ -82,7 +81,7 @@ export const InstitutionDetail: React.FC = () => {
   const { institutionId = '' } = useParams<{ institutionId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canEdit = !!user && WRITE_ROLES.includes(user.role);
+  const canEdit = canDo(user?.role, 'institution.edit');
 
   const {
     data: institution,

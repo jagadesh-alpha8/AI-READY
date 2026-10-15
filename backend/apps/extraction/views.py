@@ -12,7 +12,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import IsConsultant, IsInstitutionMember, IsSuperAdmin
+from apps.accounts.permissions import CanContribute, IsConsultant, IsInstitutionMember, IsSuperAdmin
 from apps.documents.models import Document
 from apps.sprints.access import get_authorized_sprint
 from apps.sprints.models import Sprint
@@ -29,6 +29,7 @@ ACTIVE_STATUSES = [ExtractionJob.Status.PENDING, ExtractionJob.Status.RUNNING, E
 
 class SprintExtractionJobListCreateView(generics.ListCreateAPIView):
     serializer_class = ExtractionJobSerializer
+    permission_classes = [CanContribute]
 
     def get_queryset(self):
         get_authorized_sprint(self.request.user, self.kwargs['sprint_id'])
@@ -127,7 +128,7 @@ class ExtractionJobDetailView(generics.RetrieveDestroyAPIView):
     queryset = ExtractionJob.objects.select_related('sprint', 'document')
     serializer_class = ExtractionJobSerializer
     lookup_field = 'pk'
-    permission_classes = [IsInstitutionMember]
+    permission_classes = [CanContribute, IsInstitutionMember]
 
     def perform_destroy(self, instance):
         if instance.status != ExtractionJob.Status.FAILED:
@@ -194,7 +195,7 @@ def _requeue(job):
 
 class SprintExtractionCancelView(APIView):
     """Stop Processing: stop every queued/running job in the sprint."""
-    permission_classes = [IsInstitutionMember]
+    permission_classes = [CanContribute, IsInstitutionMember]
 
     def post(self, request, sprint_id):
         sprint = get_authorized_sprint(request.user, sprint_id)
@@ -207,7 +208,7 @@ class SprintExtractionCancelView(APIView):
 
 class ExtractionJobCancelView(APIView):
     """Stop one document's job (the per-row Stop button)."""
-    permission_classes = [IsInstitutionMember]
+    permission_classes = [CanContribute, IsInstitutionMember]
 
     @extend_schema(request=None, responses=ExtractionJobSerializer)
     def post(self, request, pk):
@@ -222,7 +223,7 @@ class ExtractionJobCancelView(APIView):
 
 class ExtractionJobProcessView(APIView):
     """Run a failed or stopped job again (the per-row Process button)."""
-    permission_classes = [IsInstitutionMember]
+    permission_classes = [CanContribute, IsInstitutionMember]
 
     @extend_schema(request=None, responses=ExtractionJobSerializer)
     def post(self, request, pk):
@@ -238,7 +239,7 @@ class ExtractionJobProcessView(APIView):
 class SprintExtractionProcessIncompleteView(APIView):
     """Process every not-completed document again: the latest failed/stopped
     job of each document that has no completed or active job."""
-    permission_classes = [IsInstitutionMember]
+    permission_classes = [CanContribute, IsInstitutionMember]
 
     @extend_schema(request=None, responses=ExtractionJobSerializer(many=True))
     def post(self, request, sprint_id):

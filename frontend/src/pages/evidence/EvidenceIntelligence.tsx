@@ -12,6 +12,7 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { FilterPills, PageHeader } from '../../components/PageHeader';
 import type { DocumentStatus, Fact, Gap, Sprint, SprintDocument } from '../../types';
+import { useAccess } from '../../utils/access';
 
 /**
  * Evidence Intelligence — the institution's evidence position for one sprint.
@@ -63,6 +64,7 @@ function needsAttention(doc: SprintDocument, factCount: number): string | null {
 }
 
 export const EvidenceIntelligence: React.FC = () => {
+  const { can } = useAccess();
   const navigate = useNavigate();
   const [sprintId, setSprintId] = useState<string>('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -148,7 +150,7 @@ export const EvidenceIntelligence: React.FC = () => {
         />
         <EmptyState
           message="No sprints yet. Evidence is gathered during a discovery sprint — start one to see it here."
-          action={{ label: 'Start a sprint', onClick: () => navigate('/sprint/setup') }}
+          action={can('sprint.manage') ? { label: 'Start a sprint', onClick: () => navigate('/sprint/setup') } : undefined}
         />
       </div>
     );

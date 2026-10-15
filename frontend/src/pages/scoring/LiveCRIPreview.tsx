@@ -6,8 +6,10 @@ import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { Scorecard } from '../../types';
 import { BarChart3, ArrowRight, RefreshCw } from 'lucide-react';
+import { useAccess } from '../../utils/access';
 
 export const LiveCRIPreview: React.FC = () => {
+  const { can, canSee } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const [recalculating, setRecalculating] = useState(false);
@@ -53,12 +55,17 @@ export const LiveCRIPreview: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <button onClick={handleRecalculate} disabled={recalculating} className="btn-secondary">
-              <RefreshCw className={`w-3.5 h-3.5 ${recalculating ? 'animate-spin' : ''}`} />
-              <span>{recalculating ? 'Recalculating...' : 'Recalculate Scores'}</span>
-            </button>
-            <button onClick={() => navigate(`/sprint/${sprintId}/approval`)} className="btn-primary shrink-0">
-              <span>Proceed to Baseline Approval</span>
+            {can('sprint.manage') && (
+              <button onClick={handleRecalculate} disabled={recalculating} className="btn-secondary">
+                <RefreshCw className={`w-3.5 h-3.5 ${recalculating ? 'animate-spin' : ''}`} />
+                <span>{recalculating ? 'Recalculating...' : 'Recalculate Scores'}</span>
+              </button>
+            )}
+            <button
+              onClick={() => navigate(`/sprint/${sprintId}/${canSee('sprint-approval') ? 'approval' : 'recommendations'}`)}
+              className="btn-primary shrink-0"
+            >
+              <span>{canSee('sprint-approval') ? 'Proceed to Baseline Approval' : 'Proceed to Recommendations'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>

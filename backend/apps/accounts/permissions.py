@@ -91,6 +91,20 @@ class IsInstitutionMember(BasePermission):
         return user_can_access_institution(request.user, _resolve_institution_id(obj))
 
 
+class CanContribute(BasePermission):
+    """Anyone authenticated can read; every role except the read-only viewer can
+    write -- upload documents, import from Drive, start / stop AI processing.
+    Pair it with an institution check (get_authorized_sprint / IsInstitutionMember)."""
+    message = 'Viewers have read-only access.'
+
+    def has_permission(self, request, view):
+        if not _is_authenticated(request):
+            return False
+        if request.method in SAFE_METHODS:
+            return True
+        return request.user.role in REVIEW_ROLES
+
+
 class CanManageSprint(BasePermission):
     """Anyone authenticated can read; only sprint-owning roles can write."""
     message = 'You do not have permission to create or modify discovery sprints.'

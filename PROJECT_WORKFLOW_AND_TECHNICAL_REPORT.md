@@ -2521,12 +2521,23 @@ flowchart TD
 
 ## 8.6 Protected frontend routes
 
-`ProtectedLayout` in `App.tsx` gates on **session presence only**. There is no
-role-aware routing on the client; a `viewer` can navigate to any screen and will
-receive `403`s from the API when they try to act. The exceptions are in-page:
-Benchmark Studio shows "InGage staff only" to other roles, Admin › AI Usage is
-hidden from non-staff, and Benchmark Assessment hides staff actions and scores
-from the college until finalize — each mirroring a server-side check.
+Role-aware, from one file: **`frontend/src/utils/access.ts`**. It holds
+`ACTION_ROLES` (each matching a server permission), `MENU_ROLES` (which sidebar
+entries and routes a role gets) and `SETTINGS_TAB_ROLES`. The sidebar hides what a
+role cannot use; `ProtectedLayout menu="..."` shows **No access** for a typed-in
+address; pages hide buttons with `useAccess().can('...')`. The server stays the
+authority.
+
+| Who | Menus | Can act |
+|---|---|---|
+| Super admin / Consultant | Everything; Benchmark Studio is theirs only | All sprint work; edit / accept / hide recommendations; AI usage. Users: super admin only |
+| Institution admin | All except Benchmark Studio | Sprints (create, score, baseline, reports), Institution DNA, users of their college |
+| IQAC coordinator | Work screens, Baseline Approval (to follow it), Compliance | Upload, facts, gaps, generate recommendations, delete any document |
+| Registrar, HOD, HR, Lab, Placement, Faculty | Work screens (Compliance: registrar too) | Upload, facts, gaps; delete their own documents |
+| Viewer | Dashboard, Institution DNA, CRI preview, Recommendations, Report, CRI page, Benchmark Assessment, Transformation Plan, AI Copilot, Settings (account) | Read only. The server also refuses uploads, Drive imports and AI processing (`CanContribute`) |
+
+Benchmark Assessment still decides its own actions from the server's `is_staff` /
+`can_upload` flags.
 ---
 
 # 9. AI / LLM workflow

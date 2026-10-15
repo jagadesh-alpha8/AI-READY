@@ -7,6 +7,10 @@ import {
   BarChart3, Lock, Sparkles, FileText, X, ClipboardList,
 } from 'lucide-react';
 
+import { useAuth } from '../context/AuthContext';
+import { canSeeMenu } from '../utils/access';
+import type { MenuKey } from '../utils/access';
+
 type LucideIcon = typeof Gauge;
 
 /** Where a module sits in the build plan.
@@ -26,6 +30,8 @@ type LucideIcon = typeof Gauge;
 type ModuleStatus = 'live' | 'demo' | 'admin' | 'next' | 'planned';
 
 interface NavChild {
+  /** Who may see it: utils/access.ts MENU_ROLES. */
+  key: MenuKey;
   to: string;
   label: string;
   icon: LucideIcon;
@@ -90,16 +96,16 @@ function buildModules(sprintId: string): NavModule[] {
       status: 'live',
       childrenCaption: 'Sprint steps',
       children: [
-        { to: '/sprint/setup', label: '1. Sprint Setup', icon: FolderPlus },
-        { to: `/sprint/${sprintId}/upload`, label: '2. Upload Data Pack', icon: Upload },
-        { to: `/sprint/${sprintId}/monitor`, label: '3. AI Processing Monitor', icon: Activity },
-        { to: `/sprint/${sprintId}/facts`, label: '4. Extracted Facts Review', icon: FileSearch },
-        { to: `/sprint/${sprintId}/gaps`, label: '5. Gap Dashboard', icon: AlertCircle },
-        { to: `/sprint/${sprintId}/confirmation`, label: '6. Owner Workspace', icon: CheckSquare },
-        { to: `/sprint/${sprintId}/score`, label: '7. Live CRI Preview', icon: BarChart3 },
-        { to: `/sprint/${sprintId}/approval`, label: '8. Baseline Approval', icon: Lock },
-        { to: `/sprint/${sprintId}/recommendations`, label: '9. Recommendations', icon: Sparkles },
-        { to: `/sprint/${sprintId}/report`, label: '10. Report & Export', icon: FileText },
+        { key: 'sprint-setup', to: '/sprint/setup', label: '1. Sprint Setup', icon: FolderPlus },
+        { key: 'sprint-upload', to: `/sprint/${sprintId}/upload`, label: '2. Upload Data Pack', icon: Upload },
+        { key: 'sprint-monitor', to: `/sprint/${sprintId}/monitor`, label: '3. AI Processing Monitor', icon: Activity },
+        { key: 'sprint-facts', to: `/sprint/${sprintId}/facts`, label: '4. Extracted Facts Review', icon: FileSearch },
+        { key: 'sprint-gaps', to: `/sprint/${sprintId}/gaps`, label: '5. Gap Dashboard', icon: AlertCircle },
+        { key: 'sprint-confirmation', to: `/sprint/${sprintId}/confirmation`, label: '6. Owner Workspace', icon: CheckSquare },
+        { key: 'sprint-score', to: `/sprint/${sprintId}/score`, label: '7. Live CRI Preview', icon: BarChart3 },
+        { key: 'sprint-approval', to: `/sprint/${sprintId}/approval`, label: '8. Baseline Approval', icon: Lock },
+        { key: 'sprint-recommendations', to: `/sprint/${sprintId}/recommendations`, label: '9. Recommendations', icon: Sparkles },
+        { key: 'sprint-report', to: `/sprint/${sprintId}/report`, label: '10. Report & Export', icon: FileText },
       ],
     },
     { key: 'evidence-intelligence', label: 'Evidence Intelligence', icon: Layers, status: 'live', to: '/evidence' },
@@ -130,7 +136,7 @@ function buildModules(sprintId: string): NavModule[] {
     { key: 'reminders', label: 'Reminders', icon: Bell, status: 'live', to: '/reminders' },
     { key: 'compliance-mapping', label: 'Compliance Mapping', icon: Network, status: 'live', to: '/compliance' },
     { key: 'uat-readiness', label: 'UAT Readiness', icon: ClipboardCheck, status: 'live', to: '/uat-readiness' },
-    { key: 'admin-settings', label: 'Admin / Settings', icon: Settings, status: 'live', to: '/admin-settings' },
+    { key: 'admin-settings', label: 'Settings', icon: Settings, status: 'live', to: '/admin-settings' },
   ];
 }
 
@@ -147,8 +153,14 @@ export const Sidebar: React.FC<{
   // reports on how much of the product plan exists, which makes it a report
   // about the app rather than a part of it. It lives on its own route
   // (/status-dashboard), reached by URL rather than by this menu.
+  // Only what this role may use (utils/access.ts). A module whose steps are
+  // all hidden disappears with them.
+  const { user } = useAuth();
+  const visible = buildModules(sprintId)
+    .map((m) => (m.children ? { ...m, children: m.children.filter((c) => canSeeMenu(user?.role, c.key)) } : m))
+    .filter((m) => (m.children ? m.children.length > 0 : canSeeMenu(user?.role, m.key as MenuKey)));
   const groups: NavGroup[] = [
-    { heading: 'Platform Modules', modules: buildModules(sprintId) },
+    { heading: 'Platform Modules', modules: visible },
   ];
   const { pathname } = useLocation();
 

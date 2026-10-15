@@ -7,6 +7,7 @@ import type { SourceDocument, SourceLibrarySummary } from '../../api/benchmarks'
 import { useApiResource } from '../../hooks/useApiResource';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ApiStates';
 import { useAuth } from '../../context/AuthContext';
+import { canDo } from '../../utils/access';
 import { SourceVersionPanel } from './SourceVersionPanel';
 import { CatalogueTab } from './CatalogueTab';
 import { RequirementsTab } from './RequirementLinking';
@@ -85,7 +86,7 @@ const BenchmarkStudioPage: React.FC = () => {
  * consultants only. The Sources API enforces the same rule server-side. */
 export const BenchmarkStudio: React.FC = () => {
   const { user } = useAuth();
-  if (user?.role !== 'super_admin' && user?.role !== 'consultant') {
+  if (!canDo(user?.role, 'benchmarks.studio')) {
     return (
       <div className="space-y-6">
         <PageHeader
