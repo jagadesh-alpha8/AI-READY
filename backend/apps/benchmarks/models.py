@@ -360,6 +360,8 @@ class Pillar(models.Model):
     name = models.CharField(max_length=200)
     coverage = models.TextField(blank=True)
     catalogue_status = models.CharField(max_length=200, blank=True)
+    weight = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True,
+                                 help_text='Provisional weight out of 1000 (AI-QIF criterion weight).')
 
     class Meta:
         ordering = ['code']
@@ -427,6 +429,13 @@ class Benchmark(models.Model):
     scoring_dimensions = models.CharField(max_length=200, blank=True)
     activation_status = models.TextField(blank=True)
     expert_owner = models.CharField(max_length=150, blank=True)
+    framework = models.ForeignKey(Framework, on_delete=models.PROTECT, null=True, blank=True, related_name='benchmarks',
+                                  help_text='The benchmark framework this was imported from (e.g. AI-QIF v1.0).')
+    weight = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True,
+                                 help_text='Provisional weight out of 1000 (AI-QIF key indicator weight).')
+    naac_crosswalk = models.JSONField(default=list, blank=True,
+                                      help_text='NAAC metrics whose evidence can support this benchmark '
+                                                '[{metric, requirement, relationship}]. Supporting only, never proof.')
     evidence_types = models.ManyToManyField(EvidenceType, blank=True, related_name='benchmarks')
     requirements = models.ManyToManyField(Requirement, through='BenchmarkRequirement', blank=True,
                                           related_name='benchmarks')
@@ -465,8 +474,8 @@ class BenchmarkRequirement(models.Model):
 class MaturityDefinition(models.Model):
     class Level(models.TextChoices):
         L3 = 'L3', 'L3 Foundational'
-        L2 = 'L2', 'L2 Operating'
-        L1 = 'L1', 'L1 Advanced'
+        L2 = 'L2', 'L2 Good / Recommended'
+        L1 = 'L1', 'L1 Advanced / Aspirational'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     benchmark = models.ForeignKey(Benchmark, on_delete=models.CASCADE, related_name='maturity_levels')

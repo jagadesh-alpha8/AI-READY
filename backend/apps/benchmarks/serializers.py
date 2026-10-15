@@ -135,7 +135,7 @@ class PillarSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Pillar
-        fields = ['code', 'name', 'coverage', 'catalogue_status', 'benchmark_count', 'mandatory_count',
+        fields = ['code', 'name', 'coverage', 'catalogue_status', 'weight', 'benchmark_count', 'mandatory_count',
                   'guidance_count', 'proposed_count']
         read_only_fields = fields
 
@@ -149,13 +149,16 @@ class BenchmarkSerializer(serializers.ModelSerializer):
     maturity_levels = MaturityDefinitionSerializer(many=True, read_only=True)
     requirement_count = serializers.IntegerField(read_only=True)
     levels_defined = serializers.SerializerMethodField()
+    framework = serializers.CharField(source='framework.code', default=None, read_only=True)
+    pillar_weight = serializers.DecimalField(source='pillar.weight', max_digits=7, decimal_places=2, read_only=True)
 
     class Meta:
         model = Benchmark
         fields = ['id', 'benchmark_code', 'title', 'pillar_code', 'pillar_name', 'capability', 'benchmark_kind',
                   'kind_label', 'benchmark_class', 'version_label', 'status', 'applicability', 'source_basis',
                   'scoring_dimensions', 'activation_status', 'expert_owner', 'target_guidance', 'evidence_types',
-                  'maturity_levels', 'requirement_count', 'levels_defined']
+                  'maturity_levels', 'requirement_count', 'levels_defined', 'framework', 'weight', 'pillar_weight',
+                  'naac_crosswalk']
         read_only_fields = fields
 
     def get_levels_defined(self, obj):

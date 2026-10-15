@@ -16,7 +16,36 @@ App: `apps/benchmarks`. Tables follow the manager's foundation schema (`authorit
 
 Re-run step 1 any time the sheet changes: drafts update in place, approved versions are never touched.
 
-## Benchmark catalogue (stage 3.1)
+## The benchmark framework: InGage AI-QIF v1.0
+
+AI-QIF is the framework the library is built on. It replaces the Source Pack catalogue below; that catalogue's 60
+drafts are withdrawn, not deleted.
+
+```
+python manage.py import_aiqif "source_library_work/InGage_AI_READY_AI_QIF_Master_v1_0_AI_Criteria.xlsx"                    # dry run
+python manage.py import_aiqif "source_library_work/InGage_AI_READY_AI_QIF_Master_v1_0_AI_Criteria.xlsx" --withdraw-others --commit
+```
+
+| Workbook sheet | Stored as |
+|---|---|
+| AI Benchmark Master: 9 criteria | `Pillar` `AIQIF-C1`..`C9`, with `weight` (out of 1000; they add up to 1000) |
+| AI Benchmark Master: 36 key indicators | `Benchmark` `AIQIF-C1.1`..`C9.4` (draft, kind *proposed*, `weight` = KI weight, `framework` = `AIQIF-V1.0`) + `Capability` (what is benchmarked) |
+| L3 / L2 / L1 columns | `MaturityDefinition`, `is_placeholder=True` (one template, only the KI name changes), so an expert confirms or rewrites each level in Studio > Levels |
+| AI-QIF Maturity (6 dimensions) | each level's `observable_requirements` (e.g. "Strategy: AI intent/priority defined ...") |
+| NAAC → AI-QIF Crosswalk | `Benchmark.naac_crosswalk` [{metric, requirement, relationship, shared_with}]; a metric mapped to "C3.1 / C3.2" is on both. 125 rows → 197 links; 9 KIs have none |
+| Principles, Scoring Architecture, the rule columns (tests, evidence standard E0–E5, target / gap / transformation rules) | `Framework` `AIQIF-V1.0` `purpose` (authority `INGAGE`); Target Rule → each benchmark's `target_guidance` |
+
+The import checks the weights (criteria = 1000, each criterion = sum of its KIs) and reports crosswalk rows naming
+an unknown KI. Re-running updates drafts only and keeps expert-written levels and target guidance. Levels are
+named as in AI-QIF: L3 Foundational, L2 Good / Recommended, L1 Advanced / Aspirational. Before release every
+benchmark still needs, per the release checklist: real levels, an expert owner, evidence types, evidence rules
+per level and applicability rules -- the workbook has none of these yet. Weights are stored and shown; CRI
+scoring does not use them yet.
+
+The catalogue list hides withdrawn benchmarks (`?status=all` shows them) and the pillar list hides pillars whose
+benchmarks are all withdrawn.
+
+## Benchmark catalogue (stage 3.1, replaced by AI-QIF)
 
 ```
 python manage.py import_benchmark_catalogue "source_library_work/InGage_Benchmark_Source_Pack_v0_2_Expanded_Foundation.xlsx"            # dry run

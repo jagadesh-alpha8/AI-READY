@@ -18,7 +18,7 @@ const EV_BADGE: Record<string, string> = {
   submitted: 'badge-warning', accepted: 'badge-success', rejected: 'badge-danger', needs_information: 'badge-warning',
 };
 const LEVELS: Level[] = ['L3', 'L2', 'L1'];
-const LEVEL_NAME: Record<string, string> = { L3: 'L3 Foundational', L2: 'L2 Operating', L1: 'L1 Advanced', '': 'Any level' };
+const LEVEL_NAME: Record<string, string> = { L3: 'L3 Foundational', L2: 'L2 Good / Recommended', L1: 'L1 Advanced / Aspirational', '': 'Any level' };
 
 export const CycleBenchmarkPanel: React.FC<{ cycleId: string; code: string; reference: AssessmentReference; onChanged: () => void }> = (
   { cycleId, code, reference, onChanged },

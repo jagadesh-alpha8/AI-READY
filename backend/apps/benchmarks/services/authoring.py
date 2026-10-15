@@ -146,7 +146,9 @@ def readiness(benchmark):
          ', '.join(f'{lv}: {n}' for lv, n in coverage.items())),
         ('requirement_evidence', 'Evidence rules on each primary requirement', 'recommended',
          primary_ids.issubset(reqs_with_rules), f'{len(primary_ids & reqs_with_rules)}/{len(primary_ids)} covered'),
-        ('scoring', 'Scoring rules and weight (release stage)', 'pending', False, 'not built yet'),
+        ('scoring', 'Scoring rules and weight (release stage)', 'pending', False,
+         f'provisional weight {benchmark.weight} of 1000; scoring rules not built yet' if benchmark.weight is not None
+         else 'not built yet'),
     ]
     items = [{'key': k, 'label': lbl, 'severity': sev, 'ok': ok, 'detail': det} for k, lbl, sev, ok, det in checks]
     return {'ready_for_review': all(i['ok'] for i in items if i['severity'] == 'required'), 'checks': items}

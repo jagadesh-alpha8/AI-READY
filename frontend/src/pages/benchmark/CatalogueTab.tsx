@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
 
 import { listCatalogue, listEvidenceTypes, listPillars } from '../../api/benchmarks';
-import type { CatalogueBenchmark, CataloguePillar, EvidenceTypeInfo } from '../../api/benchmarks';
+import type { CatalogueBenchmark, CataloguePillar, EvidenceTypeInfo, NaacCrosswalkLink } from '../../api/benchmarks';
 import { useApiResource } from '../../hooks/useApiResource';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ApiStates';
 import { BenchmarkLinks } from './RequirementLinking';
 
 /**
- * The real benchmark catalogue (stage 3.1): 10 pillars, 60 benchmarks and 12
- * evidence types imported from the Source Pack. Read-only for now -- linking
- * requirements (3.2) and writing real L3/L2/L1 levels (3.3) come next.
+ * The benchmark library: InGage AI-QIF v1.0 -- 9 criteria (shown as pillars,
+ * weights out of 1000) and 36 key indicators, each a draft benchmark with
+ * L3/L2/L1 and the NAAC metrics that can support it. Imported with
+ * `manage.py import_aiqif`; experts confirm the levels in "Write levels".
  */
+
+/** "30.00" -> "30" */
+const w = (v: string | null | undefined) => (v == null ? null : String(Number(v)));
 
 const KIND_BADGE: Record<string, string> = {
   mandatory: 'badge-brand',
@@ -37,8 +41,9 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
   return (
     <div className="space-y-4">
       <p className="text-sm text-ink-500">
-        The benchmark catalogue from the Source Pack. Every benchmark is a draft: it needs linked requirements,
-        real L3/L2/L1 definitions and (for InGage-proposed ones) an expert owner before it can be released.
+        InGage AI-QIF v1.0: the criteria below are the pillars (weights out of 1000), and each key indicator is a
+        benchmark with L3 / L2 / L1. Every one is a draft until experts confirm its levels, name an owner and add
+        evidence and applicability rules. NAAC evidence only supports a key indicator; it never proves AI readiness.
       </p>
 
       {pillars.data && (
@@ -53,7 +58,8 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
               <p className="font-mono text-ink-500">{p.code}</p>
               <p className="font-bold text-ink-900 leading-snug">{p.name}</p>
               <p className="text-ink-500">
-                {p.benchmark_count} benchmarks · {p.mandatory_count} mandatory · {p.proposed_count} proposed
+                {w(p.weight) != null && <strong className="text-ink-700">{w(p.weight)} / 1000 · </strong>}
+                {p.benchmark_count} benchmarks
               </p>
             </button>
           ))}
@@ -74,15 +80,15 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
 
       {data && placeholderCount > 0 && (
         <div className="rounded-lg border border-warning-line bg-warning-bg p-3 text-xs text-ink-700">
-          {placeholderCount} of {data.length} benchmarks shown still have the Source Pack's generic placeholder
-          L3/L2/L1 text. Real level definitions are expert work (stage 3.3) - nothing is scored against them yet.
+          {placeholderCount} of {data.length} benchmarks shown still use the shared L3/L2/L1 template wording.
+          An expert confirms or rewrites each level (Write levels) before the benchmark can be released.
         </div>
       )}
 
       {loading && <LoadingState message="Loading catalogue…" />}
       {error && <ErrorState message={error} onRetry={refetch} />}
       {data && data.length === 0 && (
-        <EmptyState message="No benchmarks. Import the catalogue: python manage.py import_benchmark_catalogue <Source Pack.xlsx> --commit" />
+        <EmptyState message="No benchmarks. Import AI-QIF: python manage.py import_aiqif <AI-QIF master.xlsx> --commit" />
       )}
 
       <div className="space-y-2">
@@ -97,7 +103,8 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
                     <span className="font-mono text-ink-500 mr-2">{b.benchmark_code}</span>{b.title}
                   </h3>
                   <p className="text-xs text-ink-500 mt-0.5">
-                    {b.pillar_code} {b.pillar_name} · source basis: {b.source_basis || '—'}
+                    {b.pillar_code} {b.pillar_name} · {b.version_label}
+                    {w(b.weight) != null && <> · weight {w(b.weight)} (criterion {w(b.pillar_weight) ?? '—'}) of 1000</>}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
@@ -112,6 +119,7 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
                 <div className="space-y-3 text-xs">
                   <p className="text-ink-700"><strong>Capability:</strong> {b.capability}</p>
                   <p className="text-ink-700"><strong>Applies to:</strong> {b.applicability || '—'}</p>
+                  <p className="text-ink-700"><strong>Source:</strong> {b.source_basis || '—'}</p>
                   {b.benchmark_kind === 'proposed' && !b.expert_owner && (
                     <p className="text-warning">InGage-proposed: needs an expert owner before release.</p>
                   )}
@@ -128,6 +136,11 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
                           {lv.is_placeholder && <span className="badge badge-warning ml-2">placeholder</span>}
                         </p>
                         <p className={lv.is_placeholder ? 'text-ink-500 italic' : 'text-ink-700'}>{lv.definition}</p>
+                        {!!lv.observable_requirements?.length && (
+                          <ul className="list-disc pl-4 text-ink-500 space-y-0.5 pt-1">
+                            {lv.observable_requirements.map((o) => <li key={o}>{o}</li>)}
+                          </ul>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -141,6 +154,7 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
                       ))}
                     </div>
                   </div>
+                  <NaacCrosswalk links={b.naac_crosswalk || []} />
                   <p className="text-ink-500">Scoring: {b.scoring_dimensions || '—'} · {b.activation_status}</p>
                   <BenchmarkLinks benchmarkCode={b.benchmark_code} editable={b.status === 'draft'} onChanged={refetch} />
                 </div>
@@ -149,6 +163,47 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
           );
         })}
       </div>
+    </div>
+  );
+};
+
+/** NAAC metrics whose evidence can support this key indicator -- supporting only. */
+const NaacCrosswalk: React.FC<{ links: NaacCrosswalkLink[] }> = ({ links }) => {
+  const [all, setAll] = useState(false);
+  if (!links.length) {
+    return <p className="text-ink-500"><strong className="text-ink-900">NAAC crosswalk:</strong> none (AI-specific evidence only).</p>;
+  }
+  const shown = all ? links : links.slice(0, 5);
+  return (
+    <div>
+      <p className="font-bold text-ink-900 mb-1">
+        NAAC crosswalk ({links.length}){' '}
+        <span className="font-normal text-ink-500">supporting evidence only, never proof of AI readiness</span>
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead className="text-ink-500">
+            <tr><th className="py-1 pr-3">Metric</th><th className="py-1 pr-3">Relationship</th><th className="py-1">NAAC requirement</th></tr>
+          </thead>
+          <tbody>
+            {shown.map((l) => (
+              <tr key={l.metric} className="border-t border-line-200 align-top">
+                <td className="py-1 pr-3 font-mono whitespace-nowrap">{l.metric}</td>
+                <td className="py-1 pr-3 whitespace-nowrap">
+                  {l.relationship}
+                  {!!l.shared_with?.length && <span className="text-ink-500"> · also {l.shared_with.join(', ')}</span>}
+                </td>
+                <td className="py-1 text-ink-700">{l.requirement}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {links.length > 5 && (
+        <button className="btn-secondary btn-sm mt-1" onClick={() => setAll(!all)}>
+          {all ? 'Show fewer' : `Show all ${links.length}`}
+        </button>
+      )}
     </div>
   );
 };

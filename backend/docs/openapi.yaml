@@ -1869,7 +1869,8 @@ paths:
   /api/v1/benchmarks/catalogue:
     get:
       operationId: v1_benchmarks_catalogue_list
-      description: GET /benchmarks/catalogue?pillar=P01&kind=proposed&q=
+      description: GET /benchmarks/catalogue?pillar=P01&kind=proposed&q=&status=   (withdrawn
+        hidden unless status=withdrawn|all)
       tags:
       - v1
       security:
@@ -1886,7 +1887,8 @@ paths:
   /api/v1/benchmarks/catalogue/:
     get:
       operationId: v1_benchmarks_catalogue_list_2
-      description: GET /benchmarks/catalogue?pillar=P01&kind=proposed&q=
+      description: GET /benchmarks/catalogue?pillar=P01&kind=proposed&q=&status=   (withdrawn
+        hidden unless status=withdrawn|all)
       tags:
       - v1
       security:
@@ -2535,7 +2537,9 @@ paths:
   /api/v1/benchmarks/pillars:
     get:
       operationId: v1_benchmarks_pillars_list
-      description: GET /benchmarks/pillars -- with benchmark counts by kind.
+      description: |-
+        GET /benchmarks/pillars -- with benchmark counts by kind. Withdrawn benchmarks are not
+        counted, and a pillar whose benchmarks are all withdrawn (a replaced catalogue) is hidden.
       tags:
       - v1
       security:
@@ -2552,7 +2556,9 @@ paths:
   /api/v1/benchmarks/pillars/:
     get:
       operationId: v1_benchmarks_pillars_list_2
-      description: GET /benchmarks/pillars -- with benchmark counts by kind.
+      description: |-
+        GET /benchmarks/pillars -- with benchmark counts by kind. Withdrawn benchmarks are not
+        counted, and a pillar whose benchmarks are all withdrawn (a replaced catalogue) is hidden.
       tags:
       - v1
       security:
@@ -9444,6 +9450,25 @@ components:
         levels_defined:
           type: string
           readOnly: true
+        framework:
+          type: string
+          readOnly: true
+        weight:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,5}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+          description: Provisional weight out of 1000 (AI-QIF key indicator weight).
+        pillar_weight:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,5}(?:\.\d{0,2})?$
+          readOnly: true
+        naac_crosswalk:
+          readOnly: true
+          description: NAAC metrics whose evidence can support this benchmark [{metric,
+            requirement, relationship}]. Supporting only, never proof.
       required:
       - activation_status
       - applicability
@@ -9453,12 +9478,15 @@ components:
       - capability
       - evidence_types
       - expert_owner
+      - framework
       - id
       - kind_label
       - levels_defined
       - maturity_levels
+      - naac_crosswalk
       - pillar_code
       - pillar_name
+      - pillar_weight
       - requirement_count
       - scoring_dimensions
       - source_basis
@@ -9466,6 +9494,7 @@ components:
       - target_guidance
       - title
       - version_label
+      - weight
     BenchmarkKindEnum:
       enum:
       - mandatory
@@ -10936,8 +10965,8 @@ components:
       type: string
       description: |-
         * `L3` - L3 Foundational
-        * `L2` - L2 Operating
-        * `L1` - L1 Advanced
+        * `L2` - L2 Good / Recommended
+        * `L1` - L1 Advanced / Aspirational
     Login:
       type: object
       properties:
@@ -11281,6 +11310,25 @@ components:
         levels_defined:
           type: string
           readOnly: true
+        framework:
+          type: string
+          readOnly: true
+        weight:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,5}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+          description: Provisional weight out of 1000 (AI-QIF key indicator weight).
+        pillar_weight:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,5}(?:\.\d{0,2})?$
+          readOnly: true
+        naac_crosswalk:
+          readOnly: true
+          description: NAAC metrics whose evidence can support this benchmark [{metric,
+            requirement, relationship}]. Supporting only, never proof.
     PatchedDepartment:
       type: object
       properties:
@@ -11733,6 +11781,13 @@ components:
         catalogue_status:
           type: string
           readOnly: true
+        weight:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,5}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+          description: Provisional weight out of 1000 (AI-QIF criterion weight).
         benchmark_count:
           type: integer
           readOnly: true
@@ -11754,6 +11809,7 @@ components:
       - mandatory_count
       - name
       - proposed_count
+      - weight
     PillarConfig:
       type: object
       description: |-

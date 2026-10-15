@@ -1541,3 +1541,147 @@ class CandidateApiTests(_WatcherFixture, APITestCase):
                                  institution=inst)
         self._login('c@college.edu')
         self.assertEqual(self.client.get('/api/v1/benchmarks/benchmark-candidates').status_code, 403)
+
+
+# -- AI-QIF v1.0 framework import ---------------------------------------------------
+
+from decimal import Decimal  # noqa: E402
+
+from .models import Framework, Pillar  # noqa: E402
+from .services import authoring as _authoring  # noqa: E402
+from .services.aiqif_import import apply_aiqif, read_aiqif  # noqa: E402
+
+_LV = ('L3 — Foundational', 'L2 — Good / Recommended', 'L1 — Advanced / Aspirational')
+
+
+def _aiqif_workbook(rows=None, crosswalk=None):
+    """A small AI-QIF master: criterion C1 (60 = 30 + 30) and C2 (40, one KI) -- total 100, not 1000."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'AI Benchmark Master'
+    ws.append(['AI-QIF Benchmark ID', 'Criterion ID', 'Criterion', 'Criterion Weight (of 1000)', 'KI ID',
+               'Key Indicator', 'KI Provisional Weight', 'What AI Readiness Capability Is Being Benchmarked?',
+               'Why It Matters for AI Readiness', *_LV, 'Applicability', 'Target Rule', 'Status'])
+    tmpl = ('capability is defined and owned.', 'capability is systematic and measured.', 'capability is advanced.')
+    for code, crit, cname, cw, ki, kw in rows or [
+            ('AIQIF-C1.1', 'AIQIF-C1', 'Strategy', 60, 'AI Vision', 30),
+            ('AIQIF-C1.2', 'AIQIF-C1', 'Strategy', 60, 'AI Governance', 30),
+            ('AIQIF-C2.1', 'AIQIF-C2', 'Responsible AI', 40, 'Responsible AI Policy', 40)]:
+        ws.append([code, crit, cname, cw, 1, ki, kw, f'Ability for {ki}.', 'Turns AI into a capability.',
+                   *[f'{ki}: {t}' for t in tmpl], 'Institution-specific.', 'Target engine picks the level.',
+                   'Proposed v1.0 - requires expert validation'])
+    m = wb.create_sheet('AI-QIF Maturity')
+    m.append(['Dimension', *_LV])
+    m.append(['Strategy', 'Intent defined.', 'Integrated in planning.', 'Dynamic strategy.'])
+    c = wb.create_sheet('NAAC → AI-QIF Crosswalk')
+    c.append(['NAAC Metric ID', 'NAAC Criterion', 'NAAC Key Indicator', 'NAAC Requirement', 'NAAC Source Framework',
+              'AI-QIF Mapping', 'AI-QIF Key Indicator', 'Relationship', 'How NAAC Evidence Can Be Reused',
+              'AI-Specific Additional Evidence Needed'])
+    for metric, ki in crosswalk or [('1.1.1', 'AIQIF-C1.1 / C1.2'), ('6.2.1', 'AIQIF-C1.1')]:
+        c.append([metric, 'Criterion 1', '1.1', f'Requirement {metric}', 'NAAC', 'AIQIF-C1', ki, 'Supporting', 'x', 'y'])
+    p = wb.create_sheet('AI-QIF Principles')
+    p.append(['Principle', 'Rule'])
+    p.append(['NAAC relationship', 'NAAC is supporting evidence, not AI readiness.'])
+    a = wb.create_sheet('Scoring Architecture')
+    a.append(['Layer', 'Definition', 'Authority'])
+    a.append(['AI-QIF Criteria', '9 domains totaling 1000', 'InGage methodology'])
+    fd, path = tempfile.mkstemp(suffix='.xlsx')
+    os.close(fd)
+    wb.save(path)
+    return path
+
+
+def _rows(response):
+    data = response.json()
+    return data.get('results', data) if isinstance(data, dict) else data
+
+
+class AiQifImportTests(TestCase):
+    def setUp(self):
+        self.path = _aiqif_workbook()
+        self.addCleanup(os.remove, self.path)
+
+    def test_reads_criteria_weights_and_crosswalk(self):
+        data = read_aiqif(self.path)
+        self.assertTrue(data.ok)
+        self.assertEqual([(c['code'], c['weight'], c['kis']) for c in data.criteria],
+                         [('AIQIF-C1', Decimal(60), 2), ('AIQIF-C2', Decimal(40), 1)])
+        by_code = {b['code']: b for b in data.benchmarks}
+        # "AIQIF-C1.1 / C1.2" supports both key indicators.
+        self.assertEqual([x['metric'] for x in by_code['AIQIF-C1.1']['crosswalk']], ['1.1.1', '6.2.1'])
+        self.assertEqual(by_code['AIQIF-C1.2']['crosswalk'][0]['shared_with'], ['AIQIF-C1.1'])
+        self.assertTrue(any('add up to 100' in w for w in data.warnings))  # not 1000
+        self.assertTrue(any('no NAAC crosswalk' in w and 'AIQIF-C2.1' in w for w in data.warnings))
+        # Same level wording on every KI once its name is removed = template.
+        self.assertTrue(all(all(b['placeholder'].values()) for b in data.benchmarks))
+
+    def test_kis_not_adding_up_to_their_criterion_are_reported(self):
+        path = _aiqif_workbook(rows=[('AIQIF-C1.1', 'AIQIF-C1', 'Strategy', 60, 'AI Vision', 25)])
+        self.addCleanup(os.remove, path)
+        self.assertTrue(any('AIQIF-C1: key indicator weights add up to 25' in w for w in read_aiqif(path).warnings))
+
+    def test_dry_run_saves_nothing(self):
+        apply_aiqif(read_aiqif(self.path), actor='test', commit=False)
+        self.assertFalse(Benchmark.objects.exists())
+        self.assertFalse(Pillar.objects.exists())
+
+    def test_commit_creates_drafts_with_weights_levels_and_framework(self):
+        apply_aiqif(read_aiqif(self.path), actor='test', commit=True)
+        b = Benchmark.objects.get(benchmark_code='AIQIF-C1.1')
+        self.assertEqual((b.status, b.benchmark_kind, b.version_label), ('draft', 'proposed', 'AI-QIF v1.0'))
+        self.assertEqual((b.weight, b.pillar.code, b.pillar.weight), (Decimal(30), 'AIQIF-C1', Decimal(60)))
+        self.assertEqual(b.framework.code, 'AIQIF-V1.0')
+        self.assertIn('NAAC is supporting evidence', b.framework.purpose)
+        self.assertEqual(b.target_guidance, 'Target engine picks the level.')
+        self.assertEqual(len(b.naac_crosswalk), 2)
+        l3 = b.maturity_levels.get(level='L3')
+        self.assertTrue(l3.is_placeholder)
+        self.assertEqual(l3.definition, 'AI Vision: capability is defined and owned.')
+        self.assertEqual(l3.observable_requirements, ['Strategy: Intent defined.'])
+        self.assertFalse(_authoring.readiness(b)['ready_for_review'])  # experts still have to confirm
+
+    def test_rerun_keeps_expert_work_and_withdraws_old_drafts(self):
+        apply_aiqif(read_aiqif(self.path), actor='test', commit=True)
+        expert = User.objects.create_user(email='x@ingage.ai', username='x', password='Str0ng!Pass', role='consultant')
+        b = Benchmark.objects.get(benchmark_code='AIQIF-C1.1')
+        _authoring.save_level(b, 'L3', expert, {'definition': 'A written, approved AI vision with named owners '
+                                                              'and a funded roadmap for the next three years.'})
+        _authoring.update_benchmark(b, expert, {'target_guidance': 'Expert target note.'})
+        old = Benchmark.objects.create(benchmark_code='ACA-01', title='Old', capability=b.capability, pillar=b.pillar,
+                                       benchmark_kind='guidance', version_label='v0.2')
+        summary = apply_aiqif(read_aiqif(self.path), actor='test', commit=True, withdraw_others=True)
+        b.refresh_from_db()
+        old.refresh_from_db()
+        self.assertTrue(b.maturity_levels.get(level='L3').definition.startswith('A written, approved'))
+        self.assertEqual(b.target_guidance, 'Expert target note.')
+        self.assertIn('AIQIF-C1.1 L3 - written by an expert, kept', summary.locked)
+        self.assertEqual(old.status, 'withdrawn')
+        self.assertEqual(summary.withdrawn, ['ACA-01'])
+        self.assertEqual(Framework.objects.filter(code='AIQIF-V1.0').count(), 1)
+
+
+class AiQifApiTests(APITestCase):
+    def setUp(self):
+        path = _aiqif_workbook()
+        self.addCleanup(os.remove, path)
+        apply_aiqif(read_aiqif(path), actor='test', commit=True)
+        b = Benchmark.objects.get(benchmark_code='AIQIF-C1.1')
+        old_pillar = Pillar.objects.create(code='P01', name='Old pillar')
+        Benchmark.objects.create(benchmark_code='ACA-01', title='Old', capability=b.capability, pillar=old_pillar,
+                                 benchmark_kind='guidance', version_label='v0.2', status='withdrawn')
+        self.client.force_authenticate(User.objects.create_user(email='c@ingage.ai', username='c',
+                                                                password='Str0ng!Pass', role='consultant'))
+
+    def test_catalogue_hides_withdrawn_and_shows_weights(self):
+        rows = _rows(self.client.get('/api/v1/benchmarks/catalogue'))
+        self.assertEqual([r['benchmark_code'] for r in rows], ['AIQIF-C1.1', 'AIQIF-C1.2', 'AIQIF-C2.1'])
+        self.assertEqual((rows[0]['weight'], rows[0]['pillar_weight'], rows[0]['framework']),
+                         ('30.00', '60.00', 'AIQIF-V1.0'))
+        self.assertEqual(rows[0]['naac_crosswalk'][0]['metric'], '1.1.1')
+        all_rows = _rows(self.client.get('/api/v1/benchmarks/catalogue?status=all'))
+        self.assertIn('ACA-01', [r['benchmark_code'] for r in all_rows])
+
+    def test_pillars_are_the_aiqif_criteria(self):
+        pillars = self.client.get('/api/v1/benchmarks/pillars').json()
+        self.assertEqual([(p['code'], p['weight'], p['benchmark_count']) for p in pillars],
+                         [('AIQIF-C1', '60.00', 2), ('AIQIF-C2', '40.00', 1)])

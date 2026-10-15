@@ -221,13 +221,18 @@ def _benchmarks():
 
 
 class BenchmarkListView(generics.ListAPIView):
-    """GET /benchmarks/catalogue?pillar=P01&kind=proposed&q="""
+    """GET /benchmarks/catalogue?pillar=P01&kind=proposed&q=&status=   (withdrawn hidden unless status=withdrawn|all)"""
     serializer_class = BenchmarkSerializer
     permission_classes = [IsInGageStaff]
 
     def get_queryset(self):
-        qs = _benchmarks()
+        qs = _benchmarks().select_related('framework')
         p = self.request.query_params
+        wanted = p.get('status', '')
+        if wanted and wanted != 'all':
+            qs = qs.filter(status=wanted)
+        elif not wanted:
+            qs = qs.exclude(status=Benchmark.Status.WITHDRAWN)
         if p.get('pillar'):
             qs = qs.filter(pillar__code=p['pillar'])
         if p.get('kind'):
@@ -259,18 +264,21 @@ class BenchmarkDetailView(generics.RetrieveAPIView):
 
 
 class PillarListView(generics.ListAPIView):
-    """GET /benchmarks/pillars -- with benchmark counts by kind."""
+    """GET /benchmarks/pillars -- with benchmark counts by kind. Withdrawn benchmarks are not
+    counted, and a pillar whose benchmarks are all withdrawn (a replaced catalogue) is hidden."""
     serializer_class = PillarSerializer
     permission_classes = [IsInGageStaff]
     pagination_class = None
 
     def get_queryset(self):
+        live = ~Q(benchmarks__status=Benchmark.Status.WITHDRAWN)
         return Pillar.objects.annotate(
-            benchmark_count=Count('benchmarks'),
-            mandatory_count=Count('benchmarks', filter=Q(benchmarks__benchmark_kind='mandatory')),
-            guidance_count=Count('benchmarks', filter=Q(benchmarks__benchmark_kind='guidance')),
-            proposed_count=Count('benchmarks', filter=Q(benchmarks__benchmark_kind='proposed')),
-        ).order_by('code')
+            total_count=Count('benchmarks'),
+            benchmark_count=Count('benchmarks', filter=live),
+            mandatory_count=Count('benchmarks', filter=live & Q(benchmarks__benchmark_kind='mandatory')),
+            guidance_count=Count('benchmarks', filter=live & Q(benchmarks__benchmark_kind='guidance')),
+            proposed_count=Count('benchmarks', filter=live & Q(benchmarks__benchmark_kind='proposed')),
+        ).filter(Q(benchmark_count__gt=0) | Q(total_count=0)).order_by('code')
 
 
 class EvidenceTypeListView(generics.ListAPIView):

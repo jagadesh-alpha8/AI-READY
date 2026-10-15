@@ -119,6 +119,16 @@ export interface MaturityLevel {
   definition: string;
   measurement_rule: string;
   is_placeholder: boolean;
+  observable_requirements?: string[];
+}
+
+/** A NAAC metric whose evidence can support a benchmark (supporting only, never proof). */
+export interface NaacCrosswalkLink {
+  metric: string;
+  naac_key_indicator: string;
+  requirement: string;
+  relationship: string;
+  shared_with: string[];
 }
 
 export interface CatalogueBenchmark {
@@ -142,6 +152,11 @@ export interface CatalogueBenchmark {
   maturity_levels: MaturityLevel[];
   requirement_count: number;
   levels_defined: boolean;
+  framework: string | null;
+  /** Provisional weight out of 1000 (decimal string), e.g. "30.00". */
+  weight: string | null;
+  pillar_weight: string | null;
+  naac_crosswalk: NaacCrosswalkLink[];
 }
 
 export interface CataloguePillar {
@@ -149,6 +164,7 @@ export interface CataloguePillar {
   name: string;
   coverage: string;
   catalogue_status: string;
+  weight: string | null;
   benchmark_count: number;
   mandatory_count: number;
   guidance_count: number;
