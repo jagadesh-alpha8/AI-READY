@@ -1,6 +1,6 @@
 """The CRI (Campus Readiness Index) scoring engine.
 
-Computes each sprint's eight pillar scores, and the overall weighted CRI,
+Computes each sprint's pillar scores (the 9 AI-QIF criteria), and the overall weighted CRI,
 from real `ExtractedFact`/`GapItem` records against the configurable
 `Pillar`/`PillarCriterion` rubric -- never from a hardcoded number. Given the
 same fact/gap data and the same Pillar/PillarCriterion configuration, this
@@ -273,6 +273,22 @@ def run_scoring_engine(sprint, *, triggered_by=None):
     return scoring_run
 
 
+def _current_pillar_scores(sprint):
+    """The sprint's scores on the active pillars. A sprint whose baseline is
+    already approved can't be re-scored, so if it was decided under pillars
+    that have since been retired (the pre-AI-QIF eight), it keeps showing
+    those -- what was approved is what it shows."""
+    scores = list(
+        PillarScore.objects.filter(sprint=sprint).select_related('pillar').order_by(
+            'pillar__display_order', 'pillar__key',
+        ),
+    )
+    active = [s for s in scores if s.pillar.is_active]
+    if active or sprint.status not in sprint.BASELINE_LOCKED_STATUSES:
+        return active
+    return scores
+
+
 def build_score_snapshot(sprint, *, bootstrap=True):
     """Step 9: return explainable scoring details for the current state of
     a sprint -- what GET/POST .../score/ serialize.
@@ -290,20 +306,12 @@ def build_score_snapshot(sprint, *, bootstrap=True):
     rather than frozen at the last run, so they stay accurate even if a gap
     gets resolved between scoring runs.
     """
-    pillar_scores = list(
-        PillarScore.objects.filter(sprint=sprint).select_related('pillar').order_by(
-            'pillar__display_order', 'pillar__key',
-        ),
-    )
+    pillar_scores = _current_pillar_scores(sprint)
     if not pillar_scores:
         if not bootstrap:
             return None
         run_scoring_engine(sprint)
-        pillar_scores = list(
-            PillarScore.objects.filter(sprint=sprint).select_related('pillar').order_by(
-                'pillar__display_order', 'pillar__key',
-            ),
-        )
+        pillar_scores = _current_pillar_scores(sprint)
 
     strengths = sorted(
         (p for p in pillar_scores if p.status == PillarScore.Status.STRONG),

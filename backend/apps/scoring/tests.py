@@ -42,7 +42,7 @@ class ScoringTestBase(APITestCase):
             'field_name': 'Faculty Certified %',
             'field_key': 'faculty_certified_pct',
             'value': 62.5,
-            'pillar': 'governance_strategy',
+            'pillar': 'aiqif_c1',
             'status': ExtractedFact.Status.CONFIRMED,
             'confidence_score': 0.8,
         }
@@ -54,7 +54,7 @@ class ScoringTestBase(APITestCase):
             'sprint': self.sprint,
             'gap_type': GapItem.GapType.MISSING_DOCUMENT,
             'title': 'Missing something',
-            'pillar': 'governance_strategy',
+            'pillar': 'aiqif_c1',
             'priority': GapItem.Priority.MEDIUM,
         }
         defaults.update(overrides)
@@ -70,7 +70,7 @@ class EngineDeterminismTests(ScoringTestBase):
         self._make_fact(field_key='f2', confidence_score=0.6, status=ExtractedFact.Status.CORRECTED)
 
         run_scoring_engine(self.sprint)
-        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='governance_strategy')
+        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='aiqif_c1')
         self.assertEqual(pillar_score.raw_score, 70.0)
         self.assertEqual(pillar_score.confidence_score, 0.7)
         self.assertEqual(pillar_score.evidence_count, 2)
@@ -78,14 +78,14 @@ class EngineDeterminismTests(ScoringTestBase):
     def test_weighted_score_is_raw_score_times_pillar_weight(self):
         self._make_fact(confidence_score=0.8)
         run_scoring_engine(self.sprint)
-        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='governance_strategy')
-        governance = Pillar.objects.get(key='governance_strategy')
+        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='aiqif_c1')
+        governance = Pillar.objects.get(key='aiqif_c1')
         self.assertEqual(pillar_score.weighted_score, round(pillar_score.raw_score * governance.weight, 2))
 
     def test_extracted_but_unreviewed_facts_do_not_count_as_evidence(self):
         self._make_fact(status=ExtractedFact.Status.EXTRACTED, confidence_score=0.99)
         run_scoring_engine(self.sprint)
-        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='governance_strategy')
+        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='aiqif_c1')
         self.assertEqual(pillar_score.evidence_count, 0)
         self.assertEqual(pillar_score.raw_score, 0.0)
         self.assertEqual(pillar_score.status, PillarScore.Status.NOT_STARTED)
@@ -93,14 +93,14 @@ class EngineDeterminismTests(ScoringTestBase):
     def test_rejected_facts_do_not_count_as_evidence(self):
         self._make_fact(status=ExtractedFact.Status.REJECTED, confidence_score=0.99)
         run_scoring_engine(self.sprint)
-        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='governance_strategy')
+        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='aiqif_c1')
         self.assertEqual(pillar_score.evidence_count, 0)
 
     def test_unresolved_gap_reduces_raw_score_by_fixed_priority_penalty(self):
         self._make_fact(confidence_score=0.95)
         self._make_gap(priority=GapItem.Priority.BLOCKING)
         run_scoring_engine(self.sprint)
-        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='governance_strategy')
+        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='aiqif_c1')
         self.assertEqual(pillar_score.raw_score, 87.0)  # 95 - 8 (blocking penalty)
         self.assertEqual(pillar_score.gap_count, 1)
 
@@ -108,7 +108,7 @@ class EngineDeterminismTests(ScoringTestBase):
         self._make_fact(confidence_score=0.95)
         self._make_gap(priority=GapItem.Priority.BLOCKING, status=GapItem.Status.RESOLVED)
         run_scoring_engine(self.sprint)
-        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='governance_strategy')
+        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='aiqif_c1')
         self.assertEqual(pillar_score.raw_score, 95.0)
         self.assertEqual(pillar_score.gap_count, 0)
 
@@ -116,7 +116,7 @@ class EngineDeterminismTests(ScoringTestBase):
         self._make_fact(confidence_score=0.99)
         self._make_gap(priority=GapItem.Priority.BLOCKING)
         run_scoring_engine(self.sprint)
-        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='governance_strategy')
+        pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='aiqif_c1')
         self.assertGreater(pillar_score.raw_score, 70)
         self.assertEqual(pillar_score.status, PillarScore.Status.AT_RISK)
 
@@ -131,24 +131,24 @@ class EngineDeterminismTests(ScoringTestBase):
             self._make_fact(sprint=sprint, confidence_score=confidence)
             self._make_gap(sprint=sprint, priority=gap_priority)
             run_scoring_engine(sprint)
-            pillar_score = PillarScore.objects.get(sprint=sprint, pillar__key='governance_strategy')
+            pillar_score = PillarScore.objects.get(sprint=sprint, pillar__key='aiqif_c1')
             self.assertEqual(pillar_score.status, expected_status, msg=f'confidence={confidence}')
 
     def test_overall_cri_is_sum_of_pillar_weighted_scores(self):
-        self._make_fact(pillar='governance_strategy', confidence_score=0.8)  # weight .10 -> 8.0
+        self._make_fact(pillar='aiqif_c1', confidence_score=0.8)  # weight .12 -> 9.6
         self._make_fact(
-            sprint=self.sprint, field_key='f2', pillar='faculty_ai_capability', confidence_score=0.5,
-        )  # weight .18 -> 9.0
+            sprint=self.sprint, field_key='f2', pillar='aiqif_c4', confidence_score=0.5,
+        )  # weight .10 -> 5.0
         scoring_run = run_scoring_engine(self.sprint)
-        self.assertEqual(scoring_run.overall_cri, 17.0)
+        self.assertEqual(scoring_run.overall_cri, 14.6)
 
     def test_overall_confidence_is_weight_weighted_average_of_pillar_confidence(self):
-        self._make_fact(pillar='governance_strategy', confidence_score=0.8)  # weight .10
+        self._make_fact(pillar='aiqif_c1', confidence_score=0.8)  # weight .12
         self._make_fact(
-            sprint=self.sprint, field_key='f2', pillar='faculty_ai_capability', confidence_score=0.5,
-        )  # weight .18
+            sprint=self.sprint, field_key='f2', pillar='aiqif_c4', confidence_score=0.5,
+        )  # weight .10
         scoring_run = run_scoring_engine(self.sprint)
-        expected = round(0.8 * 0.10 + 0.5 * 0.18, 4)
+        expected = round(0.8 * 0.12 + 0.5 * 0.10, 4)
         self.assertEqual(scoring_run.overall_confidence, expected)
 
     def test_engine_is_deterministic_across_repeated_runs_with_unchanged_data(self):
@@ -177,7 +177,7 @@ class EngineDeterminismTests(ScoringTestBase):
         self._make_fact(confidence_score=0.8)
         run1 = run_scoring_engine(self.sprint)
 
-        governance = Pillar.objects.get(key='governance_strategy')
+        governance = Pillar.objects.get(key='aiqif_c1')
         governance.weight = 0.20
         governance.save(update_fields=['weight'])
 
@@ -191,8 +191,8 @@ class EngineDeterminismTests(ScoringTestBase):
         self.assertEqual(run1.calculation_version, run2.calculation_version)
 
     def test_inactive_pillar_is_excluded_and_contributes_zero(self):
-        self._make_fact(pillar='research_innovation', confidence_score=0.9)
-        research = Pillar.objects.get(key='research_innovation')
+        self._make_fact(pillar='aiqif_c7', confidence_score=0.9)
+        research = Pillar.objects.get(key='aiqif_c7')
         research.is_active = False
         research.save(update_fields=['is_active'])
 
@@ -201,7 +201,7 @@ class EngineDeterminismTests(ScoringTestBase):
         self.assertEqual(scoring_run.overall_cri, 0.0)
 
     def test_inactive_criterion_excluded_from_pillar_evaluation(self):
-        governance = Pillar.objects.get(key='governance_strategy')
+        governance = Pillar.objects.get(key='aiqif_c1')
         criterion = PillarCriterion.objects.get(pillar=governance, key='general_evidence')
         criterion.is_active = False
         criterion.save(update_fields=['is_active'])
@@ -213,7 +213,7 @@ class EngineDeterminismTests(ScoringTestBase):
         self.assertEqual(pillar_score.status, PillarScore.Status.NOT_STARTED)
 
     def test_criterion_scoped_to_specific_fact_field_keys(self):
-        governance = Pillar.objects.get(key='governance_strategy')
+        governance = Pillar.objects.get(key='aiqif_c1')
         PillarCriterion.objects.filter(pillar=governance).update(fact_field_keys=['relevant_field'])
 
         self._make_fact(field_key='relevant_field', confidence_score=0.9)
@@ -227,7 +227,7 @@ class EngineDeterminismTests(ScoringTestBase):
     def test_scoring_run_persists_a_pillar_snapshot(self):
         self._make_fact(confidence_score=0.8)
         scoring_run = run_scoring_engine(self.sprint)
-        governance_snapshot = next(p for p in scoring_run.pillar_snapshot if p['pillar'] == 'governance_strategy')
+        governance_snapshot = next(p for p in scoring_run.pillar_snapshot if p['pillar'] == 'aiqif_c1')
         self.assertEqual(governance_snapshot['raw_score'], 80.0)
         self.assertEqual(governance_snapshot['evidence_count'], 1)
 
@@ -241,7 +241,7 @@ class BuildScoreSnapshotTests(ScoringTestBase):
     def test_bootstrap_true_computes_a_score_for_a_never_scored_sprint(self):
         self._make_fact(confidence_score=0.8)
         snapshot = build_score_snapshot(self.sprint, bootstrap=True)
-        self.assertEqual(snapshot['overall_cri'], 8.0)
+        self.assertEqual(snapshot['overall_cri'], 9.6)
         self.assertTrue(ScoringRun.objects.filter(sprint=self.sprint).exists())
 
     def test_bootstrap_false_returns_none_for_a_never_scored_sprint(self):
@@ -251,14 +251,14 @@ class BuildScoreSnapshotTests(ScoringTestBase):
         self.assertFalse(ScoringRun.objects.filter(sprint=self.sprint).exists())
 
     def test_strengths_and_weaknesses_are_derived_from_pillar_status(self):
-        self._make_fact(pillar='governance_strategy', confidence_score=0.9)  # strong
+        self._make_fact(pillar='aiqif_c1', confidence_score=0.9)  # strong
         run_scoring_engine(self.sprint)
         snapshot = build_score_snapshot(self.sprint)
         strength_keys = [p.pillar.key for p in snapshot['strengths']]
         weakness_keys = [p.pillar.key for p in snapshot['weaknesses']]
-        self.assertIn('governance_strategy', strength_keys)
-        self.assertNotIn('governance_strategy', weakness_keys)
-        self.assertIn('faculty_ai_capability', weakness_keys)  # never evidenced -> not_started
+        self.assertIn('aiqif_c1', strength_keys)
+        self.assertNotIn('aiqif_c1', weakness_keys)
+        self.assertIn('aiqif_c4', weakness_keys)  # never evidenced -> not_started
 
     def test_evidence_metrics_are_live_not_frozen(self):
         fact = self._make_fact(confidence_score=0.8)
@@ -286,7 +286,7 @@ class SprintScoreEndpointTests(ScoringTestBase):
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/score/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['overall_cri'], 8.0)
+        self.assertEqual(response.data['overall_cri'], 9.6)
         self.assertTrue(ScoringRun.objects.filter(sprint=self.sprint).exists())
 
     def test_get_without_trailing_slash(self):
@@ -300,7 +300,7 @@ class SprintScoreEndpointTests(ScoringTestBase):
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/score/')
         self.assertEqual(response.data['cri_score'], response.data['overall_cri'])
         self.assertEqual(response.data['cri_confidence'], response.data['overall_confidence'])
-        pillar = next(p for p in response.data['pillar_scores'] if p['pillar'] == 'governance_strategy')
+        pillar = next(p for p in response.data['pillar_scores'] if p['pillar'] == 'aiqif_c1')
         self.assertEqual(pillar['score'], pillar['raw_score'])
         self.assertEqual(pillar['confidence'], pillar['confidence_score'])
         self.assertIn('label', pillar)
@@ -316,7 +316,7 @@ class SprintScoreEndpointTests(ScoringTestBase):
             'pillar_scores', 'strengths', 'weaknesses', 'evidence_metrics', 'unresolved_blocking_gaps',
         ):
             self.assertIn(key, response.data)
-        self.assertEqual(len(response.data['pillar_scores']), 8)
+        self.assertEqual(len(response.data['pillar_scores']), 9)
         self.assertEqual(len(response.data['unresolved_blocking_gaps']), 1)
 
     def test_post_recalculates_and_advances_sprint_status(self):
@@ -327,7 +327,7 @@ class SprintScoreEndpointTests(ScoringTestBase):
         self._auth(self.admin)
         response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/score/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['overall_cri'], 8.0)
+        self.assertEqual(response.data['overall_cri'], 9.6)
 
         self.sprint.refresh_from_db()
         self.assertEqual(self.sprint.status, Sprint.Status.SCORING)
@@ -385,7 +385,7 @@ class SprintScoreHistoryEndpointTests(ScoringTestBase):
         self._auth(self.admin)
         self.client.post(f'/api/v1/sprints/{self.sprint.id}/score/')
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/score/history/')
-        self.assertEqual(len(response.data[0]['pillar_snapshot']), 8)
+        self.assertEqual(len(response.data[0]['pillar_snapshot']), 9)
 
     def test_history_pagination_is_opt_in(self):
         self._auth(self.admin)
@@ -425,27 +425,27 @@ class SprintOverviewScoreIntegrationTests(ScoringTestBase):
         self.client.post(f'/api/v1/sprints/{self.sprint.id}/score/')
 
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/overview/')
-        self.assertEqual(response.data['scorecard']['overall_cri'], 8.0)
+        self.assertEqual(response.data['scorecard']['overall_cri'], 9.6)
 
 
 class ScoringConfigEndpointTests(ScoringTestBase):
-    def test_config_returns_all_eight_pillars_from_the_database(self):
+    def test_config_returns_the_nine_active_pillars_from_the_database(self):
         self._auth(self.iqac)
         response = self.client.get('/api/v1/scoring/config')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 8)
+        self.assertEqual(len(response.data), 9)
         keys = {p['key'] for p in response.data}
-        self.assertIn('governance_strategy', keys)
-        self.assertIn('evidence_quality', keys)
+        self.assertIn('aiqif_c1', keys)
+        self.assertIn('aiqif_c9', keys)
 
     def test_config_reflects_database_weight_not_a_hardcoded_constant(self):
-        governance = Pillar.objects.get(key='governance_strategy')
+        governance = Pillar.objects.get(key='aiqif_c1')
         governance.weight = 0.33
         governance.save(update_fields=['weight'])
 
         self._auth(self.iqac)
         response = self.client.get('/api/v1/scoring/config')
-        pillar = next(p for p in response.data if p['key'] == 'governance_strategy')
+        pillar = next(p for p in response.data if p['key'] == 'aiqif_c1')
         self.assertEqual(pillar['weight'], 0.33)
 
 
@@ -668,3 +668,29 @@ class BaselineWorkflowTests(ScoringTestBase):
         self.assertEqual(
             actions, [BaselineDecisionHistory.Action.SUBMITTED, BaselineDecisionHistory.Action.APPROVED],
         )
+
+
+class AiQifPillarTests(ScoringTestBase):
+    """The CRI pillars are the 9 AI-QIF criteria; the 8 earlier pillars are kept only as history."""
+
+    def test_active_pillars_are_the_nine_aiqif_criteria_weighing_one(self):
+        active = Pillar.objects.filter(is_active=True)
+        self.assertEqual(sorted(active.values_list('key', flat=True)), [f'aiqif_c{i}' for i in range(1, 10)])
+        self.assertAlmostEqual(sum(active.values_list('weight', flat=True)), 1.0)
+        self.assertFalse(Pillar.objects.get(key='governance_strategy').is_active)
+
+    def test_scores_on_retired_pillars_are_not_shown_for_an_open_sprint(self):
+        old = Pillar.objects.get(key='governance_strategy')
+        PillarScore.objects.create(sprint=self.sprint, pillar=old, raw_score=50, weighted_score=5)
+        self._make_fact()
+        snapshot = build_score_snapshot(self.sprint)
+        self.assertEqual({p.pillar.key for p in snapshot['pillar_scores']}, {f'aiqif_c{i}' for i in range(1, 10)})
+
+    def test_an_approved_sprint_keeps_the_scores_it_was_approved_on(self):
+        old = Pillar.objects.get(key='governance_strategy')
+        PillarScore.objects.create(sprint=self.sprint, pillar=old, raw_score=50, weighted_score=5)
+        ScoringRun.objects.create(sprint=self.sprint, overall_cri=5, overall_confidence=0.5)
+        self.sprint.status = Sprint.Status.REPORT_READY
+        self.sprint.save(update_fields=['status'])
+        snapshot = build_score_snapshot(self.sprint)
+        self.assertEqual([p.pillar.key for p in snapshot['pillar_scores']], ['governance_strategy'])

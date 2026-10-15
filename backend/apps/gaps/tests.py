@@ -58,7 +58,7 @@ class GapTestBase(APITestCase):
             'field_key': 'faculty_foundation_ai_certified_pct',
             'value': 62.5,
             'data_type': ExtractedFact.DataType.PERCENTAGE,
-            'pillar': 'faculty_ai_capability',
+            'pillar': 'aiqif_c4',
             'owner_role': 'HOD',
             'source_snippet': '120 out of 192 faculty completed AI foundation FDP.',
             'confidence_score': 0.85,
@@ -279,11 +279,11 @@ class GapListEndpointTests(GapTestBase):
         self.assertEqual(len(response.data), 1)
 
     def test_filter_by_pillar(self):
-        self._make_gap(title='a', pillar='faculty_ai_capability')
-        self._make_gap(title='b', pillar='governance_strategy')
+        self._make_gap(title='a', pillar='aiqif_c4')
+        self._make_gap(title='b', pillar='aiqif_c1')
         self._auth(self.iqac)
         response = self.client.get(
-            f'/api/v1/sprints/{self.sprint.id}/gaps/', {'pillar': 'governance_strategy'},
+            f'/api/v1/sprints/{self.sprint.id}/gaps/', {'pillar': 'aiqif_c1'},
         )
         self.assertEqual(len(response.data), 1)
 

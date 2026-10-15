@@ -160,4 +160,6 @@ class ScoringConfigView(generics.ListAPIView):
     filterset_fields = ['is_active']
 
     def get_queryset(self):
-        return Pillar.objects.prefetch_related('criteria').order_by('display_order', 'key')
+        # Active pillars unless ?is_active= asks otherwise (the retired pre-AI-QIF pillars are kept only as history).
+        qs = Pillar.objects.prefetch_related('criteria').order_by('display_order', 'key')
+        return qs if 'is_active' in self.request.query_params else qs.filter(is_active=True)

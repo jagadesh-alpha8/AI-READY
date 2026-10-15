@@ -40,7 +40,7 @@ class FactTestBase(APITestCase):
             'field_key': 'faculty_foundation_ai_certified_pct',
             'value': 62.5,
             'data_type': ExtractedFact.DataType.PERCENTAGE,
-            'pillar': 'faculty_ai_capability',
+            'pillar': 'aiqif_c4',
             'owner_role': 'HOD',
             'source_page': 'Page 45',
             'source_snippet': '120 out of 192 faculty completed AI foundation FDP.',
@@ -103,12 +103,12 @@ class FactListingTests(FactTestBase):
     # -- filtering -------------------------------------------------------
 
     def test_filter_by_pillar(self):
-        self._make_fact(pillar='faculty_ai_capability')
-        self._make_fact(field_key='f2', pillar='governance_strategy')
+        self._make_fact(pillar='aiqif_c4')
+        self._make_fact(field_key='f2', pillar='aiqif_c1')
         self._auth(self.iqac)
-        response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/', {'pillar': 'governance_strategy'})
+        response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/', {'pillar': 'aiqif_c1'})
         self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['pillar'], 'governance_strategy')
+        self.assertEqual(response.data[0]['pillar'], 'aiqif_c1')
 
     def test_filter_by_status(self):
         f1 = self._make_fact()
@@ -448,7 +448,7 @@ class ConfirmingFactClosesUnconfirmedGapTests(FactTestBase):
     (removing its -3 CRI penalty). Genuine gaps stay open, and the CRI score
     and Evidence Confidence both come only from Confirmed/Corrected facts."""
 
-    PILLAR = 'faculty_ai_capability'
+    PILLAR = 'aiqif_c4'
 
     def _gap(self, gap_type, *, fact=None, priority='medium'):
         from apps.gaps.models import GapItem

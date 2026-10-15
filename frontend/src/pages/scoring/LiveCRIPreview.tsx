@@ -51,7 +51,7 @@ export const LiveCRIPreview: React.FC = () => {
               <BarChart3 className="w-5 h-5 text-brand-800" /> Screen 7: Live CRI Score Preview
             </h1>
             <p className="text-sm text-ink-500 mt-1">
-              Config-driven CRI score calculation aggregated across all eight pillars with confidence weighting and penalties.
+              CRI calculated across the 9 InGage AI-QIF criteria (weights out of 1000), with confidence weighting and gap penalties.
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -103,9 +103,9 @@ export const LiveCRIPreview: React.FC = () => {
             </div>
           </div>
 
-          {/* 8 Pillar Scorecards */}
+          {/* Pillar (AI-QIF criterion) scorecards */}
           <div className="glass-card p-5 sm:p-6">
-            <h2 className="eyebrow mb-4">Eight Pillar Scorecard Breakdown</h2>
+            <h2 className="eyebrow mb-4">AI-QIF Criteria Scorecard ({(scorecard.pillar_scores || []).length})</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {(scorecard.pillar_scores || []).map((p) => (
                 <div key={p.pillar} className="p-4 bg-surface rounded-xl border border-line-200 space-y-2">

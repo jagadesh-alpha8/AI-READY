@@ -11873,24 +11873,26 @@ components:
       - weight
     PillarEnum:
       enum:
-      - governance_strategy
-      - curriculum_academic_readiness
-      - faculty_ai_capability
-      - student_ai_readiness
-      - infrastructure_digital_capability
-      - research_innovation
-      - industry_placement
-      - evidence_quality
+      - aiqif_c1
+      - aiqif_c2
+      - aiqif_c3
+      - aiqif_c4
+      - aiqif_c5
+      - aiqif_c6
+      - aiqif_c7
+      - aiqif_c8
+      - aiqif_c9
       type: string
       description: |-
-        * `governance_strategy` - Governance & Strategy
-        * `curriculum_academic_readiness` - Curriculum & Academic Readiness
-        * `faculty_ai_capability` - Faculty AI Capability
-        * `student_ai_readiness` - Student AI Readiness
-        * `infrastructure_digital_capability` - Infrastructure & Digital Capability
-        * `research_innovation` - Research & Innovation
-        * `industry_placement` - Industry & Placement Outcomes
-        * `evidence_quality` - Evidence Quality & Data Confidence
+        * `aiqif_c1` - Institutional AI Strategy & Governance
+        * `aiqif_c2` - Responsible AI, Risk, Ethics & Compliance
+        * `aiqif_c3` - AI-Ready Curriculum & Learning
+        * `aiqif_c4` - Faculty & Institutional Workforce AI Capability
+        * `aiqif_c5` - Student AI Readiness, Skills & Employability
+        * `aiqif_c6` - AI Infrastructure, Data & Cybersecurity
+        * `aiqif_c7` - AI Research, Innovation & Ecosystem
+        * `aiqif_c8` - AI-Enabled Operations, Industry & Outcomes
+        * `aiqif_c9` - AI Assurance, Measurement & Continuous Improvement
     PillarScore:
       type: object
       properties:

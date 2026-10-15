@@ -331,7 +331,7 @@ class SuccessfulRunTests(ExtractionJobTestBase):
         self.fact_openai_mock.return_value.extract_structured_data.return_value = {
             'facts': [{
                 'field_name': 'Total Faculty Count', 'field_key': 'total_faculty', 'value': '42',
-                'data_type': 'number', 'pillar': 'faculty_ai_capability', 'owner_role': 'hr_officer',
+                'data_type': 'number', 'pillar': 'aiqif_c4', 'owner_role': 'hr_officer',
                 'source_page': '1', 'source_snippet': 'The institution has 42 faculty members.',
                 'confidence_score': 0.96, 'confidence_reason': 'Explicitly stated in the source.',
             }],
@@ -344,7 +344,7 @@ class SuccessfulRunTests(ExtractionJobTestBase):
         self.assertEqual(fact.value, 42)
         self.assertEqual(fact.normalized_value, 42)
         self.assertEqual(fact.data_type, 'number')
-        self.assertEqual(fact.pillar, 'faculty_ai_capability')
+        self.assertEqual(fact.pillar, 'aiqif_c4')
         self.assertEqual(fact.owner_role, 'hr_officer')
         self.assertEqual(fact.source_page, '1')
         self.assertEqual(fact.source_document_id, self.document.id)
@@ -1383,7 +1383,7 @@ def _valid_fact(**overrides):
         'field_key': 'total_faculty',
         'value': '42',
         'data_type': 'number',
-        'pillar': 'faculty_ai_capability',
+        'pillar': 'aiqif_c4',
         'owner_role': 'hr_officer',
         'source_page': '1',
         'source_snippet': 'The institution has 42 faculty members.',
@@ -1430,7 +1430,7 @@ class OpenAIFactExtractorTests(TestCase):
         self.assertEqual(fact['field_key'], 'total_faculty')
         self.assertEqual(fact['value'], 42)
         self.assertEqual(fact['normalized_value'], 42)
-        self.assertEqual(fact['pillar'], 'faculty_ai_capability')
+        self.assertEqual(fact['pillar'], 'aiqif_c4')
         self.assertEqual(fact['owner_role'], 'hr_officer')
         self.assertEqual(fact['source_page'], '1')
         self.assertEqual(fact['extraction_method'], 'openai')
@@ -1544,7 +1544,7 @@ class OpenAIFactExtractorTests(TestCase):
     def test_list_value_is_split_into_items(self):
         service = self._fake_service(results=[{'facts': [
             _valid_fact(
-                field_key='ai_software', data_type='list', pillar='infrastructure_digital_capability',
+                field_key='ai_software', data_type='list', pillar='aiqif_c6',
                 owner_role='lab_admin', value='TensorFlow; PyTorch; MATLAB',
             ),
         ]}])
@@ -1564,7 +1564,7 @@ class OpenAIFactExtractorTests(TestCase):
         service = self._fake_service(results=[{'facts': [
             _valid_fact(field_key='total_faculty', source_page='1'),
             _valid_fact(
-                field_key='student_strength', pillar='student_ai_readiness', owner_role='registrar',
+                field_key='student_strength', pillar='aiqif_c5', owner_role='registrar',
                 source_page='2', value='1200', source_snippet='Total student enrolment is 1200.',
             ),
         ]}])
@@ -1685,7 +1685,7 @@ class RuleBasedGapDetectorTests(TestCase):
             'sprint': self.sprint, 'document': self.document, 'source_document': self.document,
             'field_name': 'Total Faculty Count', 'field_key': 'total_faculty', 'value': 42,
             'normalized_value': 42, 'data_type': ExtractedFact.DataType.NUMBER,
-            'pillar': 'faculty_ai_capability', 'owner_role': 'hr_officer',
+            'pillar': 'aiqif_c4', 'owner_role': 'hr_officer',
             'source_snippet': '42 faculty members.', 'confidence_score': 0.9,
             'extraction_method': 'openai', 'status': ExtractedFact.Status.EXTRACTED,
         }
@@ -1766,7 +1766,7 @@ class OpenAIConflictCheckerTests(TestCase):
             'sprint': self.sprint, 'document': document, 'source_document': document,
             'field_name': 'Total Faculty Count', 'field_key': 'total_faculty', 'value': 42,
             'normalized_value': 42, 'data_type': ExtractedFact.DataType.NUMBER,
-            'pillar': 'faculty_ai_capability', 'owner_role': 'hr_officer',
+            'pillar': 'aiqif_c4', 'owner_role': 'hr_officer',
             'source_snippet': '42 faculty members.', 'confidence_score': 0.9,
             'extraction_method': 'openai', 'status': ExtractedFact.Status.EXTRACTED,
         }

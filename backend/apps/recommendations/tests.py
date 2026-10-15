@@ -44,7 +44,7 @@ class RecommendationsTestBase(APITestCase):
             'field_name': 'Faculty Certified %',
             'field_key': 'faculty_certified_pct',
             'value': 62.5,
-            'pillar': 'governance_strategy',
+            'pillar': 'aiqif_c1',
             'owner_role': 'registrar',
             'status': ExtractedFact.Status.CONFIRMED,
             'confidence_score': 0.8,
@@ -57,7 +57,7 @@ class RecommendationsTestBase(APITestCase):
             'sprint': self.sprint,
             'gap_type': GapItem.GapType.MISSING_DOCUMENT,
             'title': 'Missing something',
-            'pillar': 'governance_strategy',
+            'pillar': 'aiqif_c1',
             'priority': GapItem.Priority.HIGH,
         }
         defaults.update(overrides)
@@ -79,7 +79,7 @@ class GapRecommendationGeneratorTests(RecommendationsTestBase):
         generate_recommendations_for_sprint(self.sprint)
         rec = Recommendation.objects.get(sprint=self.sprint)
         self.assertEqual(rec.source_gap, gap)
-        self.assertEqual(rec.pillar, 'governance_strategy')
+        self.assertEqual(rec.pillar, 'aiqif_c1')
         self.assertEqual(rec.priority, GapItem.Priority.BLOCKING)
         self.assertEqual(rec.timeline, '0-30 days')
         self.assertEqual(rec.expected_cri_lift, 8.0)
@@ -155,31 +155,31 @@ class EvidenceRecommendationGeneratorTests(RecommendationsTestBase):
 
 class PillarWeaknessRecommendationGeneratorTests(RecommendationsTestBase):
     def test_at_risk_pillar_generates_a_blocking_recommendation(self):
-        self._score_pillar('governance_strategy', raw_score=30.0, status=PillarScore.Status.AT_RISK)
+        self._score_pillar('aiqif_c1', raw_score=30.0, status=PillarScore.Status.AT_RISK)
         generate_recommendations_for_sprint(self.sprint)
         rec = Recommendation.objects.get(sprint=self.sprint)
-        self.assertEqual(rec.pillar, 'governance_strategy')
+        self.assertEqual(rec.pillar, 'aiqif_c1')
         self.assertIsNone(rec.source_gap)
         self.assertEqual(rec.priority, Recommendation.Priority.BLOCKING)
-        self.assertEqual(rec.expected_cri_lift, 4.0)  # 0.10 weight * (70 - 30)
+        self.assertEqual(rec.expected_cri_lift, 4.8)  # 0.12 weight * (70 - 30)
         self.assertIn('Why:', rec.description)
 
     def test_not_started_pillar_generates_a_high_priority_recommendation(self):
         self._score_pillar(
-            'governance_strategy', raw_score=0.0, status=PillarScore.Status.NOT_STARTED, evidence_count=0,
+            'aiqif_c1', raw_score=0.0, status=PillarScore.Status.NOT_STARTED, evidence_count=0,
         )
         generate_recommendations_for_sprint(self.sprint)
         rec = Recommendation.objects.get(sprint=self.sprint)
         self.assertEqual(rec.priority, Recommendation.Priority.HIGH)
-        self.assertEqual(rec.expected_cri_lift, 7.0)  # 0.10 weight * (70 - 0)
+        self.assertEqual(rec.expected_cri_lift, 8.4)  # 0.12 weight * (70 - 0)
 
     def test_strong_pillar_does_not_generate_a_recommendation(self):
-        self._score_pillar('governance_strategy', raw_score=90.0, status=PillarScore.Status.STRONG)
+        self._score_pillar('aiqif_c1', raw_score=90.0, status=PillarScore.Status.STRONG)
         generate_recommendations_for_sprint(self.sprint)
         self.assertEqual(Recommendation.objects.count(), 0)
 
     def test_regenerate_does_not_duplicate_weakness_recommendation(self):
-        self._score_pillar('governance_strategy', status=PillarScore.Status.AT_RISK)
+        self._score_pillar('aiqif_c1', status=PillarScore.Status.AT_RISK)
         generate_recommendations_for_sprint(self.sprint)
         generate_recommendations_for_sprint(self.sprint)
         self.assertEqual(Recommendation.objects.count(), 1)
@@ -187,25 +187,25 @@ class PillarWeaknessRecommendationGeneratorTests(RecommendationsTestBase):
 
 class CombinedGenerationTests(RecommendationsTestBase):
     def test_generate_covers_all_three_sources_independently_in_one_call(self):
-        self._make_gap(priority=GapItem.Priority.BLOCKING, pillar='infrastructure_digital_capability')
+        self._make_gap(priority=GapItem.Priority.BLOCKING, pillar='aiqif_c6')
         self._make_fact(
-            field_key='low_conf', pillar='faculty_ai_capability', confidence_score=0.2,
+            field_key='low_conf', pillar='aiqif_c4', confidence_score=0.2,
             status=ExtractedFact.Status.CONFIRMED,
         )
-        self._score_pillar('student_ai_readiness', raw_score=25.0, status=PillarScore.Status.AT_RISK)
+        self._score_pillar('aiqif_c5', raw_score=25.0, status=PillarScore.Status.AT_RISK)
 
         recommendations = generate_recommendations_for_sprint(self.sprint)
 
         self.assertEqual(len(recommendations), 3)
         pillars = {r.pillar for r in recommendations}
         self.assertEqual(
-            pillars, {'infrastructure_digital_capability', 'faculty_ai_capability', 'student_ai_readiness'},
+            pillars, {'aiqif_c6', 'aiqif_c4', 'aiqif_c5'},
         )
 
     def test_generation_is_deterministic_for_the_same_input_data(self):
         self._make_gap(priority=GapItem.Priority.HIGH)
         self._make_fact(field_key='low_conf', confidence_score=0.3, status=ExtractedFact.Status.CONFIRMED)
-        self._score_pillar('research_innovation', status=PillarScore.Status.AT_RISK, raw_score=10.0)
+        self._score_pillar('aiqif_c7', status=PillarScore.Status.AT_RISK, raw_score=10.0)
 
         run1 = {(r.pillar, r.priority, r.expected_cri_lift) for r in generate_recommendations_for_sprint(self.sprint)}
         run2 = {(r.pillar, r.priority, r.expected_cri_lift) for r in generate_recommendations_for_sprint(self.sprint)}
@@ -359,7 +359,7 @@ class RecommendationEditTests(RecommendationsTestBase):
         original_source_gap_id = rec.source_gap_id
         self._auth(self.consultant)
         response = self.client.patch(
-            f'/api/v1/recommendations/{rec.id}/', {'pillar': 'research_innovation'}, format='json',
+            f'/api/v1/recommendations/{rec.id}/', {'pillar': 'aiqif_c7'}, format='json',
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         rec.refresh_from_db()

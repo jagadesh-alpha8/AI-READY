@@ -19,7 +19,7 @@ import re
 from django.conf import settings
 
 from apps.facts.models import ExtractedFact
-from apps.scoring.constants import PILLAR_CHOICES
+from apps.scoring.constants import AIQIF_PILLARS, PILLAR_CHOICES
 
 from ..exceptions import (
     AIResponseError, ExtractionCancelled, PermanentExtractionError, RecoverableExtractionError,
@@ -43,9 +43,15 @@ FACT_OWNER_ROLE_CHOICES = [
     'hr_officer', 'lab_admin', 'placement_officer', 'faculty',
 ]
 
+_PILLAR_GUIDE = '\n'.join(
+    f'- {key}: {name} (covers: {"; ".join(kis)})' for key, _code, name, _weight, kis in AIQIF_PILLARS
+)
+
 SYSTEM_PROMPT = f"""You are extracting structured facts from one institutional audit document for a \
-higher-education AI-readiness audit platform. Extracted facts feed a scoring engine across eight \
-fixed pillars: {', '.join(key for key, _ in PILLAR_CHOICES)}.
+higher-education AI-readiness audit platform. Extracted facts feed a scoring engine across the nine \
+criteria of the InGage AI-QIF framework. Tag every fact with the ONE `pillar` key whose criterion it is \
+evidence for:
+{_PILLAR_GUIDE}
 
 You will be given one chunk of the document's real, extracted text, broken into pages with \
 "--- Page N ---" markers. Relevant facts include (not an exhaustive list): faculty counts, \

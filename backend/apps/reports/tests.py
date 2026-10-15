@@ -42,7 +42,7 @@ class ReportsTestBase(APITestCase):
     def _make_fact(self, **overrides):
         defaults = {
             'sprint': self.sprint, 'field_name': 'Faculty Certified %', 'field_key': 'faculty_certified_pct',
-            'value': 62.5, 'pillar': 'governance_strategy', 'owner_role': 'registrar',
+            'value': 62.5, 'pillar': 'aiqif_c1', 'owner_role': 'registrar',
             'status': ExtractedFact.Status.CONFIRMED, 'confidence_score': 0.8,
         }
         defaults.update(overrides)
@@ -51,7 +51,7 @@ class ReportsTestBase(APITestCase):
     def _make_gap(self, **overrides):
         defaults = {
             'sprint': self.sprint, 'gap_type': GapItem.GapType.MISSING_DOCUMENT, 'title': 'Missing something',
-            'pillar': 'governance_strategy', 'priority': GapItem.Priority.HIGH,
+            'pillar': 'aiqif_c1', 'priority': GapItem.Priority.HIGH,
         }
         defaults.update(overrides)
         return GapItem.objects.create(**defaults)
@@ -62,8 +62,8 @@ class BuildReportDataTests(ReportsTestBase):
         self._make_fact(confidence_score=0.8)
         data = build_report_data(self.sprint)
 
-        self.assertEqual(data['overall_cri'], 8.0)  # 0.8 confidence * 100 * governance weight 0.10
-        self.assertEqual(len(data['pillar_scorecards']), 8)
+        self.assertEqual(data['overall_cri'], 9.6)  # 0.8 confidence * 100 * C1 weight 0.12
+        self.assertEqual(len(data['pillar_scorecards']), 9)
         self.assertEqual(data['institution']['name'], 'MKCE')
         self.assertIn('MKCE', data['executive_summary'])
 
@@ -71,7 +71,7 @@ class BuildReportDataTests(ReportsTestBase):
         data = build_report_data(self.sprint)
         self.assertEqual(data['overall_cri'], 0.0)
         self.assertNotEqual(data['overall_cri'], 58)  # never the frontend's old hardcoded demo score
-        self.assertEqual(len(data['pillar_scorecards']), 8)
+        self.assertEqual(len(data['pillar_scorecards']), 9)
 
     def test_missing_data_appendix_lists_open_gaps_ordered_by_priority(self):
         self._make_gap(priority=GapItem.Priority.MEDIUM, title='Medium gap')
@@ -235,7 +235,7 @@ class ReportEndpointTests(ReportsTestBase):
         response = self.client.get(f"/api/v1/reports/{created.data['id']}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('report_data', response.data)
-        self.assertEqual(len(response.data['report_data']['pillar_scorecards']), 8)
+        self.assertEqual(len(response.data['report_data']['pillar_scorecards']), 9)
 
     def test_download_pdf(self):
         self._auth(self.admin)

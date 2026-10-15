@@ -49,7 +49,7 @@ const AUDIT_STEPS: { label: string; pct: number; note: string }[] = [
   { label: '4. Extracted Facts Review', pct: 100, note: 'Confirm / correct / reject, full history.' },
   { label: '5. Gap Dashboard', pct: 90, note: '5 automated gap types + AI conflict checks.' },
   { label: '6. Owner Workspace', pct: 95, note: 'Role owners resolve assigned facts & gaps.' },
-  { label: '7. Live CRI Preview', pct: 100, note: '8-pillar score, deterministic & explainable.' },
+  { label: '7. Live CRI Preview', pct: 100, note: '9 AI-QIF criteria, deterministic & explainable.' },
   { label: '8. Baseline Approval', pct: 100, note: 'Consultant sign-off locks the score.' },
   { label: '9. Recommendations', pct: 90, note: '3 generators; consultant-editable.' },
   { label: '10. Report & Export', pct: 100, note: 'Versioned PDF / DOCX report.' },

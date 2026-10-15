@@ -292,11 +292,10 @@ const ScoreCard: React.FC<{ scorecard: Scorecard; sprintId: string }> = ({ score
       <div className="rounded-lg border border-info-line bg-info-bg p-4 flex items-start gap-3">
         <Info className="w-4 h-4 text-info shrink-0 mt-0.5" />
         <p className="text-sm text-ink-600 min-w-0">
-          <strong className="text-info">Benchmark comparison is not built yet. </strong>
-          This score comes from the platform's eight-pillar engine. Specification §13 describes a CRI
-          computed instead against an approved benchmark library, with maturity levels and
-          criticality gates — that library has no backend yet. Benchmark Studio shows the intended
-          model on sample data.
+          <strong className="text-info">Scored on the 9 AI-QIF criteria. </strong>
+          The CRI pillars are the criteria of InGage AI-QIF v1.0, weighted out of 1000. Scoring each
+          key indicator against its L3 / L2 / L1 levels is done in Benchmark Assessment once experts
+          have finished the benchmark library.
         </p>
       </div>
 

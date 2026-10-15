@@ -14,7 +14,7 @@
 > ⚠️ **Read this before anything else.** The product now has **two halves**:
 >
 > * **The AI Readiness Audit** (the original platform) — documents → AI facts →
->   human review → 8-pillar CRI → baseline → recommendations → report. Every
+>   human review → CRI on the 9 AI-QIF criteria → baseline → recommendations → report. Every
 >   screen of it, and every module around it (Evidence Intelligence, CRI &
 >   Benchmark Intelligence, Transformation Plan, Goals & Tasks, AI Copilot,
 >   Reminders, Compliance Mapping, UAT Readiness, Admin / Settings), now reads
@@ -130,7 +130,7 @@ This platform compresses that into **24–48 hours**:
    a **gap** on a to-do list. The campus staff member who actually owns that data
    (the Registrar, the HR Officer, the Lab Admin…) confirms or corrects it.
 4. Once the facts are confirmed, the platform computes a **Campus Readiness Index
-   (CRI)** — a 0–100 score across **eight pillars**, plus a separate *confidence*
+   (CRI)** — a 0–100 score across the **9 AI-QIF criteria** (§6.5), plus a separate *confidence*
    number saying how much evidence backs that score.
 5. An InGage consultant **approves the baseline**, the system generates
    **recommendations** with expected score improvements, and produces a
@@ -213,7 +213,7 @@ of "sees everything", consumed by `apps/accounts/permissions.py`.
 | 8 | Document reading: PDF via **PyMuPDF** + **PaddleOCR** for scanned pages; **Word (.docx), Excel (.xlsx), CSV and images** (OCR); old .doc/.xls and .zip get a clear "can't read" notice | `extraction` | `[IMPLEMENTED]` — see §10.1 |
 | 9 | Fact review: confirm/correct/reject/request-evidence + history | `facts` | `[IMPLEMENTED]` |
 | 10 | Gap detection (5 types) + AI conflict adjudication | `gaps`, `extraction` | `[IMPLEMENTED]` |
-| 11 | 8-pillar CRI scoring engine + run history | `scoring` | `[IMPLEMENTED]` |
+| 11 | CRI scoring engine (9 AI-QIF criteria) + run history | `scoring` | `[IMPLEMENTED]` |
 | 12 | Baseline approval / provisional approval / return-for-correction | `scoring` | `[IMPLEMENTED]` |
 | 13 | Recommendation generation (3 generators) + consultant editing | `recommendations` | `[IMPLEMENTED]` |
 | 14 | Versioned report generation → PDF (fpdf2) + DOCX (python-docx) | `reports` | `[IMPLEMENTED]` |
@@ -583,7 +583,7 @@ sequenceDiagram
 | **10. DB** | Reads `facts_extractedfact` (confirmed/corrected only) + `gaps_gapitem` (open/in_progress); writes `scoring_pillarscore` (upsert ×8), `scoring_scoringrun` (INSERT), `sprints_sprint.overall_cri/confidence_score` |
 | **11–12.** | None — **no AI is involved in scoring** |
 | **14. Response** | `SprintScoreSerializer`: overall CRI, confidence, 8 pillar scorecards, strengths, weaknesses, live evidence metrics, unresolved blocking gaps |
-| **16. User sees** | An 8-pillar radar/bar view with a headline CRI/100 and a confidence percentage |
+| **16. User sees** | A 9-criterion (AI-QIF) view with a headline CRI/100 and a confidence percentage |
 
 ### Step 8 — Baseline approval
 
@@ -1522,7 +1522,7 @@ to `/login` (guarding against a redirect loop when already there).
 | `pages/facts/FactsReview.tsx` (307) | Screen 4 | `GET /sprints/{id}/facts`, 4 fact actions | `TableFilters` by status/pillar/confidence/document |
 | `pages/gaps/GapDashboard.tsx` (259) | Screen 5 | `GET /sprints/{id}/gaps`, resolve/skip/mark-unavailable | Groups by priority; shows each gap's source document |
 | `pages/facts/ConfirmationWorkspace.tsx` (193) | Screen 6 | facts + fact actions | Owner-role-oriented queue |
-| `pages/scoring/LiveCRIPreview.tsx` (127) | Screen 7 | `GET/POST /sprints/{id}/score` | Shows 8 pillars + confidence |
+| `pages/scoring/LiveCRIPreview.tsx` (127) | Screen 7 | `GET/POST /sprints/{id}/score` | Shows the 9 AI-QIF criteria + confidence |
 | `pages/scoring/BaselineApproval.tsx` (352) | Screen 8 | `GET /baseline`, approve, approve-provisional, return | Disables approve when `can_approve === false` |
 | `pages/recommendations/RecommendationsReview.tsx` (200) | Screen 9 | `GET/POST recommendations`, `PATCH /recommendations/{id}` | Renders `trigger_gap` as the citation |
 | `pages/reports/ReportPreviewExport.tsx` (247) | Screen 10 | `GET/POST reports`, `GET /reports/{id}/download` | 3 s polling until `ready`; blob download |
@@ -1741,7 +1741,7 @@ development currently runs. `conn_max_age=600` (10-minute persistent connections
 default=uuid.uuid4, editable=False)`), except Django's own built-ins.
 
 **39 migrations** across 14 apps (54 models), including four data migrations:
-`scoring/0002_seed_pillars.py` (the eight pillars), `gaps/0003` (back-fills the
+`scoring/0002_seed_pillars.py` (the original eight pillars; `0004` replaces them with AI-QIF), `gaps/0003` (back-fills the
 "confirmed fact closes its unconfirmed gap" rule), `benchmarks/0008` (6
 institution types, 11 programme types) and `assessments/0002` (the `BM-SCORE-1`
 scoring model, active, with no weights).
@@ -2085,18 +2085,29 @@ report generation) computes a first run on the spot; `False` (used by the read-o
 sprint overview) returns `None`, so *loading a dashboard never has the side effect of
 persisting scoring rows*.
 
-## 6.5 The eight pillars
+## 6.5 The pillars: the 9 AI-QIF criteria
 
-| Key | Label |
-|---|---|
-| `governance_strategy` | Governance & Strategy |
-| `curriculum_academic_readiness` | Curriculum & Academic Readiness |
-| `faculty_ai_capability` | Faculty AI Capability |
-| `student_ai_readiness` | Student AI Readiness |
-| `infrastructure_digital_capability` | Infrastructure & Digital Capability |
-| `research_innovation` | Research & Innovation |
-| `industry_placement` | Industry & Placement Outcomes |
-| `evidence_quality` | Evidence Quality & Data Confidence |
+Since 2026-10-15 the CRI pillars are the criteria of **InGage AI-QIF v1.0** (`scoring/constants.py`
+`AIQIF_PILLARS`, seeded by `scoring/migrations/0004_aiqif_pillars.py`). Weight = AI-QIF weight / 1000.
+
+| Key | Criterion | Weight | Old pillar moved here |
+|---|---|---|---|
+| `aiqif_c1` | Institutional AI Strategy & Governance | 0.12 | Governance & Strategy |
+| `aiqif_c2` | Responsible AI, Risk, Ethics & Compliance | 0.10 | — (new; fills from new extractions) |
+| `aiqif_c3` | AI-Ready Curriculum & Learning | 0.13 | Curriculum & Academic Readiness |
+| `aiqif_c4` | Faculty & Institutional Workforce AI Capability | 0.10 | Faculty AI Capability |
+| `aiqif_c5` | Student AI Readiness, Skills & Employability | 0.13 | Student AI Readiness |
+| `aiqif_c6` | AI Infrastructure, Data & Cybersecurity | 0.12 | Infrastructure & Digital Capability |
+| `aiqif_c7` | AI Research, Innovation & Ecosystem | 0.10 | Research & Innovation |
+| `aiqif_c8` | AI-Enabled Operations, Industry & Outcomes | 0.10 | Industry & Placement Outcomes |
+| `aiqif_c9` | AI Assurance, Measurement & Continuous Improvement | 0.10 | Evidence Quality & Data Confidence |
+
+The migration moved every fact, gap and recommendation to the matching criterion, deactivated (not
+deleted) the eight old pillars, and returned any **pending** baseline for re-scoring (it had been scored
+on the old pillars). Approved / provisional baselines and their reports are unchanged: a locked sprint
+keeps showing the scores it was approved on (`cri_engine._current_pillar_scores`). The AI fact extractor
+is told each criterion's four key indicators so it tags facts to the right one. Each pillar still has one
+generic criterion; scoring per key indicator needs facts tagged to indicators (not built).
 
 ## 6.6 A second, server-side scoring engine — benchmark assessment
 
@@ -3523,7 +3534,7 @@ on every deploy. This is a correct and deliberate design.
    confirms enrolment facts, the HR Officer confirms faculty facts, and so on.
 8. **Screen 7 (`/sprint/{id}/score`):** `POST /sprints/{id}/score`.
    → the nine-step engine reads only `confirmed`/`corrected` facts and
-   `open`/`in_progress` gaps, evaluates 8 pillars against their criteria, subtracts
+   `open`/`in_progress` gaps, evaluates the 9 AI-QIF pillars against their criteria, subtracts
    the gap penalties, writes 8 `PillarScore` rows + 1 `ScoringRun`, denormalises
    `overall_cri`/`confidence_score` onto the sprint, and moves `reviewing → scoring`.
 9. **User sees:** e.g. **CRI 63.4 / 100, confidence 71%**, with
@@ -3781,7 +3792,7 @@ this traces what the code does once the content exists.*
 | P1 | **N+1 in the conflict pre-filter.** `_candidate_pairs()` loops over every fact of the document and runs a **separate query per fact**. With 97 facts that is 98 queries — and the pair list can grow to O(n²) before being sliced to `max_pairs`. | `extraction/services/conflict_checker.py` | Slow, per document |
 | P2 | **N+1 in gap generation.** `_detect_low_confidence_facts` and `_detect_unconfirmed_facts` call `create_gap_if_new()` per fact, each doing an `exists()` then an `INSERT`. ~200 queries for 100 facts. | `gaps/services.py` | Slow at the end of every sprint |
 | P3 | **N+1 in recommendation generation.** `_derive_gap_owner_role(gap)` touches `gap.source_fact.owner_role` / `gap.related_document.owner_role` with **no `select_related`** on the gaps queryset. | `recommendations/services.py` | One extra query per gap |
-| P4 | **~32 queries per scoring run.** `_evaluate_pillar` runs `count()`, `count()`, and `aggregate()` on the gaps queryset **separately** — three round trips × 8 pillars — plus the per-criterion fact reads. | `scoring/services/cri_engine.py` | Moderate; every recalculation |
+| P4 | **~32 queries per scoring run.** `_evaluate_pillar` runs `count()`, `count()`, and `aggregate()` on the gaps queryset **separately** — three round trips × 9 pillars — plus the per-criterion fact reads. | `scoring/services/cri_engine.py` | Moderate; every recalculation |
 | P5 | **~20 `count()` queries in one request.** `SprintViewSet.overview` counts documents (7 buckets), facts (6), gaps (5), recommendations (3), reports (1) individually, then serialises every document, recommendation, and the scorecard. | `sprints/views.py` | The heaviest single endpoint |
 | P6 | **Almost no composite indexes.** The hot filters — `facts(sprint_id, status)`, `gaps(sprint_id, status, priority)`, `documents(sprint_id, status)`, `extraction_jobs(sprint_id, status)` — rely on single-column FK indexes only. `vector_store` is the one app that declares the index for its own filter (`ix_vecidx_sprint_status`), which is the pattern the others should follow. | all migrations | Grows with data volume |
 | P7 | **`_detect_conflicting_facts` loads every fact into memory** and groups in Python. | `gaps/services.py` | Memory + time on large sprints |

@@ -41,7 +41,7 @@ class DashboardTestBase(APITestCase):
     def _make_gap(self, sprint, **overrides):
         defaults = {
             'sprint': sprint, 'gap_type': GapItem.GapType.MISSING_DOCUMENT, 'title': 'Missing something',
-            'pillar': 'governance_strategy', 'priority': GapItem.Priority.HIGH,
+            'pillar': 'aiqif_c1', 'priority': GapItem.Priority.HIGH,
         }
         defaults.update(overrides)
         return GapItem.objects.create(**defaults)
@@ -49,7 +49,7 @@ class DashboardTestBase(APITestCase):
     def _make_fact(self, sprint, **overrides):
         defaults = {
             'sprint': sprint, 'field_name': 'Faculty Certified %', 'field_key': 'faculty_certified_pct',
-            'value': 62.5, 'pillar': 'governance_strategy', 'status': ExtractedFact.Status.EXTRACTED,
+            'value': 62.5, 'pillar': 'aiqif_c1', 'status': ExtractedFact.Status.EXTRACTED,
             'confidence_score': 0.8,
         }
         defaults.update(overrides)

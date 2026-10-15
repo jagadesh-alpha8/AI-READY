@@ -27,7 +27,7 @@ backend/
 │   ├── extraction/          # ExtractionJob model, Celery task, services/ pipeline (see below)
 │   ├── facts/                # ExtractedFact review (confirm/correct/reject/request-evidence) + audit trail
 │   ├── gaps/                 # Data-gap tracking (resolve)
-│   ├── scoring/              # 8-pillar CRI rubric, PillarScore/ScoreCard, recalculation service
+│   ├── scoring/              # CRI on the 9 AI-QIF criteria, PillarScore/ScoreCard, recalculation service
 │   ├── recommendations/     # Gap-driven recommendation generation
 │   └── reports/              # Snapshot report generation/publishing
 └── requirements/{base,development,production}.txt
@@ -364,7 +364,7 @@ action endpoints below, so every change is guaranteed to go through `FactReviewH
 `document`, but a correction can cite different evidence without rewriting the extraction lineage),
 `source_page`, `source_snippet`, `confidence_score`, `confidence_reason`, `extraction_method`,
 `status`, `reviewed_by`, `reviewed_at`, `created_at`, `updated_at`. `data_type` is a closed enum
-(`string`/`number`/`percentage`/`boolean`/`date`/`currency`/`list`); `pillar` reuses the same 8-pillar
+(`string`/`number`/`percentage`/`boolean`/`date`/`currency`/`list`); `pillar` reuses the same AI-QIF
 rubric as scoring/sprints. Statuses: `extracted` (initial) → `confirmed` / `corrected` / `rejected` /
 `evidence_requested`.
 
@@ -627,7 +627,7 @@ python manage.py test
 Per the "no fake data" requirement, everything the API returns is either a real database record a
 client wrote, or a value computed deterministically from real records already in the database:
 
-- **CRI scoring** (`apps/scoring/services.py`): each of the 8 pillars is scored from the average
+- **CRI scoring** (`apps/scoring/services.py`): each of the 9 AI-QIF pillars is scored from the average
   confidence of that pillar's confirmed/corrected `ExtractedFact`s, less the fixed per-priority
   penalty (`apps/gaps/constants.py:GAP_PRIORITY_SCORE_PENALTY`) of its open `GapItem`s, weighted by
   the fixed CRI rubric in `apps/scoring/constants.py`. With no facts/gaps tagged to a pillar, that

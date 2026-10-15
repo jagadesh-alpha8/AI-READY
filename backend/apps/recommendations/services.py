@@ -159,6 +159,7 @@ def _generate_pillar_weakness_recommendations(sprint, actor):
     )
     weak_scores = PillarScore.objects.filter(
         sprint=sprint, status__in=[PillarScore.Status.AT_RISK, PillarScore.Status.NOT_STARTED],
+        pillar__is_active=True,
     ).exclude(pillar__key__in=already_covered).select_related('pillar')
 
     created = []

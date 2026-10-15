@@ -56,7 +56,7 @@ def _build_executive_summary(sprint, score):
         f"As of {calculated_at:%d %b %Y}, {sprint.institution.name} scored "
         f"{score['overall_cri']:.1f}/100 on the Campus Readiness Index (CRI), with "
         f"{score['overall_confidence']:.0%} evidence confidence. "
-        f"{strong} of 8 pillars are strong and {weak} need attention. "
+        f"{strong} of {len(score['pillar_scores'])} pillars are strong and {weak} need attention. "
         f"{metrics['confirmed_facts'] + metrics['corrected_facts']} facts have been confirmed across "
         f"{metrics['documents_processed']} processed documents, with {metrics['unresolved_gaps']} data "
         f"gaps still open."
