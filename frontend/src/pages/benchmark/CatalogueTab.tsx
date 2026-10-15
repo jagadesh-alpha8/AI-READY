@@ -5,6 +5,7 @@ import type { CatalogueBenchmark, CataloguePillar, EvidenceTypeInfo, NaacCrosswa
 import { useApiResource } from '../../hooks/useApiResource';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ApiStates';
 import { BenchmarkLinks } from './RequirementLinking';
+import { AiBadge } from './AiBadge';
 
 /**
  * The benchmark library: InGage AI-QIF v1.0 -- 9 criteria (shown as pillars,
@@ -134,6 +135,7 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
                         <p className="font-bold text-ink-900">
                           {lv.level_label}
                           {lv.is_placeholder && <span className="badge badge-warning ml-2">placeholder</span>}
+                          {!lv.is_placeholder && <span className="ml-2"><AiBadge model={lv.ai_model} /></span>}
                         </p>
                         <p className={lv.is_placeholder ? 'text-ink-500 italic' : 'text-ink-700'}>{lv.definition}</p>
                         {!!lv.observable_requirements?.length && (

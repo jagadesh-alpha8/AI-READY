@@ -10,6 +10,7 @@ import { ErrorState, InlineError, LoadingState } from '../../components/ApiState
 import { getErrorMessage } from '../../utils/errors';
 import { EvidenceRulesPanel } from './EvidenceRulesPanel';
 import { ApplicabilityRulesPanel } from './Applicability';
+import { AiBadge } from './AiBadge';
 
 /**
  * Stage 3.3: experts write each benchmark's real L3 / L2 / L1 levels.
@@ -167,7 +168,7 @@ const LevelCard: React.FC<{ code: string; level: EditableLevel; editable: boolea
         <p className="text-sm font-bold text-ink-900">{level.level_label}</p>
         {level.is_placeholder
           ? <span className="badge badge-warning">placeholder</span>
-          : <span className="badge badge-success">written</span>}
+          : level.ai_model ? <AiBadge model={level.ai_model} /> : <span className="badge badge-success">written</span>}
       </div>
       {level.is_placeholder && (
         <p className="text-ink-500 italic" title="Source Pack template text">Template: {level.definition}</p>

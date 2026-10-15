@@ -490,6 +490,8 @@ class MaturityDefinition(models.Model):
     outcome_expectations = models.JSONField(default=list, blank=True)
     non_examples = models.JSONField(default=list, blank=True, help_text='What explicitly does NOT count for this level.')
     requires_manual_review = models.BooleanField(default=False)
+    ai_model = models.CharField(max_length=150, blank=True,
+                                help_text='Set when this was written by AI (the model name); empty = written by a person.')
     edited_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
     edited_at = models.DateTimeField(null=True, blank=True)
 
@@ -540,6 +542,8 @@ class EvidenceRule(models.Model):
     scope_rule = models.TextField(blank=True, help_text='Which units / programmes / period the evidence must cover.')
     validation_method = models.CharField(max_length=30, choices=Validation.choices, default=Validation.MANUAL_REVIEW)
     privacy_classification = models.CharField(max_length=20, choices=Privacy.choices, default=Privacy.INTERNAL)
+    ai_model = models.CharField(max_length=150, blank=True,
+                                help_text='Set when this was written by AI (the model name); empty = written by a person.')
     created_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -625,6 +629,8 @@ class ApplicabilityRule(models.Model):
     approval_bodies = models.JSONField(default=list, blank=True, help_text='Matches if the institution holds at least one.')
     jurisdiction = models.CharField(max_length=80, blank=True, default='India', help_text='Blank = any.')
     reason = models.TextField(blank=True, help_text='Plain-language reason shown with the result.')
+    ai_model = models.CharField(max_length=150, blank=True,
+                                help_text='Set when this was written by AI (the model name); empty = written by a person.')
     created_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

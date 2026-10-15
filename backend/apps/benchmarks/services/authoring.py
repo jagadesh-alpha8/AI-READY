@@ -83,6 +83,7 @@ def save_level(benchmark, level, user, data):
         for f, items in lists.items():
             setattr(md, f, items)
         md.is_placeholder = False
+        md.ai_model = ''  # written (or edited) by this user; the AI drafter re-labels its own saves
         md.edited_by, md.edited_at = user, timezone.now()
         md.save()
         SourceAuditEvent.objects.create(actor=user.email, action='benchmark.level_saved', object_type='Benchmark',

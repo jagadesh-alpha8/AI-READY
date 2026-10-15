@@ -216,6 +216,9 @@ def update_rule(rule, user, data):
         rule.institution_types.set(types)
         rule.programme_types.set(progs)
         if snapshot(rule) != before:
+            if rule.ai_model:  # a person changed it, so it is no longer AI-written
+                rule.ai_model = ''
+                rule.save(update_fields=['ai_model'])
             _audit(user, 'applicability_rule.updated', rule, before, snapshot(rule))
     return rule
 

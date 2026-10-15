@@ -66,3 +66,32 @@ def run_source_watcher(trigger='schedule'):
         return str(run.pk)
     finally:
         cache.delete('benchmarks:watcher:lock')
+
+
+@shared_task(acks_late=False, ignore_result=True)
+def ai_draft_benchmark(benchmark_id):
+    """AI-write one draft benchmark's content (services/ai_drafting.py). Takes a
+    router slot in multi_router mode like every other AI job, so several of
+    these run side by side across the router pool."""
+    from apps.extraction.services.router_pool import get_router_pool, use_lease
+
+    from .models import Benchmark
+    from .services.ai_drafting import draft_many
+
+    benchmark = Benchmark.objects.select_related('pillar', 'capability').filter(pk=benchmark_id).first()
+    if benchmark is None:
+        return None
+    pool = lease = None
+    try:
+        pool = get_router_pool()
+        if pool is not None:
+            lease = pool.acquire()
+        with use_lease(lease):
+            result = draft_many([benchmark])[0]
+        logger.info('benchmarks.ai_draft.task code=%s ok=%s %s', result.code, result.ok, result.detail)
+    except Exception:
+        logger.exception('benchmarks.ai_draft.task_failed benchmark=%s', benchmark_id)
+    finally:
+        if lease is not None:
+            pool.release(lease)
+    return None

@@ -11020,6 +11020,11 @@ components:
           readOnly: true
           description: Generic template text shared by many benchmarks -- not a real
             definition yet.
+        ai_model:
+          type: string
+          readOnly: true
+          description: Set when this was written by AI (the model name); empty = written
+            by a person.
         observable_requirements:
           readOnly: true
         minimum_evidence:
@@ -11041,6 +11046,7 @@ components:
           readOnly: true
           nullable: true
       required:
+      - ai_model
       - definition
       - edited_at
       - edited_by

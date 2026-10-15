@@ -632,7 +632,7 @@ class CatalogueApiTests(APITestCase):
         pillars = self.client.get('/api/v1/benchmarks/pillars').data
         self.assertEqual((pillars[0]['code'], pillars[0]['benchmark_count'], pillars[0]['proposed_count']),
                          ('P01', 2, 1))
-        self.assertEqual(len(self.client.get('/api/v1/benchmarks/evidence-types').data), 2)
+        self.assertEqual(len(self.client.get('/api/v1/benchmarks/evidence-types').data), 12)  # seeded EV-01..12 (migration 0014)
 
     def test_catalogue_is_staff_only(self):
         self._login('institution_admin')
@@ -1685,3 +1685,122 @@ class AiQifApiTests(APITestCase):
         pillars = self.client.get('/api/v1/benchmarks/pillars').json()
         self.assertEqual([(p['code'], p['weight'], p['benchmark_count']) for p in pillars],
                          [('AIQIF-C1', '60.00', 2), ('AIQIF-C2', '40.00', 1)])
+
+
+# -- AI drafting of benchmark content (fully automatic) ---------------------------------
+
+from .models import ApplicabilityRule, EvidenceRule  # noqa: E402
+from .services import ai_drafting  # noqa: E402
+
+
+def _good_draft():
+    def level(lv, text):
+        return {'level': lv, 'definition': text, 'measurement_rule': f'{lv}: all listed evidence is accepted.',
+                'observable_requirements': [f'{lv} observable'], 'minimum_evidence': [f'{lv} record'],
+                'outcome_expectations': [f'{lv} outcome'], 'non_examples': [f'{lv} non-example'],
+                'requires_manual_review': False}
+
+    def rule(lv, ev, mandatory=True):
+        return {'level': lv, 'evidence_type': ev, 'title': f'{lv} {ev} evidence', 'description': 'What to submit.',
+                'scope_rule': 'Whole institution', 'mandatory': mandatory, 'minimum_count': 1,
+                'minimum_currency_months': 24, 'validation_method': 'manual_review',
+                'privacy_classification': 'internal'}
+
+    return {
+        'levels': [
+            level('L3', 'A governing-body approved AI vision names owners and an initial portfolio of use cases.'),
+            level('L2', 'The AI vision drives an annual plan with KPIs that are reviewed each semester and acted on.'),
+            level('L1', 'AI strategy is adapted yearly from outcome data and peer benchmarks, with sustained impact.'),
+        ],
+        'evidence_rules': [rule('L3', 'EV-01'), rule('L2', 'EV-01'), rule('L1', 'EV-12'), rule('L2', 'EV-03', False)],
+        'applicability_rules': [{'result': 'applies', 'priority': 100, 'institution_types': [], 'programme_types': [],
+                                 'autonomous_statuses': [], 'approval_bodies': [], 'reason': 'Every institution.'}],
+        'target_guidance': 'Most colleges should target L2 within two years.',
+        'rationale': 'Built from the AI-QIF template and NAAC crosswalk.',
+    }
+
+
+class FakeDraftAI:
+    model = 'fake-model-1'
+
+    def __init__(self, draft=None, error=None):
+        self.draft, self.error, self.calls = draft, error, []
+
+    def extract_structured_data(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return self.draft
+
+
+class AiDraftingTests(TestCase):
+    def setUp(self):
+        path = _aiqif_workbook()
+        self.addCleanup(os.remove, path)
+        apply_aiqif(read_aiqif(path), actor='test', commit=True)
+        self.b = Benchmark.objects.get(benchmark_code='AIQIF-C1.1')
+
+    def test_good_draft_is_saved_labelled_and_ready_for_release(self):
+        ai = FakeDraftAI(_good_draft())
+        result = ai_drafting.draft_benchmark(self.b, ai)
+        self.assertTrue(result.ok, result.detail)
+        self.b.refresh_from_db()
+        levels = {m.level: m for m in self.b.maturity_levels.all()}
+        self.assertTrue(all(not m.is_placeholder and m.ai_model == 'fake-model-1' for m in levels.values()))
+        self.assertTrue(levels['L3'].definition.startswith('A governing-body approved'))
+        self.assertEqual(levels['L3'].non_examples, ['L3 non-example'])
+        self.assertEqual(EvidenceRule.objects.filter(benchmark=self.b, ai_model='fake-model-1').count(), 4)
+        self.assertEqual(ApplicabilityRule.objects.filter(benchmark=self.b, ai_model='fake-model-1').count(), 1)
+        self.assertEqual(self.b.expert_owner, 'AI (auto) - fake-model-1')
+        self.assertTrue(_authoring.readiness(self.b)['ready_for_review'])
+        # The AI was given the real catalogues and the indicator.
+        prompt = ai.calls[0]['user_content']
+        self.assertIn('AIQIF-C1.1', prompt)
+        self.assertIn('EV-01', prompt)
+        self.assertIn('1.1.1', prompt)  # NAAC crosswalk
+        drafter = ai_drafting.ai_user()
+        self.assertFalse(drafter.is_active)
+        self.assertFalse(drafter.has_usable_password())
+        self.assertTrue(SourceAuditEvent.objects.filter(action='benchmark.ai_drafted', object_id=str(self.b.pk)).exists())
+
+    def test_draft_missing_a_mandatory_rule_saves_nothing(self):
+        bad = _good_draft()
+        bad['evidence_rules'] = [r for r in bad['evidence_rules'] if r['level'] != 'L1']
+        result = ai_drafting.draft_benchmark(self.b, FakeDraftAI(bad))
+        self.assertFalse(result.ok)
+        self.assertIn('L1', result.detail)
+        self.assertTrue(all(m.is_placeholder for m in self.b.maturity_levels.all()))
+        self.assertFalse(EvidenceRule.objects.filter(benchmark=self.b).exists())
+
+    def test_template_text_or_identical_levels_are_refused(self):
+        bad = _good_draft()
+        bad['levels'][1]['definition'] = bad['levels'][0]['definition']
+        self.assertFalse(ai_drafting.draft_benchmark(self.b, FakeDraftAI(bad)).ok)
+        self.assertFalse(EvidenceRule.objects.filter(benchmark=self.b).exists())
+
+    def test_ai_failure_changes_nothing(self):
+        result = ai_drafting.draft_benchmark(self.b, FakeDraftAI(error=RuntimeError('router down')))
+        self.assertFalse(result.ok)
+        self.assertIn('router down', result.detail)
+
+    def test_rerun_replaces_ai_work_but_keeps_what_a_person_wrote(self):
+        ai_drafting.draft_benchmark(self.b, FakeDraftAI(_good_draft()))
+        person = User.objects.create_user(email='e@ingage.ai', username='e', password='Str0ng!Pass', role='consultant')
+        _authoring.save_level(self.b, 'L2', person, {'definition': 'An expert-written L2 that names the review '
+                                                                   'board, KPIs and the corrective-action log.'})
+        from .services import evidence_rules
+        evidence_rules.create_rule(person, {'evidence_type': 'EV-09', 'title': 'Expert data rule', 'level': 'L2'},
+                                   benchmark=self.b)
+        result = ai_drafting.draft_benchmark(self.b, FakeDraftAI(_good_draft()))
+        self.assertTrue(result.ok, result.detail)
+        self.assertIn('L2 level', result.kept_human)
+        self.assertTrue(self.b.maturity_levels.get(level='L2').definition.startswith('An expert-written'))
+        self.assertEqual(EvidenceRule.objects.filter(benchmark=self.b, ai_model='').count(), 1)  # the expert's
+        self.assertEqual(EvidenceRule.objects.filter(benchmark=self.b).exclude(ai_model='').count(), 4)  # not 8
+
+    def test_only_drafts_are_written(self):
+        Benchmark.objects.filter(pk=self.b.pk).update(status='active')
+        self.b.refresh_from_db()
+        ai = FakeDraftAI(_good_draft())
+        self.assertFalse(ai_drafting.draft_benchmark(self.b, ai).ok)
+        self.assertEqual(ai.calls, [])

@@ -121,6 +121,7 @@ def update_rule(rule, user, data):
     for k, v in values.items():
         setattr(rule, k, v)
     if _snapshot(rule) != before:
+        rule.ai_model = ''  # a person changed it, so it is no longer AI-written
         rule.save()
         _audit(user, 'evidence_rule.updated', rule, before, _snapshot(rule))
     return rule

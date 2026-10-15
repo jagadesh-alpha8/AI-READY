@@ -12,6 +12,7 @@ import type {
 import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage } from '../../utils/errors';
+import { AiBadge } from './AiBadge';
 
 /**
  * Stage 3.5: which institutions a benchmark applies to.
@@ -102,7 +103,7 @@ export const ApplicabilityRulesPanel: React.FC<{ code: string; sourcePackText: s
           <span className="badge badge-neutral" title="priority">#{r.priority}</span>
           <span className={`badge ${RESULT_BADGE[r.result]}`}>{RESULT_LABEL[r.result]}</span>
           <div className="min-w-0 flex-1">
-            <p className="text-ink-900">when {describe(r)}</p>
+            <p className="text-ink-900">when {describe(r)} <AiBadge model={r.ai_model} /></p>
             {r.reason && <p className="text-ink-500">Reason: {r.reason}</p>}
           </div>
           {editable && <button className="btn-secondary btn-sm" title="Delete" onClick={() => remove(r)}><Trash2 className="w-3.5 h-3.5" /></button>}

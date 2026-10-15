@@ -121,7 +121,7 @@ class MaturityDefinitionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MaturityDefinition
-        fields = ['level', 'level_label', 'definition', 'measurement_rule', 'is_placeholder',
+        fields = ['level', 'level_label', 'definition', 'measurement_rule', 'is_placeholder', 'ai_model',
                   'observable_requirements', 'minimum_evidence', 'outcome_expectations', 'non_examples',
                   'requires_manual_review', 'edited_by', 'edited_at']
         read_only_fields = fields
@@ -206,7 +206,7 @@ class EvidenceRuleSerializer(serializers.ModelSerializer):
         model = EvidenceRule
         fields = ['id', 'benchmark_code', 'requirement_code', 'level', 'evidence_type', 'evidence_type_name', 'title',
                   'description', 'mandatory', 'minimum_count', 'minimum_currency_months', 'scope_rule',
-                  'validation_method', 'validation_method_label', 'privacy_classification', 'created_by',
+                  'validation_method', 'validation_method_label', 'privacy_classification', 'ai_model', 'created_by',
                   'created_at', 'updated_at']
         read_only_fields = fields
 
@@ -241,8 +241,8 @@ class ApplicabilityRuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = ApplicabilityRule
         fields = ['id', 'benchmark_code', 'requirement_code', 'result', 'result_label', 'priority', 'institution_types',
-                  'autonomous_statuses', 'programme_types', 'approval_bodies', 'jurisdiction', 'reason', 'created_by',
-                  'created_at', 'updated_at']
+                  'autonomous_statuses', 'programme_types', 'approval_bodies', 'jurisdiction', 'reason', 'ai_model',
+                  'created_by', 'created_at', 'updated_at']
         read_only_fields = fields
 
 

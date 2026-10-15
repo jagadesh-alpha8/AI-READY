@@ -6,6 +6,7 @@ import type { BenchmarkEvidenceRules, EvidenceRule, EvidenceRuleInput, EvidenceT
 import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage } from '../../utils/errors';
+import { AiBadge } from './AiBadge';
 
 /**
  * Stage 3.4: what evidence proves each maturity level of a benchmark.
@@ -75,7 +76,7 @@ export const EvidenceRulesPanel: React.FC<{ code: string; benchmarkTypes: string
           <span className="badge badge-neutral">{r.level || 'all levels'}</span>
           <div className="min-w-0 flex-1">
             <p className="text-ink-900"><span className="font-mono text-ink-500 mr-1">{r.evidence_type}</span>{r.title}
-              {!r.mandatory && <span className="text-ink-500"> (optional)</span>}</p>
+              {!r.mandatory && <span className="text-ink-500"> (optional)</span>} <AiBadge model={r.ai_model} /></p>
             <p className="text-ink-500">
               at least {r.minimum_count}{r.minimum_currency_months ? ` · not older than ${r.minimum_currency_months} months` : ''}
               {' '}· {r.validation_method_label} · {r.privacy_classification}{r.scope_rule ? ` · scope: ${r.scope_rule}` : ''}

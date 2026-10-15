@@ -45,6 +45,34 @@ scoring does not use them yet.
 The catalogue list hides withdrawn benchmarks (`?status=all` shows them) and the pillar list hides pillars whose
 benchmarks are all withdrawn.
 
+## AI-written benchmark content (fully automatic)
+
+Decided 2026-10-15 (experts: "use AI for all", fully automatic): the AI writes each draft AI-QIF indicator's
+L3/L2/L1 (definition, measurement rule, observable requirements, minimum evidence, outcomes, non-examples),
+3-9 evidence rules (a mandatory one on every level), 1-3 applicability rules, target guidance and owner -- and
+that counts as the content, with no expert approval first.
+
+```
+python manage.py ai_draft_benchmarks                  # every AI-QIF draft still on template levels, one after another
+python manage.py ai_draft_benchmarks --queue          # one background job per indicator, in parallel on the routers
+python manage.py ai_draft_benchmarks AIQIF-C1.1       # one indicator; --redo to rewrite AI content again
+```
+
+Safeguards (`services/ai_drafting.py`):
+- The answer must match a JSON schema whose choices are the real catalogues (EV-01..12, institution and
+  programme types, statuses, approval bodies).
+- It is saved through the same services as a person's edit, so the same checks apply: no template text, distinct
+  levels, list and value limits, a mandatory rule per level.
+- A draft that fails any check is not saved; the indicator stays exactly as it was.
+- Every AI-written level and rule has `ai_model` (shown as an **AI-generated** badge in the Studio), is saved as
+  the `ai.drafter@system.ingage.local` account (inactive, cannot sign in), and is audited (`benchmark.ai_drafted`
+  with the model's rationale).
+- A level or rule a person wrote is never overwritten. A person editing AI content clears its `ai_model`.
+- Only drafts are written; creating and publishing a release is still a separate step.
+
+Migration `0014_ai_drafting` also seeds the 12 evidence types (EV-01..12) on databases that never imported the
+Source Pack.
+
 ## Benchmark catalogue (stage 3.1, replaced by AI-QIF)
 
 ```

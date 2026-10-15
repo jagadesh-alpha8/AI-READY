@@ -119,6 +119,8 @@ export interface MaturityLevel {
   definition: string;
   measurement_rule: string;
   is_placeholder: boolean;
+  /** Model name when AI wrote it (fully automatic drafting); empty = a person. */
+  ai_model?: string;
   observable_requirements?: string[];
 }
 
@@ -323,6 +325,8 @@ export function getHistory(code: string) {
 // -- evidence rules (stage 3.4) ------------------------------------------------------
 
 export interface EvidenceRule {
+  /** Model name when AI wrote it; empty = a person. */
+  ai_model?: string;
   id: string;
   benchmark_code: string | null;
   requirement_code: string | null;
@@ -377,6 +381,8 @@ export interface ApplicabilityReference {
 }
 
 export interface ApplicabilityRule {
+  /** Model name when AI wrote it; empty = a person. */
+  ai_model?: string;
   id: string;
   benchmark_code: string | null;
   requirement_code: string | null;
