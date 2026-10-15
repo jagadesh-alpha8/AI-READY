@@ -228,6 +228,8 @@ def publish(release, user):
             previous.save()
             _audit(user, 'release.retired', previous, {'replaced_by': release.release_label})
         _audit(user, 'release.published', release, {'content_hash': release.content_hash, 'items': len(hashes)})
+        from .candidates import mark_published
+        mark_published(release)  # approved candidates for these benchmarks are now in effect
     return release
 
 

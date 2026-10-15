@@ -45,10 +45,22 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    environment:
+      # Shared cache (login throttles, admin-login limit, watcher lock) in Redis db 1.
+      DJANGO_CACHE_URL: redis://redis:6379/1
+      # nginx sits in front: take the client address from X-Forwarded-For.
+      TRUSTED_PROXY_COUNT: "1"
     volumes:
       - media_data:/app/media
       - static_data:/app/staticfiles
     command: ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"]
+    # "Is the API actually serving?" -- database + cache via /api/v1/health.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request as u; u.urlopen(u.Request('http://127.0.0.1:8000/api/v1/health', headers={'Host': os.environ.get('ALLOWED_HOSTS','localhost').split(',')[0].strip(), 'X-Forwarded-Proto': 'https'}), timeout=8)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   celery:
     image: ghcr.io/jagadesh-alpha8/ai-ready-backend:latest
@@ -62,6 +74,8 @@ services:
         condition: service_started
       backend:
         condition: service_started
+    environment:
+      DJANGO_CACHE_URL: redis://redis:6379/1
     volumes:
       - media_data:/app/media
       # PaddleOCR downloads its models on first use into ~/.paddlex; keep them

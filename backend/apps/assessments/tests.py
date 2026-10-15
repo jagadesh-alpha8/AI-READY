@@ -275,3 +275,150 @@ class AssessmentApiTests(_AssessmentFixture, APITestCase):
         self.assertTrue(ScoringModel.objects.filter(code='BM-SCORE-1', active=True).exists())
         self.assertFalse(EvidenceItem.objects.exists())
         self.assertTrue(os.path.isdir(self.media))
+
+
+# -- Stage 6: improvement plan ------------------------------------------------------------
+from . import plan  # noqa: E402
+from .models import AssessmentGap, Initiative, Task, TransformationTemplate  # noqa: E402
+
+
+class _FinalizedFixture(_AssessmentFixture):
+    """ACA-05 reaches L3 (target L2) with outcome 60, then the cycle is finalized."""
+
+    def setUp(self):
+        super().setUp()
+        self.c = self.cycle()
+        svc.open_cycle(self.c, self.user)
+        self.item = self.upload(self.ab(self.c), RULE)
+        svc.review_evidence(self.item, self.user, GOOD_REVIEW)
+        svc.submit_cycle(self.c, self.admin)
+        svc.score_cycle(self.c, self.user)
+        svc.update_assessment(self.ab(self.c), self.user, {'outcome_score': 60, 'outcome_note': 'Similarity index 18%'})
+        svc.finalize_cycle(self.c, self.user)
+        self.c.refresh_from_db()
+
+
+class PlanTests(_FinalizedFixture, TestCase):
+    def test_plan_needs_a_finalized_cycle(self):
+        other = self.cycle()
+        with self.assertRaisesMessage(plan.PlanError, 'finalized'):
+            plan.generate_plan(other, self.user)
+
+    def test_gaps_initiatives_and_tasks_follow_the_scores(self):
+        made = plan.generate_plan(self.c, self.user)
+        gaps = {g.gap_type: g for g in AssessmentGap.objects.all()}
+        self.assertEqual(set(gaps), {'capability', 'outcome'})  # L3 vs target L2; outcome 60 < 70; compliance 100
+        self.assertEqual(gaps['capability'].severity, 'medium')
+        self.assertIn('reached L3, target L2', gaps['capability'].description)
+        self.assertEqual(gaps['outcome'].severity, 'medium')
+        ini = gaps['capability'].initiatives.get()
+        self.assertEqual([t.title for t in ini.tasks.all()], ['Provide: Similarity-check reports for theses (L2)'])
+        self.assertEqual((ini.target_date - self.c.finalized_at.date()).days, 90)
+        self.assertEqual(made, {'gaps': 2, 'initiatives': 2, 'tasks': 2})
+        with self.assertRaisesMessage(plan.PlanError, 'already has a plan'):
+            plan.generate_plan(self.c, self.user)
+
+    def test_template_shapes_the_initiative(self):
+        TransformationTemplate.objects.create(
+            benchmark=self.aca, gap_type='capability', title='Run similarity checks on every thesis',
+            intervention='Adopt a similarity tool and route every thesis through it.',
+            expected_evidence='Similarity reports for all theses of the year',
+            expected_outcome='Average similarity below 10%', tasks=['Buy licence', 'Train guides', 'Check theses'])
+        plan.generate_plan(self.c, self.user)
+        ini = AssessmentGap.objects.get(gap_type='capability').initiatives.get()
+        self.assertEqual(ini.title, 'Run similarity checks on every thesis')
+        self.assertEqual([t.title for t in ini.tasks.all()], ['Buy licence', 'Train guides', 'Check theses'])
+
+    def test_gap_closes_only_with_accepted_evidence(self):
+        plan.generate_plan(self.c, self.user)
+        gap = AssessmentGap.objects.get(gap_type='capability')
+        with self.assertRaisesMessage(plan.PlanError, 'after accepted evidence'):
+            plan.set_gap_status(gap, self.user, 'closed')
+        plan.set_gap_status(gap, self.user, 'in_progress')
+        pending = EvidenceItem.objects.create(
+            cycle=self.c, applicable=self.ab(self.c), rule_key='x', evidence_type=self.item.evidence_type,
+            title='Draft report', source_url='https://x.edu/r', submitted_by=self.admin)
+        with self.assertRaisesMessage(plan.PlanError, 'Only accepted evidence'):
+            plan.validate_gap(gap, self.user, pending, 'n')
+        with self.assertRaisesMessage(plan.PlanError, 'Say how'):
+            plan.validate_gap(gap, self.user, self.item, '')
+        plan.validate_gap(gap, self.user, self.item, 'Reports for all 2026 theses accepted.')
+        plan.set_gap_status(gap, self.user, 'closed')
+        gap.refresh_from_db()
+        self.assertEqual((gap.status, gap.closing_evidence), ('closed', self.item))
+        with self.assertRaisesMessage(plan.PlanError, 'cannot be reopened'):
+            plan.set_gap_status(gap, self.user, 'open')
+
+
+class PlanApiTests(_FinalizedFixture, APITestCase):
+    def _login(self, email):
+        token = self.client.post('/api/v1/auth/login/', {'email': email, 'password': PASSWORD}).data['access_token']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def test_staff_generate_college_runs_the_tasks(self):
+        url = f'/api/v1/assessments/cycles/{self.c.pk}/plan'
+        self._login('iqac@mkce.edu')
+        self.assertEqual(self.client.post(url).status_code, 403)
+        self._login('x@ingage.ai')
+        r = self.client.post(url)
+        self.assertEqual((r.status_code, r.data['summary']['gaps']), (201, 2))
+        self._login('iqac@mkce.edu')
+        plan_data = self.client.get(url).data
+        task = plan_data['gaps'][0]['initiatives'][0]['tasks'][0]
+        r = self.client.patch(f'/api/v1/assessments/tasks/{task["id"]}',
+                              {'status': 'active', 'owner': 'IQAC coordinator', 'due_date': '2026-12-31'}, format='json')
+        self.assertEqual((r.status_code, r.data['status'], r.data['owner']), (200, 'active', 'IQAC coordinator'))
+        ini = plan_data['gaps'][0]['initiatives'][0]['id']
+        r = self.client.post(f'/api/v1/assessments/initiatives/{ini}/tasks', {'title': 'Brief the HoDs'}, format='json')
+        self.assertEqual(r.status_code, 201)
+        gap = plan_data['gaps'][0]['id']
+        self.assertEqual(self.client.patch(f'/api/v1/assessments/gaps/{gap}', {'status': 'planned'},
+                                           format='json').status_code, 403)  # gap decisions are staff-only
+        User.objects.create_user(email='v@mkce.edu', username='v', password=PASSWORD, role='viewer',
+                                 institution=self.college)
+        self._login('v@mkce.edu')
+        self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertEqual(self.client.patch(f'/api/v1/assessments/tasks/{task["id"]}', {'status': 'complete'},
+                                           format='json').status_code, 403)
+
+    def test_templates_are_staff_only(self):
+        self._login('x@ingage.ai')
+        r = self.client.post('/api/v1/assessments/templates', {
+            'benchmark_code': 'ACA-05', 'gap_type': 'outcome', 'title': 'Lower similarity',
+            'intervention': 'Coach supervisors.', 'expected_evidence': 'Annual similarity report',
+            'expected_outcome': 'Similarity under 10%'}, format='json')
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(self.client.post('/api/v1/assessments/templates', {
+            'benchmark_code': 'ACA-05', 'gap_type': 'outcome', 'title': 'Dup', 'intervention': 'x',
+            'expected_evidence': 'x', 'expected_outcome': 'x'}, format='json').status_code, 400)
+        self._login('iqac@mkce.edu')
+        self.assertEqual(self.client.get('/api/v1/assessments/templates').status_code, 403)
+
+
+class AuditDocumentEvidenceTests(_AssessmentFixture, APITestCase):
+    def test_a_sprint_document_can_be_reused_as_evidence(self):
+        from apps.documents.models import Document
+        from apps.sprints.models import Sprint
+        sprint = Sprint.objects.create(institution=self.college, name='Audit 2026')
+        doc = Document.objects.create(sprint=sprint, document_type='naac_ssr', title='SSR 2026',
+                                      original_filename='ssr.pdf', checksum='b' * 64,
+                                      file=SimpleUploadedFile('ssr.pdf', b'%PDF-1.4 ssr'))
+        c = self.cycle()
+        svc.open_cycle(c, self.user)
+        token = self.client.post('/api/v1/auth/login/', {'email': 'iqac@mkce.edu', 'password': PASSWORD}).data['access_token']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        listed = self.client.get(f'/api/v1/assessments/cycles/{c.pk}/sprint-documents').data
+        self.assertEqual([d['id'] for d in listed], [str(doc.pk)])
+        key = svc.rule_key({**RULE, 'level': ''})
+        r = self.client.post(f'/api/v1/assessments/cycles/{c.pk}/benchmarks/ACA-05/evidence',
+                             {'rule_key': key, 'title': 'SSR section 2.5', 'sprint_document': str(doc.pk),
+                              'issued_on': '2026-01-10'}, format='multipart')
+        self.assertEqual((r.status_code, r.data['from_audit'], r.data['has_file']), (201, True, True))
+        self.assertEqual(r.data['file_sha256'], 'b' * 64)
+        self.assertEqual(self.client.get(f'/api/v1/assessments/evidence/{r.data["id"]}/file').status_code, 200)
+        other = Institution.objects.create(name='Other', city='X', state='TN')
+        foreign = Document.objects.create(sprint=Sprint.objects.create(institution=other), document_type='aqar',
+                                          file=SimpleUploadedFile('a.pdf', b'%PDF a'), checksum='c' * 64)
+        r = self.client.post(f'/api/v1/assessments/cycles/{c.pk}/benchmarks/ACA-05/evidence',
+                             {'rule_key': key, 'title': 'x', 'sprint_document': str(foreign.pk)}, format='multipart')
+        self.assertIn('not found for this college', r.data['detail'])

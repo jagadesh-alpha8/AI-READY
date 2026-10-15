@@ -786,3 +786,87 @@ class WatcherRun(models.Model):
 
     class Meta:
         ordering = ['-started_at']
+
+
+# -- Stage 4b: candidates from watcher changes -----------------------------------------
+
+class BenchmarkCandidate(models.Model):
+    """schema: benchmark_candidates. A proposed change to the library, kept apart
+    from approved data until domain experts approve it. Created by the watcher
+    from a material change event, or by staff. Never edits a benchmark itself:
+    an approved candidate lets staff reopen the benchmark as a new draft, which
+    then goes through the normal readiness + release approval."""
+    class Type(models.TextChoices):
+        UPDATE_BENCHMARK = 'update_benchmark', 'Update a benchmark'
+        NEW_BENCHMARK = 'new_benchmark', 'New benchmark'
+        RETIRE_BENCHMARK = 'retire_benchmark', 'Retire a benchmark'
+        SOURCE_UPDATE = 'source_update', 'Review a source change'
+
+    class Status(models.TextChoices):
+        RESEARCH = 'research', 'Research'
+        REVIEW = 'review', 'In expert review'
+        APPROVED = 'approved', 'Approved'
+        REJECTED = 'rejected', 'Rejected'
+        PUBLISHED = 'published', 'Published in a release'
+
+    class Role(models.TextChoices):
+        ACCREDITATION = 'accreditation', 'Accreditation'
+        ACADEMIC = 'academic', 'Academic'
+        LEGAL = 'legal', 'Legal'
+        AI_GOVERNANCE = 'ai_governance', 'AI governance'
+        CYBERSECURITY = 'cybersecurity', 'Cybersecurity'
+        PRODUCT = 'product', 'Product'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    change_event = models.ForeignKey(SourceChangeEvent, on_delete=models.PROTECT, null=True, blank=True,
+                                     related_name='candidates')
+    source_document = models.ForeignKey(SourceDocument, on_delete=models.PROTECT, null=True, blank=True,
+                                        related_name='benchmark_candidates')
+    benchmark = models.ForeignKey(Benchmark, on_delete=models.PROTECT, null=True, blank=True,
+                                  related_name='candidates', help_text='The benchmark to update / retire.')
+    capability = models.ForeignKey(Capability, on_delete=models.PROTECT, null=True, blank=True, related_name='+')
+    candidate_type = models.CharField(max_length=20, choices=Type.choices)
+    title = models.CharField(max_length=300)
+    proposed_kind = models.CharField(max_length=20, choices=RequirementKind.choices, default=RequirementKind.MANDATORY)
+    source_rationale = models.TextField()
+    proposed_maturity = models.JSONField(default=dict, blank=True)
+    proposed_evidence_rules = models.JSONField(default=list, blank=True)
+    emergence_score = models.DecimalField(max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    feasibility_score = models.DecimalField(max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    duplication_score = models.DecimalField(max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    required_roles = models.JSONField(default=list, help_text='Expert roles that must each approve.')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RESEARCH)
+    created_by = models.CharField(max_length=150, help_text='User email, or "watcher".')
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.get_candidate_type_display()}: {self.title[:60]}'
+
+
+class CandidateReview(models.Model):
+    """schema: candidate_reviews. Append-only: a reviewer can review again, the
+    latest review per role counts."""
+    class Decision(models.TextChoices):
+        APPROVE = 'approve', 'Approve'
+        REJECT = 'reject', 'Reject'
+        NEEDS_RESEARCH = 'needs_research', 'Needs research'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    candidate = models.ForeignKey(BenchmarkCandidate, on_delete=models.CASCADE, related_name='reviews')
+    reviewer = models.ForeignKey('accounts.User', on_delete=models.PROTECT, related_name='+')
+    reviewer_role = models.CharField(max_length=20, choices=BenchmarkCandidate.Role.choices)
+    decision = models.CharField(max_length=20, choices=Decision.choices)
+    notes = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-reviewed_at']
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError('Candidate reviews are append-only; add a new review instead.')
+        super().save(*args, **kwargs)

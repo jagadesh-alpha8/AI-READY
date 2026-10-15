@@ -323,3 +323,46 @@ class WatcherRunSerializer(serializers.ModelSerializer):
         fields = ['id', 'started_at', 'completed_at', 'status', 'trigger', 'feeds_checked', 'changes_detected',
                   'candidates_created', 'failure_detail']
         read_only_fields = fields
+
+
+# -- Stage 4b: benchmark candidates -----------------------------------------------------
+from .models import BenchmarkCandidate, CandidateReview  # noqa: E402
+
+
+class CandidateReviewSerializer(serializers.ModelSerializer):
+    reviewer = serializers.CharField(source='reviewer.email', read_only=True)
+    reviewer_role_label = serializers.CharField(source='get_reviewer_role_display', read_only=True)
+    decision_label = serializers.CharField(source='get_decision_display', read_only=True)
+
+    class Meta:
+        model = CandidateReview
+        fields = ['id', 'reviewer', 'reviewer_role', 'reviewer_role_label', 'decision', 'decision_label', 'notes',
+                  'reviewed_at']
+        read_only_fields = fields
+
+
+class BenchmarkCandidateSerializer(serializers.ModelSerializer):
+    type_label = serializers.CharField(source='get_candidate_type_display', read_only=True)
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+    benchmark_code = serializers.CharField(source='benchmark.benchmark_code', default=None, read_only=True)
+    benchmark_title = serializers.CharField(source='benchmark.title', default=None, read_only=True)
+    benchmark_status = serializers.CharField(source='benchmark.status', default=None, read_only=True)
+    source_code = serializers.CharField(source='source_document.source_code', default=None, read_only=True)
+    change_event = serializers.UUIDField(source='change_event_id', read_only=True)
+    reviews = CandidateReviewSerializer(many=True, read_only=True)
+    role_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BenchmarkCandidate
+        fields = ['id', 'candidate_type', 'type_label', 'title', 'status', 'status_label', 'benchmark_code',
+                  'benchmark_title', 'benchmark_status', 'source_code', 'change_event', 'proposed_kind',
+                  'source_rationale', 'proposed_maturity', 'proposed_evidence_rules', 'emergence_score',
+                  'feasibility_score', 'duplication_score', 'required_roles', 'role_status', 'created_by',
+                  'created_at', 'decided_at', 'reviews']
+        read_only_fields = fields
+
+    def get_role_status(self, obj):
+        latest = {}
+        for r in sorted(obj.reviews.all(), key=lambda r: r.reviewed_at):
+            latest[r.reviewer_role] = {'decision': r.decision, 'reviewer': r.reviewer.email}
+        return {role: latest.get(role) for role in obj.required_roles}

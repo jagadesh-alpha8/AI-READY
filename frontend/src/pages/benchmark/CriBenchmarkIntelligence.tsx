@@ -24,12 +24,9 @@ import type {
  * the gap engine, and the recommendation generators. Nothing is seeded.
  *
  * ⚠ On the name: this reads the platform's **pillar-based** CRI — eight
- * pillars scored from confirmed facts. The specification's §13 describes a
- * future CRI computed from an approved *benchmark library* instead. That
- * library has no backend yet (no model, no table, no endpoint), so there is
- * nothing benchmark-shaped to show. Rather than render a seeded stand-in and
- * call it intelligence, this page shows the engine that actually runs and
- * says plainly what is still to come.
+ * pillars scored from confirmed facts. Scores against the approved
+ * *benchmark library* (spec §13) live on the Benchmark Assessment page
+ * (apps/assessments), which scores a college against a published release.
  */
 
 type Tab = 'score' | 'gaps' | 'roadmap';

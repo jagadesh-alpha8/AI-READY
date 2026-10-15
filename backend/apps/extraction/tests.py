@@ -1167,15 +1167,16 @@ class PDFPageReaderTests(TestCase):
 
     def test_unsupported_format_is_reported_honestly_not_silently_empty(self):
         document = self._make_document(
-            b'name,value\nfoo,1\n', filename='enrolment.csv',
-            document_type='student_strength', content_type='text/csv',
+            b'\xd0\xcf\x11\xe0 old word file', filename='enrolment.doc',
+            document_type='student_strength', content_type='application/msword',
         )
         result = self.reader.read_pages(document)
 
         self.assertFalse(result['format_supported'])
         self.assertEqual(result['pages'], [])
         self.assertIsNone(result['page_count'])
-        self.assertIn('.csv', result['format_note'])
+        self.assertIn('.doc', result['format_note'])
+        self.assertIn('.docx or PDF', result['format_note'])  # tells the user what to do
 
     def test_configured_ocr_provider_is_consulted_for_low_text_pages(self):
         fake_ocr_provider = MagicMock()
@@ -2548,3 +2549,93 @@ class ModeSwitchAfterRestartTests(SimpleTestCase):
         result = self._start('turbo')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("AI_PROCESSING_MODE='turbo' is not valid", result.stderr)
+
+
+class OfficeAndImageReaderTests(TestCase):
+    """Word / Excel / CSV / image uploads are read into the same page shape as a PDF."""
+
+    def setUp(self):
+        institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
+        self.sprint = Sprint.objects.create(institution=institution, mode=Sprint.SprintMode.VERIFIED_CRI)
+
+    def _doc(self, content, filename):
+        return Document.objects.create(
+            sprint=self.sprint, document_type='faculty_master_list', file=SimpleUploadedFile(filename, content),
+            original_filename=filename, status=Document.Status.UPLOADED)
+
+    def test_docx_paragraphs_and_tables(self):
+        import io
+        from docx import Document as Docx
+        d = Docx()
+        d.add_paragraph('Total faculty strength is 312 as on 31 March 2026.')
+        t = d.add_table(rows=2, cols=2)
+        t.cell(0, 0).text, t.cell(0, 1).text = 'Department', 'Faculty'
+        t.cell(1, 0).text, t.cell(1, 1).text = 'CSE', '64'
+        buf = io.BytesIO()
+        d.save(buf)
+        result = PDFPageReader().read_pages(self._doc(buf.getvalue(), 'faculty.docx'))
+        self.assertTrue(result['format_supported'])
+        text = result['pages'][0]['text']
+        self.assertIn('Total faculty strength is 312', text)
+        self.assertIn('CSE | 64', text)
+        self.assertEqual(result['pages'][0]['page_number'], 1)
+
+    def test_xlsx_one_page_per_sheet(self):
+        import io
+        import openpyxl
+        wb = openpyxl.Workbook()
+        wb.active.title = 'Faculty'
+        wb.active.append(['Name', 'Designation'])
+        wb.active.append(['R. Priya', 'Assistant Professor'])
+        wb.create_sheet('Labs').append(['AI Lab', 40])
+        buf = io.BytesIO()
+        wb.save(buf)
+        result = PDFPageReader().read_pages(self._doc(buf.getvalue(), 'records.xlsx'))
+        self.assertEqual(result['page_count'], 2)
+        self.assertIn('Sheet: Faculty', result['pages'][0]['text'])
+        self.assertIn('R. Priya | Assistant Professor', result['pages'][0]['text'])
+        self.assertIn('AI Lab | 40', result['pages'][1]['text'])
+
+    def test_csv(self):
+        result = PDFPageReader().read_pages(self._doc(b'year,students\n2025-26,4120\n', 'strength.csv'))
+        self.assertIn('2025-26 | 4120', result['pages'][0]['text'])
+
+    def test_image_is_read_by_ocr(self):
+        import io
+        from PIL import Image
+        from apps.extraction.services.base import OCRProvider
+
+        class FakeOCR(OCRProvider):
+            def extract_text(self, document, page_number, image=None):
+                self.shape = image.shape
+                return 'Accreditation certificate valid till 2029'
+
+        buf = io.BytesIO()
+        Image.new('RGB', (40, 20), 'white').save(buf, format='PNG')
+        ocr = FakeOCR()
+        result = PDFPageReader(ocr_provider=ocr).read_pages(self._doc(buf.getvalue(), 'certificate.png'))
+        self.assertEqual(ocr.shape, (20, 40, 3))
+        self.assertEqual(result['pages'][0]['text'], 'Accreditation certificate valid till 2029')
+        self.assertEqual(result['pages'][0]['text_source'], 'ocr')
+
+    def test_image_without_ocr_says_so(self):
+        import io
+        from PIL import Image
+        from apps.extraction.services import stub
+        buf = io.BytesIO()
+        Image.new('RGB', (10, 10)).save(buf, format='JPEG')
+        result = PDFPageReader(ocr_provider=stub.NullOCRProvider()).read_pages(self._doc(buf.getvalue(), 'scan.jpg'))
+        self.assertIn('OCR is not available', result['ocr_warnings'][0])
+
+    def test_unreadable_type_is_shown_on_the_document(self):
+        from apps.extraction.models import ExtractionJob
+        from apps.extraction.services import stub
+        from apps.extraction.services.pipeline import ExtractionPipeline
+        doc = self._doc(b'PK zip bytes', 'bundle.zip')
+        job = ExtractionJob.objects.create(sprint=self.sprint, document=doc)
+        pipe = ExtractionPipeline(classifier=stub.KnownMetadataClassifier(), fact_extractor=stub.NullFactExtractor(),
+                                  conflict_checker=stub.NullConflictChecker())
+        pipe.run(job)
+        doc.refresh_from_db()
+        self.assertEqual((doc.page_count, doc.processing_status), (0, 'unsupported_format'))
+        self.assertIn('ZIP archives are not unpacked', doc.ocr_warnings[0])

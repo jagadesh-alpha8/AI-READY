@@ -20,3 +20,12 @@ export function refreshAccessToken(refresh: string) {
 export function changePassword(oldPassword: string, newPassword: string) {
   return api.post('/auth/change-password', { old_password: oldPassword, new_password: newPassword });
 }
+
+/** Always answers the same way, whether or not the email has an account. */
+export function requestPasswordReset(email: string) {
+  return api.post<{ detail: string }>('/auth/password-reset', { email });
+}
+
+export function confirmPasswordReset(uid: string, token: string, newPassword: string) {
+  return api.post<{ detail: string }>('/auth/password-reset/confirm', { uid, token, new_password: newPassword });
+}

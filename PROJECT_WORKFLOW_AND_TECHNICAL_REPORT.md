@@ -54,9 +54,11 @@
 > | **AI usage & cost tracking** — an `AIUsage` row per AI call, priced at call time; per-sprint and platform billing views | §3.15, §6, §7, §9.5 |
 > | **`apps.benchmarks` added** — Source Library, requirement drafting, benchmark catalogue, levels, evidence rules, applicability, releases, and the **daily source watcher** (the first Celery Beat job) | §1, §2.4, §3.17, §3.18, §5, §6, §7, §11, §12, §13, §19, §23 |
 > | **`apps.assessments` added** — benchmark assessments of a college: profile, cycles, evidence upload and review, four separate scores, finalize | §1, §2.4, §3.19, §5, §6, §7, §19 |
+> | **Domain + HTTPS** — `https://ai.ingageedutech.com` (Let's Encrypt), the four routers on HTTPS too | §14 |
+> | **Pending-work round (15 Oct)** — login rate limits, API docs off in production, admin login limit, health check + post-deploy check, Redis cache; **benchmark candidates** from watcher changes (stage 4b); **improvement plan** (stage 6: gaps, templates, initiatives, tasks); audit documents reusable as evidence; Word / Excel / CSV / image reading; Benchmark Studio seed tabs and prototype data removed | §1, §3.12, §3.18–§3.21, §7, §10, §14, §17, §25, §27 |
 >
 > Backend test count moved **481 → 498** (Institution DNA) **→ 578** (vector store)
-> **→ 779** (now); migrations **20 → 21 → 22 → 39**; Django apps **11 → 12 → 14**.
+> **→ 779 → 816** (now); migrations **20 → 21 → 22 → 39 → 42**; Django apps **11 → 12 → 14**.
 
 ---
 
@@ -198,7 +200,7 @@ of "sees everything", consumed by `apps/accounts/permissions.py`.
 
 | # | Feature | App | Status |
 |---|---|---|---|
-| 1 | JWT auth (login / refresh / logout-blacklist / me / change-password) | `accounts` | `[IMPLEMENTED]` |
+| 1 | JWT auth (login / refresh / logout-blacklist / me / change-password / forgot password) | `accounts` | `[IMPLEMENTED]` |
 | 2 | Institution CRUD | `institutions` | `[IMPLEMENTED]` |
 | 2a | **Institution DNA** — profile + leadership + departments + IT systems + digital-maturity rating | `institutions` | `[IMPLEMENTED]` |
 | 3 | Sprint lifecycle state machine (10 statuses) + one-call overview | `sprints` | `[IMPLEMENTED]` |
@@ -208,7 +210,7 @@ of "sees everything", consumed by `apps/accounts/permissions.py`.
 | 7 | Multi-provider AI (OpenAI / Anthropic / OpenAI-compatible) | `extraction` | `[IMPLEMENTED]` |
 | 7a | **AI processing modes** — `single` endpoint or `multi_router` (4 routers, Redis-leased slots, cooldown on failure) | `extraction`, `config` | `[IMPLEMENTED]` — see §3.14 |
 | 7b | **AI usage & cost tracking** — one `AIUsage` row per call, priced at call time; sprint and platform billing views | `extraction` | `[IMPLEMENTED]` — see §3.15 |
-| 8 | PDF page reading via **PyMuPDF**, **PaddleOCR** for scanned pages, header/footer cleanup | `extraction` | `[IMPLEMENTED]` — PDF only; other formats still unread (§10.1) |
+| 8 | Document reading: PDF via **PyMuPDF** + **PaddleOCR** for scanned pages; **Word (.docx), Excel (.xlsx), CSV and images** (OCR); old .doc/.xls and .zip get a clear "can't read" notice | `extraction` | `[IMPLEMENTED]` — see §10.1 |
 | 9 | Fact review: confirm/correct/reject/request-evidence + history | `facts` | `[IMPLEMENTED]` |
 | 10 | Gap detection (5 types) + AI conflict adjudication | `gaps`, `extraction` | `[IMPLEMENTED]` |
 | 11 | 8-pillar CRI scoring engine + run history | `scoring` | `[IMPLEMENTED]` |
@@ -226,9 +228,11 @@ of "sees everything", consumed by `apps/accounts/permissions.py`.
 | 17 | Celery Beat / scheduled tasks | `config`, `benchmarks` | `[IMPLEMENTED]`, **off by default** — one job, the daily source watcher, scheduled only when `WATCHER_ENABLED=true` (§11) |
 | 17a | **Benchmark library** — source register, versioned source files, AI-drafted requirements, catalogue, linking, L3/L2/L1 levels, evidence rules, applicability rules, versioned releases with four-eyes approval | `benchmarks` | `[IMPLEMENTED]` (backend + Studio UI) — **content is still placeholder**: 60 imported benchmarks share identical placeholder levels, and no release is published yet. See §3.17 |
 | 17b | **Daily source watcher** — snapshots of official pages, change events with importance and impact, human review | `benchmarks` | `[IMPLEMENTED]` — every feed starts disabled. See §3.18 |
-| 17c | **Benchmark assessment** — college profile, assessment cycles on the published release, evidence upload + review, four separate scores, finalize | `assessments` | `[IMPLEMENTED]` — see §3.19. Gaps / transformation templates from it are not built |
+| 17b2 | **Benchmark candidates** — material watcher changes become proposed library changes, approved by expert role (a different person per role) | `benchmarks` | `[IMPLEMENTED]` — see §3.20 |
+| 17c | **Benchmark assessment** — college profile, assessment cycles on the published release, evidence upload + review (incl. reusing audit documents), four separate scores, finalize | `assessments` | `[IMPLEMENTED]` — see §3.19 |
+| 17d | **Improvement plan** — typed gaps from a finalized assessment, expert templates, initiatives and tasks; gaps close only with accepted evidence | `assessments` | `[IMPLEMENTED]` — see §3.21 |
 | 18 | User registration / self-signup | — | **Not found in the codebase.** Admins create users (`/api/v1/users`, §3.16); there is no self-signup |
-| 19 | Password reset by email | — | **Not found in the codebase** — only authenticated `change-password` exists |
+| 19 | Password reset by email | `accounts/password_reset.py` | `[IMPLEMENTED]` — emailed one-time link (1 hour), same answer for unknown emails, rate-limited, signs out everywhere |
 | 20 | Email/notification sending | — | **Not found in the codebase** — no mail backend configured |
 
 ## Technology stack (summary — full table in §21)
@@ -665,7 +669,8 @@ can be assessed yet. The machinery is built; the expert content is not.
 - **Frontend:** `pages/auth/Login.tsx`, `context/AuthContext.tsx`, `api/client.ts`.
 - **API:** `POST /auth/login` → `{access_token, refresh_token, user}`;
   `GET /auth/me`; `POST /auth/logout` (blacklists the refresh token, returns `205`);
-  `POST /auth/refresh`; `POST /auth/change-password`.
+  `POST /auth/refresh`; `POST /auth/change-password`; `POST /auth/password-reset`;
+  `POST /auth/password-reset/confirm`.
 - **Backend:** `apps/accounts/views.py`, `serializers.py`, `tokens.py`.
 - **Database:** `accounts_user`, plus SimpleJWT's `token_blacklist_*` tables.
 - **External services:** none.
@@ -1010,16 +1015,13 @@ rather than inventing what the backend cannot supply:
 | Reminders | `/reminders` | What is waiting on whom, computed from the sprint's state | Nothing is **sent** — no email provider, no notification job |
 | Compliance Mapping | `/compliance` | Which accreditation-relevant documents the sprint holds or lacks; only types whose name identifies a framework (`naac_ssr` → NAAC) are claimed | No criterion-level coverage — no official criteria lists are loaded |
 | UAT Readiness | `/uat-readiness` | Hand-over checks computed from the sprint (documents processed, facts reviewed, blocking gaps, baseline, report) | Cannot record a client sign-off |
-| **Benchmark Studio** | `/benchmark-studio` | **InGage staff only** (frontend gate + `IsInGageStaff` on every API). Seven real tabs — Catalogue, Requirements, Applicability, Levels, Sources, Releases, Watcher (§3.17–§3.18) | **Editor, Approvals and AI candidates** still render the prototype's 12 seed benchmarks (`data/benchmark/seed.ts`); editing, approving and publishing there change nothing, and the page says so |
+| **Benchmark Studio** | `/benchmark-studio` | **InGage staff only** (frontend gate + `IsInGageStaff` on every API). Eight real tabs — Catalogue, Requirements, Applicability, Levels, Sources, Releases, Watcher, Candidates (§3.17–§3.20) | — (the prototype's seed-data Editor / Approvals / AI-candidates tabs were removed on 15 Oct) |
 
-### What is left of the prototype's data
+### The prototype's data is gone
 
-| File | State |
-|---|---|
-| `data/benchmark/seed.ts`, `types.ts` | Used only by the three seeded Studio tabs |
-| `data/benchmark/scoring.ts` | `validateBenchmark`, `canEditBenchmark`, the adversarial critic and impact simulator are still used by those tabs. **`calculateCRI` — the prototype's second CRI engine — is no longer called anywhere**, so the "two incompatible CRI models on screen" problem is gone |
-| `data/workspaceDemo.ts` (237 L) | **Imported by nothing** — dead since the rewiring (§25) |
-| `components/DemoDataNotice.tsx` | **Rendered by nothing** — only mentioned in a comment in `App.tsx` |
+`frontend/src/data/` (seed benchmarks, the in-browser CRI engine, workspace demo
+content) and `components/DemoDataNotice.tsx` were deleted on 15 Oct 2026 once
+nothing used them. **No screen in the product renders sample data any more.**
 
 > ⚠️ **The maturity levels are numbered in reverse: `L1` is the HIGHEST
 > (Advanced), `L3` the lowest (Foundational).** The prototype's convention was kept
@@ -1220,9 +1222,8 @@ applicability text, no requirement is approved, and no release is published.
   synchronous) and "Check all now" (queued) work without the schedule.
   `manage.py run_source_watcher --codes … --dry-run --include-disabled` tries pages
   without saving anything.
-- **Not built:** turning a change into benchmark candidates for review
-  (`benchmark_candidates`, `candidate_reviews` in the schema). `WatcherRun.candidates_created`
-  is always 0.
+- **Candidates:** material changes now become benchmark candidates for expert review
+  (§3.20); `WatcherRun.candidates_created` counts them.
 
 ## 3.19 Benchmark assessment — stage 5 `[IMPLEMENTED]`
 
@@ -1255,10 +1256,55 @@ Evidence does not count if it is not accepted, has expired, or is older than the
 request's maximum age (an issue date is then required). Every score carries its
 reason in `detail`; "—" on the scorecard means *not calculated*, never zero.
 
-**Not built yet:** gaps and transformation templates from an assessment
-(`gaps`, `transformation_templates`, `initiatives`, `tasks` in the schema),
-AI-suggested evidence claims (`evidence_claims`), and comparing assessments across
-releases.
+**Reusing audit documents:** when uploading evidence, a college can pick a document
+it already uploaded in an AI Readiness Audit sprint (its own only); the file is
+served from there. This is the first link between the two halves of the product.
+
+**Not built yet:** AI-suggested evidence claims (`evidence_claims`), comparing
+assessments across releases, and a stated relationship between the pillar CRI and
+the benchmark scores on a client report.
+
+## 3.20 Benchmark candidates — stage 4b `[IMPLEMENTED]`
+
+`apps/benchmarks/services/candidates.py`, Studio › Candidates (schema:
+`benchmark_candidates`, `candidate_reviews`).
+
+- **From the watcher:** every change event with importance ≥ 50 (new document, new
+  version, content change, withdrawal) creates one *update benchmark* candidate per
+  benchmark linked to the changed source — or one *review this source* candidate when
+  nothing is linked yet — straight into expert review.
+- **Filtered automatically:** low-authority sources (intelligence signals, feed trust
+  < 50) are created as rejected; a candidate duplicating an open one is not created.
+- **By staff:** new / update / retire / source-review candidates, from any watcher
+  event or from scratch.
+- **Who approves:** by source and topic — regulatory → accreditation + legal;
+  accreditation bodies → accreditation + academic; AI or InGage-proposed benchmarks →
+  + AI governance + academic. **A different person per role**; any reject rejects;
+  "needs research" sends it back. Reviews are append-only and audited.
+- **Never automatic:** an approved candidate only lets staff reopen the benchmark as a
+  new draft; it is marked *published* when a release carrying that benchmark is
+  published (hook in `releases.publish`).
+
+## 3.21 Improvement plan — stage 6 `[IMPLEMENTED]`
+
+`apps/assessments/plan.py`, shown on the Benchmark Assessment page once a cycle is
+finalized (schema: `gaps`, `transformation_templates`, `initiatives`, `tasks`).
+
+| Gap | When | Severity |
+|---|---|---|
+| Capability | level below target | critical (no level, mandatory) / high (2+ short) / medium |
+| Compliance | compliance < 100 | critical / high (mandatory), medium (recommended), low |
+| Evidence | confidence < 60 with accepted evidence | medium |
+| Outcome | outcome < 70 | high (< 50) / medium |
+| Dependency | added by staff | — |
+
+Each gap gets an initiative due by severity (30 / 60 / 90 / 180 days): from the
+benchmark's **transformation template** for that gap type when experts wrote one,
+otherwise one task per unmet mandatory evidence request up to the target. The
+college runs initiatives and tasks (owners, dates, status, extra tasks); staff decide
+on gaps. **A gap is validated only by linking accepted evidence** for the same
+benchmark and college, and only a validated gap closes — the manager's rule "never
+close a gap without accepted evidence".
 
 ---
 
@@ -1450,7 +1496,8 @@ to `/login` (guarding against a redirect loop when already there).
 
 | Page or component | Purpose | APIs used | Important logic |
 |---|---|---|---|
-| `pages/auth/Login.tsx` (261) | Sign in | `POST /auth/login` | Still ships an **11-persona quick-login list with a hardcoded password** — see §17 |
+| `pages/auth/Login.tsx` | Sign in, "Forgot password?" link | `POST /auth/login` | Demo quick-login only in a dev build (`VITE_SHOW_DEMO_PERSONAS=true`) |
+| `pages/auth/PasswordReset.tsx` | `/forgot-password`, `/reset-password` (public) | `POST /auth/password-reset`, `/auth/password-reset/confirm` | — |
 | `pages/dashboard/Dashboard.tsx` (245) | Cross-sprint overview | `GET /dashboard` | Renders 7 metric tiles + sprint cards |
 | `pages/status/StatusDashboard.tsx` (318) | Build-progress report | — | **No API calls.** Every figure is a module-level constant; the headline counts are derived from that list rather than typed. Renders outside the app shell. See §25 |
 | `pages/evidence/EvidenceIntelligence.tsx` (355) | Evidence position for one sprint | documents, facts, gaps, sprints | Missing documents read from the backend's `missing_document` gaps — no frontend copy of the required list |
@@ -2090,6 +2137,8 @@ docstrings rather than as serializers).
 | POST | `/auth/logout` | Blacklist a refresh token | JWT | `{refresh}` | `205` empty |
 | GET | `/auth/me` | Current user | JWT | — | `200 User` |
 | POST | `/auth/change-password` | Change own password | JWT | `{old_password, new_password}` | `200 {detail}` |
+| POST | `/auth/password-reset` | Email a reset link | **None** | `{email}` | `200 {detail}` (same for unknown emails) |
+| POST | `/auth/password-reset/confirm` | Set a new password from the link | **None** | `{uid, token, new_password}` | `200 {detail}` |
 
 ### Users — `/api/v1/users`
 
@@ -2427,6 +2476,13 @@ sequenceDiagram
 - **Password change:** `POST /auth/change-password` — verifies `old_password`, runs
   `validate_password` against Django's four validators (similarity, min length,
   common-password list, numeric-only), then `set_password`.
+- **Forgot password:** `POST /auth/password-reset {email}` emails
+  `{FRONTEND_BASE_URL}/reset-password?uid=..&token=..` (Django's token: works once, expires after
+  `PASSWORD_RESET_TIMEOUT`, 1 hour); the answer is the same whether or not the email exists; limited to 10/hour per
+  address and 3/hour per email. `POST /auth/password-reset/confirm` runs the same validators, sets the password
+  and blacklists every refresh token of the user. Mail goes through Gmail SMTP (`EMAIL_HOST_USER` /
+  `EMAIL_HOST_PASSWORD`, an app password); `ADMIN_EMAILS` also receive server errors in production. Set both on
+  the server with `scripts/set-email-and-admin.sh`.
 - **Password reset by email:** **Not found in the codebase.**
 - **Password storage:** Django's default PBKDF2 hasher.
 - **Account lockout / brute-force protection:** **Not found in the codebase.**
@@ -2823,7 +2879,7 @@ on the dev database (no requirement has been approved).
 |---|---|
 | `ALLOWED_UPLOAD_EXTENSIONS` | `.pdf .doc .docx .xls .xlsx .csv .zip .png .jpg .jpeg` |
 | `OCR_REQUIRED_EXTENSIONS` (guess at upload time) | `.pdf .doc .docx .png .jpg .jpeg` |
-| **Actually readable by the pipeline** | **`.pdf` only** (`pdf_reader.SUPPORTED_EXTENSIONS`) — digital **and scanned**, since PaddleOCR reads image-only pages |
+| **Actually readable by the pipeline** | **`.pdf`** (digital and scanned), **`.docx`** (paragraphs + tables, grouped into ~3 000-character sections), **`.xlsx`** (one page per sheet, 150 rows each), **`.csv`**, **`.png/.jpg/.jpeg`** (OCR) — `services/office_reader.py`. Old `.doc`/`.xls` and `.zip` are marked `unsupported_format` and the upload page says *"Can't read this file type"* with what to do |
 | Benchmark assessment evidence (`apps/assessments`) | `.pdf .doc .docx .xls .xlsx .csv .ppt .pptx .jpg .jpeg .png .txt`, 25 MB — stored and reviewed by a person, never machine-read |
 | Source Library files (`apps/benchmarks`) | Any file the register points to; checksum-verified; `.crdownload` (an unfinished browser download) refused |
 
@@ -3375,9 +3431,9 @@ on every deploy. This is a correct and deliberate design.
 | Firewall / security groups | **Not found in the codebase** — configured outside the repo |
 | CI/CD | GitHub Actions → GHCR → SSH |
 | Registry | GitHub Container Registry |
-| Backups | **Not found in the codebase** |
-| Monitoring / alerting | **Not found in the codebase** — container logs only |
-| Healthcheck | Only on `db` (`pg_isready`). **No healthcheck on `backend`, `celery`, or `frontend`**, and no post-deploy verification step in the workflow |
+| Backups | **On the VM, outside the repo (since 15 Oct):** `/usr/local/sbin/ai-ready-backup.sh` via `/etc/cron.d/ai-ready-backup` at 01:30 UTC — daily PostgreSQL dump (kept 14), weekly uploaded-files archive (kept 4), daily `.env` copy (kept 14), in `/opt/ai-ready/backups/`. **Same disk as the server** — copy them off the VM regularly |
+| Monitoring / alerting | No monitoring service. The deploy job now fails (and GitHub emails) when `https://ai.ingageedutech.com/api/v1/health` is not healthy within 5 minutes; the 9Router instances have a once-a-minute watchdog on the VM (`~/9router/watchdog.sh`, user crontab) that restarts any that stop |
+| Healthcheck | `db` (`pg_isready`) and **`backend`** (`/api/v1/health`: database + cache, every 30 s); post-deploy check in the workflow. Still none on `celery` or `frontend` |
 
 ## 14.6 Deployment concerns worth flagging
 
@@ -3591,7 +3647,8 @@ this traces what the code does once the content exists.*
 | **Wrong role for a write** | `403` with the gate's own message, e.g. *"Only InGage consultants can edit recommendations."* |
 | **Upload too large / wrong type / duplicate** | `400` with a specific, human message naming the size or the existing document |
 | **Corrupt or password-protected PDF** | `PermanentExtractionError("Could not parse PDF: …")` → job fails immediately (no wasted retries) → frontend shows *"This document could not be read — it may be corrupted, password-protected, or not a valid PDF."* |
-| **Non-PDF document** | Read returns `format_supported: False`; pipeline completes with **zero facts**. **The UI does not explain this** — see §17/§27 |
+| **Word / Excel / CSV / image** | Read into sections / sheets / OCR text and extracted like a PDF |
+| **Old .doc / .xls, or .zip** | Marked `unsupported_format`; the upload page shows *"Can't read this file type"* with what to do (save as .docx/.xlsx/PDF, or unzip) |
 | **Scanned PDF page** | Rendered and read by PaddleOCR; if OCR is off or still cannot read it, an `ocr_warning` is recorded and the page is flagged — the rest of the document continues |
 | **User presses Stop mid-document** | The worker stops at the next step or AI call; facts already written stay, the job shows *Cancelled*, and *Process* runs it again from the start |
 | **A router fails (multi_router)** | Recoverable error → that router is used last for 60 s and the retry leases another one; a call without a lease is refused rather than sent to `AI_BASE_URL` |
@@ -3622,9 +3679,7 @@ this traces what the code does once the content exists.*
 | Gap | Impact |
 |---|---|
 | **No global frontend `ErrorBoundary`** | A render-time exception in any page blanks the whole SPA |
-| **No user-facing signal for unreadable file types** | A DOCX/XLSX/CSV/ZIP upload processes "successfully" with zero facts and no explanation |
 | **No dead-letter / stuck-job sweeper** | A job whose worker is killed mid-run stays `running` until its message is redelivered (`acks_late`, after the 6-hour visibility timeout) and the claim lets it continue. Nothing reconciles a row whose message is lost. Beat now exists, but no sweeper is scheduled on it |
-| **Watcher run lock is process-local** | `run_source_watcher` uses Django's cache for its "one run at a time" lock, and no `CACHES` is configured — so it is the per-process LocMem cache. Fine with one threads-pool worker; two worker *processes* could overlap a scheduled and a manual run |
 | **No structured/centralised error reporting** | Console logs only; no Sentry or equivalent |
 | **`_advance_sprint_if_all_jobs_done` is not transactional** | Two workers finishing simultaneously could both see "nothing active" and both run `generate_gaps_for_sprint` — the gap constraints prevent duplicate rows, so it is wasted work rather than corruption |
 | **Classification result is discarded** | Stage 1 spends a full AI call, logs the answer, and writes nothing but `processing_status='classified'` |
@@ -3667,7 +3722,7 @@ this traces what the code does once the content exists.*
 
 | # | Finding | Detail |
 |---|---|---|
-| 1 | **No rate limiting anywhere** | DRF `DEFAULT_THROTTLE_CLASSES`/`_RATES` are not configured. `POST /auth/login` accepts unlimited attempts. |
+| 1 | ~~No rate limiting~~ **Fixed 15 Oct** | Login: 10/min per client address and 20/hour per email (`429`); admin login 10/min; change-password 10/hour. Counters live in Redis in production so all workers share them. Other endpoints are still unthrottled. |
 | 2 | **No account lockout** | Combined with #1, credential stuffing is unimpeded. |
 | 3 | **Tokens in `localStorage`** | Standard SPA trade-off, but XSS-readable. The 60-minute access TTL limits the window; the 1-day refresh token does not. |
 | 4 | **Refresh tokens are not rotated** | `ROTATE_REFRESH_TOKENS: False` and `BLACKLIST_AFTER_ROTATION: False` — a stolen refresh token is valid for its full day and is only revoked by an explicit logout. |
@@ -3676,7 +3731,7 @@ this traces what the code does once the content exists.*
 | 7 | **Uploaded file content is never inspected** | Only the extension is checked. A renamed executable, a zip bomb, or a malicious PDF is accepted (though only PDFs are ever parsed, by PyMuPDF and PaddleOCR, in the worker). `.zip` is allowed but never processed. |
 | 8 | **No PII redaction before AI calls** | Full document text — potentially containing student and staff personal data — is sent to a third-party provider with no consent record or residency control. |
 | 9 | **Drive import requires public link-sharing** | An API-key-only integration cannot read a private folder, so institutions must expose the folder to anyone with the link for the duration. A service account would remove this. |
-| 10 | **API docs are enabled in production** | `/api/docs` and `/api/schema` are unauthenticated and not disabled when `DEBUG=False`. |
+| 10 | ~~API docs enabled in production~~ **Fixed 15 Oct** | `/api/docs`, `/api/redoc`, `/api/schema` are only registered when `API_DOCS_ENABLED=true` (default off when `DEBUG=False`). |
 | 11 | **`GOOGLE_DRIVE_API_KEY` travels as a URL query parameter** | Inherent to the Drive REST API-key flow; it is kept out of logs and exceptions, but it will appear in any intermediary's request logs. |
 | 12 | **No database encryption at rest / no backups in the repo** | `postgres_data` and `media_data` are plain Docker volumes. |
 | 13 | **No `SECURE_REFERRER_POLICY` or CSP** | Neither is set; `X-Frame-Options` is on via middleware. |
@@ -3690,9 +3745,9 @@ this traces what the code does once the content exists.*
 | # | Finding | Why it matters | Where |
 |---|---|---|---|
 | **H1** | **`SECRET_KEY` has an insecure fallback and never fails fast.** `SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-change-me')` — and `JWT_SECRET_KEY` falls back to `SECRET_KEY`. A deployment that forgets both env vars boots happily and **signs every JWT with a key published in this repository**, letting anyone mint a `super_admin` token. | Total authentication bypass | `backend/config/settings.py` |
-| **H2** | **The production login page ships 11 real account emails and a hardcoded password.** `frontend/src/pages/auth/Login.tsx` defines `SEEDED_ROLES` with quick-login buttons that call `login(email, 'Password123!')`, and the email/password fields are **pre-filled** with `superadmin@ingage.ai` / `Password123!`. `AuthContext.login()` also *defaults* its password parameter to `'Password123!'`. This is in the built bundle. If `seed_demo_users` was ever run against production, anyone visiting the site is one click from super-admin. | Full account takeover | `Login.tsx`, `AuthContext.tsx`, `seed_demo_users.py` |
-| **H3** | **`SECURE_SSL_REDIRECT` is on by default with no TLS anywhere.** With `DEBUG=False`, Django 301-redirects every request to `https://`, but compose exposes only `80:80` and there is no certificate, no certbot, and no TLS terminator in the repo. Either the site is unreachable, or `SECURE_SSL_REDIRECT=False` is set and **all traffic — including JWTs — is plaintext HTTP**. | Credential/token interception, or an unusable deploy | `settings.py`, `docker-compose.yml`, `nginx.conf` |
-| **H4** | **No throttling on authentication.** With H2's known emails, an unthrottled `POST /auth/login` is a ready-made credential-stuffing target. | Brute force | `settings.py` (REST_FRAMEWORK) |
+| **H2** | **PARTLY FIXED 15 Oct: the login page no longer pre-fills or contains the password** (only a developer build with `VITE_SHOW_DEMO_PERSONAS=true` does). **STILL OPEN: all 12 active production accounts, including both super admins, still use `Password123!`** (checked on the server; counts only) — they must be changed. Original finding: **The production login page ships 11 real account emails and a hardcoded password.** `frontend/src/pages/auth/Login.tsx` defines `SEEDED_ROLES` with quick-login buttons that call `login(email, 'Password123!')`, and the email/password fields are **pre-filled** with `superadmin@ingage.ai` / `Password123!`. `AuthContext.login()` also *defaults* its password parameter to `'Password123!'`. This is in the built bundle. If `seed_demo_users` was ever run against production, anyone visiting the site is one click from super-admin. | Full account takeover | `Login.tsx`, `AuthContext.tsx`, `seed_demo_users.py` |
+| **H3** | **FIXED 13 Oct: HTTPS with a Let's Encrypt certificate on ai.ingageedutech.com** (and on the router ports); the redirect is now correct. Original finding: **`SECURE_SSL_REDIRECT` is on by default with no TLS anywhere.** With `DEBUG=False`, Django 301-redirects every request to `https://`, but compose exposes only `80:80` and there is no certificate, no certbot, and no TLS terminator in the repo. Either the site is unreachable, or `SECURE_SSL_REDIRECT=False` is set and **all traffic — including JWTs — is plaintext HTTP**. | Credential/token interception, or an unusable deploy | `settings.py`, `docker-compose.yml`, `nginx.conf` |
+| **H4** | **FIXED 15 Oct** (see Needs improvement #1). Original finding: **No throttling on authentication.** With H2's known emails, an unthrottled `POST /auth/login` is a ready-made credential-stuffing target. | Brute force | `settings.py` (REST_FRAMEWORK) |
 | **H5** | **Django admin is exposed at `/admin/` over the same nginx** with session auth, no IP restriction, and no 2FA. Combined with H1/H3 this is the highest-value target on the box. | Privilege escalation | `nginx.conf`, `config/urls.py` |
 
 > **Also worth naming (correctness, not security):** the `DRIVE_IMPORT_CHECKLIST`
@@ -4519,15 +4574,7 @@ docker compose exec backend python manage.py createsuperuser
 | `Institution.is_active` | `institutions/models.py` | **Effectively vestigial.** DELETE is now a hard cascade, so nothing sets it `False` any more; it only lingers on rows removed before that change. Still read by the list page, which hides its Status column when no inactive row exists |
 | `apps/vector_store/urls.py` | `vector_store/` | **Empty by design**, and says so — every route lives in `sprints/urls.py` with the other nested sub-resources. The module exists so the app owns a URLConf if a non-nested route is ever needed |
 | **Design preview system** | `pages/previews/` (~1 000 L), `/preview/:moduleKey` | **Unreachable from the UI.** Every module it described is now a real screen, so no menu row links here. The route still resolves by URL. Keep or delete is a live decision |
-| **`data/workspaceDemo.ts`** (237 L) | `frontend/src/data/` | **Dead** — imported by nothing since the ported pages were rewired |
-| **`components/DemoDataNotice.tsx`** | `frontend/src/components/` | **Rendered by nothing** — no page shows a demo banner any more |
-| `calculateCRI` (the prototype's second CRI engine) | `data/benchmark/scoring.ts` | **Called by nothing** — the page that ran it now reads the real engine |
-| `data/benchmark/` (seed, types, rest of scoring) | `frontend/src/data/` | **Still used, by three Benchmark Studio tabs** (Editor, Approvals, AI candidates) that show the prototype's 12 seed benchmarks. Their real equivalents exist (Levels editor, Releases, the requirement candidates under Sources), so these tabs are candidates for removal rather than for a backend |
-| `validateBenchmark`, `canEditBenchmark`, critic, simulator | `data/benchmark/scoring.ts` | **Advisory only**, on seed data — nothing they guard can be saved |
-| `WatcherRun.candidates_created` | `benchmarks/models.py` | **Always 0** — benchmark candidates from watcher changes are not built yet (§3.18) |
 | `SourceSnapshot.extraction_status` | `benchmarks/models.py` | Always `complete` — snapshots are compared, never text-extracted |
-| Stale header comment | `pages/benchmark/CriBenchmarkIntelligence.tsx` | Says the benchmark library "has no backend yet" — no longer true (§3.17) |
-| `API_CONTRACT.md`, `openapi.yaml` | `backend/docs/` | **Stale since 1 Sep 2026** — cover none of the newer endpoints (§7) |
 | **Vector store indexing endpoints** | `vector_store/views.py` | **Implemented and tested; no screen calls them.** Evidence search *is* now used (AI Copilot), but nothing in the SPA triggers indexing or shows its status |
 | `index_sprint_vectors` | `vector_store/tasks.py` | **Not triggered by any endpoint** — `POST /vector-index` queues per-document tasks directly. It exists as the fan-out entry point for a scheduled or management-command re-index |
 | `PineconeVectorStore` (manual mode) + `OpenAIEmbeddingService` | `vector_store/services/pinecone_client.py`, `services/embeddings.py` | **Implemented and unit-tested, but only one of the two modes runs in any given deployment.** Against an *integrated* index this whole path — and the embedding provider with it — is never entered. Not dead: the mode is a real deployment choice, selected by `PINECONE_EMBEDDING_MODE` |
@@ -4952,8 +4999,7 @@ payment, no analytics, no error-tracking service.**
 5. **No frontend tests at all**, and no code splitting.
 6. **Checklist slug divergence** between Drive import and required document types —
    a live functional defect that can block baseline approval.
-7. **Only PDFs are actually readable**, but five other formats are accepted with no
-   user-facing explanation.
+7. **Old .doc / .xls and .zip are still not read** (the user is now told why).
 8. **The backend image is now > 1 GB** (OCR), and OCR is CPU-bound and one page at a
    time per worker process.
 9. **N+1 query patterns** in conflict checking, gap generation, and recommendations.
@@ -4964,15 +5010,11 @@ payment, no analytics, no error-tracking service.**
 13. **The benchmark library has no real content yet** — placeholder levels, no
     approved requirements, no published release — so the assessment cannot be used
     with a college until the experts' work is entered.
-14. **The two halves are not connected.** A benchmark assessment does not reuse the
-    sprint's documents or confirmed facts, and the pillar CRI and the benchmark
-    scores are separate numbers with no stated relationship.
-15. **Three Benchmark Studio tabs still show seed data** beside seven real ones —
-    labelled, but confusing; their real equivalents already exist.
-16. **The written API contract is stale** (`API_CONTRACT.md`, `openapi.yaml` predate
-    every change in this update).
-17. **Much of the newest work is uncommitted** — the AI modes, AI usage tracking and
-    both benchmark apps exist only in the working tree as of this report.
+14. **The two halves are only loosely connected.** Audit documents can now be reused
+    as benchmark evidence, but confirmed facts are not, and the pillar CRI and the
+    benchmark scores are separate numbers with no stated relationship.
+15. **All 12 live accounts still use the published demo password** (§17 H2) — the
+    single most urgent item.
 
 ## Technical debt
 
@@ -4987,10 +5029,7 @@ payment, no analytics, no error-tracking service.**
 | Single 300-line `settings.py` with no environment split | Harder to reason about as environments diverge |
 | No lockfile for Python dependencies | Build drift |
 | `IsInstitutionAdmin`/`IsReadOnly` unused | Dead API surface |
-| `pdfplumber` installed but unused; `workspaceDemo.ts`, `DemoDataNotice`, `calculateCRI` unreferenced | Dead weight from earlier stages |
-| Three seeded Benchmark Studio tabs | Two sources of truth on one page |
-| Watcher run lock relies on the per-process LocMem cache | Not a real lock across worker processes |
-| `backend/README.md` still says Celery Beat is never needed | Out of date since the watcher |
+| `pdfplumber` installed but unused | Dead weight from earlier stages |
 
 ## Security risks
 
@@ -5033,16 +5072,16 @@ payment, no analytics, no error-tracking service.**
 1. **Remove the `SECRET_KEY` fallback and fail fast.** Raise `ImproperlyConfigured`
    when `SECRET_KEY` or `JWT_SECRET_KEY` is missing and `DEBUG` is off. A refused
    boot is far better than a live app signing tokens with a published key.
-2. **Strip the demo credentials from the production bundle.** Remove `SEEDED_ROLES`
+2. ~~Strip the demo credentials from the production bundle.~~ **Done 15 Oct** (the
+   accounts' passwords still need changing — 4a). Original text: **Strip the demo credentials from the production bundle.** Remove `SEEDED_ROLES`
    and the quick-login buttons (or gate them behind `import.meta.env.DEV`), clear the
    pre-filled email/password, and delete the `password = 'Password123!'` default in
    `AuthContext.login`. Then rotate every seeded account's password on any host where
    `seed_demo_users` has run.
-3. **Terminate TLS.** Add a certificate (certbot or a managed load balancer), expose
-   443, and keep `SECURE_SSL_REDIRECT=True`. If TLS genuinely cannot be added yet,
-   set `SECURE_SSL_REDIRECT=False` explicitly and treat the deployment as
-   non-production.
-4. **Add DRF throttling**, especially a tight `AnonRateThrottle` on `/auth/login`.
+3. ~~Terminate TLS.~~ **Done 13 Oct** (Let's Encrypt, auto-renewal).
+4. ~~Add DRF throttling.~~ **Done 15 Oct** for login, admin login and password change.
+4a. **Change the passwords of all 12 live accounts** (they use the published demo
+    password) — or deactivate the demo persona accounts.
 5. **Restrict `/admin/`** by IP at the nginx layer, or remove the proxy block
    entirely and reach it over an SSH tunnel.
 6. **Fix the checklist slug divergence** so Drive-imported required documents
@@ -5062,20 +5101,17 @@ payment, no analytics, no error-tracking service.**
 12. **Add error tracking** (Sentry or equivalent) and container healthchecks for
     `backend`, `celery`, and `frontend`, plus a post-deploy verification step in the
     workflow.
-13. **Tell the user when a file type cannot be read.** Surface
-    `format_supported: False` in the monitor screen instead of silently producing
-    zero facts.
+13. ~~Tell the user when a file type cannot be read.~~ **Done 15 Oct** (and Word,
+    Excel, CSV and images are now read).
 14. **Add a stuck-job sweeper** — Beat now exists (for the watcher), so a periodic
     sweeper is one schedule entry away.
-14a. **Commit the working tree.** The AI processing modes, AI usage tracking, the
-    `benchmarks` and `assessments` apps and their migrations exist only uncommitted;
-    nothing of it is backed up or deployable until it is.
+14a. ~~Commit the working tree.~~ **Done** (committed and deployed).
 14b. **Enter the benchmark content and publish Release 1.0** — real levels for the
     pilot benchmarks, approved requirements, evidence and applicability rules,
     expert owners and approved composite weights. Until then no college can be
     assessed (§2.4).
-14c. **Bring `API_CONTRACT.md` / `openapi.yaml` up to date**, or replace them with the
-    generated `/api/schema`.
+14c. ~~Bring `API_CONTRACT.md` / `openapi.yaml` up to date.~~ **Done 15 Oct**
+    (`openapi.yaml` regenerated; `API_CONTRACT.md` lists every newer endpoint).
 
 ### P2 — Medium
 
@@ -5094,16 +5130,13 @@ payment, no analytics, no error-tracking service.**
 24. **Add frontend tests** — Vitest + Testing Library, starting with the auth
     interceptor and the wizard guards.
 25. **Add role-aware frontend routing** so a `viewer` isn't shown actions that will 403.
-25a. **Remove Benchmark Studio's three seeded tabs** (Editor, Approvals, AI
-    candidates) — their real equivalents exist — and with them `data/benchmark/`.
-25b. **Back the watcher's run lock with Redis** (configure `CACHES`) so it holds
-    across worker processes.
-25c. **Connect the two halves:** let a sprint's processed documents be offered as
-    benchmark evidence, and decide how the pillar CRI and the benchmark scores
-    relate on a client report.
-25d. **Build the next benchmark stages:** benchmark candidates from watcher
-    changes (with specialist review), and gaps / transformation plans from a
-    finalized assessment.
+25a. ~~Remove Benchmark Studio's seeded tabs.~~ **Done 15 Oct.**
+25b. ~~Back the watcher's run lock with Redis.~~ **Done 15 Oct** (`DJANGO_CACHE_URL`).
+25c. **Connect the two halves further:** audit documents are now reusable as
+    evidence; still to decide how the pillar CRI and the benchmark scores relate on a
+    client report.
+25d. ~~Build the next benchmark stages.~~ **Done 15 Oct:** benchmark candidates
+    (§3.20) and the improvement plan (§3.21).
 
 ### P3 — Low
 
@@ -5118,9 +5151,8 @@ payment, no analytics, no error-tracking service.**
     `backend/README.md` exists.
 33. Consider a Google **service account** for Drive import, so institutions no longer
     have to share folders publicly.
-34. Remove `pdfplumber`, `data/workspaceDemo.ts`, `DemoDataNotice.tsx` and the unused
-    `calculateCRI`; refresh the stale header comment in
-    `CriBenchmarkIntelligence.tsx` and the Beat note in `backend/README.md`.
+34. Remove `pdfplumber` from `requirements/base.txt` (the demo files, the stale
+    comment and the README note were cleaned up on 15 Oct).
 
 ---
 

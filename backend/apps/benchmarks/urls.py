@@ -13,6 +13,8 @@ from .views import (
     BenchmarkReopenView,
     WatcherSummaryView, WatcherFeedListView, WatcherFeedEnableView, WatcherFeedCheckView, WatcherRunListView,
     WatcherEventListView, WatcherEventReviewView,
+    BenchmarkCandidateListView, BenchmarkCandidateDetailView, BenchmarkCandidateActionView,
+    WatcherEventProposeView,
 )
 
 _routes = [
@@ -60,6 +62,10 @@ _routes = [
     ('/watcher/runs', WatcherRunListView, 'watcher-runs'),
     ('/watcher/events', WatcherEventListView, 'watcher-events'),
     ('/watcher/events/<uuid:pk>/review', WatcherEventReviewView, 'watcher-event-review'),
+    ('/watcher/events/<uuid:pk>/propose', WatcherEventProposeView, 'watcher-event-propose'),
+    ('/benchmark-candidates', BenchmarkCandidateListView, 'benchmark-candidates'),
+    ('/benchmark-candidates/<uuid:pk>', BenchmarkCandidateDetailView, 'benchmark-candidate'),
+    ('/benchmark-candidates/<uuid:pk>/<str:action>', BenchmarkCandidateActionView, 'benchmark-candidate-action'),
 ]
 
 # With and without a trailing slash, like the other apps (APPEND_SLASH=False).

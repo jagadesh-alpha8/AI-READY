@@ -67,6 +67,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Rate-limits POSTs to the Django admin login page (DRF throttles cover the API).
+    'config.security.AdminLoginRateLimitMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -165,7 +167,69 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # Brute-force protection on sign-in (see apps.accounts.views.LoginView):
+    # per client address and, separately, per email address being tried.
+    # (Effectively unlimited under `manage.py test`, where every test signs in
+    # through the real endpoint; the throttle tests override these.)
+    'DEFAULT_THROTTLE_RATES': (
+        {'login': '10000/minute', 'login_email': '10000/minute', 'password_change': '10000/minute',
+         'password_reset': '10000/minute', 'password_reset_email': '10000/minute'}
+        if len(sys.argv) > 1 and sys.argv[1] == 'test' else {
+            'login': os.getenv('LOGIN_RATE_PER_IP', '10/minute'),
+            'login_email': os.getenv('LOGIN_RATE_PER_EMAIL', '20/hour'),
+            'password_change': '10/hour',
+            # "Forgot password": per client address and per email address.
+            'password_reset': '10/hour',
+            'password_reset_email': '3/hour',
+        }
+    ),
+    # Number of reverse proxies in front of Django (nginx = 1 in production).
+    # With 0, every request appears to come from the nginx container and all
+    # users would share one throttle bucket; with 1, the real client address
+    # is read from the X-Forwarded-For entry nginx appends.
+    'NUM_PROXIES': int(os.getenv('TRUSTED_PROXY_COUNT', 0)),
 }
+
+# Cache: used by the login throttles, the admin-login limit and the watcher's
+# one-run-at-a-time lock, so it must be shared by every process. Production
+# points DJANGO_CACHE_URL at Redis (docker-compose.yml); without it each
+# process keeps its own in-memory cache, which is fine for one dev server.
+_CACHE_URL = os.getenv('DJANGO_CACHE_URL', '')
+CACHES = {
+    'default': (
+        {'BACKEND': 'django.core.cache.backends.redis.RedisCache', 'LOCATION': _CACHE_URL,
+         'KEY_PREFIX': 'aiready', 'TIMEOUT': 300}
+        if _CACHE_URL and not (len(sys.argv) > 1 and sys.argv[1] == 'test')
+        else {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'aiready'}
+    ),
+}
+
+# Email: password-reset links and error reports to ADMINS. With EMAIL_HOST_USER
+# set, mail goes out over SMTP (Gmail by default: use an app password, not the
+# account password); without it, mail is printed to the console (development).
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_TIMEOUT = 15
+EMAIL_BACKEND = (
+    'django.core.mail.backends.smtp.EmailBackend' if EMAIL_HOST_USER
+    else 'django.core.mail.backends.console.EmailBackend'
+)
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', f'InGage AI Readiness <{EMAIL_HOST_USER or "noreply@localhost"}>')
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+# Who gets an email for every server error (HTTP 500) in production.
+ADMINS = [('Admin', a.strip()) for a in os.getenv('ADMIN_EMAILS', '').split(',') if a.strip()]
+# Where links in emails point (the site users open), e.g. https://ai.ingageedutech.com
+FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'http://localhost:3000').rstrip('/')
+# A password-reset link works once and expires after this many seconds.
+PASSWORD_RESET_TIMEOUT = int(os.getenv('PASSWORD_RESET_TIMEOUT', 60 * 60))
+
+# Interactive API docs (/api/docs, /api/redoc, /api/schema): on in development,
+# off in production unless API_DOCS_ENABLED=true -- they map every endpoint.
+API_DOCS_ENABLED = os.getenv('API_DOCS_ENABLED', 'True' if DEBUG else 'False') == 'True'
+ADMIN_LOGIN_RATE = os.getenv('ADMIN_LOGIN_RATE', '10/minute')
 
 # Simple JWT Settings
 SIMPLE_JWT = {
@@ -526,6 +590,15 @@ LOGGING = {
     },
 }
 
+# Production: email ADMINS the traceback of every server error (HTTP 500).
+if not DEBUG and ADMINS and EMAIL_HOST_USER:
+    LOGGING['handlers']['mail_admins'] = {
+        'class': 'django.utils.log.AdminEmailHandler', 'level': 'ERROR', 'include_html': False,
+    }
+    LOGGING['loggers']['django.request'] = {
+        'handlers': ['console', 'mail_admins'], 'level': 'ERROR', 'propagate': False,
+    }
+
 # Production hardening -- applied automatically whenever DEBUG is off, so
 # there's no separate production settings module to remember to point at.
 # Set DEBUG=False (the default) in .env for any real deployment.
@@ -539,6 +612,8 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    # The container healthcheck calls this over plain HTTP from inside the container.
+    SECURE_REDIRECT_EXEMPT = [r'^api/v1/health$']
 
 
     

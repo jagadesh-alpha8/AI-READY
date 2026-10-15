@@ -1,6 +1,7 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from .password_reset import PasswordResetConfirmView, PasswordResetRequestView
 from .views import ChangePasswordView, LoginView, LogoutView, MeView
 
 # Registered both with and without a trailing slash: the task spec documents
@@ -18,4 +19,8 @@ urlpatterns = [
     path('me/', MeView.as_view(), name='me-slash'),
     path('change-password', ChangePasswordView.as_view(), name='change-password'),
     path('change-password/', ChangePasswordView.as_view(), name='change-password-slash'),
+    path('password-reset', PasswordResetRequestView.as_view(), name='password-reset'),
+    path('password-reset/', PasswordResetRequestView.as_view(), name='password-reset-slash'),
+    path('password-reset/confirm', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
+    path('password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm-slash'),
 ]

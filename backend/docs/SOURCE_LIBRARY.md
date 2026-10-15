@@ -212,8 +212,8 @@ what changed for review (schema: `source_snapshots`, `source_change_events`, `wa
 
 The watcher never edits a source, requirement, benchmark or release, and never publishes. Accepting a change only
 records the decision; a new source version or a benchmark edit then goes through the normal review and release
-steps. A page that fails raises one event when it stops working, not one every day. Benchmark candidates from a
-change (`benchmark_candidates`, `candidate_reviews`) are not built yet.
+steps. A page that fails raises one event when it stops working, not one every day. Material changes also become
+benchmark candidates (next section).
 
 **Running it**
 
@@ -235,4 +235,27 @@ POST /api/v1/benchmarks/watcher/feeds/<id>/check
 GET  /api/v1/benchmarks/watcher/runs        POST (queue a run now)
 GET  /api/v1/benchmarks/watcher/events?status=open|all|triaged|under_review|accepted|rejected|ignored
 POST /api/v1/benchmarks/watcher/events/<id>/review             {status, note}
+```
+
+## Benchmark candidates (stage 4b)
+
+Studio > Candidates. Proposed changes to the library, kept apart from approved data until domain experts approve
+them (schema: `benchmark_candidates`, `candidate_reviews`; code: `services/candidates.py`).
+
+| Step | Rule |
+|---|---|
+| From the watcher | Every change event with importance >= 50 (new document, new version, content change, withdrawal) makes one **update benchmark** candidate per benchmark linked to the changed source, or one **review this source** candidate when nothing is linked yet. Starts in *review* |
+| Filtered automatically | A low-authority source (intelligence signal, or feed trust score < 50) is created as *rejected*; a candidate that would duplicate an open one for the same benchmark / source is not created |
+| By staff | New benchmark / update / retire / source review, from any watcher event ("Create a benchmark candidate") or from scratch. Starts in *research*; *Send to expert review* moves it on |
+| Who approves | Regulatory / government sources: accreditation + legal. Accreditation bodies: accreditation + academic. Rankings / standards: academic (+ cybersecurity for CERT-In). AI benchmarks or InGage-proposed ones: + AI governance + academic. Editable until the first review |
+| Decisions | Each required role reviewed by a **different person**; any reject rejects; "needs research" sends it back; all roles approve = approved. Reviews are append-only and audited |
+| After approval | *Open a new draft* reopens the active benchmark as the next version (same as `reopen`); the candidate is marked **published** when a release that adds / updates / retires that benchmark is published. Nothing changes for colleges before that |
+
+`WatcherRun.candidates_created` counts the candidates each run made.
+
+```
+GET/POST /api/v1/benchmarks/benchmark-candidates           ?status=open|all|research|review|approved|rejected|published
+GET/PATCH /api/v1/benchmarks/benchmark-candidates/<id>
+POST     /api/v1/benchmarks/benchmark-candidates/<id>/submit | review | open-revision
+POST     /api/v1/benchmarks/watcher/events/<id>/propose
 ```

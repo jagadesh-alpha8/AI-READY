@@ -533,7 +533,11 @@ export const UploadDataPack: React.FC = () => {
                       <span className="badge-success">{doc.status}</span>
                     </td>
                     <td>
-                      {doc.page_count === null ? (
+                      {doc.processing_status === 'unsupported_format' ? (
+                        <span className="badge-warning" title={doc.ocr_warnings?.[0]}>
+                          Can't read this file type
+                        </span>
+                      ) : doc.page_count === null ? (
                         // Not read yet (extraction hasn't run on this document) --
                         // ocr_required is still just the upload-time guess (every
                         // PDF starts out flagged, before any content is read), so

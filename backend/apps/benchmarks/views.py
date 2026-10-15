@@ -814,3 +814,100 @@ class WatcherEventReviewView(APIView):
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         event.refresh_from_db()
         return Response(SourceChangeEventSerializer(event).data)
+
+
+# -- Stage 4b: benchmark candidates -----------------------------------------------------
+from .models import BenchmarkCandidate  # noqa: E402
+from .serializers import BenchmarkCandidateSerializer  # noqa: E402
+from .services import candidates as candidate_svc  # noqa: E402
+
+
+def _candidate(pk):
+    return get_object_or_404(
+        BenchmarkCandidate.objects.select_related('benchmark', 'source_document', 'change_event')
+        .prefetch_related('reviews__reviewer'), pk=pk)
+
+
+def _candidate_error(exc):
+    return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class BenchmarkCandidateListView(APIView):
+    """GET /benchmarks/benchmark-candidates?status=open|all|research|review|approved|rejected|published
+       POST {candidate_type, title, source_rationale, benchmark_code?, source_code?, change_event?}"""
+    permission_classes = [IsInGageStaff]
+
+    def get(self, request):
+        qs = (BenchmarkCandidate.objects.select_related('benchmark', 'source_document', 'change_event')
+              .prefetch_related('reviews__reviewer'))
+        st = request.query_params.get('status', 'open')
+        if st == 'open':
+            qs = qs.filter(status__in=candidate_svc.OPEN_STATUSES)
+        elif st != 'all':
+            qs = qs.filter(status=st)
+        return Response(BenchmarkCandidateSerializer(qs.order_by('-created_at')[:300], many=True).data)
+
+    def post(self, request):
+        try:
+            c = candidate_svc.create(request.user, request.data)
+        except candidate_svc.CandidateError as exc:
+            return _candidate_error(exc)
+        return Response(BenchmarkCandidateSerializer(_candidate(c.pk)).data, status=status.HTTP_201_CREATED)
+
+
+class BenchmarkCandidateDetailView(APIView):
+    """GET / PATCH /benchmarks/benchmark-candidates/<id>"""
+    permission_classes = [IsInGageStaff]
+
+    def get(self, request, pk):
+        return Response(BenchmarkCandidateSerializer(_candidate(pk)).data)
+
+    def patch(self, request, pk):
+        try:
+            candidate_svc.update(_candidate(pk), request.user, request.data)
+        except candidate_svc.CandidateError as exc:
+            return _candidate_error(exc)
+        return Response(BenchmarkCandidateSerializer(_candidate(pk)).data)
+
+
+class BenchmarkCandidateActionView(APIView):
+    """POST /benchmarks/benchmark-candidates/<id>/submit
+       POST /benchmarks/benchmark-candidates/<id>/review {reviewer_role, decision, notes}
+       POST /benchmarks/benchmark-candidates/<id>/open-revision"""
+    permission_classes = [IsInGageStaff]
+
+    def post(self, request, pk, action):
+        c = _candidate(pk)
+        try:
+            if action == 'submit':
+                candidate_svc.submit(c, request.user)
+            elif action == 'review':
+                candidate_svc.review(c, request.user, request.data.get('reviewer_role', ''),
+                                     request.data.get('decision', ''), request.data.get('notes', ''))
+            elif action == 'open-revision':
+                candidate_svc.reopen_for_revision(c, request.user)
+            else:
+                return Response({'detail': 'Unknown action.'}, status=status.HTTP_404_NOT_FOUND)
+        except candidate_svc.CandidateError as exc:
+            return _candidate_error(exc)
+        return Response(BenchmarkCandidateSerializer(_candidate(pk)).data)
+
+
+class WatcherEventProposeView(APIView):
+    """POST /benchmarks/watcher/events/<id>/propose -- the watcher's automatic
+    candidates for this event, if none were made (e.g. below the threshold) a
+    'review this source' candidate in research."""
+    permission_classes = [IsInGageStaff]
+
+    def post(self, request, pk):
+        event = get_object_or_404(SourceChangeEvent.objects.select_related('document', 'feed'), pk=pk)
+        if event.candidates.exists():
+            return Response({'detail': 'This change already has candidates.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            c = candidate_svc.create(request.user, {
+                'candidate_type': 'source_update', 'change_event': str(event.pk),
+                'title': f'Review the change to {event.document.source_code}: {event.document.title}'[:300],
+                'source_rationale': candidate_svc._rationale(event)})
+        except candidate_svc.CandidateError as exc:
+            return _candidate_error(exc)
+        return Response(BenchmarkCandidateSerializer(_candidate(c.pk)).data, status=status.HTTP_201_CREATED)

@@ -174,6 +174,10 @@ class EvidenceItem(models.Model):
     original_filename = models.CharField(max_length=255, blank=True)
     file_sha256 = models.CharField(max_length=64, blank=True)
     source_url = models.URLField(max_length=1000, blank=True)
+    # Reuse of a document the college already uploaded in an AI Readiness Audit
+    # sprint (apps.documents) -- the file is served from there, not copied.
+    sprint_document = models.ForeignKey('documents.Document', on_delete=models.PROTECT, null=True, blank=True,
+                                        related_name='benchmark_evidence')
     issued_on = models.DateField(null=True, blank=True)
     valid_until = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.SUBMITTED)
@@ -238,3 +242,109 @@ class BenchmarkAssessment(models.Model):
     assessor_notes = models.TextField(blank=True)
     scored_at = models.DateTimeField(null=True, blank=True)
     scored_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
+
+
+# -- Stage 6: gaps and the improvement plan ---------------------------------------------
+
+class TransformationTemplate(models.Model):
+    """schema: transformation_templates. An approved, reusable way to close one
+    kind of gap on one benchmark (the expert's playbook). Used when a plan is
+    generated; without one the plan falls back to the unmet evidence requests."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    benchmark = models.ForeignKey(Benchmark, on_delete=models.CASCADE, related_name='transformation_templates')
+    gap_type = models.CharField(max_length=20, choices=[
+        ('compliance', 'Compliance'), ('capability', 'Capability'), ('evidence', 'Evidence'),
+        ('outcome', 'Outcome'), ('dependency', 'Dependency')])
+    title = models.CharField(max_length=300)
+    intervention = models.TextField(help_text='What the institution should do.')
+    expected_evidence = models.TextField(help_text='What will prove it was done.')
+    expected_outcome = models.TextField(help_text='The measurable result expected.')
+    tasks = models.JSONField(default=list, blank=True, help_text='Optional task titles, in order.')
+    created_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['benchmark__benchmark_code', 'gap_type', 'title']
+        constraints = [models.UniqueConstraint(fields=['benchmark', 'gap_type'], name='unique_template_per_gap_type')]
+
+
+class AssessmentGap(models.Model):
+    """schema: gaps. One typed shortfall found in a finalized benchmark assessment."""
+    class Type(models.TextChoices):
+        COMPLIANCE = 'compliance', 'Compliance'
+        CAPABILITY = 'capability', 'Capability'
+        EVIDENCE = 'evidence', 'Evidence'
+        OUTCOME = 'outcome', 'Outcome'
+        DEPENDENCY = 'dependency', 'Dependency'
+
+    class Severity(models.TextChoices):
+        CRITICAL = 'critical', 'Critical'
+        HIGH = 'high', 'High'
+        MEDIUM = 'medium', 'Medium'
+        LOW = 'low', 'Low'
+
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Open'
+        PLANNED = 'planned', 'Planned'
+        IN_PROGRESS = 'in_progress', 'In progress'
+        VALIDATED = 'validated', 'Validated by evidence'
+        CLOSED = 'closed', 'Closed'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    assessment = models.ForeignKey(BenchmarkAssessment, on_delete=models.CASCADE, related_name='gaps')
+    gap_type = models.CharField(max_length=20, choices=Type.choices)
+    description = models.TextField()
+    severity = models.CharField(max_length=10, choices=Severity.choices)
+    root_cause = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    closing_evidence = models.ForeignKey(EvidenceItem, on_delete=models.PROTECT, null=True, blank=True,
+                                         related_name='closed_gaps',
+                                         help_text='The accepted evidence that shows the gap is closed.')
+    validated_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
+    validated_at = models.DateTimeField(null=True, blank=True)
+    validation_note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['assessment__applicable__benchmark__benchmark_code', 'gap_type']
+        constraints = [models.UniqueConstraint(fields=['assessment', 'gap_type'], name='unique_gap_per_type')]
+
+
+class Initiative(models.Model):
+    """schema: initiatives. The work that closes a gap."""
+    class Status(models.TextChoices):
+        PLANNED = 'planned', 'Planned'
+        ACTIVE = 'active', 'Active'
+        BLOCKED = 'blocked', 'Blocked'
+        COMPLETE = 'complete', 'Complete'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    cycle = models.ForeignKey(AssessmentCycle, on_delete=models.CASCADE, related_name='initiatives')
+    gap = models.ForeignKey(AssessmentGap, on_delete=models.CASCADE, null=True, blank=True, related_name='initiatives')
+    template = models.ForeignKey(TransformationTemplate, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    title = models.CharField(max_length=300)
+    description = models.TextField(blank=True)
+    expected_evidence = models.TextField(blank=True)
+    expected_outcome = models.TextField(blank=True)
+    owner = models.CharField(max_length=150, blank=True, help_text='Person or role responsible.')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PLANNED)
+    target_date = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['target_date', 'title']
+
+
+class Task(models.Model):
+    """schema: tasks."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    initiative = models.ForeignKey(Initiative, on_delete=models.CASCADE, related_name='tasks')
+    title = models.CharField(max_length=300)
+    owner = models.CharField(max_length=150, blank=True)
+    due_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Initiative.Status.choices, default=Initiative.Status.PLANNED)
+    evidence_due = models.CharField(max_length=300, blank=True, help_text='The evidence this task should produce.')
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'due_date']

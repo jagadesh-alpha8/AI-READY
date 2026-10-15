@@ -42,10 +42,38 @@ InGage staff (super_admin, consultant): everything. College users: only their ow
 (not viewers); the scorecard only after finalize. Every change is written to the audit log
 (`SourceAuditEvent`, actions `assessment.*`).
 
+## Reusing audit documents as evidence
+
+When uploading evidence, a college can pick a document it already uploaded in an AI Readiness Audit sprint
+(`sprint_document`) instead of uploading it again. Only that college's own documents are offered; the file is
+served from the audit document, and its checksum is recorded on the evidence.
+
+## Improvement plan (stage 6)
+
+After **finalize**, staff generate the plan (`apps/assessments/plan.py`; schema: `gaps`,
+`transformation_templates`, `initiatives`, `tasks`). Nothing is guessed: gaps come from the frozen scores.
+
+| Gap | When | Severity |
+|---|---|---|
+| Capability | Level reached below the target level | none reached on a mandatory benchmark: critical; 2+ levels short: high; 1 short: medium |
+| Compliance | Compliance score below 100 | mandatory benchmark: critical (< 50) / high; recommended: medium; else low |
+| Evidence | Confidence below 60 although evidence was accepted (weak, partial or old proof) | medium |
+| Outcome | Outcome score below 70 | high (< 50) / medium |
+| Dependency | Added by staff | — |
+
+Each gap gets an initiative due by severity (critical 30 days, high 60, medium 90, low 180 after finalize):
+from the benchmark's **transformation template** for that gap type when the experts wrote one (title,
+intervention, expected evidence and outcome, task list), otherwise one task per unmet mandatory evidence request
+up to the target level. The college (not viewers) runs initiatives and tasks: owner, dates, status, extra tasks.
+
+**A gap is only validated by accepted evidence** for the same benchmark at the same college (from this or a
+later assessment), with a note; only a validated gap can be closed, and it cannot be reopened afterwards.
+Templates are edited per benchmark on the assessment page (staff) and apply to plans generated afterwards.
+
 ## Not built yet
 
-Gaps, transformation templates, initiatives and tasks (the next stage); AI-suggested evidence claims
-(`evidence_claims`); re-assessment comparison across releases.
+AI-suggested evidence claims (`evidence_claims`); comparing assessments across releases; a combined view of the
+pillar CRI and benchmark scores (how the two relate on a client report is a product decision).
 
 ## API (`/api/v1/assessments`)
 

@@ -174,3 +174,16 @@ jobs:
             fi
             # Remove the now-unused previous images.
             docker image prune -af
+
+      # The deploy above only proves the containers started. This proves the
+      # site works end to end (nginx -> Django -> database + cache) over HTTPS;
+      # if not, the run fails and GitHub notifies whoever pushed.
+      - name: Check the live site is healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 10 "https://ai.ingageedutech.com/api/v1/health"; then
+              echo; echo "Site healthy."; exit 0
+            fi
+            echo "  not healthy yet (attempt $i), retrying in 10 s"; sleep 10
+          done
+          echo "The site did not become healthy within 5 minutes after deploy."; exit 1

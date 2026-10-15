@@ -1426,3 +1426,118 @@ class WatcherApiTests(_WatcherFixture, APITestCase):
                                  institution=inst)
         self._login('c@test.edu')
         self.assertEqual(self.client.get('/api/v1/benchmarks/watcher/feeds').status_code, 403)
+
+
+# -- Stage 4b: benchmark candidates from watcher changes ---------------------------------
+from .models import BenchmarkCandidate  # noqa: E402
+from .services import candidates as candidate_svc  # noqa: E402
+
+NEW2 = ('UGC Regulations on Academic Integrity amendment 2027', '/pdfnews/integrity-2027.pdf')
+
+
+class CandidateTests(_WatcherFixture, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.aca = Benchmark.objects.get(benchmark_code='ACA-05')
+        BenchmarkRequirement.objects.create(benchmark=self.aca, requirement=self.req, relationship='primary')
+        self.legal = User.objects.create_user(email='legal@ingage.ai', username='legal', password=PASSWORD,
+                                              role='consultant')
+
+    def _change(self, *links):
+        watcher.check_feed(self.feed, fetcher=fake(index_page(PLAG)))
+        return watcher.check_feed(self.feed, fetcher=fake(index_page(PLAG, *links)))
+
+    def test_material_change_creates_one_review_candidate_per_linked_benchmark(self):
+        r = self._change(NEW)
+        self.assertEqual(r['candidates'], 1)
+        c = BenchmarkCandidate.objects.get()
+        self.assertEqual((c.candidate_type, c.status, c.benchmark, c.created_by),
+                         ('update_benchmark', 'review', self.aca, 'watcher'))
+        self.assertEqual(c.required_roles, ['accreditation', 'legal'])  # UGC = regulatory authority
+        self.assertIn('minimum-standards-2026.pdf', c.source_rationale)
+        self.aca.refresh_from_db()
+        self.assertEqual(self.aca.status, 'draft')  # nothing about the benchmark changed
+
+    def test_an_open_candidate_is_not_duplicated(self):
+        self._change(NEW)
+        r = watcher.check_feed(self.feed, fetcher=fake(index_page(PLAG, NEW, NEW2)))
+        self.assertEqual((r['events'], r['candidates']), (1, 0))
+        self.assertEqual(BenchmarkCandidate.objects.count(), 1)
+
+    def test_unlinked_source_gets_a_review_source_candidate(self):
+        BenchmarkRequirement.objects.all().delete()
+        self._change(NEW)
+        c = BenchmarkCandidate.objects.get()
+        self.assertEqual((c.candidate_type, c.benchmark), ('source_update', None))
+
+    def test_low_authority_is_rejected_automatically(self):
+        self.feed.authority_trust_score = 20
+        self.feed.save()
+        self._change(NEW)
+        self.assertEqual(BenchmarkCandidate.objects.get().status, 'rejected')
+
+    def test_minor_changes_make_no_candidate(self):
+        self.feed.feed_type = 'web_page'
+        self.feed.save()
+        page = '<html><body>' + ''.join(f'<p>Line number {i} of the regulation text</p>' for i in range(60)) + '{}</body></html>'
+        watcher.check_feed(self.feed, fetcher=fake(page.format('').encode()))
+        r = watcher.check_feed(self.feed, fetcher=fake(page.format('<p>Office closed on Friday</p>').encode()))
+        self.assertEqual((r['events'], r['candidates']), (1, 0))
+
+    def test_review_rules_and_revision(self):
+        self._change(NEW)
+        c = BenchmarkCandidate.objects.get()
+        with self.assertRaisesMessage(candidate_svc.CandidateError, 'needs reviews from'):
+            candidate_svc.review(c, self.user, 'ai_governance', 'approve')
+        candidate_svc.review(c, self.user, 'accreditation', 'approve')
+        with self.assertRaisesMessage(candidate_svc.CandidateError, 'different person'):
+            candidate_svc.review(c, self.user, 'legal', 'approve')
+        with self.assertRaisesMessage(candidate_svc.CandidateError, 'Say why'):
+            candidate_svc.review(c, self.legal, 'legal', 'reject')
+        candidate_svc.review(c, self.legal, 'legal', 'approve', 'Amendment changes the integrity rules.')
+        c.refresh_from_db()
+        self.assertEqual(c.status, 'approved')
+        Benchmark.objects.filter(pk=self.aca.pk).update(status='active', version_label='v0.2')
+        c.benchmark.refresh_from_db()
+        candidate_svc.reopen_for_revision(c, self.user)
+        self.aca.refresh_from_db()
+        self.assertEqual((self.aca.status, self.aca.version_label), ('draft', 'v0.2.r1'))
+
+    def test_a_reject_rejects_and_needs_research_goes_back(self):
+        self._change(NEW)
+        c = BenchmarkCandidate.objects.get()
+        candidate_svc.review(c, self.user, 'accreditation', 'needs_research', 'Find the gazette copy first.')
+        c.refresh_from_db()
+        self.assertEqual(c.status, 'research')
+        candidate_svc.submit(c, self.user)
+        candidate_svc.review(c, self.legal, 'legal', 'reject', 'Not applicable to HEIs.')
+        c.refresh_from_db()
+        self.assertEqual(c.status, 'rejected')
+
+    def test_watcher_run_counts_candidates(self):
+        watcher.check_feed(self.feed, fetcher=fake(index_page(PLAG)))
+        run, _ = watcher.run_watcher(trigger='manual', fetcher=fake(index_page(PLAG, NEW)))
+        self.assertEqual(run.candidates_created, 1)
+
+
+class CandidateApiTests(_WatcherFixture, APITestCase):
+    def _login(self, email):
+        token = self.client.post('/api/v1/auth/login/', {'email': email, 'password': PASSWORD}).data['access_token']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def test_manual_candidate_and_listing(self):
+        self._login('x@ingage.ai')
+        r = self.client.post('/api/v1/benchmarks/benchmark-candidates', {
+            'candidate_type': 'new_benchmark', 'title': 'Generative-AI use policy for assessment',
+            'source_rationale': 'UNESCO 2023 guidance recommends an institutional GenAI policy.'}, format='json')
+        self.assertEqual((r.status_code, r.data['status']), (201, 'research'))
+        self.assertIn('ai_governance', r.data['required_roles'])
+        cid = r.data['id']
+        self.assertEqual(self.client.post(f'/api/v1/benchmarks/benchmark-candidates/{cid}/submit').data['status'],
+                         'review')
+        self.assertEqual(len(self.client.get('/api/v1/benchmarks/benchmark-candidates').data), 1)
+        inst = Institution.objects.create(name='C', city='X', state='TN')
+        User.objects.create_user(email='c@college.edu', username='c', password=PASSWORD, role='institution_admin',
+                                 institution=inst)
+        self._login('c@college.edu')
+        self.assertEqual(self.client.get('/api/v1/benchmarks/benchmark-candidates').status_code, 403)

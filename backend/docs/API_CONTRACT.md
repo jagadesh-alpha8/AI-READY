@@ -49,6 +49,20 @@ Every endpoint below is implemented in `backend/apps/*` and covered by that app'
 - **Response `200`**: `{"detail": "Password updated successfully."}`
 - **Errors**: `400` wrong old password, or new password fails Django's validators.
 
+### `POST /auth/password-reset`
+- **Auth**: none. Rate-limited per client address (10/hour) and per email (3/hour); `429` beyond that.
+- **Request body**: `{"email": str}`
+- **Response `200`**: the same `{"detail": ...}` whether or not the email has an account. An active account gets an
+  email with `{FRONTEND_BASE_URL}/reset-password?uid=...&token=...`; the link works once and expires after
+  `PASSWORD_RESET_TIMEOUT` (1 hour).
+- **Errors**: `400` email missing.
+
+### `POST /auth/password-reset/confirm`
+- **Auth**: none. Rate-limited per client address.
+- **Request body**: `{"uid": str, "token": str, "new_password": str}`
+- **Response `200`**: password changed; every refresh token of the user is blacklisted (signed out everywhere).
+- **Errors**: `400` `token` (invalid, used or expired link) or `new_password` (fails Django's validators).
+
 #### User object
 ```json
 {
@@ -507,3 +521,69 @@ These are pre-existing frontend behaviors that don't map to any real backend act
 - **Demo/seed buttons** ("Seed Demo Pack" in `UploadDataPack.tsx`, "Seed Sample Facts" in `FactsReview.tsx`, "Seed Sample Gaps" in `GapDashboard.tsx`) `POST` directly to `/sprints/{id}/documents`, `/sprints/{id}/facts`, `/sprints/{id}/gaps` with ad-hoc JSON payloads. All three list endpoints are **intentionally read-only** (`apps.documents`/`apps.facts`/`apps.gaps` explicitly document "only ever created by the extraction pipeline") — these buttons get `405 Method Not Allowed`. This is by design, not a bug: facts/gaps/documents are meant to be pipeline-derived, not manually POSTed with arbitrary field names. The real equivalents are `POST /sprints/{id}/upload-file` (documents) and `POST /sprints/{id}/extraction-jobs` (facts + gaps, via the extraction pipeline).
 - **`ReportPreviewExport.tsx`** renders entirely static/hardcoded demo content (including the old fallback CRI of `57.5`) and doesn't call `GET /reports/{id}` for real `report_data` yet — see §10.
 - **No client-side token refresh**: `AuthContext.tsx` stores only `access_token`; `POST /auth/refresh` exists and works, but nothing in the frontend calls it, so a session silently 401s once the access token expires (the frontend then `logout()`s on the next `/auth/me` failure). Backend-correct; a frontend concern.
+
+---
+
+## Endpoints added after 2026-09-01
+
+The sections above describe the AI Readiness Audit API as audited on 2026-08-18. Everything below was added
+later. Full request/response rules for the benchmark side live in `SOURCE_LIBRARY.md` and
+`BENCHMARK_ASSESSMENTS.md`; `openapi.yaml` is regenerated from the code (`python manage.py spectacular --file
+docs/openapi.yaml`). Conventions above (base URL, both slash forms, UUIDs, opt-in pagination, error shapes) apply.
+
+### Platform
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET | `/health` | anyone | `{"status":"ok","database":"ok","cache":"ok"}` or `503`. Used by the container healthcheck and the deploy job |
+| POST | `/auth/login` | anyone | Now **rate-limited**: 10 attempts/minute per client address and 20/hour per email (`429` beyond). `/admin/login/` is limited to 10/minute too |
+| — | `/api/docs`, `/api/redoc`, `/api/schema` | — | Only when `API_DOCS_ENABLED=true` (default: on with `DEBUG`, **off in production**) |
+
+### Users — `/users` (super admin, institution admin)
+
+`GET/POST /users`, `GET/PUT/PATCH/DELETE /users/{id}` — institution admins only manage their own college,
+cannot grant platform roles, and nobody can change their own role or deactivate themselves. DELETE deactivates.
+
+### Documents and extraction
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/sprints/{id}/drive-import-jobs/{job}/stop` | Stop a running Drive import; files already imported stay |
+| POST | `/sprints/{id}/extraction-jobs` | Body may now be `{"document_ids": [...]}` (the ticked documents) |
+| POST | `/extraction-jobs/{id}/cancel`, `/extraction-jobs/{id}/process` | Stop / re-run one document |
+| POST | `/extraction-jobs/sprints/{id}/cancel`, `/extraction-jobs/sprints/{id}/process-incomplete` | Stop all / re-run every unfinished document |
+| GET | `/sprints/{id}/ai-usage` | Tokens and cost for the sprint (`?since=&until=`) |
+| GET | `/extraction-jobs/usage-report` | Super admin / consultant: usage and cost per institution × sprint × month |
+
+Word (.docx), Excel (.xlsx), CSV and images are now read by extraction; old .doc/.xls and .zip are marked
+`processing_status: "unsupported_format"` with the reason in `ocr_warnings[0]`.
+
+### Benchmark library — `/benchmarks/*` (InGage staff only, reads included)
+
+Sources, versions, requirement candidates, requirements, catalogue, links, levels, readiness, evidence rules,
+applicability, releases, the watcher — see `SOURCE_LIBRARY.md`. Added with stage 4b:
+
+| Method | Path | Notes |
+|---|---|---|
+| GET/POST | `/benchmarks/benchmark-candidates` | `?status=open\|all\|research\|review\|approved\|rejected\|published`; POST `{candidate_type, title, source_rationale, benchmark_code?, source_code?}` |
+| GET/PATCH | `/benchmarks/benchmark-candidates/{id}` | Edit while in research / review |
+| POST | `/benchmarks/benchmark-candidates/{id}/submit` | research → review |
+| POST | `/benchmarks/benchmark-candidates/{id}/review` | `{reviewer_role, decision: approve\|reject\|needs_research, notes}` — a different person per required role |
+| POST | `/benchmarks/benchmark-candidates/{id}/open-revision` | Approved candidate → the active benchmark becomes a new draft |
+| POST | `/benchmarks/watcher/events/{id}/propose` | Make a candidate from any watcher change |
+
+### Benchmark assessment — `/assessments/*`
+
+Profiles, cycles, evidence, reviews, scores, scorecard, weights — see `BENCHMARK_ASSESSMENTS.md`. Added with stage 6:
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| GET / POST | `/assessments/cycles/{id}/plan` | read: staff + the college · generate: staff, finalized cycles only | Gaps → initiatives → tasks |
+| PATCH | `/assessments/gaps/{id}` | staff | `{status: open\|planned\|in_progress\|closed, root_cause}` — `closed` only after validation |
+| POST | `/assessments/gaps/{id}/validate` | staff | `{evidence_item, note}` — accepted evidence, same college and benchmark |
+| PATCH | `/assessments/initiatives/{id}` | staff + college (not viewers) | `{title, description, owner, status, target_date}` |
+| POST | `/assessments/initiatives/{id}/tasks` | staff + college (not viewers) | `{title, owner?, due_date?, evidence_due?}` |
+| PATCH | `/assessments/tasks/{id}` | staff + college (not viewers) | `{title, owner, status, due_date, evidence_due}` |
+| GET/POST | `/assessments/templates?benchmark=` | staff | One template per benchmark × gap type |
+| PATCH/DELETE | `/assessments/templates/{id}` | staff | |
+| GET | `/assessments/cycles/{id}/sprint-documents` | staff + the college | Audit documents that can be reused as evidence (`sprint_document` on the evidence upload) |

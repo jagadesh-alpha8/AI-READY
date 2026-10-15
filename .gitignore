@@ -14,3 +14,9 @@ Thumbs.db
 
 # Local DB/media exports for moving data to the server -- contain user data, never commit
 transfer/
+
+# Server-only files on the VM (/opt/ai-ready) -- never committed
+backups/
+docker-compose.override.yml
+nginx-routers.conf
+.env.before-*

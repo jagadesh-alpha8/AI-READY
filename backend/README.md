@@ -68,11 +68,10 @@ celery -A config worker -l info
 celery -A config worker -l info --pool=solo
 ```
 
-**Celery Beat is not required** — every task in this project (`run_extraction_job`) is triggered
-on-demand from an API call, not on a schedule. There are no periodic tasks, so there's nothing for
-Beat to schedule; don't start it unless a recurring job is introduced later (e.g. re-queuing stuck
-jobs on a timer), at which point add a `CELERY_BEAT_SCHEDULE` in `config/settings/base.py` and run
-`celery -A config beat -l info` alongside the worker.
+**Celery Beat is only needed for the daily source watcher** (`docs/SOURCE_LIBRARY.md`). Every
+other task is triggered on demand from an API call. The watcher's schedule exists only when
+`WATCHER_ENABLED=true`; then run `celery -A config beat -l info` alongside the worker (in production
+the `celery-beat` compose service does this).
 
 If Redis/the worker aren't running, `POST /sprints/<id>/extraction-jobs/` still creates the job
 record but marks it `failed` with a clear `error_message` (`Could not reach the Celery broker: ...`)

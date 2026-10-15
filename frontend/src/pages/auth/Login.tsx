@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getErrorMessage } from '../../utils/errors';
 import {
@@ -19,13 +20,13 @@ import ingageLogoDark from '../../assets/ingage-logo-mark-dark.png';
  */
 const SHOW_DEMO_PERSONAS = import.meta.env.VITE_SHOW_DEMO_PERSONAS === 'true';
 
-// TEMPORARY: the super admin credentials are prefilled so signing in during
-// the demo is one click. This is the one piece of seed data still on this
-// page -- it is not shown as text anywhere, but anyone reaching /login can
-// read it out of the password box. Clear both strings to turn it off; that
-// is the whole change, and nothing else depends on them.
-const DEFAULT_EMAIL = 'superadmin@ingage.ai';
-const DEFAULT_PASSWORD = 'Password123!';
+// The seed password is only ever compiled into a developer build with
+// VITE_SHOW_DEMO_PERSONAS=true. A production bundle contains neither it nor a
+// prefilled login: anyone reaching /login could otherwise read the super
+// admin's credentials out of the password box.
+const DEMO_PASSWORD = SHOW_DEMO_PERSONAS ? 'Password123!' : '';
+const DEFAULT_EMAIL = SHOW_DEMO_PERSONAS ? 'superadmin@ingage.ai' : '';
+const DEFAULT_PASSWORD = DEMO_PASSWORD;
 
 /** Only ever rendered when SHOW_DEMO_PERSONAS is on; see above. */
 const SEEDED_ROLES = [
@@ -108,7 +109,7 @@ export const Login: React.FC = () => {
     setError('');
     setLoading(true);
     try {
-      await login(targetEmail, 'Password123!');
+      await login(targetEmail, DEMO_PASSWORD);
     } catch (err: any) {
       setError(getErrorMessage(err, 'Quick login failed'));
     } finally {
@@ -202,7 +203,12 @@ export const Login: React.FC = () => {
               </div>
 
               <div>
-                <label className="label" htmlFor="login-password">Password</label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="label" htmlFor="login-password">Password</label>
+                  <Link to="/forgot-password" className="text-xs text-brand-800 hover:underline mb-1">
+                    Forgot password?
+                  </Link>
+                </div>
                 <input
                   id="login-password"
                   type="password"

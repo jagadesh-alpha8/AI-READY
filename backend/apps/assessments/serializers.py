@@ -44,17 +44,18 @@ class EvidenceItemSerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source='get_status_display', read_only=True)
     submitted_by = serializers.CharField(source='submitted_by.email', read_only=True)
     has_file = serializers.SerializerMethodField()
+    from_audit = serializers.BooleanField(source='sprint_document_id', read_only=True)
     reviews = EvidenceReviewSerializer(many=True, read_only=True)
 
     class Meta:
         model = EvidenceItem
-        fields = ['id', 'rule_key', 'evidence_type', 'title', 'description', 'has_file', 'original_filename',
+        fields = ['id', 'rule_key', 'evidence_type', 'title', 'description', 'has_file', 'from_audit', 'original_filename',
                   'file_sha256', 'source_url', 'issued_on', 'valid_until', 'status', 'status_label', 'submitted_by',
                   'created_at', 'reviews']
         read_only_fields = fields
 
     def get_has_file(self, obj):
-        return bool(obj.file)
+        return bool(obj.file) or bool(obj.sprint_document_id and obj.sprint_document.file)
 
 
 class AssessmentSerializer(serializers.ModelSerializer):

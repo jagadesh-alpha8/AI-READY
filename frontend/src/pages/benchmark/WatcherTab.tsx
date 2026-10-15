@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { CheckCircle2, Eye, EyeOff, Play, RefreshCw, XCircle } from 'lucide-react';
 
 import {
-  checkFeedNow, getWatcherSummary, listChangeEvents, listWatcherFeeds, listWatcherRuns, reviewChangeEvent,
-  setFeedEnabled, startWatcherRun,
+  checkFeedNow, getWatcherSummary, listChangeEvents, listWatcherFeeds, listWatcherRuns, proposeFromEvent,
+  reviewChangeEvent, setFeedEnabled, startWatcherRun,
 } from '../../api/benchmarks';
 import type {
   ChangeStatus, SourceChangeEventInfo, SourceFeedInfo, WatcherRunInfo, WatcherSummary,
@@ -174,6 +174,14 @@ const EventCard: React.FC<{ event: SourceChangeEventInfo; onDone: () => void }> 
             {!!imp.requirements?.length && <p>Requirements: {imp.requirements.join(', ')}</p>}
             {!!imp.benchmarks?.length && <p>Benchmarks: {imp.benchmarks.join(', ')}</p>}
             {!!imp.published_releases?.length && <p>Published releases: {imp.published_releases.join(', ')}</p>}
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="btn-secondary btn-sm" onClick={async () => {
+              setErr('');
+              try { await proposeFromEvent(e.id); setErr('Candidate created — see the Candidates tab.'); }
+              catch (x) { setErr(getErrorMessage(x)); }
+            }}>Create a benchmark candidate</button>
+            <span className="text-ink-500">Material changes get one automatically; use this for anything else worth an expert review.</span>
           </div>
           {decided ? (
             <p className="text-ink-500">Decided by {e.reviewed_by || '—'} on {when(e.reviewed_at)}{e.review_note ? ` — “${e.review_note}”` : ''}</p>

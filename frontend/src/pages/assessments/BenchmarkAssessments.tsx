@@ -13,6 +13,7 @@ import type {
   AssessmentReference, CollegeProfile, CollegeRow, Cycle, CycleDetail, CycleStatus, ProgrammeRow, Scorecard,
 } from '../../api/assessments';
 import { CycleBenchmarkPanel } from './CycleBenchmarkPanel';
+import { PlanPanel } from './PlanPanel';
 
 /**
  * Stage 5: assess a college against the current published benchmark release.
@@ -280,6 +281,7 @@ const CyclePanel: React.FC<{ cycleId: string; reference: AssessmentReference; on
       {err && <InlineError message={err} onDismiss={() => setErr('')} />}
       {problems.length > 0 && <div>{problems.map((p) => <p key={p} className="text-danger">• {p}</p>)}</div>}
       {showCard && <ScorecardView cycleId={cycleId} />}
+      {c.status === 'finalized' && <PlanPanel cycleId={cycleId} staff={staff} canEdit={reference.can_upload} />}
 
       <p className="font-bold text-ink-900 pt-1">Benchmarks in this assessment ({included.length})</p>
       <BenchTable rows={included} active={bench} onPick={setBench} showScores={c.scores_visible} />

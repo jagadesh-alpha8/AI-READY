@@ -8,7 +8,7 @@ export type { User };
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  login: (email: string, password?: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   loading: boolean;
 }
@@ -33,7 +33,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const login = async (email: string, password = 'Password123!') => {
+  const login = async (email: string, password: string) => {
     const response = await authApi.login(email, password);
     const { access_token, refresh_token, user: userData } = response.data;
     localStorage.setItem(ACCESS_TOKEN_KEY, access_token);

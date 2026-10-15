@@ -226,31 +226,45 @@ def _event(feed, kind, score, summary, details, prev=None, cur=None):
         materiality_score=score, summary=summary, details=details, impact=impact(feed.document))
 
 
+def _candidates_for(events):
+    """Benchmark candidates for material events (stage 4b) -- never fails the check."""
+    from .candidates import create_from_event
+
+    made = 0
+    for ev in events:
+        try:
+            made += len(create_from_event(ev))
+        except Exception:
+            logger.exception('watcher.candidate_error event=%s', ev.pk)
+    return made
+
+
 def check_feed(feed, *, fetcher=fetch, dry_run=False):
-    """Returns {'result': baseline|unchanged|changed|failed|skipped, 'events': n, 'detail': str}."""
+    """Returns {'result': baseline|unchanged|changed|failed|skipped, 'events': n,
+    'candidates': n, 'detail': str}."""
     now = timezone.now()
     if feed.feed_type == SourceFeed.FeedType.MANUAL_UPLOAD:
-        return {'result': 'skipped', 'events': 0, 'detail': 'Manual-upload source: nothing to fetch; a person uploads new versions.'}
+        return {'result': 'skipped', 'events': 0, 'candidates': 0,
+                'detail': 'Manual-upload source: nothing to fetch; a person uploads new versions.'}
     previous = feed.snapshots.order_by('-fetched_at').first()
     try:
         f = fetcher(feed.endpoint_url)
     except FetchError as exc:
-        events = 0
+        events = []
         result = 'skipped' if exc.kind == 'robots' else 'failed'
         # Raise an event only on the transition from working to not working, not every day.
         if not dry_run and previous and feed.last_result not in ('failed', 'skipped'):
             if exc.status in (404, 410):
-                _event(feed, SourceChangeEvent.Kind.WITHDRAWAL, 70, f'The page now returns {exc} - it may have '
-                       'been removed or moved.', {'http_status': exc.status}, prev=previous)
-                events = 1
+                events.append(_event(feed, SourceChangeEvent.Kind.WITHDRAWAL, 70, f'The page now returns {exc} - '
+                                     'it may have been removed or moved.', {'http_status': exc.status}, prev=previous))
             elif exc.status in (401, 403) or exc.kind == 'robots':
-                _event(feed, SourceChangeEvent.Kind.ACCESS_CHANGE, 40, f'The page can no longer be read automatically '
-                       f'({exc}).', {'http_status': exc.status, 'reason': str(exc)}, prev=previous)
-                events = 1
+                events.append(_event(feed, SourceChangeEvent.Kind.ACCESS_CHANGE, 40, 'The page can no longer be read '
+                                     f'automatically ({exc}).', {'http_status': exc.status, 'reason': str(exc)},
+                                     prev=previous))
         if not dry_run:
             feed.last_checked_at, feed.last_result, feed.last_error = now, result, str(exc)
             feed.save(update_fields=['last_checked_at', 'last_result', 'last_error'])
-        return {'result': result, 'events': events, 'detail': str(exc)}
+        return {'result': result, 'events': len(events), 'candidates': _candidates_for(events), 'detail': str(exc)}
 
     data, digest = normalize(feed, f)
     if previous and previous.content_hash == digest:
@@ -258,12 +272,12 @@ def check_feed(feed, *, fetcher=fetch, dry_run=False):
             feed.last_checked_at = feed.last_success_at = now
             feed.last_result, feed.last_error = 'unchanged', ''
             feed.save(update_fields=['last_checked_at', 'last_success_at', 'last_result', 'last_error'])
-        return {'result': 'unchanged', 'events': 0, 'detail': ''}
+        return {'result': 'unchanged', 'events': 0, 'candidates': 0, 'detail': ''}
     changes = compare(previous.normalized, data) if previous else []
     detail = (f'{len(data.get("links", []))} document links' if 'links' in data
               else f'{len(data.get("text_lines", []))} text lines' if 'text_lines' in data else f'{len(f.content)} bytes')
     if dry_run:
-        return {'result': 'changed' if previous else 'baseline', 'events': len(changes),
+        return {'result': 'changed' if previous else 'baseline', 'events': len(changes), 'candidates': 0,
                 'detail': detail + (' | ' + '; '.join(c[2] for c in changes) if changes else '')}
     with transaction.atomic():
         snap, _ = SourceSnapshot.objects.get_or_create(
@@ -273,12 +287,12 @@ def check_feed(feed, *, fetcher=fetch, dry_run=False):
         if previous and snap.pk != previous.pk:
             snap.fetched_at = now  # a re-appearing older state becomes the latest again
             snap.save(update_fields=['fetched_at'])
-        for kind, score, summary, det in changes:
-            _event(feed, kind, score, summary, det, prev=previous, cur=snap)
+        events = [_event(feed, kind, score, summary, det, prev=previous, cur=snap)
+                  for kind, score, summary, det in changes]
         feed.last_checked_at = feed.last_success_at = now
         feed.last_result, feed.last_error = ('changed' if previous else 'baseline'), ''
         feed.save(update_fields=['last_checked_at', 'last_success_at', 'last_result', 'last_error'])
-    return {'result': feed.last_result, 'events': len(changes), 'detail': detail}
+    return {'result': feed.last_result, 'events': len(changes), 'candidates': _candidates_for(events), 'detail': detail}
 
 
 def run_watcher(*, codes=None, trigger='schedule', dry_run=False, fetcher=fetch, include_disabled=False):
@@ -289,19 +303,21 @@ def run_watcher(*, codes=None, trigger='schedule', dry_run=False, fetcher=fetch,
     if codes:
         feeds = feeds.filter(document__source_code__in=codes)
     run = None if dry_run else WatcherRun.objects.create(trigger=trigger[:40])
-    results, failures, changes = [], [], 0
+    results, failures, changes, candidates = [], [], 0, 0
     for feed in feeds.order_by('document__source_code'):
         try:
             res = check_feed(feed, fetcher=fetcher, dry_run=dry_run)
         except Exception as exc:  # one broken feed never stops the run
             logger.exception('watcher.feed_error feed=%s', feed.pk)
-            res = {'result': 'failed', 'events': 0, 'detail': f'{type(exc).__name__}: {exc}'[:300]}
+            res = {'result': 'failed', 'events': 0, 'candidates': 0, 'detail': f'{type(exc).__name__}: {exc}'[:300]}
         results.append((feed, res))
         changes += res['events']
+        candidates += res.get('candidates', 0)
         if res['result'] == 'failed':
             failures.append({'source_code': feed.document.source_code, 'url': feed.endpoint_url, 'error': res['detail']})
     if run:
         run.feeds_checked, run.changes_detected, run.failure_detail = len(results), changes, failures
+        run.candidates_created = candidates
         run.status = (WatcherRun.Status.COMPLETE if not failures else
                       WatcherRun.Status.FAILED if len(failures) == len(results) else WatcherRun.Status.PARTIAL_FAILURE)
         run.completed_at = timezone.now()

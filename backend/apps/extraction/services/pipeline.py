@@ -96,6 +96,14 @@ class ExtractionPipeline:
             document.ocr_required = pages.get('requires_ocr', False)
             document.ocr_warnings = pages.get('ocr_warnings', [])
             update_fields += ['ocr_required', 'ocr_warnings']
+        else:
+            # Not a readable format: say so on the document (shown on the
+            # Upload Data Pack page) instead of finishing silently with no facts.
+            document.page_count = 0
+            document.ocr_required = False
+            document.ocr_warnings = [pages.get('format_note') or 'This file type cannot be read.']
+            document.processing_status = 'unsupported_format'
+            update_fields += ['page_count', 'ocr_required', 'ocr_warnings', 'processing_status']
         if update_fields:
             document.save(update_fields=[*update_fields, 'updated_at'])
 

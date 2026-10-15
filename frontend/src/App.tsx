@@ -6,14 +6,15 @@ import { AppShell } from './layouts/AppShell';
 import { ScrollToTop } from './components/ScrollToTop';
 
 import { Login } from './pages/auth/Login';
+import { ForgotPassword, ResetPassword } from './pages/auth/PasswordReset';
 import { Dashboard } from './pages/dashboard/Dashboard';
 import { InstitutionList } from './pages/institutions/InstitutionList';
 import { InstitutionDetail } from './pages/institutions/InstitutionDetail';
 import { StatusDashboard } from './pages/status/StatusDashboard';
 import { ModulePreview } from './pages/previews/ModulePreview';
 import { AdminSettings } from './pages/admin/AdminSettings';
-// Modules ported from the InGage prototype. Each renders demo data and says
-// so at the top — see components/DemoDataNotice.
+// Platform modules (originally ported from the InGage prototype; all now read
+// real API data).
 import { EvidenceIntelligence } from './pages/evidence/EvidenceIntelligence';
 import { CriBenchmarkIntelligence } from './pages/benchmark/CriBenchmarkIntelligence';
 import { BenchmarkStudio } from './pages/benchmark/BenchmarkStudio';
@@ -78,6 +79,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
 
       <Route path="/dashboard" element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
       <Route path="/institution-dna" element={<ProtectedLayout><InstitutionList /></ProtectedLayout>} />

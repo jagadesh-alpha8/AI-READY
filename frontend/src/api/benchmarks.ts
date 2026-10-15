@@ -589,3 +589,64 @@ export function listChangeEvents(status: 'open' | 'all' | ChangeStatus = 'open')
 export function reviewChangeEvent(id: string, status: Exclude<ChangeStatus, 'triaged'>, note: string) {
   return api.post<SourceChangeEventInfo>(`/benchmarks/watcher/events/${id}/review`, { status, note });
 }
+
+/** Stage 4b: benchmark candidates -- proposed library changes awaiting expert approval. */
+
+export type CandidateStatus = 'research' | 'review' | 'approved' | 'rejected' | 'published';
+export type CandidateRole = 'accreditation' | 'academic' | 'legal' | 'ai_governance' | 'cybersecurity' | 'product';
+
+export interface CandidateReviewInfo {
+  id: string;
+  reviewer: string;
+  reviewer_role: CandidateRole;
+  reviewer_role_label: string;
+  decision: 'approve' | 'reject' | 'needs_research';
+  decision_label: string;
+  notes: string;
+  reviewed_at: string;
+}
+
+export interface BenchmarkCandidateInfo {
+  id: string;
+  candidate_type: 'update_benchmark' | 'new_benchmark' | 'retire_benchmark' | 'source_update';
+  type_label: string;
+  title: string;
+  status: CandidateStatus;
+  status_label: string;
+  benchmark_code: string | null;
+  benchmark_title: string | null;
+  benchmark_status: string | null;
+  source_code: string | null;
+  change_event: string | null;
+  proposed_kind: string;
+  source_rationale: string;
+  emergence_score: string;
+  required_roles: CandidateRole[];
+  role_status: Record<string, { decision: string; reviewer: string } | null>;
+  created_by: string;
+  created_at: string;
+  decided_at: string | null;
+  reviews: CandidateReviewInfo[];
+}
+
+export function listBenchmarkCandidates(status: 'open' | 'all' | CandidateStatus = 'open') {
+  return api.get<BenchmarkCandidateInfo[]>('/benchmarks/benchmark-candidates', { params: { status } });
+}
+
+export function createBenchmarkCandidate(body: {
+  candidate_type: string; title: string; source_rationale: string; benchmark_code?: string; source_code?: string;
+}) {
+  return api.post<BenchmarkCandidateInfo>('/benchmarks/benchmark-candidates', body);
+}
+
+export function benchmarkCandidateAction(id: string, action: 'submit' | 'open-revision') {
+  return api.post<BenchmarkCandidateInfo>(`/benchmarks/benchmark-candidates/${id}/${action}`);
+}
+
+export function reviewBenchmarkCandidate(id: string, body: { reviewer_role: CandidateRole; decision: string; notes: string }) {
+  return api.post<BenchmarkCandidateInfo>(`/benchmarks/benchmark-candidates/${id}/review`, body);
+}
+
+export function proposeFromEvent(eventId: string) {
+  return api.post<BenchmarkCandidateInfo>(`/benchmarks/watcher/events/${eventId}/propose`);
+}

@@ -283,8 +283,15 @@ def submit_evidence(ab, user, data, upload=None):
     url = (data.get('source_url') or '').strip()
     if not title:
         raise AssessmentError('Give the evidence a title.')
-    if upload is None and not url:
-        raise AssessmentError('Attach a file or give a link.')
+    sprint_doc = None
+    if data.get('sprint_document'):
+        from apps.documents.models import Document
+        sprint_doc = Document.objects.filter(pk=data['sprint_document'],
+                                             sprint__institution_id=cycle.institution_id).first()
+        if sprint_doc is None or not sprint_doc.file:
+            raise AssessmentError('That audit document was not found for this college.')
+    if upload is None and not url and sprint_doc is None:
+        raise AssessmentError('Attach a file, give a link, or choose a document from an audit sprint.')
     if url and not url.lower().startswith(('https://', 'http://')):
         raise AssessmentError('The link must start with https://')
     issued, valid = _date(data.get('issued_on'), 'issued_on'), _date(data.get('valid_until'), 'valid_until')
@@ -293,7 +300,10 @@ def submit_evidence(ab, user, data, upload=None):
     item = EvidenceItem(cycle=cycle, applicable=ab, rule_key=rule_key(rule), title=title[:300],
                         evidence_type=EvidenceType.objects.get(code=rule['evidence_type']),
                         description=(data.get('description') or '').strip(), source_url=url[:1000],
-                        issued_on=issued, valid_until=valid, submitted_by=user)
+                        issued_on=issued, valid_until=valid, submitted_by=user, sprint_document=sprint_doc)
+    if sprint_doc is not None and upload is None:
+        item.original_filename = (sprint_doc.original_filename or sprint_doc.title or 'document')[:255]
+        item.file_sha256 = sprint_doc.checksum or ''
     if upload is not None:
         ext = os.path.splitext(upload.name)[1].lower()
         if ext not in ALLOWED_EXT:
@@ -308,7 +318,7 @@ def submit_evidence(ab, user, data, upload=None):
     item.save()
     _audit(user, 'assessment.evidence_submitted', item,
            after={'benchmark': ab.benchmark.benchmark_code, 'request': item.rule_key, 'sha256': item.file_sha256,
-                  'url': item.source_url})
+                  'url': item.source_url, 'sprint_document': str(sprint_doc.pk) if sprint_doc else None})
     return item
 
 

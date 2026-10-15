@@ -270,9 +270,10 @@ class EvidenceFileView(APIView):
     def get(self, request, pk):
         item = get_object_or_404(EvidenceItem.objects.select_related('cycle'), pk=pk)
         require_institution_access(request.user, item.cycle)
-        if not item.file:
+        f = item.file or (item.sprint_document.file if item.sprint_document_id else None)
+        if not f:
             return Response({'detail': 'This evidence is a link, not a file.'}, status=status.HTTP_404_NOT_FOUND)
-        return FileResponse(item.file.open('rb'), as_attachment=True, filename=item.original_filename or 'evidence')
+        return FileResponse(f.open('rb'), as_attachment=True, filename=item.original_filename or 'evidence')
 
 
 class EvidenceReviewView(APIView):

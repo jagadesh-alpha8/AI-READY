@@ -14,8 +14,10 @@ number); "combine" here means the header/footer pass looks across the whole
 document. A page that has no usable text even after OCR is marked
 `requires_ocr` rather than silently reported as empty.
 
-Only PDF is implemented here. Anything else is reported honestly as an
-unsupported format -- not guessed at, not silently treated as empty.
+Word (.docx), Excel (.xlsx), CSV and images (.png/.jpg, via OCR) are read by
+`office_reader` into the same page shape. Anything else (.doc, .xls, .zip) is
+reported honestly as an unsupported format with a note the user is shown --
+not guessed at, not silently treated as empty.
 """
 import logging
 import os
@@ -31,7 +33,9 @@ from .text_cleaning import clean_text, is_meaningful_text, remove_repeated_heade
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {'.pdf'}
+from . import office_reader
+
+SUPPORTED_EXTENSIONS = {'.pdf'} | office_reader.OFFICE_EXTENSIONS | office_reader.IMAGE_EXTENSIONS
 
 
 def default_ocr_provider():
@@ -77,7 +81,9 @@ class PDFPageReader(PageReader):
                 'ocr_warnings': [],
                 'metadata': {},
                 'format_supported': False,
-                'format_note': f'PDFPageReader only reads PDF files; got "{ext or "(no extension)"}".',
+                'format_note': office_reader.UNREADABLE_NOTES.get(
+                    ext, f'Files of type "{ext or "(no extension)"}" cannot be read; upload a PDF, Word, Excel, '
+                         'CSV or image file.'),
             }
 
         try:
@@ -90,6 +96,9 @@ class PDFPageReader(PageReader):
             # Storage I/O hiccup reading the file itself -- worth a retry.
             logger.warning('pdf_reader.io_error document_id=%s error=%s', document.id, exc)
             raise RecoverableExtractionError(f'Could not read document file: {exc}') from exc
+
+        if ext != '.pdf':
+            return self._read_other(document, ext, data, max_pages)
 
         try:
             pdf = pymupdf.open(stream=data, filetype='pdf')
@@ -173,6 +182,44 @@ class PDFPageReader(PageReader):
             document.id, total_page_count, len(pages_out), result['ocr_pages'], len(ocr_warnings),
         )
         return result
+
+    def _read_other(self, document, ext, data, max_pages):
+        """Word / Excel / CSV / image -> the same result shape as a PDF."""
+        warnings = []
+        try:
+            if ext == '.docx':
+                texts = office_reader.read_docx(data)
+            elif ext == '.xlsx':
+                texts = office_reader.read_xlsx(data)
+            elif ext == '.csv':
+                texts = office_reader.read_csv(data)
+            else:  # image
+                image = office_reader.image_to_bgr(data)
+                ocr_text = (None if isinstance(self.ocr_provider, stub.NullOCRProvider)
+                            else self.ocr_provider.extract_text(document, 1, image=image))
+                if not ocr_text or not is_meaningful_text(ocr_text, self.min_text_chars_per_page):
+                    warnings.append('No readable text was found in this image'
+                                    + (' (OCR is not available on this server).' if ocr_text is None else '.'))
+                texts = [ocr_text or '']
+        except Exception as exc:
+            logger.error('office_reader.parse_error document_id=%s ext=%s error=%s', document.id, ext, exc)
+            raise PermanentExtractionError(f'Could not read the {ext} file: {exc}') from exc
+        if max_pages:
+            texts = texts[:max_pages]
+        source = 'ocr' if ext in office_reader.IMAGE_EXTENSIONS else 'text'
+        pages_out = [
+            {'page_number': i + 1, 'text': clean_text(t), 'char_count': len(t), 'text_source': source if t.strip() else 'none',
+             'requires_ocr': False, 'tables': []}
+            for i, t in enumerate(texts)
+        ]
+        if not pages_out and not warnings:
+            warnings.append(f'The {ext} file contains no text.')
+        logger.info('office_reader.read document_id=%s ext=%s pages=%d', document.id, ext, len(pages_out))
+        return {
+            'pages': pages_out, 'page_count': len(pages_out), 'pages_read': len(pages_out),
+            'ocr_pages': len(pages_out) if source == 'ocr' else 0, 'requires_ocr': bool(warnings) and source == 'ocr',
+            'ocr_warnings': warnings, 'metadata': {'format': ext.lstrip('.')}, 'format_supported': True,
+        }
 
     def _render(self, page):
         """Page -> BGR uint8 image at `ocr_dpi`, the layout PaddleOCR expects."""

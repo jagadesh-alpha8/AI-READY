@@ -133,6 +133,7 @@ export interface EvidenceItemInfo {
   title: string;
   description: string;
   has_file: boolean;
+  from_audit: boolean;
   original_filename: string;
   file_sha256: string;
   source_url: string;
@@ -217,7 +218,8 @@ export const decideCycleBenchmark = (id: string, code: string, body: { included?
   api.patch<CycleBenchmarkDetail>(`${base}/cycles/${id}/benchmarks/${code}`, body);
 
 export function uploadEvidence(id: string, code: string, body: {
-  rule_key: string; title: string; description?: string; source_url?: string; issued_on?: string; valid_until?: string; file?: File | null;
+  rule_key: string; title: string; description?: string; source_url?: string; issued_on?: string; valid_until?: string;
+  file?: File | null; sprint_document?: string;
 }) {
   const form = new FormData();
   Object.entries(body).forEach(([k, v]) => {
@@ -245,3 +247,103 @@ export const listScoreRules = () => api.get<{ scoring_model: string | null; rule
 export const saveScoreRule = (code: string, body: {
   compliance_weight: string; maturity_weight: string; evidence_weight: string; outcome_weight: string; note: string;
 }) => api.put<{ scoring_model: string | null; rules: ScoreRuleRow[] }>(`${base}/score-rules/${code}`, body);
+
+/** Stage 6: improvement plan, templates, audit documents as evidence. */
+
+export type PlanStatus = 'planned' | 'active' | 'blocked' | 'complete';
+export type GapStatus = 'open' | 'planned' | 'in_progress' | 'validated' | 'closed';
+
+export interface PlanTask {
+  id: string;
+  title: string;
+  owner: string;
+  due_date: string | null;
+  status: PlanStatus;
+  status_label: string;
+  evidence_due: string;
+  order: number;
+}
+
+export interface PlanInitiative {
+  id: string;
+  title: string;
+  description: string;
+  expected_evidence: string;
+  expected_outcome: string;
+  owner: string;
+  status: PlanStatus;
+  status_label: string;
+  target_date: string | null;
+  from_template: boolean;
+  tasks: PlanTask[];
+}
+
+export interface PlanGap {
+  id: string;
+  benchmark_code: string;
+  benchmark_title: string;
+  gap_type: string;
+  type_label: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  severity_label: string;
+  description: string;
+  root_cause: string;
+  status: GapStatus;
+  status_label: string;
+  closing_evidence: string | null;
+  closing_evidence_title: string | null;
+  validated_by: string | null;
+  validated_at: string | null;
+  validation_note: string;
+  initiatives: PlanInitiative[];
+}
+
+export interface ImprovementPlan {
+  cycle: string;
+  has_plan: boolean;
+  gaps: PlanGap[];
+  summary: { gaps: number; open: number; critical_open: number; tasks: number; tasks_done: number };
+}
+
+export interface TransformationTemplateInfo {
+  id: string;
+  benchmark_code: string;
+  gap_type: string;
+  title: string;
+  intervention: string;
+  expected_evidence: string;
+  expected_outcome: string;
+  tasks: string[];
+  updated_at: string;
+}
+
+export interface SprintDocumentOption {
+  id: string;
+  title: string;
+  filename: string;
+  document_type: string;
+  sprint: string;
+  uploaded_at: string;
+}
+
+export const getPlan = (cycleId: string) => api.get<ImprovementPlan>(`${base}/cycles/${cycleId}/plan`);
+export const generatePlan = (cycleId: string) => api.post<ImprovementPlan>(`${base}/cycles/${cycleId}/plan`);
+export const updateGap = (id: string, body: { status?: GapStatus; root_cause?: string }) =>
+  api.patch<PlanGap>(`${base}/gaps/${id}`, body);
+export const validateGap = (id: string, body: { evidence_item: string; note: string }) =>
+  api.post<PlanGap>(`${base}/gaps/${id}/validate`, body);
+export const updateInitiative = (id: string, body: Partial<Pick<PlanInitiative, 'title' | 'owner' | 'status' | 'target_date'>>) =>
+  api.patch<PlanInitiative>(`${base}/initiatives/${id}`, body);
+export const addTask = (initiativeId: string, body: { title: string; owner?: string; due_date?: string }) =>
+  api.post<PlanInitiative>(`${base}/initiatives/${initiativeId}/tasks`, body);
+export const updateTask = (id: string, body: Partial<Pick<PlanTask, 'title' | 'owner' | 'status' | 'due_date'>>) =>
+  api.patch<PlanTask>(`${base}/tasks/${id}`, body);
+export const listTemplates = (benchmark?: string) =>
+  api.get<TransformationTemplateInfo[]>(`${base}/templates`, { params: benchmark ? { benchmark } : {} });
+export const createTemplate = (body: Omit<TransformationTemplateInfo, 'id' | 'updated_at'>) =>
+  api.post<TransformationTemplateInfo>(`${base}/templates`, body);
+export const updateTemplate = (id: string, body: Partial<TransformationTemplateInfo>) =>
+  api.patch<TransformationTemplateInfo>(`${base}/templates/${id}`, body);
+export const deleteTemplate = (id: string) => api.delete(`${base}/templates/${id}`);
+export const listSprintDocuments = (cycleId: string) =>
+  api.get<SprintDocumentOption[]>(`${base}/cycles/${cycleId}/sprint-documents`);

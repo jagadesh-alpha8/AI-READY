@@ -6,10 +6,11 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import {
   decideCycleBenchmark, downloadEvidence, getCycleBenchmark, listScoreRules, reviewEvidence, saveAssessorInput,
-  saveScoreRule, uploadEvidence,
+  saveScoreRule, uploadEvidence, listSprintDocuments, listTemplates, createTemplate, updateTemplate,
 } from '../../api/assessments';
 import type {
   AssessmentReference, CycleBenchmarkDetail, EvidenceItemInfo, EvidenceRequest, Level, ReviewDecision, ScoreDetail,
+  SprintDocumentOption, TransformationTemplateInfo,
 } from '../../api/assessments';
 import { fmt } from './BenchmarkAssessments';
 
@@ -99,6 +100,7 @@ export const CycleBenchmarkPanel: React.FC<{ cycleId: string; code: string; refe
         <AssessorForm cycleId={cycleId} code={code} detail={b} onSaved={refresh} />
       )}
       {staff && b.included && <WeightsForm code={code} />}
+      {staff && b.included && <TemplatesForm code={code} />}
     </div>
   );
 };
@@ -113,6 +115,8 @@ const RequestCard: React.FC<{ r: EvidenceRequest; cycleId: string; code: string;
   const [issued, setIssued] = useState('');
   const [valid, setValid] = useState('');
   const [desc, setDesc] = useState('');
+  const [auditDoc, setAuditDoc] = useState('');
+  const [auditDocs, setAuditDocs] = useState<SprintDocumentOption[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const accepted = r.items.filter((i) => i.status === 'accepted').length;
@@ -120,8 +124,8 @@ const RequestCard: React.FC<{ r: EvidenceRequest; cycleId: string; code: string;
   const send = async () => {
     setBusy(true); setErr('');
     try {
-      await uploadEvidence(cycleId, code, { rule_key: r.key, title, description: desc, source_url: url, issued_on: issued, valid_until: valid, file });
-      setAdding(false); setTitle(''); setFile(null); setUrl(''); setIssued(''); setValid(''); setDesc(''); onChanged();
+      await uploadEvidence(cycleId, code, { rule_key: r.key, title, description: desc, source_url: url, issued_on: issued, valid_until: valid, file, sprint_document: auditDoc || undefined });
+      setAdding(false); setTitle(''); setFile(null); setUrl(''); setIssued(''); setValid(''); setDesc(''); setAuditDoc(''); onChanged();
     } catch (e) { setErr(getErrorMessage(e)); } finally { setBusy(false); }
   };
 
@@ -138,19 +142,26 @@ const RequestCard: React.FC<{ r: EvidenceRequest; cycleId: string; code: string;
         {r.scope_rule ? ` · must cover: ${r.scope_rule}` : ''}
       </p>
       {r.items.map((i) => <EvidenceRow key={i.id} item={i} canReview={canReview} onChanged={onChanged} />)}
-      {canUpload && !adding && <button className="btn-secondary btn-sm" onClick={() => setAdding(true)}><Upload className="w-3.5 h-3.5" /> Add evidence</button>}
+      {canUpload && !adding && <button className="btn-secondary btn-sm" onClick={() => {
+        setAdding(true);
+        if (auditDocs === null) listSprintDocuments(cycleId).then((x) => setAuditDocs(x.data)).catch(() => setAuditDocs([]));
+      }}><Upload className="w-3.5 h-3.5" /> Add evidence</button>}
       {adding && (
         <div className="space-y-2 pt-1">
           <input className="input text-xs" placeholder="Title, e.g. Academic integrity policy (approved by Academic Council)" value={title} onChange={(e) => setTitle(e.target.value)} />
           <div className="grid md:grid-cols-2 gap-2">
             <input className="input text-xs" type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
             <input className="input text-xs" placeholder="…or a link (https://)" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <select className="input text-xs md:col-span-2" value={auditDoc} onChange={(e) => setAuditDoc(e.target.value)}>
+              <option value="">…or reuse a document already uploaded in an AI Readiness Audit sprint{auditDocs ? ` (${auditDocs.length})` : ''}</option>
+              {(auditDocs || []).map((d) => <option key={d.id} value={d.id}>{d.title} — {d.sprint}</option>)}
+            </select>
             <label className="text-ink-500">Issued on <input className="input text-xs" type="date" value={issued} onChange={(e) => setIssued(e.target.value)} /></label>
             <label className="text-ink-500">Valid until (if any) <input className="input text-xs" type="date" value={valid} onChange={(e) => setValid(e.target.value)} /></label>
           </div>
           <input className="input text-xs" placeholder="Short note (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} />
           <div className="flex gap-2">
-            <button className="btn-primary btn-sm" disabled={busy || !title.trim() || (!file && !url.trim())} onClick={send}>Upload</button>
+            <button className="btn-primary btn-sm" disabled={busy || !title.trim() || (!file && !url.trim() && !auditDoc)} onClick={send}>Upload</button>
             <button className="btn-secondary btn-sm" onClick={() => setAdding(false)}>Cancel</button>
           </div>
           <p className="text-ink-400">PDF, Word, Excel, PowerPoint, CSV, text or images, up to 25 MB. Don't upload personal data of students or staff unless the request asks for it.</p>
@@ -189,6 +200,7 @@ const EvidenceRow: React.FC<{ item: EvidenceItemInfo; canReview: boolean; onChan
       <div className="flex items-center gap-2 flex-wrap">
         <span className={`badge ${EV_BADGE[item.status]}`}>{item.status_label}</span>
         <span className="text-ink-900 flex-1 min-w-0">{item.title}</span>
+        {item.from_audit && <span className="badge badge-neutral">from audit</span>}
         {item.has_file && <button className="btn-secondary btn-sm" onClick={download} title={`SHA-256 ${item.file_sha256}`}><Download className="w-3.5 h-3.5" /> {item.original_filename}</button>}
         {item.source_url && <a className="text-brand-600 underline flex items-center gap-1" href={item.source_url} target="_blank" rel="noreferrer"><LinkIcon className="w-3 h-3" /> link</a>}
       </div>
@@ -319,6 +331,58 @@ const WeightsForm: React.FC<{ code: string }> = ({ code }) => {
         <input className="input text-xs" placeholder='Who approved and why, e.g. "Approved by Dr. X, benchmark owner, 13 Oct"' value={note} onChange={(e) => setNote(e.target.value)} />
         <button className="btn-primary btn-sm" onClick={save}>Save weights</button>
         <p className="text-ink-400">The four must add up to 1. They apply the next time scores are calculated; finalized assessments keep the weights they used.</p>
+        {err && <InlineError message={err} onDismiss={() => setErr('')} />}
+      </div>
+    </details>
+  );
+};
+
+const GAP_TYPES: [string, string][] = [
+  ['capability', 'Capability (level below target)'], ['compliance', 'Compliance'], ['evidence', 'Evidence quality'],
+  ['outcome', 'Outcome'], ['dependency', 'Dependency'],
+];
+
+/** The expert's playbook for closing each kind of gap on this benchmark; used
+ * when an improvement plan is generated (otherwise the plan lists the unmet
+ * evidence requests as tasks). */
+const TemplatesForm: React.FC<{ code: string }> = ({ code }) => {
+  const list = useApiResource<TransformationTemplateInfo[]>(() => listTemplates(code), [code]);
+  const [gapType, setGapType] = useState('capability');
+  const existing = (list.data || []).find((t) => t.gap_type === gapType);
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [err, setErr] = useState('');
+  const [ok, setOk] = useState('');
+  const value = (k: keyof TransformationTemplateInfo) =>
+    form[k] ?? (k === 'tasks' ? (existing?.tasks || []).join('\n') : String(existing?.[k] ?? ''));
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm({ ...form, [k]: e.target.value });
+  const save = async () => {
+    setErr(''); setOk('');
+    const body = {
+      benchmark_code: code, gap_type: gapType, title: value('title'), intervention: value('intervention'),
+      expected_evidence: value('expected_evidence'), expected_outcome: value('expected_outcome'),
+      tasks: value('tasks').split('\n').map((x) => x.trim()).filter(Boolean),
+    };
+    try {
+      if (existing) await updateTemplate(existing.id, body); else await createTemplate(body);
+      setForm({}); setOk('Saved — used for plans generated from now on.'); list.refetch();
+    } catch (e) { setErr(getErrorMessage(e)); }
+  };
+  return (
+    <details className="rounded-lg border border-line-200 p-2">
+      <summary className="cursor-pointer font-bold text-ink-900">
+        Improvement templates — {(list.data || []).length ? (list.data || []).map((t) => t.gap_type).join(', ') : 'none yet'}
+      </summary>
+      <div className="space-y-2 pt-2">
+        <select className="input text-xs w-auto" value={gapType} onChange={(e) => { setGapType(e.target.value); setForm({}); }}>
+          {GAP_TYPES.map(([k, l]) => <option key={k} value={k}>{l}{(list.data || []).some((t) => t.gap_type === k) ? ' ✓' : ''}</option>)}
+        </select>
+        <input className="input text-xs" placeholder="Initiative title" value={value('title')} onChange={set('title')} />
+        <textarea className="input text-xs" rows={2} placeholder="What the college should do" value={value('intervention')} onChange={set('intervention')} />
+        <input className="input text-xs" placeholder="Evidence that proves it was done" value={value('expected_evidence')} onChange={set('expected_evidence')} />
+        <input className="input text-xs" placeholder="Measurable outcome expected" value={value('expected_outcome')} onChange={set('expected_outcome')} />
+        <textarea className="input text-xs" rows={3} placeholder="Tasks, one per line (optional)" value={value('tasks')} onChange={set('tasks')} />
+        <button className="btn-primary btn-sm" onClick={save}>{existing ? 'Update template' : 'Save template'}</button>
+        {ok && <span className="text-success ml-2">{ok}</span>}
         {err && <InlineError message={err} onDismiss={() => setErr('')} />}
       </div>
     </details>
