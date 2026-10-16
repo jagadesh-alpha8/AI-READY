@@ -14,7 +14,7 @@ from .views import (
     WatcherSummaryView, WatcherFeedListView, WatcherFeedEnableView, WatcherFeedCheckView, WatcherRunListView,
     WatcherEventListView, WatcherEventReviewView,
     BenchmarkCandidateListView, BenchmarkCandidateDetailView, BenchmarkCandidateActionView,
-    WatcherEventProposeView,
+    WatcherEventProposeView, BenchmarkConfirmView, BenchmarkUnconfirmView,
 )
 
 _routes = [
@@ -56,6 +56,8 @@ _routes = [
     ('/releases/<str:label>/diff', ReleaseDiffView, 'benchmark-release-diff'),
     ('/releases/<str:label>/<str:action>', ReleaseActionView, 'benchmark-release-action'),
     ('/catalogue/<str:benchmark_code>/reopen', BenchmarkReopenView, 'benchmark-reopen'),
+    ('/catalogue/<str:benchmark_code>/confirm', BenchmarkConfirmView, 'benchmark-confirm'),
+    ('/catalogue/<str:benchmark_code>/unconfirm', BenchmarkUnconfirmView, 'benchmark-unconfirm'),
     ('/watcher/summary', WatcherSummaryView, 'watcher-summary'),
     ('/watcher/feeds', WatcherFeedListView, 'watcher-feeds'),
     ('/watcher/feeds/<uuid:pk>/enable', WatcherFeedEnableView, 'watcher-feed-enable'),

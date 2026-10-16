@@ -151,6 +151,7 @@ class BenchmarkSerializer(serializers.ModelSerializer):
     levels_defined = serializers.SerializerMethodField()
     framework = serializers.CharField(source='framework.code', default=None, read_only=True)
     pillar_weight = serializers.DecimalField(source='pillar.weight', max_digits=7, decimal_places=2, read_only=True)
+    confirmation = serializers.SerializerMethodField()
 
     class Meta:
         model = Benchmark
@@ -158,8 +159,14 @@ class BenchmarkSerializer(serializers.ModelSerializer):
                   'kind_label', 'benchmark_class', 'version_label', 'status', 'applicability', 'source_basis',
                   'scoring_dimensions', 'activation_status', 'expert_owner', 'target_guidance', 'evidence_types',
                   'maturity_levels', 'requirement_count', 'levels_defined', 'framework', 'weight', 'pillar_weight',
-                  'naac_crosswalk']
+                  'naac_crosswalk', 'confirmation']
         read_only_fields = fields
+
+    def get_confirmation(self, obj):
+        """Drafts only: confirmed / changed (edited since) / none; null once not a draft."""
+        from .services.confirmation import state
+        return {'state': state(obj), 'confirmed_by': obj.confirmed_by.email if obj.confirmed_by_id else None,
+                'confirmed_at': obj.confirmed_at}
 
     def get_levels_defined(self, obj):
         """True only when all three levels are real, benchmark-specific text."""

@@ -1952,3 +1952,102 @@ class AddSourceApiTests(APITestCase):
         self.assertIn('.pdf', data['file_extensions'])
         self.assertEqual(data['max_file_mb'], 25)
         self.assertIn('mandatory', [r['value'] for r in data['source_roles']])
+
+
+# -- Confirming a draft benchmark (separate from publishing) ------------------------------
+
+from .models import BenchmarkRelease  # noqa: E402
+from .services import confirmation as _confirmation  # noqa: E402
+from .services import releases as _releases  # noqa: E402
+
+
+class BenchmarkConfirmationTests(APITestCase):
+    def setUp(self):
+        path = _aiqif_workbook()
+        self.addCleanup(os.remove, path)
+        apply_aiqif(read_aiqif(path), actor='test', commit=True)
+        self.b = Benchmark.objects.get(benchmark_code='AIQIF-C1.1')
+        self.staff = User.objects.create_user(email='s@ingage.ai', username='s', password='Str0ng!Pass', role='consultant')
+        ai_drafting.draft_benchmark(self.b, FakeDraftAI(_good_draft()))  # makes it complete
+        self.b.refresh_from_db()
+
+    def _events(self, action):
+        return SourceAuditEvent.objects.filter(object_id=str(self.b.pk), action=action).order_by('created_at')
+
+    def test_an_incomplete_draft_cannot_be_confirmed(self):
+        other = Benchmark.objects.get(benchmark_code='AIQIF-C1.2')  # still template levels
+        with self.assertRaisesMessage(_confirmation.ConfirmationError, 'Finish these before confirming'):
+            _confirmation.confirm(other, self.staff)
+        self.assertEqual(_confirmation.state(other), 'none')
+
+    def test_confirm_marks_it_confirmed_records_it_and_publishes_nothing(self):
+        _confirmation.confirm(self.b, self.staff, note='Checked against AI-QIF')
+        self.b.refresh_from_db()
+        self.assertEqual(_confirmation.state(self.b), 'confirmed')
+        self.assertEqual((self.b.status, self.b.confirmed_by), ('draft', self.staff))
+        event = self._events('benchmark.confirmed').get()
+        self.assertEqual(event.after['confirmed_hash'], self.b.confirmed_hash)
+        self.assertEqual(event.after['version_label'], self.b.version_label)
+        self.assertEqual(event.reason, 'Checked against AI-QIF')
+        # Not published: still a draft, no release, nothing for assessments.
+        self.assertFalse(BenchmarkRelease.objects.exists())
+        self.assertIsNone(_releases.current_release())
+        check = {c['key']: c for c in _authoring.readiness(self.b)['checks']}['confirmed']
+        self.assertTrue(check['ok'])
+        self.assertEqual(check['severity'], 'recommended')
+
+    def test_an_edit_after_confirming_needs_a_new_confirmation(self):
+        _confirmation.confirm(self.b, self.staff)
+        _authoring.save_level(self.b, 'L2', self.staff, {'definition': 'An expert rewrite of L2 naming the review '
+                                                                     'board, the KPI set and the action log.'})
+        self.b.refresh_from_db()
+        self.assertEqual(_confirmation.state(self.b), 'changed')
+        _confirmation.confirm(self.b, self.staff)
+        self.b.refresh_from_db()
+        self.assertEqual(_confirmation.state(self.b), 'confirmed')
+        events = list(self._events('benchmark.confirmed'))
+        self.assertEqual(len(events), 2)  # history kept
+        self.assertEqual(events[1].before['confirmed_hash'], events[0].after['confirmed_hash'])
+
+    def test_confirming_again_without_changes_is_refused(self):
+        _confirmation.confirm(self.b, self.staff)
+        with self.assertRaisesMessage(_confirmation.ConfirmationError, 'already confirmed'):
+            _confirmation.confirm(self.b, self.staff)
+
+    def test_withdraw_needs_a_reason_and_is_recorded(self):
+        _confirmation.confirm(self.b, self.staff)
+        with self.assertRaisesMessage(_confirmation.ConfirmationError, 'reason'):
+            _confirmation.withdraw_confirmation(self.b, self.staff, '')
+        _confirmation.withdraw_confirmation(self.b, self.staff, 'Evidence rules need another look')
+        self.b.refresh_from_db()
+        self.assertEqual(_confirmation.state(self.b), 'none')
+        self.assertEqual(self._events('benchmark.confirmation_withdrawn').get().reason, 'Evidence rules need another look')
+
+    def test_only_drafts_and_reopening_starts_unconfirmed(self):
+        _confirmation.confirm(self.b, self.staff)
+        Benchmark.objects.filter(pk=self.b.pk).update(status='active')
+        self.b.refresh_from_db()
+        self.assertIsNone(_confirmation.state(self.b))
+        with self.assertRaisesMessage(_confirmation.ConfirmationError, 'only a draft'):
+            _confirmation.confirm(self.b, self.staff)
+        _releases.reopen_benchmark(self.b, self.staff, 'Next version')
+        self.b.refresh_from_db()
+        self.assertEqual((self.b.status, _confirmation.state(self.b)), ('draft', 'none'))
+        self.assertTrue(self._events('benchmark.confirmed').exists())  # the earlier confirmation stays in history
+
+    def test_api_confirm_and_catalogue_shows_it(self):
+        college = User.objects.create_user(email='p@c.edu', username='p', password='Str0ng!Pass', role='institution_admin')
+        self.client.force_authenticate(college)
+        self.assertEqual(self.client.post('/api/v1/benchmarks/catalogue/AIQIF-C1.1/confirm', {}).status_code, 403)
+        self.client.force_authenticate(self.staff)
+        r = self.client.post('/api/v1/benchmarks/catalogue/AIQIF-C1.1/confirm', {'note': 'ok'}, format='json')
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(r.data['confirmation']['state'], 'confirmed')
+        rows = _rows(self.client.get('/api/v1/benchmarks/catalogue'))
+        states = {x['benchmark_code']: x['confirmation']['state'] for x in rows}
+        self.assertEqual((states['AIQIF-C1.1'], states['AIQIF-C1.2']), ('confirmed', 'none'))
+        bad = self.client.post('/api/v1/benchmarks/catalogue/AIQIF-C1.2/confirm', {}, format='json')
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn('Finish these', bad.data['detail'])
+        undo = self.client.post('/api/v1/benchmarks/catalogue/AIQIF-C1.1/unconfirm', {'reason': 'recheck'}, format='json')
+        self.assertEqual(undo.data['confirmation']['state'], 'none')

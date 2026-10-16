@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { listCatalogue, listEvidenceTypes, listPillars } from '../../api/benchmarks';
+import { confirmBenchmark, listCatalogue, listEvidenceTypes, listPillars, withdrawBenchmarkConfirmation } from '../../api/benchmarks';
 import type { CatalogueBenchmark, CataloguePillar, EvidenceTypeInfo, NaacCrosswalkLink } from '../../api/benchmarks';
 import { useApiResource } from '../../hooks/useApiResource';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ApiStates';
@@ -111,6 +111,7 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
                 <div className="flex items-center gap-2 text-xs">
                   <span className={`badge ${KIND_BADGE[b.benchmark_kind] || 'badge-neutral'}`}>{b.kind_label}</span>
                   <span className="badge badge-neutral">{b.status}</span>
+                  <ConfirmationBadge b={b} />
                   {!b.levels_defined && <span className="badge badge-warning">levels: placeholder</span>}
                   <span className="badge badge-neutral">{b.requirement_count} requirement(s)</span>
                 </div>
@@ -124,6 +125,7 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
                   {b.benchmark_kind === 'proposed' && !b.expert_owner && (
                     <p className="text-warning">InGage-proposed: needs an expert owner before release.</p>
                   )}
+                  {b.status === 'draft' && <ConfirmationPanel b={b} onChanged={refetch} />}
                   {onEditLevels && (
                     <button className="btn-secondary btn-sm" onClick={() => onEditLevels(b.benchmark_code)}>
                       {b.levels_defined ? 'Edit levels' : 'Write L3 / L2 / L1'}
@@ -209,3 +211,80 @@ const NaacCrosswalk: React.FC<{ links: NaacCrosswalkLink[] }> = ({ links }) => {
     </div>
   );
 };
+
+const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '');
+
+/** Confirmed / changed since confirmed -- drafts only. */
+const ConfirmationBadge: React.FC<{ b: CatalogueBenchmark }> = ({ b }) => {
+  const c = b.confirmation;
+  if (c?.state === 'confirmed') {
+    return <span className="badge badge-success" title={`Confirmed by ${c.confirmed_by} on ${when(c.confirmed_at)} - not published`}>Confirmed</span>;
+  }
+  if (c?.state === 'changed') {
+    return <span className="badge badge-warning" title="Edited after it was confirmed - confirm again">Changed since confirmed</span>;
+  }
+  return null;
+};
+
+/** Confirm the draft's content. Publishing is separate: it reaches assessments only in a published release. */
+const ConfirmationPanel: React.FC<{ b: CatalogueBenchmark; onChanged: () => void }> = ({ b, onChanged }) => {
+  const [note, setNote] = useState('');
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const state = b.confirmation?.state;
+
+  const run = async (fn: () => Promise<unknown>, ok: string) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await fn();
+      setMsg({ ok: true, text: ok });
+      setNote('');
+      setWithdrawing(false);
+      onChanged();
+    } catch (err: any) {
+      setMsg({ ok: false, text: err?.response?.data?.detail || 'Could not save. Please try again.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-line-200 bg-surface p-3 space-y-2">
+      <p className="text-ink-700">
+        {state === 'confirmed' && <>Confirmed by <strong>{b.confirmation.confirmed_by}</strong> on {when(b.confirmation.confirmed_at)}. </>}
+        {state === 'changed' && <><strong className="text-warning">Edited since it was confirmed</strong> by {b.confirmation.confirmed_by} - confirm the new content. </>}
+        {state === 'none' && <>Not confirmed yet. </>}
+        <span className="text-ink-500">Confirming does not publish: colleges are assessed on it only after it is in a published release (Releases tab).</span>
+      </p>
+      {msg && <p className={msg.ok ? 'text-success' : 'text-danger'}>{msg.text}</p>}
+      {state !== 'confirmed' && (
+        <div className="flex flex-wrap gap-2">
+          <input className="input flex-1 min-w-[200px] text-xs" placeholder="Note (optional)" value={note}
+            onChange={(e) => setNote(e.target.value)} />
+          <button className="btn-primary btn-sm" disabled={busy}
+            onClick={() => run(() => confirmBenchmark(b.benchmark_code, note), `${b.benchmark_code} confirmed. It stays a draft until a release is published.`)}>
+            {busy ? 'Saving…' : state === 'changed' ? 'Confirm again' : 'Confirm'}
+          </button>
+        </div>
+      )}
+      {state !== 'none' && (withdrawing ? (
+        <div className="flex flex-wrap gap-2">
+          <input className="input flex-1 min-w-[200px] text-xs" placeholder="Reason (required)" value={note}
+            onChange={(e) => setNote(e.target.value)} />
+          <button className="btn-secondary btn-sm" disabled={busy || !note.trim()}
+            onClick={() => run(() => withdrawBenchmarkConfirmation(b.benchmark_code, note), 'Confirmation withdrawn.')}>
+            Withdraw confirmation
+          </button>
+          <button className="btn-secondary btn-sm" disabled={busy} onClick={() => { setWithdrawing(false); setNote(''); }}>Cancel</button>
+        </div>
+      ) : (
+        <button className="text-xs text-ink-500 hover:underline" onClick={() => { setWithdrawing(true); setNote(''); setMsg(null); }}>
+          Withdraw confirmation…
+        </button>
+      ))}
+    </div>
+  );
+};
+

@@ -2080,6 +2080,44 @@ paths:
       responses:
         '200':
           description: No response body
+  /api/v1/benchmarks/catalogue/{benchmark_code}/confirm:
+    post:
+      operationId: v1_benchmarks_catalogue_confirm_create
+      description: |-
+        POST /benchmarks/catalogue/<code>/confirm {note}
+        POST /benchmarks/catalogue/<code>/unconfirm {reason}
+      parameters:
+      - in: path
+        name: benchmark_code
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/benchmarks/catalogue/{benchmark_code}/confirm/:
+    post:
+      operationId: v1_benchmarks_catalogue_confirm_create_2
+      description: |-
+        POST /benchmarks/catalogue/<code>/confirm {note}
+        POST /benchmarks/catalogue/<code>/unconfirm {reason}
+      parameters:
+      - in: path
+        name: benchmark_code
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
   /api/v1/benchmarks/catalogue/{benchmark_code}/evidence-rules:
     get:
       operationId: v1_benchmarks_catalogue_evidence_rules_retrieve
@@ -2429,6 +2467,44 @@ paths:
       - jwtAuth: []
       responses:
         '204':
+          description: No response body
+  /api/v1/benchmarks/catalogue/{benchmark_code}/unconfirm:
+    post:
+      operationId: v1_benchmarks_catalogue_unconfirm_create
+      description: |-
+        POST /benchmarks/catalogue/<code>/confirm {note}
+        POST /benchmarks/catalogue/<code>/unconfirm {reason}
+      parameters:
+      - in: path
+        name: benchmark_code
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/benchmarks/catalogue/{benchmark_code}/unconfirm/:
+    post:
+      operationId: v1_benchmarks_catalogue_unconfirm_create_2
+      description: |-
+        POST /benchmarks/catalogue/<code>/confirm {note}
+        POST /benchmarks/catalogue/<code>/unconfirm {reason}
+      parameters:
+      - in: path
+        name: benchmark_code
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
           description: No response body
   /api/v1/benchmarks/evidence-rules/{id}:
     patch:
@@ -9551,6 +9627,9 @@ components:
           readOnly: true
           description: NAAC metrics whose evidence can support this benchmark [{metric,
             requirement, relationship}]. Supporting only, never proof.
+        confirmation:
+          type: string
+          readOnly: true
       required:
       - activation_status
       - applicability
@@ -9558,6 +9637,7 @@ components:
       - benchmark_code
       - benchmark_kind
       - capability
+      - confirmation
       - evidence_types
       - expert_owner
       - framework
@@ -11417,6 +11497,9 @@ components:
           readOnly: true
           description: NAAC metrics whose evidence can support this benchmark [{metric,
             requirement, relationship}]. Supporting only, never proof.
+        confirmation:
+          type: string
+          readOnly: true
     PatchedDepartment:
       type: object
       properties:

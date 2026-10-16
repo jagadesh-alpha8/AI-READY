@@ -429,6 +429,12 @@ class Benchmark(models.Model):
     scoring_dimensions = models.CharField(max_length=200, blank=True)
     activation_status = models.TextField(blank=True)
     expert_owner = models.CharField(max_length=150, blank=True)
+    # Confirmation of a DRAFT's content by InGage (services/confirmation.py). Separate from publishing:
+    # a confirmed draft still reaches assessments only through a published release. `confirmed_hash` is
+    # the fingerprint of the content confirmed; any later edit makes it "changed since confirmed".
+    confirmed_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    confirmed_hash = models.CharField(max_length=64, blank=True)
     framework = models.ForeignKey(Framework, on_delete=models.PROTECT, null=True, blank=True, related_name='benchmarks',
                                   help_text='The benchmark framework this was imported from (e.g. AI-QIF v1.0).')
     weight = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True,

@@ -205,6 +205,12 @@ export interface CatalogueBenchmark {
   weight: string | null;
   pillar_weight: string | null;
   naac_crosswalk: NaacCrosswalkLink[];
+  /** Drafts only (null state once published / withdrawn). Separate from publishing. */
+  confirmation: {
+    state: 'confirmed' | 'changed' | 'none' | null;
+    confirmed_by: string | null;
+    confirmed_at: string | null;
+  };
 }
 
 export interface CataloguePillar {
@@ -229,6 +235,15 @@ export interface EvidenceTypeInfo {
 
 export function listCatalogue(params: { pillar?: string; kind?: string; q?: string } = {}) {
   return api.get<CatalogueBenchmark[]>('/benchmarks/catalogue', { params });
+}
+
+/** Confirm a draft's content (not a publish: it reaches assessments only through a published release). */
+export function confirmBenchmark(code: string, note = '') {
+  return api.post<CatalogueBenchmark>(`/benchmarks/catalogue/${code}/confirm`, { note });
+}
+
+export function withdrawBenchmarkConfirmation(code: string, reason: string) {
+  return api.post<CatalogueBenchmark>(`/benchmarks/catalogue/${code}/unconfirm`, { reason });
 }
 
 export function listPillars() {

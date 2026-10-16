@@ -116,6 +116,21 @@ def update_benchmark(benchmark, user, data):
     return benchmark
 
 
+def _confirmation_ok(benchmark):
+    from .confirmation import CONFIRMED, state
+    return state(benchmark) == CONFIRMED
+
+
+def _confirmation_detail(benchmark):
+    from .confirmation import CHANGED, CONFIRMED, state
+    s = state(benchmark)
+    if s == CONFIRMED:
+        return f'by {benchmark.confirmed_by.email} on {benchmark.confirmed_at:%d %b %Y}'
+    if s == CHANGED:
+        return 'changed since it was confirmed - confirm again'
+    return 'not confirmed'
+
+
 def readiness(benchmark):
     """Checklist for release. severity: required | recommended | pending (later stage)."""
     levels = {m.level: m for m in benchmark.maturity_levels.all()}
@@ -147,6 +162,8 @@ def readiness(benchmark):
          ', '.join(f'{lv}: {n}' for lv, n in coverage.items())),
         ('requirement_evidence', 'Evidence rules on each primary requirement', 'recommended',
          primary_ids.issubset(reqs_with_rules), f'{len(primary_ids & reqs_with_rules)}/{len(primary_ids)} covered'),
+        ('confirmed', 'Content confirmed by InGage', 'recommended', _confirmation_ok(benchmark),
+         _confirmation_detail(benchmark)),
         ('scoring', 'Scoring rules and weight (release stage)', 'pending', False,
          f'provisional weight {benchmark.weight} of 1000; scoring rules not built yet' if benchmark.weight is not None
          else 'not built yet'),

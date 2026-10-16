@@ -16,6 +16,28 @@ App: `apps/benchmarks`. Tables follow the manager's foundation schema (`authorit
 
 Re-run step 1 any time the sheet changes: drafts update in place, approved versions are never touched.
 
+## Confirming a draft benchmark
+
+Studio > Benchmark Library: open a draft and **Confirm** it (InGage staff; `services/confirmation.py`). It then
+shows **Confirmed** in the same list. Confirmation is a sign-off on the content, not a publish: the benchmark stays
+a draft and is used by assessments only once a release that includes it is published.
+
+- Only drafts whose release checklist has no missing required item can be confirmed.
+- The confirmed content is fingerprinted (the same snapshot a release freezes). Any later edit -- levels, rules,
+  links, owner, target -- shows **Changed since confirmed** until it is confirmed again.
+- Withdrawing a confirmation needs a reason. Reopening a published benchmark as its next draft version starts
+  unconfirmed.
+- Every confirmation / withdrawal is in the audit trail (`benchmark.confirmed`, `benchmark.confirmation_withdrawn`,
+  with fingerprint, version, person, note), so earlier confirmations stay as history.
+- It is a *recommended* item on the release checklist, so it does not block a release. Source Library versions
+  keep their own approval; this does not apply to them.
+
+```
+POST /api/v1/benchmarks/catalogue/<code>/confirm    {note}
+POST /api/v1/benchmarks/catalogue/<code>/unconfirm  {reason}
+```
+Catalogue rows carry `confirmation: {state: confirmed|changed|none|null, confirmed_by, confirmed_at}`.
+
 ## Adding one source in the Studio
 
 Studio > Sources > **Add source** (InGage staff). Same model and rules as a Source Register row

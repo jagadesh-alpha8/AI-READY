@@ -949,3 +949,29 @@ class WatcherEventProposeView(APIView):
         except candidate_svc.CandidateError as exc:
             return _candidate_error(exc)
         return Response(BenchmarkCandidateSerializer(_candidate(c.pk)).data, status=status.HTTP_201_CREATED)
+
+
+# -- confirming a draft benchmark (separate from publishing) ---------------------------------------
+from .services import confirmation as confirmation_svc  # noqa: E402
+
+
+class BenchmarkConfirmView(APIView):
+    """POST /benchmarks/catalogue/<code>/confirm {note}
+       POST /benchmarks/catalogue/<code>/unconfirm {reason}"""
+    permission_classes = [IsInGageStaff]
+
+    def post(self, request, benchmark_code, action='confirm'):
+        benchmark = get_object_or_404(Benchmark.objects.select_related('pillar', 'capability'), benchmark_code=benchmark_code)
+        try:
+            if action == 'confirm':
+                confirmation_svc.confirm(benchmark, request.user, request.data.get('note', ''))
+            else:
+                confirmation_svc.withdraw_confirmation(benchmark, request.user, request.data.get('reason', ''))
+        except confirmation_svc.ConfirmationError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(BenchmarkSerializer(_benchmarks().get(benchmark_code=benchmark_code)).data)
+
+
+class BenchmarkUnconfirmView(BenchmarkConfirmView):
+    def post(self, request, benchmark_code):
+        return super().post(request, benchmark_code, action='unconfirm')

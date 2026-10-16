@@ -247,6 +247,8 @@ def reopen_benchmark(benchmark, user, reason):
     m = re.fullmatch(r'(.*)\.r(\d+)', old)
     benchmark.version_label = f'{m.group(1)}.r{int(m.group(2)) + 1}' if m else f'{old}.r1'
     benchmark.status = Benchmark.Status.DRAFT
+    from .confirmation import clear_for_new_version
+    clear_for_new_version(benchmark)  # the new version has not been confirmed yet
     benchmark.save()
     SourceAuditEvent.objects.create(actor=user.email, action='benchmark.reopened', object_type='Benchmark',
                                     object_id=str(benchmark.pk), before={'version_label': old, 'status': 'active'},
