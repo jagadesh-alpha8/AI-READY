@@ -9,7 +9,7 @@ import { BarChart3, ArrowRight, RefreshCw } from 'lucide-react';
 import { useAccess } from '../../utils/access';
 
 export const LiveCRIPreview: React.FC = () => {
-  const { can, canSee } = useAccess();
+  const { can, canSee, step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const [recalculating, setRecalculating] = useState(false);
@@ -48,7 +48,7 @@ export const LiveCRIPreview: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-brand-800" /> Screen 7: Live CRI Score Preview
+              <BarChart3 className="w-5 h-5 text-brand-800" /> Step {step('sprint-score')}: Live CRI Score Preview
             </h1>
             <p className="text-sm text-ink-500 mt-1">
               CRI calculated across the 9 InGage AI-QIF criteria (weights out of 1000), with confidence weighting and gap penalties.

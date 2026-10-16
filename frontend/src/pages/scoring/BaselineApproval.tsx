@@ -24,7 +24,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
 };
 
 export const BaselineApproval: React.FC = () => {
-  const { can } = useAccess();
+  const { can, step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
 
@@ -108,7 +108,7 @@ export const BaselineApproval: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <Lock className="w-5 h-5 text-success" /> Screen 8: Baseline Approval
+              <Lock className="w-5 h-5 text-success" /> Step {step('sprint-approval')}: Baseline Approval
             </h1>
             <p className="text-sm text-ink-500 mt-1">
               Review the CRI baseline's evidence backing, then lock and sign off before improvement recommendations are drafted.

@@ -22,6 +22,7 @@ import {
   Activity, CheckCircle2, AlertTriangle, ArrowRight, Cpu, Layers, XCircle, Loader2, Trash2, Square, Play, RotateCcw,
   Timer, Coins,
 } from 'lucide-react';
+import { useAccess } from '../../utils/access';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -36,6 +37,7 @@ const STEP_LABELS = [
 ];
 
 export const AIProcessingMonitor: React.FC = () => {
+  const { step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
@@ -169,7 +171,7 @@ export const AIProcessingMonitor: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <Activity className="w-5 h-5 text-brand-800" /> Screen 3: AI Processing Monitor
+              <Activity className="w-5 h-5 text-brand-800" /> Step {step('sprint-monitor')}: AI Processing Monitor
             </h1>
             <p className="text-sm text-ink-500 mt-1">
               Transparent tracking of document classification, table parsing, entity extraction, and gap identification.

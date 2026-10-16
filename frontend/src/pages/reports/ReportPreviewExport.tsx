@@ -21,7 +21,7 @@ async function fetchLatestReport(sprintId: string): Promise<{ data: Report | nul
 }
 
 export const ReportPreviewExport: React.FC = () => {
-  const { can } = useAccess();
+  const { can, step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
 
@@ -93,7 +93,7 @@ export const ReportPreviewExport: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-brand-800" /> Screen 10: Executive AI Readiness Discovery Report
+              <FileText className="w-5 h-5 text-brand-800" /> Step {step('sprint-report')}: Executive AI Readiness Discovery Report
             </h1>
             <p className="text-sm text-ink-500 mt-1">
               Final executive report preview with PDF/DOCX export and publication control.

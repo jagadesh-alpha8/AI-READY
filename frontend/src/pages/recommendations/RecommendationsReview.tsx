@@ -9,7 +9,7 @@ import { Sparkles, ArrowRight } from 'lucide-react';
 import { useAccess } from '../../utils/access';
 
 export const RecommendationsReview: React.FC = () => {
-  const { can } = useAccess();
+  const { can, step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
@@ -80,7 +80,7 @@ export const RecommendationsReview: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-brand-800" /> Screen 9: Contextual Improvement Recommendations
+              <Sparkles className="w-5 h-5 text-brand-800" /> Step {step('sprint-recommendations')}: Contextual Improvement Recommendations
             </h1>
             <p className="text-sm text-ink-500 mt-1">
               Data-cited, department-specific recommendations matched from the InGage intervention library based on gaps and scores.

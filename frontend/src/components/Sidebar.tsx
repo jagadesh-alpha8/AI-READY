@@ -96,16 +96,16 @@ function buildModules(sprintId: string): NavModule[] {
       status: 'live',
       childrenCaption: 'Sprint steps',
       children: [
-        { key: 'sprint-setup', to: '/sprint/setup', label: '1. Sprint Setup', icon: FolderPlus },
-        { key: 'sprint-upload', to: `/sprint/${sprintId}/upload`, label: '2. Upload Data Pack', icon: Upload },
-        { key: 'sprint-monitor', to: `/sprint/${sprintId}/monitor`, label: '3. AI Processing Monitor', icon: Activity },
-        { key: 'sprint-facts', to: `/sprint/${sprintId}/facts`, label: '4. Extracted Facts Review', icon: FileSearch },
-        { key: 'sprint-gaps', to: `/sprint/${sprintId}/gaps`, label: '5. Gap Dashboard', icon: AlertCircle },
-        { key: 'sprint-confirmation', to: `/sprint/${sprintId}/confirmation`, label: '6. Owner Workspace', icon: CheckSquare },
-        { key: 'sprint-score', to: `/sprint/${sprintId}/score`, label: '7. Live CRI Preview', icon: BarChart3 },
-        { key: 'sprint-approval', to: `/sprint/${sprintId}/approval`, label: '8. Baseline Approval', icon: Lock },
-        { key: 'sprint-recommendations', to: `/sprint/${sprintId}/recommendations`, label: '9. Recommendations', icon: Sparkles },
-        { key: 'sprint-report', to: `/sprint/${sprintId}/report`, label: '10. Report & Export', icon: FileText },
+        { key: 'sprint-setup', to: '/sprint/setup', label: 'Sprint Setup', icon: FolderPlus },
+        { key: 'sprint-upload', to: `/sprint/${sprintId}/upload`, label: 'Upload Data Pack', icon: Upload },
+        { key: 'sprint-monitor', to: `/sprint/${sprintId}/monitor`, label: 'AI Processing Monitor', icon: Activity },
+        { key: 'sprint-facts', to: `/sprint/${sprintId}/facts`, label: 'Extracted Facts Review', icon: FileSearch },
+        { key: 'sprint-gaps', to: `/sprint/${sprintId}/gaps`, label: 'Gap Dashboard', icon: AlertCircle },
+        { key: 'sprint-confirmation', to: `/sprint/${sprintId}/confirmation`, label: 'Owner Workspace', icon: CheckSquare },
+        { key: 'sprint-score', to: `/sprint/${sprintId}/score`, label: 'Live CRI Preview', icon: BarChart3 },
+        { key: 'sprint-approval', to: `/sprint/${sprintId}/approval`, label: 'Baseline Approval', icon: Lock },
+        { key: 'sprint-recommendations', to: `/sprint/${sprintId}/recommendations`, label: 'Recommendations', icon: Sparkles },
+        { key: 'sprint-report', to: `/sprint/${sprintId}/report`, label: 'Report & Export', icon: FileText },
       ],
     },
     { key: 'evidence-intelligence', label: 'Evidence Intelligence', icon: Layers, status: 'live', to: '/evidence' },
@@ -327,7 +327,7 @@ export const Sidebar: React.FC<{
                           {module.childrenCaption}
                         </p>
                       )}
-                      {module.children.map((child) => {
+                      {module.children.map((child, index) => {
                         const ChildIcon = child.icon;
                         return (
                           <NavLink
@@ -343,7 +343,7 @@ export const Sidebar: React.FC<{
                             }
                           >
                             <ChildIcon className="w-3.5 h-3.5 shrink-0" />
-                            <span className="truncate">{child.label}</span>
+                            <span className="truncate">{index + 1}. {child.label}</span>
                           </NavLink>
                         );
                       })}

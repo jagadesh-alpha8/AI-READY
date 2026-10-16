@@ -11,7 +11,7 @@ import { TableFilters, matchesSearch, optionsFrom } from '../../components/Table
 import { useAccess } from '../../utils/access';
 
 export const GapDashboard: React.FC = () => {
-  const { canSee } = useAccess();
+  const { canSee, step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
@@ -105,7 +105,7 @@ export const GapDashboard: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-warning" /> Screen 5: Gap Dashboard
+              <AlertCircle className="w-5 h-5 text-warning" /> Step {step('sprint-gaps')}: Gap Dashboard
             </h1>
             <p className="text-sm text-ink-500 mt-1">
               Identify missing required fields, weak evidence, stale documents, and conflicts affecting score and confidence.

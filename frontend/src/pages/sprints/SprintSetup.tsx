@@ -7,8 +7,10 @@ import { getErrorMessage } from '../../utils/errors';
 import { InlineError } from '../../components/ApiStates';
 import type { Institution } from '../../types';
 import { Building, Sparkles, ArrowRight, Info } from 'lucide-react';
+import { useAccess } from '../../utils/access';
 
 export const SprintSetup: React.FC = () => {
+  const { step } = useAccess();
   const navigate = useNavigate();
   const { data: institutionsData } = useApiResource<Institution[]>(() => listInstitutions(), []);
   const institutions = institutionsData || [];
@@ -81,7 +83,7 @@ export const SprintSetup: React.FC = () => {
             <Building className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900">Screen 1: Institution &amp; Discovery Sprint Setup</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-ink-900">Step {step('sprint-setup')}: Institution &amp; Discovery Sprint Setup</h1>
             <p className="text-sm text-ink-500">Setup institutional baseline parameters and select sprint audit mode.</p>
           </div>
         </div>

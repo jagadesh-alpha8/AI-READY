@@ -8,8 +8,10 @@ import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { Fact, Gap } from '../../types';
 import { CheckSquare, ArrowRight } from 'lucide-react';
+import { useAccess } from '../../utils/access';
 
 export const ConfirmationWorkspace: React.FC = () => {
+  const { step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -84,7 +86,7 @@ export const ConfirmationWorkspace: React.FC = () => {
               <span className="text-sm text-ink-500">({user?.name})</span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold text-ink-900 mt-1 flex items-center gap-2">
-              <CheckSquare className="w-5 h-5 text-brand-800" /> Screen 6: Owner Confirmation Workspace
+              <CheckSquare className="w-5 h-5 text-brand-800" /> Step {step('sprint-confirmation')}: Owner Confirmation Workspace
             </h1>
             <p className="text-sm text-ink-500 mt-1">
               Role-filtered workspace showing pending confirmations, evidence reviews, and unresolved items assigned to {user?.role}.

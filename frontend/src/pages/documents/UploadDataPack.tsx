@@ -35,7 +35,7 @@ const REQUIRED_CHECKLIST = [
 ];
 
 export const UploadDataPack: React.FC = () => {
-  const { can, userId } = useAccess();
+  const { can, userId, step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
@@ -231,7 +231,7 @@ export const UploadDataPack: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <Upload className="w-5 h-5 text-brand-800" /> Screen 2: Upload Institution Data Pack
+              <Upload className="w-5 h-5 text-brand-800" /> Step {step('sprint-upload')}: Upload Institution Data Pack
             </h1>
             <p className="text-sm text-ink-500 mt-1">
               Upload existing NAAC SSR, AQAR, faculty lists, lab inventory, placement reports, and syllabi for AI processing.

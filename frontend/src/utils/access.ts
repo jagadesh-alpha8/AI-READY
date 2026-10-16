@@ -114,6 +114,19 @@ export function canSeeSettingsTab(role: UserRole | undefined, tab: keyof typeof 
   return allowed(SETTINGS_TAB_ROLES[tab], role);
 }
 
+/** The AI Readiness Audit steps, in order. Numbered per role from the ones it can see. */
+export const AUDIT_STEPS: MenuKey[] = [
+  'sprint-setup', 'sprint-upload', 'sprint-monitor', 'sprint-facts', 'sprint-gaps', 'sprint-confirmation',
+  'sprint-score', 'sprint-approval', 'sprint-recommendations', 'sprint-report',
+];
+
+/** 1-based position of `key` among the audit steps this role can see (null if hidden). */
+export function stepNumber(role: UserRole | undefined, key: MenuKey): number | null {
+  const visible = AUDIT_STEPS.filter((k) => canSeeMenu(role, k));
+  const i = visible.indexOf(key);
+  return i === -1 ? null : i + 1;
+}
+
 /** The current user's checks, for pages: `const { can } = useAccess(); can('facts.review')`. */
 export function useAccess() {
   const { user } = useAuth();
@@ -123,5 +136,6 @@ export function useAccess() {
     userId: user?.id,
     can: (action: Action) => canDo(role, action),
     canSee: (key: MenuKey) => canSeeMenu(role, key),
+    step: (key: MenuKey) => stepNumber(role, key),
   };
 }

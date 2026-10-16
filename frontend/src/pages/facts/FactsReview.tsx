@@ -8,8 +8,10 @@ import type { Fact } from '../../types';
 import { FileSearch, ArrowRight } from 'lucide-react';
 import { ScrollableTable } from '../../components/ScrollableTable';
 import { TableFilters, matchesSearch, optionsFrom } from '../../components/TableFilters';
+import { useAccess } from '../../utils/access';
 
 export const FactsReview: React.FC = () => {
+  const { step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
@@ -117,7 +119,7 @@ export const FactsReview: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <FileSearch className="w-5 h-5 text-brand-800" /> Screen 4: Extracted Facts Review
+              <FileSearch className="w-5 h-5 text-brand-800" /> Step {step('sprint-facts')}: Extracted Facts Review
             </h1>
             <p className="text-sm text-ink-500 mt-1">
               Review candidate facts extracted by AIOS. Confirm, correct, or reject values with complete source snippet lineage.
