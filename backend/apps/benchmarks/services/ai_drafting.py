@@ -220,6 +220,36 @@ def _all_means_any(rule):
     return {**rule, **{k: [] for k, options in full.items() if options and set(rule.get(k) or []) >= options}}
 
 
+def tidy_applicability(benchmark, user, model=None):
+    """Order the AI's applicability rules so no college falls through.
+
+    The model tends to write the main "applies" rule with long lists of programmes and approval
+    bodies (everything except the exceptions). Since a college that matches no rule is treated as
+    "does not apply", a college whose programmes / approval bodies aren't recorded yet would lose
+    the benchmark. So: the narrower exceptions (does not apply / requires review / optional) run
+    first, in their order, and the single "applies" rule becomes the last, condition-free
+    catch-all ("applies to everyone else"). Only AI-written rules are touched, and only when there
+    is exactly one "applies" rule (otherwise the intent is not clear-cut and they are left as written).
+    """
+    rules = sorted(ApplicabilityRule.objects.filter(benchmark=benchmark).exclude(ai_model=''),
+                   key=lambda r: (r.priority, r.created_at))
+    applies = [r for r in rules if r.result == ApplicabilityRule.Result.APPLIES]
+    if len(applies) != 1 or len(rules) != ApplicabilityRule.objects.filter(benchmark=benchmark).count():
+        return 0
+    changed = 0
+    plan = [(r, 10 * (i + 1), None) for i, r in enumerate(x for x in rules if x is not applies[0])]
+    plan.append((applies[0], 10 * (len(rules)), {'institution_types': [], 'programme_types': [],
+                                                 'autonomous_statuses': [], 'approval_bodies': []}))
+    for rule, priority, clear in plan:
+        snap = applicability.snapshot(rule)
+        wanted = {**snap, 'priority': priority, **(clear or {})}
+        if wanted != snap:
+            applicability.update_rule(rule, user, wanted)
+            ApplicabilityRule.objects.filter(pk=rule.pk).update(ai_model=model or rule.ai_model)
+            changed += 1
+    return changed
+
+
 def draft_benchmark(benchmark, service, *, user=None):
     """Ask the AI for one benchmark's content and save it. Returns a DraftResult;
     on any failed check nothing is saved and the benchmark is unchanged."""
@@ -271,6 +301,8 @@ def draft_benchmark(benchmark, service, *, user=None):
                 rule = applicability.create_rule(user, {**_all_means_any(a), 'jurisdiction': 'India'}, benchmark=benchmark)
                 ApplicabilityRule.objects.filter(pk=rule.pk).update(ai_model=model)
                 result.applicability_rules += 1
+
+            tidy_applicability(benchmark, user, model)
 
             owner = benchmark.expert_owner
             values = {'target_guidance': (draft.get('target_guidance') or '').strip()}

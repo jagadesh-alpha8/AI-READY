@@ -2051,3 +2051,24 @@ class BenchmarkConfirmationTests(APITestCase):
         self.assertIn('Finish these', bad.data['detail'])
         undo = self.client.post('/api/v1/benchmarks/catalogue/AIQIF-C1.1/unconfirm', {'reason': 'recheck'}, format='json')
         self.assertEqual(undo.data['confirmation']['state'], 'none')
+
+
+class TidyApplicabilityTests(AiDraftingFixTests):
+    def test_exceptions_run_first_and_applies_becomes_the_catch_all(self):
+        from .services.applicability import Profile, evaluate
+        draft = _good_draft()
+        draft['applicability_rules'] = [
+            {'result': 'applies', 'priority': 1, 'institution_types': ['engineering', 'arts_science', 'university'],
+             'programme_types': ['ug_engineering', 'ug_arts_science'], 'autonomous_statuses': [],
+             'approval_bodies': ['UGC', 'AICTE'], 'reason': 'Higher education.'},
+            {'result': 'requires_review', 'priority': 2, 'institution_types': ['iti'], 'programme_types': [],
+             'autonomous_statuses': [], 'approval_bodies': [], 'reason': 'ITIs need a review.'}]
+        self.assertTrue(ai_drafting.draft_benchmark(self.b, FakeDraftAI(draft)).ok)
+        rules = list(ApplicabilityRule.objects.filter(benchmark=self.b).order_by('priority'))
+        self.assertEqual([r.result for r in rules], ['requires_review', 'applies'])
+        catch_all = rules[1]
+        self.assertEqual((catch_all.approval_bodies, catch_all.institution_types.count()), ([], 0))
+        self.assertTrue(all(r.ai_model == 'fake-model-1' for r in rules))
+        nothing_recorded = evaluate(rules, Profile('engineering'))
+        self.assertEqual(nothing_recorded.result, 'applies')
+        self.assertEqual(evaluate(rules, Profile('iti')).result, 'requires_review')
