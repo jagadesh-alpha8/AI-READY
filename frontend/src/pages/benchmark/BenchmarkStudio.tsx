@@ -62,8 +62,8 @@ const BenchmarkStudioPage: React.FC = () => {
           <TabStrip
             tabs={[
               { id: 'sources', label: 'Sources', icon: BookOpen },
-              { id: 'explorer', label: 'Catalogue', icon: Search },
               { id: 'requirements', label: 'Requirements', icon: Layers },
+              { id: 'explorer', label: 'Catalogue', icon: Search },
               { id: 'levels', label: 'Levels', icon: Layers },
               { id: 'applicability', label: 'Applicability', icon: ShieldCheck },
               { id: 'versions', label: 'Releases', icon: Clock },
