@@ -8,8 +8,8 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ApiStates';
 import { useAuth } from '../../context/AuthContext';
 import { canDo } from '../../utils/access';
-import { SourceVersionPanel } from './SourceVersionPanel';
 import { AddSourceButton } from './AddSourceForm';
+import { SourcesTable } from './SourcesTable';
 import { CatalogueTab } from './CatalogueTab';
 import { RequirementsTab } from './RequirementLinking';
 import { LevelsEditorTab } from './LevelsEditorTab';
@@ -121,8 +121,8 @@ export const BenchmarkStudio: React.FC = () => {
 
 // ===== SOURCES =====
 // Real data: the Source Library backend (apps/benchmarks), filled by the
-// interns' Source Register import. Read-only here -- changes go through the
-// audited importer and, later, the approval workflow.
+// Source Register import or Add source. Listed as a table (SourcesTable.tsx);
+// each row expands to the version's actions (intake, approval, drafting).
 const COLLECTION_BADGE: Record<string, string> = {
   downloaded: 'badge-success',
   link_only: 'badge-brand',
@@ -135,7 +135,6 @@ const COLLECTION_BADGE: Record<string, string> = {
 const Sources: React.FC = () => {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
-  const [openCode, setOpenCode] = useState<string | null>(null);
   const summary = useApiResource<SourceLibrarySummary>(() => getSourceSummary(), []);
   const { data, loading, error, refetch } = useApiResource<SourceDocument[]>(
     () => listSources({ q: query || undefined, category: category || undefined }),
@@ -187,66 +186,7 @@ const Sources: React.FC = () => {
         <EmptyState message="No sources yet. Use Add source above, or import the Source Register (python manage.py import_source_register <file.xlsx> --commit)." />
       )}
 
-      <div className="space-y-3">
-        {(data || []).map((doc) => {
-          const v = doc.latest_version;
-          const open = openCode === doc.source_code;
-          return (
-            <div key={doc.id} className="glass-card p-5 space-y-3">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-ink-900">
-                    <span className="font-mono text-ink-500 mr-2">{doc.source_code}</span>
-                    {doc.title}
-                  </h3>
-                  <p className="text-xs text-ink-500 mt-0.5">
-                    {doc.authority_name} · {doc.source_role_label || 'role not set'} · {doc.document_type || 'type not set'}
-                    {v && v.version_label !== 'unversioned' ? ` · ${v.version_label}` : ''}
-                    {v?.issued_on ? ` · issued ${v.issued_on}` : ''}
-                    {doc.licensed_content ? ' · licensed (link only)' : ''}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {v && (
-                    <span className={`badge ${COLLECTION_BADGE[v.collection_status] || 'badge-neutral'}`}>
-                      {v.collection_status_label}
-                    </span>
-                  )}
-                  {v && <span className="badge badge-neutral">{v.status}</span>}
-                  {doc.review_flag_count > 0 && (
-                    <button
-                      className="badge badge-warning"
-                      onClick={() => setOpenCode(open ? null : doc.source_code)}
-                    >
-                      {doc.review_flag_count} to review
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                {doc.official_url && <a className="text-brand-700 hover:underline" href={doc.official_url} target="_blank" rel="noreferrer">Official page</a>}
-                {v?.direct_url && <a className="text-brand-700 hover:underline" href={v.direct_url} target="_blank" rel="noreferrer">Document</a>}
-                {v?.drive_url && <a className="text-brand-700 hover:underline" href={v.drive_url} target="_blank" rel="noreferrer">Drive copy</a>}
-                {v?.checksum_sha256 && (
-                  <span className="font-mono text-ink-500" title={v.checksum_sha256}>
-                    SHA-256 {v.checksum_sha256.slice(0, 12)}…
-                  </span>
-                )}
-                {doc.applies_to && <span className="text-ink-500">Applies to: {doc.applies_to}</span>}
-              </div>
-
-              {v && <SourceVersionPanel version={v} onChanged={refreshAll} />}
-
-              {open && v && (
-                <ul className="rounded-lg bg-surface border border-line-200 p-3 space-y-1 text-xs text-ink-700 list-disc pl-6">
-                  {v.review_flags.map((f) => <li key={f}>{f}</li>)}
-                </ul>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {data && data.length > 0 && <SourcesTable docs={data} onChanged={refreshAll} />}
     </div>
   );
 };
