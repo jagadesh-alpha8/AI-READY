@@ -3135,7 +3135,9 @@ paths:
   /api/v1/benchmarks/sources:
     get:
       operationId: v1_benchmarks_sources_list
-      description: GET /benchmarks/sources?category=&authority=&role=&collection=&q=
+      description: |-
+        GET  /benchmarks/sources?category=&authority=&role=&collection=&q=
+        POST /benchmarks/sources  multipart: source fields + optional `file` (services/source_create.py)
       tags:
       - v1
       security:
@@ -3149,10 +3151,39 @@ paths:
                 items:
                   $ref: '#/components/schemas/SourceDocumentList'
           description: ''
+    post:
+      operationId: v1_benchmarks_sources_create
+      description: |-
+        GET  /benchmarks/sources?category=&authority=&role=&collection=&q=
+        POST /benchmarks/sources  multipart: source fields + optional `file` (services/source_create.py)
+      tags:
+      - v1
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SourceDocumentList'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SourceDocumentList'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceDocumentList'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceDocumentList'
+          description: ''
   /api/v1/benchmarks/sources/:
     get:
       operationId: v1_benchmarks_sources_list_2
-      description: GET /benchmarks/sources?category=&authority=&role=&collection=&q=
+      description: |-
+        GET  /benchmarks/sources?category=&authority=&role=&collection=&q=
+        POST /benchmarks/sources  multipart: source fields + optional `file` (services/source_create.py)
       tags:
       - v1
       security:
@@ -3165,6 +3196,33 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SourceDocumentList'
+          description: ''
+    post:
+      operationId: v1_benchmarks_sources_create_2
+      description: |-
+        GET  /benchmarks/sources?category=&authority=&role=&collection=&q=
+        POST /benchmarks/sources  multipart: source fields + optional `file` (services/source_create.py)
+      tags:
+      - v1
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SourceDocumentList'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SourceDocumentList'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceDocumentList'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceDocumentList'
           description: ''
   /api/v1/benchmarks/sources/{source_code}:
     get:
@@ -3208,6 +3266,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/SourceDocumentDetail'
           description: ''
+  /api/v1/benchmarks/sources/reference:
+    get:
+      operationId: v1_benchmarks_sources_reference_retrieve
+      description: GET /benchmarks/sources/reference -- choices for the Add Source
+        form.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/benchmarks/sources/reference/:
+    get:
+      operationId: v1_benchmarks_sources_reference_retrieve_2
+      description: GET /benchmarks/sources/reference -- choices for the Add Source
+        form.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
   /api/v1/benchmarks/sources/summary:
     get:
       operationId: v1_benchmarks_sources_summary_retrieve

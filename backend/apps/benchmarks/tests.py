@@ -1847,3 +1847,108 @@ class AiDraftingFixTests(AiDraftingTests.__bases__[0]):
         self.assertTrue(result.ok)
         self.assertEqual(pool.acquire.call_args_list[1].kwargs['avoid'], r1.label)
         self.assertEqual(pool.release.call_count, 2)
+
+
+# -- Add Source (Studio) ---------------------------------------------------------------
+
+from django.conf import settings  # noqa: E402
+from django.core.files.uploadedfile import SimpleUploadedFile  # noqa: E402
+
+from .models import Framework as _Framework  # noqa: E402
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='source-create-'))
+class AddSourceApiTests(APITestCase):
+    URL = '/api/v1/benchmarks/sources'
+
+    def setUp(self):
+        self.staff = User.objects.create_user(email='c@ingage.ai', username='c', password='Str0ng!Pass', role='consultant')
+        self.client.force_authenticate(self.staff)
+        Authority.objects.create(code='UGC', name='University Grants Commission', kind='regulatory')
+
+    def _post(self, **fields):
+        data = {'authority': 'UGC', 'category': '2. Governance', 'source_code': 'UGC-900',
+                'title': 'UGC Guidelines on AI in Higher Education', 'source_role': 'mandatory',
+                'applies_to': 'All UGC-recognised institutions', 'official_url': 'https://www.ugc.gov.in/page'}
+        data.update(fields)
+        data = {k: v for k, v in data.items() if v is not None}
+        return self.client.post(self.URL, data, format='multipart')
+
+    def test_only_ingage_staff_can_add(self):
+        college = User.objects.create_user(email='p@college.edu', username='p', password='Str0ng!Pass',
+                                           role='institution_admin')
+        self.client.force_authenticate(college)
+        self.assertEqual(self._post().status_code, 403)
+        self.assertFalse(SourceDocument.objects.exists())
+
+    def test_link_only_source_starts_as_a_draft_found_link_only(self):
+        r = self._post()
+        self.assertEqual(r.status_code, 201, r.data)
+        doc = SourceDocument.objects.get(source_code='UGC-900')
+        v = doc.versions.get()
+        self.assertEqual((v.status, v.collection_status, v.version_label), ('draft', 'link_only', 'unversioned'))
+        self.assertEqual(doc.framework.code, 'UGC-C2')
+        self.assertEqual(v.review_flags, [])
+        self.assertEqual(r.data['source_code'], 'UGC-900')
+        self.assertTrue(SourceAuditEvent.objects.filter(action='source.create', object_id=str(doc.pk)).exists())
+
+    def test_uploaded_pdf_is_stored_with_checksum_and_marked_downloaded(self):
+        pdf = SimpleUploadedFile('ugc-ai.pdf', b'%PDF-1.4 small test file', content_type='application/pdf')
+        r = self._post(file=pdf, version_label='2025', issued_on='2025-03-01')
+        self.assertEqual(r.status_code, 201, r.data)
+        v = SourceVersion.objects.get(document__source_code='UGC-900')
+        self.assertEqual((v.collection_status, v.intake_status), ('downloaded', 'computed'))
+        self.assertEqual(len(v.checksum_sha256), 64)
+        self.assertTrue(v.file_uri.startswith('source_library/'))
+        self.assertTrue(os.path.exists(os.path.join(settings.MEDIA_ROOT, v.file_uri)))
+
+    def test_licensed_standard_is_link_only_and_refuses_a_file(self):
+        self.assertEqual(self._post(licensed_content='true', source_code='ISO-1').status_code, 201)
+        self.assertEqual(SourceVersion.objects.get(document__source_code='ISO-1').collection_status, 'licensed_link_only')
+        r = self._post(licensed_content='true', source_code='ISO-2',
+                       file=SimpleUploadedFile('std.pdf', b'%PDF-1.4 x', content_type='application/pdf'))
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('file', r.data['errors'])
+
+    def test_nothing_known_yet_is_to_find_and_flagged_like_an_import(self):
+        r = self._post(official_url='', source_role='', applies_to='')
+        self.assertEqual(r.status_code, 201, r.data)
+        v = SourceVersion.objects.get(document__source_code='UGC-900')
+        self.assertEqual(v.collection_status, 'to_find')
+        self.assertIn('Applies To is empty.', v.review_flags)
+
+    def test_unofficial_domain_is_saved_but_flagged(self):
+        self._post(official_url='https://example.com/ugc')
+        v = SourceVersion.objects.get(document__source_code='UGC-900')
+        self.assertTrue(any('not an official domain' in f for f in v.review_flags))
+
+    def test_validation_returns_every_problem_and_saves_nothing(self):
+        r = self._post(source_code='x', title='AI', official_url='ugc.gov.in', issued_on='2025-13-40',
+                       file=SimpleUploadedFile('notes.exe', b'MZ', content_type='application/octet-stream'))
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(set(r.data['errors']), {'source_code', 'title', 'official_url', 'issued_on', 'file'})
+        self.assertFalse(SourceDocument.objects.exists())
+
+    def test_duplicate_code_is_refused(self):
+        self._post()
+        r = self._post(title='Another title for the same code')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('already exists', r.data['errors']['source_code'])
+        self.assertEqual(SourceDocument.objects.count(), 1)
+
+    def test_new_authority_is_created_with_its_framework(self):
+        r = self._post(authority='', authority_name='National Board of Accreditation', authority_kind='accreditation',
+                       source_code='NBA-900', category='4. Accreditation')
+        self.assertEqual(r.status_code, 201, r.data)
+        auth = Authority.objects.get(name='National Board of Accreditation')
+        self.assertEqual(auth.kind, 'accreditation')
+        self.assertTrue(_Framework.objects.filter(code=f'{auth.code}-C4', authority=auth).exists())
+        bad = self._post(authority='', authority_name='', authority_kind='nope', source_code='NBA-901')
+        self.assertEqual(set(bad.data['errors']) & {'authority_name', 'authority_kind'}, {'authority_name', 'authority_kind'})
+
+    def test_reference_lists_the_form_choices(self):
+        data = self.client.get('/api/v1/benchmarks/sources/reference').data
+        self.assertIn('UGC', [a['code'] for a in data['authorities']])
+        self.assertIn('.pdf', data['file_extensions'])
+        self.assertEqual(data['max_file_mb'], 25)
+        self.assertIn('mandatory', [r['value'] for r in data['source_roles']])

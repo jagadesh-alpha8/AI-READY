@@ -9,6 +9,7 @@ import { EmptyState, ErrorState, LoadingState } from '../../components/ApiStates
 import { useAuth } from '../../context/AuthContext';
 import { canDo } from '../../utils/access';
 import { SourceVersionPanel } from './SourceVersionPanel';
+import { AddSourceButton } from './AddSourceForm';
 import { CatalogueTab } from './CatalogueTab';
 import { RequirementsTab } from './RequirementLinking';
 import { LevelsEditorTab } from './LevelsEditorTab';
@@ -146,9 +147,11 @@ const Sources: React.FC = () => {
   return (
     <div className="space-y-4">
       <p className="text-sm text-ink-500">
-        The official documents benchmarks are built from, imported from the Source Register. Every
-        version is a draft until a reviewer approves it; approved versions can never be changed.
+        The official documents benchmarks are built from, imported from the Source Register or added
+        here. Every version is a draft until a reviewer approves it; approved versions can never be changed.
       </p>
+
+      <AddSourceButton onAdded={refreshAll} />
 
       {summary.data && (
         <div className="flex flex-wrap gap-2 text-xs">
@@ -181,7 +184,7 @@ const Sources: React.FC = () => {
       {loading && <LoadingState message="Loading source library…" />}
       {error && <ErrorState message={error} onRetry={refetch} />}
       {data && data.length === 0 && (
-        <EmptyState message="No sources yet. Import the Source Register: python manage.py import_source_register <file.xlsx> --commit" />
+        <EmptyState message="No sources yet. Use Add source above, or import the Source Register (python manage.py import_source_register <file.xlsx> --commit)." />
       )}
 
       <div className="space-y-3">

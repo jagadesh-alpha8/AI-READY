@@ -67,6 +67,52 @@ export function getSourceSummary() {
   return api.get<SourceLibrarySummary>('/benchmarks/sources/summary');
 }
 
+// -- add a source (InGage staff) ------------------------------------------------
+
+export interface SourceReference {
+  authorities: { code: string; name: string; kind: string }[];
+  authority_kinds: { value: string; label: string }[];
+  source_roles: { value: string; label: string }[];
+  categories: string[];
+  document_types: string[];
+  file_extensions: string[];
+  max_file_mb: number;
+}
+
+export function getSourceReference() {
+  return api.get<SourceReference>('/benchmarks/sources/reference');
+}
+
+/** Fields the server accepts (services/source_create.py); `authority` OR `authority_name` + `authority_kind`. */
+export interface NewSource {
+  authority: string;
+  authority_name: string;
+  authority_kind: string;
+  category: string;
+  source_code: string;
+  title: string;
+  source_role: string;
+  document_type: string;
+  applies_to: string;
+  programme_scope: string;
+  official_url: string;
+  direct_url: string;
+  licensed_content: boolean;
+  version_label: string;
+  issued_on: string;
+  effective_from: string;
+  review_cadence_months: string;
+  notes: string;
+}
+
+/** 201 with the new source; 400 `{detail, errors: {field: message}}`. */
+export function createSource(fields: NewSource, file: File | null) {
+  const form = new FormData();
+  Object.entries(fields).forEach(([k, v]) => form.append(k, typeof v === 'boolean' ? String(v) : v));
+  if (file) form.append('file', file);
+  return api.post<SourceDocument>('/benchmarks/sources', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+}
+
 // -- actions (InGage staff) ---------------------------------------------------
 
 export interface RequirementCandidate {

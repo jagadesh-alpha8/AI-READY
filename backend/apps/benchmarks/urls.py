@@ -1,7 +1,7 @@
 from django.urls import path
 
 from .views import (
-    CandidateReviewView, RequirementListView, SourceDocumentDetailView, SourceDocumentListView,
+    CandidateReviewView, RequirementListView, SourceDocumentDetailView, SourceDocumentListView, SourceReferenceView,
     SourceLibrarySummaryView, VersionApproveView, VersionCandidatesView, VersionDraftRequirementsView,
     VersionIntakeView, VersionWithdrawView, BenchmarkListView, BenchmarkDetailView, PillarListView,
     EvidenceTypeListView, BenchmarkRequirementsView, BenchmarkRequirementDetailView, RequirementSuggestionsView,
@@ -20,6 +20,7 @@ from .views import (
 _routes = [
     ('/sources', SourceDocumentListView, 'benchmark-sources'),
     ('/sources/summary', SourceLibrarySummaryView, 'benchmark-sources-summary'),
+    ('/sources/reference', SourceReferenceView, 'benchmark-sources-reference'),
     ('/sources/<str:source_code>', SourceDocumentDetailView, 'benchmark-source-detail'),
     ('/versions/<uuid:pk>/intake', VersionIntakeView, 'benchmark-version-intake'),
     ('/versions/<uuid:pk>/approve', VersionApproveView, 'benchmark-version-approve'),

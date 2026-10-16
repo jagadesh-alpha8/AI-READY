@@ -16,6 +16,26 @@ App: `apps/benchmarks`. Tables follow the manager's foundation schema (`authorit
 
 Re-run step 1 any time the sheet changes: drafts update in place, approved versions are never touched.
 
+## Adding one source in the Studio
+
+Studio > Sources > **Add source** (InGage staff). Same model and rules as a Source Register row
+(`services/source_create.py`): pick an existing authority or add one (name + kind; code and framework
+`<AUTH>-C<category no.>` derived as in the import), source code (unique), official title, role, document type,
+applies to, programme scope, official page URL, direct document URL, licensed flag, version, issue / effective
+dates, review cadence, notes, and optionally the file (PDF, Word, Excel, CSV or image, up to 25 MB).
+
+It is saved with **one draft version**; approval stays the usual step in the list. Starting collection status:
+file uploaded -> *Downloaded* (stored content-addressed like intake, SHA-256 and pages recorded, intake
+"Stored"); licensed -> *Licensed - link only* (a file is refused); a URL -> *Found - link only*; nothing ->
+*To find*. What the import would flag (URL not on an official domain, empty Applies To, no role) becomes the
+version's review flags. Every problem is returned at once as `{detail, errors: {field: message}}`; nothing is
+saved unless all fields pass. Audited as `source.create`.
+
+```
+GET  /api/v1/benchmarks/sources/reference   authorities, kinds, roles, categories, document types, file types, size limit
+POST /api/v1/benchmarks/sources             multipart: the fields above + optional `file` -> 201 source / 400 errors
+```
+
 ## The benchmark framework: InGage AI-QIF v1.0
 
 AI-QIF is the framework the library is built on. It replaces the Source Pack catalogue below; that catalogue's 60

@@ -8,6 +8,7 @@ drafting, accept / reject a draft. Every action is audited
 from django.db.models import Count, F, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -37,9 +38,20 @@ def _documents():
 
 
 class SourceDocumentListView(generics.ListAPIView):
-    """GET /benchmarks/sources?category=&authority=&role=&collection=&q="""
+    """GET  /benchmarks/sources?category=&authority=&role=&collection=&q=
+       POST /benchmarks/sources  multipart: source fields + optional `file` (services/source_create.py)"""
     serializer_class = SourceDocumentListSerializer
     permission_classes = [IsInGageStaff]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def post(self, request):
+        from .services.source_create import SourceCreateError, create_source
+        try:
+            doc, _version = create_source(request.user, request.data, upload=request.FILES.get('file'))
+        except SourceCreateError as exc:
+            return Response({'detail': 'Please fix the highlighted fields.', 'errors': exc.errors},
+                            status=status.HTTP_400_BAD_REQUEST)
+        return Response(SourceDocumentDetailSerializer(_documents().get(pk=doc.pk)).data, status=status.HTTP_201_CREATED)
 
     def get_queryset(self):
         qs = _documents()
@@ -65,6 +77,24 @@ class SourceDocumentDetailView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         return _documents()
+
+
+class SourceReferenceView(APIView):
+    """GET /benchmarks/sources/reference -- choices for the Add Source form."""
+    permission_classes = [IsInGageStaff]
+
+    def get(self, request):
+        from .models import Authority
+        from .services.source_create import MAX_FILE_BYTES, supported_extensions
+        return Response({
+            'authorities': list(Authority.objects.order_by('code').values('code', 'name', 'kind')),
+            'authority_kinds': [{'value': k, 'label': l} for k, l in Authority.Kind.choices],
+            'source_roles': [{'value': k, 'label': l} for k, l in SourceDocument.Role.choices],
+            'categories': sorted(c for c in SourceDocument.objects.values_list('category', flat=True).distinct() if c),
+            'document_types': sorted(t for t in SourceDocument.objects.values_list('document_type', flat=True).distinct() if t),
+            'file_extensions': supported_extensions(),
+            'max_file_mb': MAX_FILE_BYTES // (1024 * 1024),
+        })
 
 
 class SourceLibrarySummaryView(APIView):
