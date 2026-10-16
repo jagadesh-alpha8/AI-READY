@@ -21,6 +21,7 @@ from apps.sprints.access import get_authorized_sprint
 
 from .models import Document, DriveImportJob
 from .serializers import (
+    DocumentCategoryConfirmSerializer,
     DocumentSerializer,
     DocumentUploadSerializer,
     DriveImportJobCreateSerializer,
@@ -61,7 +62,7 @@ class SprintDocumentListView(generics.ListAPIView):
 
     def get_queryset(self):
         get_authorized_sprint(self.request.user, self.kwargs['sprint_id'])
-        return Document.objects.filter(sprint_id=self.kwargs['sprint_id'])
+        return Document.objects.filter(sprint_id=self.kwargs['sprint_id']).select_related('category_confirmed_by')
 
 
 class SprintDocumentUploadView(APIView):
@@ -159,6 +160,41 @@ class DocumentDetailView(generics.RetrieveUpdateDestroyAPIView):
         if instance.file:
             instance.file.delete(save=False)
         instance.delete()
+
+
+class DocumentConfirmCategoryView(APIView):
+    """POST {"category": "<checklist slug>" | null}: a person settles the
+    document's category -- resolving "Needs review" / "Unclassified", or
+    overriding the AI. Sets classification_status (classified, or unclassified
+    for null) and ai_document_type, and records who and when; the AI's own
+    ai_confidence/ai_reasoning are kept as its last verdict. Reprocessing
+    leaves a confirmed category alone (ExtractionPipeline._apply_classification).
+    Who may: anyone but a viewer, in the document's institution -- the same as
+    editing it."""
+    permission_classes = [CanContribute, CanManageDocument, IsInstitutionMember]
+
+    @extend_schema(request=DocumentCategoryConfirmSerializer, responses=DocumentSerializer)
+    def post(self, request, pk):
+        document = get_object_or_404(Document, pk=pk)
+        self.check_object_permissions(request, document)
+        body = DocumentCategoryConfirmSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        category = body.validated_data['category']
+
+        Status = Document.ClassificationStatus
+        document.classification_status = Status.CLASSIFIED if category else Status.UNCLASSIFIED
+        document.ai_document_type = category or ''
+        document.category_confirmed_by = request.user
+        document.category_confirmed_at = timezone.now()
+        document.save(update_fields=[
+            'classification_status', 'ai_document_type', 'category_confirmed_by', 'category_confirmed_at',
+            'updated_at',
+        ])
+        logger.info(
+            'documents.category_confirmed document_id=%s category=%s user=%s',
+            document.id, category, request.user.id,
+        )
+        return Response(DocumentSerializer(document, context={'request': request}).data)
 
 
 class DocumentDownloadView(APIView):

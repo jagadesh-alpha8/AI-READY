@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
-from .constants import DRIVE_IMPORT_CHECKLIST
+from .constants import DRIVE_IMPORT_CHECKLIST, UNCLASSIFIED_DOCUMENT_TYPE
 from .drive_import import (
     classify_filename, download_drive_file, is_importable, list_drive_folder_files, parse_drive_folder_id,
 )
@@ -17,22 +17,22 @@ from .services import DocumentValidationError, create_document_from_file
 
 logger = logging.getLogger(__name__)
 
-#: document_type for Drive files that don't fill a checklist slot -- they are
-#: still imported so the whole folder lands in the sprint.
-ADDITIONAL_DOCUMENT_TYPE = 'supporting_document'
-
 
 @shared_task(bind=True, max_retries=settings.GOOGLE_DRIVE_IMPORT_MAX_RETRIES, acks_late=True)
 def run_drive_import_job(self, job_id):
     """Scan a Drive folder (root + every subfolder) and import EVERY supported
-    file through the same document-creation path as a manual upload. The
-    first filename matching each DRIVE_IMPORT_CHECKLIST slot fills that slot;
-    every other file is imported as a supporting document. A single file's
-    failure (bad export, validation reject, unsupported type) doesn't fail the
-    whole job -- it's recorded in `results['skipped_files']` and the rest keep
-    going.
+    file through the same document-creation path as a manual upload.
+
+    A filename's checklist keywords are only a hint: a matching file is
+    imported with that type (document_type_source=filename), any other file
+    as 'unclassified' (document_type_source=none). The real category comes
+    from the AI reading the content during extraction (Document.ai_*). The
+    first match per slot is still reported in `results` as the scan summary.
+    A single file's failure (bad export, validation reject, unsupported type)
+    doesn't fail the whole job -- it's recorded in `results['skipped_files']`
+    and the rest keep going.
     """
-    from .models import DriveImportJob
+    from .models import Document, DriveImportJob
 
     try:
         job = DriveImportJob.objects.select_related('sprint').get(id=job_id)
@@ -128,18 +128,21 @@ def run_drive_import_job(self, job_id):
         content, filename, mime_type = outcome
 
         slot = slot_by_file_id.get(entry['id'])
-        if slot:
-            document_type, owner_role = slot, checklist_by_slot[slot]['owner']
+        hint = classify_filename(entry['name'])
+        if hint:
+            # A filename hint, not a verdict -- the AI confirms or overrides
+            # it from the content during extraction.
+            document_type, owner_role = hint, checklist_by_slot[hint]['owner']
+            type_source = Document.TypeSource.FILENAME
         else:
-            # Not a checklist match (or a second file for an already-claimed
-            # slot): still imported, as a general supporting document.
-            document_type, owner_role = ADDITIONAL_DOCUMENT_TYPE, ''
+            document_type, owner_role = UNCLASSIFIED_DOCUMENT_TYPE, ''
+            type_source = Document.TypeSource.NONE
 
         upload = SimpleUploadedFile(filename, content, content_type=mime_type)
         try:
             document = create_document_from_file(
                 sprint=job.sprint, file_obj=upload, document_type=document_type,
-                owner_role=owner_role, uploaded_by=job.created_by,
+                owner_role=owner_role, uploaded_by=job.created_by, document_type_source=type_source,
             )
         except DocumentValidationError as exc:
             skipped.append({'filename': _display_name(entry, filename), 'reason': _flatten_errors(exc.errors)})

@@ -170,6 +170,7 @@ Everything a sprint-detail dashboard screen needs in one call — avoids the fro
 | PATCH/PUT | `/documents/{id}` | uploader, or non-viewer role | |
 | DELETE | `/documents/{id}` | uploader, or super_admin/consultant/institution_admin/iqac_coordinator | deletes the stored file too |
 | GET | `/documents/{id}/download` | any authenticated, institution-scoped | streams the file (never a raw media URL) |
+| POST | `/documents/{id}/confirm-category` | any role but viewer, institution-scoped | a person settles the AI category (below) |
 
 ### `POST /sprints/{sprint_id}/upload-file`
 - **Content-Type**: `multipart/form-data`.
@@ -188,15 +189,30 @@ Everything a sprint-detail dashboard screen needs in one call — avoids the fro
   "status": "pending|uploaded|processing|processed|failed|rejected",
   "page_count": int|null, "quality_score": float|null, "ocr_required": bool, "ocr_warnings": [...],
   "processing_status": str, "uploaded_at": "iso8601|null", "processed_at": "iso8601|null",
+  "document_type_source": "uploader|filename|none",
+  "classification_status": "pending|classified|needs_review|unclassified",
+  "ai_document_type": str, "ai_document_type_label": str|null, "ai_confidence": float|null,
+  "ai_reasoning": str, "classified_at": "iso8601|null",
+  "category_confirmed_by": "uuid|null", "category_confirmed_by_name": str|null,
+  "category_confirmed_at": "iso8601|null",
   "created_at": "iso8601", "updated_at": "iso8601"
 }
 ```
+
+- `document_type` is the type assigned at upload/import and is never changed by the AI; `document_type_source` says who set it (the uploader, the Drive importer's filename keywords, or nobody — `unclassified`).
+- The `ai_*` fields and `classification_status` are read-only, written by extraction's classification step from the document's content. `ai_document_type` is a checklist slug (`DRIVE_IMPORT_CHECKLIST`) or `""`. `classified` means confidence ≥ `AI_CLASSIFICATION_MIN_CONFIDENCE` (default 0.7) and is what the Upload Data Pack checklist counts; a lower-confidence checklist guess is `needs_review`; no or an unknown category is `unclassified`. Reprocessing overwrites them — unless a person confirmed the category (`category_confirmed_at` set), which reprocessing leaves exactly as it is.
+
+### `POST /documents/{id}/confirm-category`
+- **Request body**: `{"category": "<checklist slug>" | null}` — a `DRIVE_IMPORT_CHECKLIST` slug (aliases such as `aqar` accepted), or `null` for "not a checklist document". The key is required.
+- **Effect**: `classification_status` → `classified` (or `unclassified` for `null`), `ai_document_type` → the slug (or `""`), `category_confirmed_by`/`category_confirmed_at` → the caller and now. `ai_confidence`/`ai_reasoning`/`classified_at` keep the AI's last verdict; `document_type` is untouched. Works on any status, including overriding a `classified` one.
+- **Response `200`**: Document object.
+- **Errors**: `400` — missing key, blank, or not a checklist category; `403` — viewer, or another institution.
 
 ---
 
 ## 4a. Google Drive Import Jobs (`/api/v1/sprints/{sprint_id}/drive-import-jobs`)
 
-Screen 2 "Upload Data Pack"'s **Google Drive** data source. No OAuth: the server holds one Drive REST v3 API key (`GOOGLE_DRIVE_API_KEY`), so the institution must share the target folder as "Anyone with the link — Viewer". A job recursively scans the folder (including subfolders, breadth-first, bounded by `GOOGLE_DRIVE_IMPORT_MAX_FILES`/`GOOGLE_DRIVE_IMPORT_MAX_FOLDERS`), classifies filenames against `apps.documents.constants.DRIVE_IMPORT_CHECKLIST` (mirrors `UploadDataPack.tsx`'s `REQUIRED_CHECKLIST` slugs exactly), and imports matches through the same `create_document_from_file()` path as `POST /upload-file` — imported documents appear in the regular Documents list/checklist with no extra step.
+Screen 2 "Upload Data Pack"'s **Google Drive** data source. No OAuth: the server holds one Drive REST v3 API key (`GOOGLE_DRIVE_API_KEY`), so the institution must share the target folder as "Anyone with the link — Viewer". A job recursively scans the folder (including subfolders, breadth-first, bounded by `GOOGLE_DRIVE_IMPORT_MAX_FILES`/`GOOGLE_DRIVE_IMPORT_MAX_FOLDERS`), classifies filenames against `apps.documents.constants.DRIVE_IMPORT_CHECKLIST` (mirrors `UploadDataPack.tsx`'s `REQUIRED_CHECKLIST` slugs exactly), and imports every supported file through the same `create_document_from_file()` path as `POST /upload-file` — imported documents appear in the regular Documents list with no extra step. The filename match is only a hint: a matching file gets that `document_type` with `document_type_source: "filename"`, any other file `document_type: "unclassified"` with `document_type_source: "none"`; the checklist fills from the AI category saved during extraction.
 
 | Method | Path | Permission | Notes |
 |---|---|---|---|
@@ -292,6 +308,10 @@ Facts are **read-only via list** — only the extraction pipeline creates them. 
   "confidence_score": float, "confidence": float,                // alias of confidence_score
   "confidence_reason": str, "extraction_method": str,
   "status": "extracted|confirmed|corrected|rejected|evidence_requested",
+  "aiqif_mapping_status": "pending|mapped|needs_review|unmapped",
+  "aiqif_mappings": [{"criterion": "aiqif_c4", "criterion_code": "AIQIF-C4", "criterion_name": str,
+                      "indicator_code": "AIQIF-C4.1", "indicator_name": str, "reason": str,
+                      "confidence": float, "status": "mapped|needs_review"}, ...],
   "reviewed_by": "uuid|null", "reviewed_at": "iso8601|null",
   "created_at": "iso8601", "updated_at": "iso8601"
   // detail endpoint / action responses only:
@@ -299,6 +319,8 @@ Facts are **read-only via list** — only the extraction pipeline creates them. 
 }
 ```
 `audit_field_id`, `value_json`, `confidence` are **frontend-compatible aliases** — `FactsReview.tsx` reads exactly these three names.
+
+**AI-QIF category tags** (`aiqif_mappings`, read-only): the AI-QIF key indicators (of the 36, `apps.scoring.constants.AIQIF_INDICATORS`) the fact extractor judged the fact to be evidence for, strongest first, at most 3 — each with its criterion, reason and confidence. A tag is `mapped` at confidence ≥ `AIQIF_MAPPING_MIN_CONFIDENCE` (default 0.7), else `needs_review`. `aiqif_mapping_status` summarizes them: `mapped` (≥1 confident tag), `needs_review` (only low-confidence ones), `unmapped` (the AI found no clear indicator — none is guessed), `pending` (extracted before tagging existed). Tags are categories only: the CRI scores `pillar` (+ `field_key`) and never reads them, and reprocessing replaces an unreviewed fact's tags but leaves a reviewed fact's alone. List filters: `?aiqif_criterion=aiqif_c4`, `?aiqif_indicator=AIQIF-C4.1`, `?aiqif_mapping_status=needs_review` (a fact matches if any of its tags does).
 
 ---
 
@@ -551,6 +573,7 @@ cannot grant platform roles, and nobody can change their own role or deactivate 
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/sprints/{id}/drive-import-jobs/{job}/stop` | Stop a running Drive import; files already imported stay |
+| POST | `/documents/{id}/confirm-category` | A person settles a document's AI category (`{"category": slug \| null}`); reprocessing keeps it |
 | POST | `/sprints/{id}/extraction-jobs` | Body may now be `{"document_ids": [...]}` (the ticked documents) |
 | POST | `/extraction-jobs/{id}/cancel`, `/extraction-jobs/{id}/process` | Stop / re-run one document |
 | POST | `/extraction-jobs/sprints/{id}/cancel`, `/extraction-jobs/sprints/{id}/process-incomplete` | Stop all / re-run every unfinished document |

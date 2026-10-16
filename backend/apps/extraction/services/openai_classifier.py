@@ -15,6 +15,9 @@ import logging
 
 from django.conf import settings
 
+from apps.documents.constants import CHECKLIST_TYPE_LABELS
+from apps.documents.models import Document
+
 from ..exceptions import PermanentExtractionError
 from .ai_service import get_ai_service
 from .base import DocumentClassifier
@@ -25,17 +28,23 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """You are classifying one institutional audit document (e.g. a NAAC SSR, an \
 AQAR report, a faculty list) for a higher-education AI-readiness audit platform.
 
-You will be given the document's filename, the type the uploader tagged it with, and a text \
-sample from its first few pages (or a note that no text could be extracted).
+You will be given the document's filename, the type it was assigned at upload (and whether a \
+person chose it or it was guessed from filename keywords), and a text sample from its first few \
+pages (or a note that no text could be extracted).
+
+`document_type` must be exactly one of these category ids, or null:
+""" + '\n'.join(f'- {slug}: {label}' for slug, label in CHECKLIST_TYPE_LABELS.items()) + """
 
 Rules -- follow these exactly:
-- Base every field only on the text you were given. Never invent, assume, or guess a value \
-that isn't actually supported by the text.
+- The document's text decides the category. Base every field only on the text you were given. \
+Never invent, assume, or guess a value that isn't actually supported by the text.
 - If the text doesn't contain enough information for a field, return null for that field. A \
 null is the correct, honest answer when you don't know -- it is not a failure.
-- The uploader's tagged document type is a hint, not ground truth: if the text clearly supports \
-a different type, say so in `document_type` and explain why in `reasoning`. If the text neither \
-confirms nor contradicts it, you may keep the uploader's tag but should not report high confidence.
+- If the text shows the document is none of the categories above, return null for \
+`document_type` and say what it actually is in `reasoning`.
+- The filename and the assigned type are hints, not ground truth: if the text supports a \
+different category, return that one and explain why in `reasoning`. If there is no usable text, \
+you may go by the filename or assigned type alone, but then `confidence` must be 0.5 or lower.
 - `confidence` must be a number between 0 and 1 (inclusive) representing how sure you are of \
 `document_type` specifically. 0 means you have no real basis for it; 1 means the text leaves no \
 doubt.
@@ -49,7 +58,7 @@ CLASSIFICATION_SCHEMA = {
     'properties': {
         'document_type': {
             'type': ['string', 'null'],
-            'description': 'A lowercase snake_case document type, e.g. "naac_ssr", or null if unclear.',
+            'description': 'One of the listed category ids, e.g. "naac_ssr", or null if none fits or it is unclear.',
         },
         'document_title': {
             'type': ['string', 'null'],
@@ -116,9 +125,14 @@ class OpenAIDocumentClassifier(DocumentClassifier):
 
     @staticmethod
     def _build_user_content(document, sample):
+        source = {
+            Document.TypeSource.UPLOADER: 'chosen by the uploader',
+            Document.TypeSource.FILENAME: 'guessed from filename keywords only',
+        }.get(document.document_type_source)
+        assigned = f'{document.document_type} ({source})' if source and document.document_type else '(none)'
         lines = [
             f'Filename: {document.original_filename or "(unknown)"}',
-            f'Uploader-tagged document type: {document.document_type or "(none provided)"}',
+            f'Assigned document type: {assigned}',
         ]
         if not sample.get('format_supported', True):
             lines.append(

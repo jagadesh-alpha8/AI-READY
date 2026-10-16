@@ -1,10 +1,32 @@
 export type DocumentStatus = 'pending' | 'uploaded' | 'processing' | 'processed' | 'failed' | 'rejected';
 
+/** Who set `document_type`: the uploader, or the Drive importer's filename keywords. */
+export type DocumentTypeSource = 'uploader' | 'filename' | 'none';
+
+/** The AI classifier's verdict from reading the content (set during extraction). */
+export type ClassificationStatus = 'pending' | 'classified' | 'needs_review' | 'unclassified';
+
 export interface SprintDocument {
   id: string;
   sprint_id: string;
+  /** The type assigned at upload/import -- never changed by the AI. */
   document_type: string;
   document_type_label: string;
+  document_type_source: DocumentTypeSource;
+  classification_status: ClassificationStatus;
+  /** A checklist slug, or '' (unclassified / not yet categorized). Only a
+   * 'classified' result counts toward the checklist. */
+  ai_document_type: string;
+  ai_document_type_label: string | null;
+  ai_confidence: number | null;
+  ai_reasoning: string;
+  classified_at: string | null;
+  /** Set when a person decided the category (POST /documents/{id}/confirm-category);
+   * classification_status/ai_document_type then hold their decision and
+   * reprocessing keeps it. ai_confidence/ai_reasoning stay the AI's last verdict. */
+  category_confirmed_by: string | null;
+  category_confirmed_by_name: string | null;
+  category_confirmed_at: string | null;
   title: string;
   original_filename: string;
   mime_type: string;

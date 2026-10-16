@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
-from apps.scoring.constants import PILLAR_CHOICES
+from apps.scoring.constants import AIQIF_INDICATOR_CHOICES, PILLAR_CHOICES
 
 
 class ExtractedFact(models.Model):
@@ -23,6 +23,13 @@ class ExtractedFact(models.Model):
         DATE = 'date', 'Date'
         CURRENCY = 'currency', 'Currency'
         LIST = 'list', 'List'
+
+    class AIQIFMappingStatus(models.TextChoices):
+        """Where the fact's AI-QIF category tags (`aiqif_mappings`) stand."""
+        PENDING = 'pending', 'Not yet mapped'
+        MAPPED = 'mapped', 'Mapped'
+        NEEDS_REVIEW = 'needs_review', 'Needs review'
+        UNMAPPED = 'unmapped', 'Unmapped'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     sprint = models.ForeignKey('sprints.Sprint', on_delete=models.CASCADE, related_name='facts')
@@ -57,6 +64,14 @@ class ExtractedFact(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    # The fact's AI-QIF category tags live in FactAIQIFMapping; this is their
+    # summary: MAPPED (at least one confident indicator), NEEDS_REVIEW (only
+    # low-confidence ones), UNMAPPED (the AI found no clear indicator),
+    # PENDING (extracted before mapping existed). Category only -- unlike
+    # `pillar`, nothing in CRI scoring reads it.
+    aiqif_mapping_status = models.CharField(
+        max_length=20, choices=AIQIFMappingStatus.choices, default=AIQIFMappingStatus.PENDING,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -65,6 +80,39 @@ class ExtractedFact(models.Model):
 
     def __str__(self):
         return f'{self.field_key} ({self.status})'
+
+
+class FactAIQIFMapping(models.Model):
+    """One AI-QIF key indicator a fact is evidence for, with why and how
+    sure. A fact can support several indicators (one row each), or none.
+
+    A category tag only: it says what the fact is about, never how mature
+    the institution is, and nothing in benchmark maturity, compliance or CRI
+    scoring reads it -- the CRI scores `ExtractedFact.pillar`/`field_key`.
+    The fact's source document, page and quote stay on the fact itself."""
+
+    class Status(models.TextChoices):
+        MAPPED = 'mapped', 'Mapped'
+        NEEDS_REVIEW = 'needs_review', 'Needs review'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    fact = models.ForeignKey(ExtractedFact, on_delete=models.CASCADE, related_name='aiqif_mappings')
+    # Always the criterion the indicator belongs to (AIQIF_INDICATORS).
+    criterion = models.CharField(max_length=64, choices=PILLAR_CHOICES)
+    indicator_code = models.CharField(max_length=20, choices=AIQIF_INDICATOR_CHOICES)
+    reason = models.TextField()
+    confidence = models.FloatField(validators=[MinValueValidator(0), MaxValueValidator(1)])
+    status = models.CharField(max_length=20, choices=Status.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-confidence', 'indicator_code']
+        constraints = [
+            models.UniqueConstraint(fields=['fact', 'indicator_code'], name='unique_aiqif_indicator_per_fact'),
+        ]
+
+    def __str__(self):
+        return f'{self.fact_id} -> {self.indicator_code} ({self.status})'
 
 
 class FactReviewHistory(models.Model):

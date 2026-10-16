@@ -4,7 +4,9 @@ from django.conf import settings
 from django.template.defaultfilters import filesizeformat
 from rest_framework import serializers
 
-from .constants import ALLOWED_UPLOAD_EXTENSIONS, humanize_document_type
+from .constants import (
+    ALLOWED_UPLOAD_EXTENSIONS, CHECKLIST_TYPE_LABELS, humanize_document_type, normalize_checklist_type,
+)
 from .drive_import import parse_drive_folder_id
 from .exceptions import DriveImportError
 from .models import Document, DriveImportJob, document_type_validator
@@ -15,6 +17,9 @@ class DocumentSerializer(serializers.ModelSerializer):
     sprint_id = serializers.PrimaryKeyRelatedField(source='sprint', read_only=True)
     uploaded_by = serializers.PrimaryKeyRelatedField(read_only=True)
     document_type_label = serializers.SerializerMethodField()
+    ai_document_type_label = serializers.SerializerMethodField()
+    category_confirmed_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    category_confirmed_by_name = serializers.SerializerMethodField()
     download_url = serializers.SerializerMethodField()
     has_file = serializers.SerializerMethodField()
     file_size_display = serializers.SerializerMethodField()
@@ -22,20 +27,41 @@ class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Document
         fields = [
-            'id', 'sprint_id', 'document_type', 'document_type_label', 'title',
+            'id', 'sprint_id', 'document_type', 'document_type_label', 'document_type_source', 'title',
             'original_filename', 'mime_type', 'file_size', 'file_size_display', 'checksum',
             'download_url', 'has_file', 'uploaded_by', 'owner_role', 'status',
             'page_count', 'quality_score', 'ocr_required', 'ocr_warnings', 'processing_status',
+            'classification_status', 'ai_document_type', 'ai_document_type_label', 'ai_confidence',
+            'ai_reasoning', 'classified_at',
+            'category_confirmed_by', 'category_confirmed_by_name', 'category_confirmed_at',
             'uploaded_at', 'processed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'sprint_id', 'original_filename', 'mime_type', 'file_size', 'file_size_display',
-            'checksum', 'download_url', 'has_file', 'document_type_label', 'uploaded_by',
+            'checksum', 'download_url', 'has_file', 'document_type_label', 'document_type_source', 'uploaded_by',
+            # Only the extraction pipeline writes the AI's verdict; a person
+            # overrides it through POST /documents/{id}/confirm-category.
+            'classification_status', 'ai_document_type', 'ai_document_type_label', 'ai_confidence',
+            'ai_reasoning', 'classified_at',
+            'category_confirmed_by', 'category_confirmed_by_name', 'category_confirmed_at',
             'uploaded_at', 'processed_at', 'created_at', 'updated_at',
         ]
 
     def get_document_type_label(self, obj):
         return humanize_document_type(obj.document_type)
+
+    def get_ai_document_type_label(self, obj):
+        return CHECKLIST_TYPE_LABELS.get(obj.ai_document_type) if obj.ai_document_type else None
+
+    def get_category_confirmed_by_name(self, obj):
+        return obj.category_confirmed_by.get_full_name() if obj.category_confirmed_by else None
+
+    def update(self, instance, validated_data):
+        # A person re-typing the document: the assigned type is theirs now,
+        # not the Drive importer's filename guess.
+        if 'document_type' in validated_data and validated_data['document_type'] != instance.document_type:
+            validated_data['document_type_source'] = Document.TypeSource.UPLOADER
+        return super().update(instance, validated_data)
 
     def get_has_file(self, obj):
         return bool(obj.file)
@@ -49,6 +75,24 @@ class DocumentSerializer(serializers.ModelSerializer):
         path = f'/api/v1/documents/{obj.id}/download'
         request = self.context.get('request')
         return request.build_absolute_uri(path) if request else path
+
+
+class DocumentCategoryConfirmSerializer(serializers.Serializer):
+    """Request body for POST /documents/{id}/confirm-category: a checklist
+    slug (aliases tolerated, see normalize_checklist_type), or null for "not a
+    checklist document". The key is required, so an empty body isn't read as null."""
+    category = serializers.CharField(allow_null=True, allow_blank=False, trim_whitespace=True)
+
+    def validate_category(self, value):
+        if value is None:
+            return None
+        slug = normalize_checklist_type(value)
+        if slug is None:
+            allowed = ', '.join(CHECKLIST_TYPE_LABELS)
+            raise serializers.ValidationError(
+                f"'{value}' is not a checklist category. Use one of: {allowed} -- or null for none.",
+            )
+        return slug
 
 
 class DocumentUploadSerializer(serializers.Serializer):

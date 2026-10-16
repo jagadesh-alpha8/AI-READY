@@ -54,6 +54,20 @@ AIQIF_PILLARS = [
 
 PILLAR_CHOICES = [(key, name) for key, _code, name, _w, _kis in AIQIF_PILLARS]
 
+#: The 36 AI-QIF key indicators, in framework order: code -> (criterion key,
+#: indicator name). Codes are the criterion code + the indicator's position,
+#: 'AIQIF-C4.1' -- the same codes the benchmark library imported
+#: (apps.benchmarks.services.aiqif_import). Used to tag extracted facts by
+#: category (apps.facts.models.FactAIQIFMapping); the CRI doesn't score these.
+AIQIF_INDICATORS = {
+    f'{code}.{position}': (key, name)
+    for key, code, _name, _w, kis in AIQIF_PILLARS
+    for position, name in enumerate(kis, start=1)
+}
+AIQIF_INDICATOR_CHOICES = [(code, f'{code} {name}') for code, (_key, name) in AIQIF_INDICATORS.items()]
+#: Criterion key -> its AI-QIF code, e.g. 'aiqif_c4' -> 'AIQIF-C4'.
+AIQIF_CRITERION_CODES = {key: code for key, code, _name, _w, _kis in AIQIF_PILLARS}
+
 #: The eight pillars used before AI-QIF -- kept only to label history.
 LEGACY_PILLARS = [
     ('governance_strategy', 'Governance & Strategy'),

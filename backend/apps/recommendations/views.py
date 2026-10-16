@@ -21,7 +21,9 @@ class SprintRecommendationListView(APIView):
     @extend_schema(responses=RecommendationSerializer(many=True))
     def get(self, request, sprint_id):
         get_authorized_sprint(request.user, sprint_id)
-        recommendations = Recommendation.objects.filter(sprint_id=sprint_id)
+        recommendations = Recommendation.objects.filter(sprint_id=sprint_id).prefetch_related(
+            'supporting_facts__source_document', 'supporting_facts__aiqif_mappings',
+        )
         return Response(RecommendationSerializer(recommendations, many=True).data)
 
     @extend_schema(request=None, responses=RecommendationSerializer(many=True))

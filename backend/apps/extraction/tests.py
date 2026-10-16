@@ -2639,3 +2639,421 @@ class OfficeAndImageReaderTests(TestCase):
         doc.refresh_from_db()
         self.assertEqual((doc.page_count, doc.processing_status), (0, 'unsupported_format'))
         self.assertIn('ZIP archives are not unpacked', doc.ocr_warnings[0])
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
+class DocumentClassificationTests(ExtractionJobTestBase):
+    """The AI classifier's verdict is saved on the document (separately from
+    the assigned document_type), and reprocessing refreshes it without
+    duplicating the document or its facts."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch('apps.extraction.services.openai_classifier.get_ai_service')
+        self.classify_mock = patcher.start().return_value.extract_structured_data
+        self.classify_mock.return_value = dict(FAKE_CLASSIFICATION_RESULT)
+        self.addCleanup(patcher.stop)
+        self._auth(self.iqac)
+
+    def _run(self):
+        """(Re)process self.document -- the same request the Upload Data Pack
+        page sends for a selected document, whatever its status."""
+        response = self.client.post(
+            f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/', {'document_id': str(self.document.id)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.document.refresh_from_db()
+        return ExtractionJob.objects.get(id=response.data[0]['id'])
+
+    def _classify_as(self, document_type, confidence, reasoning='Grounded in the text.'):
+        self.classify_mock.return_value = {
+            **FAKE_CLASSIFICATION_RESULT, 'document_type': document_type, 'confidence': confidence,
+            'reasoning': reasoning,
+        }
+
+    def test_confident_checklist_category_is_saved_and_the_assigned_type_kept(self):
+        self._classify_as('aqar_report', 0.93, 'Titled Annual Quality Assurance Report 2024-25.')
+        self._run()
+
+        doc = self.document
+        self.assertEqual(doc.classification_status, Document.ClassificationStatus.CLASSIFIED)
+        self.assertEqual(doc.ai_document_type, 'aqar_report')
+        self.assertEqual(doc.ai_confidence, 0.93)
+        self.assertEqual(doc.ai_reasoning, 'Titled Annual Quality Assurance Report 2024-25.')
+        self.assertIsNotNone(doc.classified_at)
+        # The uploader chose naac_ssr; that original label is untouched.
+        self.assertEqual((doc.document_type, doc.document_type_source), ('naac_ssr', 'uploader'))
+
+        row = self.client.get(f'/api/v1/sprints/{self.sprint.id}/documents/').data[0]
+        self.assertEqual(row['classification_status'], 'classified')
+        self.assertEqual(row['ai_document_type_label'], 'AQAR / Annual Quality Assurance Report')
+        self.assertEqual(row['document_type'], 'naac_ssr')
+
+    @override_settings(AI_CLASSIFICATION_MIN_CONFIDENCE=0.7)
+    def test_low_confidence_needs_review(self):
+        self._classify_as('naac_ssr', 0.45)
+        self._run()
+        self.assertEqual(self.document.classification_status, Document.ClassificationStatus.NEEDS_REVIEW)
+        self.assertEqual(self.document.ai_document_type, 'naac_ssr')
+
+    def test_no_category_or_an_unknown_one_is_unclassified_not_a_default_type(self):
+        for answer in (None, 'campus_brochure'):
+            with self.subTest(answer=answer):
+                self._classify_as(answer, 0.9, 'A marketing brochure, none of the categories.')
+                self._run()
+                self.assertEqual(self.document.classification_status, Document.ClassificationStatus.UNCLASSIFIED)
+                self.assertEqual(self.document.ai_document_type, '')
+                self.assertEqual(self.document.ai_reasoning, 'A marketing brochure, none of the categories.')
+
+    def test_a_document_types_alias_maps_to_its_checklist_slot(self):
+        self._classify_as('AQAR', 0.9)
+        self._run()
+        self.assertEqual(self.document.ai_document_type, 'aqar_report')
+
+    def test_reprocessing_updates_the_classification_and_facts_in_place(self):
+        self._classify_as('naac_ssr', 0.5)
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {
+            'facts': [_valid_fact(value='42', confidence_score=0.3)],
+        }
+        self._run()
+        first_fact = self.document.extracted_facts.get()
+        gap = GapItem.objects.get(gap_type=GapItem.GapType.LOW_CONFIDENCE, source_fact=first_fact)
+
+        self._classify_as('naac_ssr', 0.95)
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {
+            'facts': [
+                _valid_fact(value='45', confidence_score=0.3),
+                _valid_fact(field_key='total_students', field_name='Total Students', value='900'),
+            ],
+        }
+        self._run()
+
+        self.assertEqual(self.document.classification_status, Document.ClassificationStatus.CLASSIFIED)
+        self.assertEqual(self.document.ai_confidence, 0.95)
+        self.assertEqual(Document.objects.filter(sprint=self.sprint).count(), 1)
+        facts = {f.field_key: f for f in self.document.extracted_facts.all()}
+        self.assertEqual(sorted(facts), ['total_faculty', 'total_students'])
+        # Same row, new value -- so the gap raised against it still points at it, once.
+        self.assertEqual(facts['total_faculty'].id, first_fact.id)
+        self.assertEqual(facts['total_faculty'].value, 45)
+        self.assertEqual(
+            GapItem.objects.filter(gap_type=GapItem.GapType.LOW_CONFIDENCE, source_fact=first_fact).count(), 1,
+        )
+        gap.refresh_from_db()
+        self.assertEqual(gap.source_fact_id, first_fact.id)
+
+    def test_reprocessing_leaves_a_reviewed_fact_as_the_reviewer_left_it(self):
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact(value='42')]}
+        self._run()
+        fact = self.document.extracted_facts.get()
+        fact.status = ExtractedFact.Status.CONFIRMED
+        fact.save()
+
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact(value='99')]}
+        self._run()
+
+        fact.refresh_from_db()
+        self.assertEqual(self.document.extracted_facts.count(), 1)
+        self.assertEqual((fact.status, fact.value), (ExtractedFact.Status.CONFIRMED, 42))
+
+    def test_a_rerun_whose_classification_fails_keeps_the_previous_result(self):
+        self._classify_as('placement_report', 0.88)
+        self._run()
+
+        self.classify_mock.return_value = {**FAKE_CLASSIFICATION_RESULT, 'confidence': 7}  # invalid -> permanent failure
+        job = self._run()
+
+        self.assertEqual(job.status, ExtractionJob.Status.FAILED)
+        self.assertEqual(self.document.classification_status, Document.ClassificationStatus.CLASSIFIED)
+        self.assertEqual((self.document.ai_document_type, self.document.ai_confidence), ('placement_report', 0.88))
+
+    def _confirm_category(self, category):
+        response = self.client.post(
+            f'/api/v1/documents/{self.document.id}/confirm-category', {'category': category}, format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.document.refresh_from_db()
+
+    def test_reprocessing_keeps_a_category_a_person_confirmed(self):
+        self._classify_as('naac_ssr', 0.45, 'Unsure.')
+        self._run()
+        self.assertEqual(self.document.classification_status, Document.ClassificationStatus.NEEDS_REVIEW)
+        self._confirm_category('aqar_report')
+        confirmed_at = self.document.category_confirmed_at
+
+        self._classify_as('naac_ssr', 0.97, 'Now sure it is the SSR.')
+        job = self._run()
+
+        self.assertEqual(job.status, ExtractionJob.Status.COMPLETED)
+        self.assertEqual(self.document.classification_status, Document.ClassificationStatus.CLASSIFIED)
+        self.assertEqual(self.document.ai_document_type, 'aqar_report')
+        self.assertEqual((self.document.category_confirmed_by, self.document.category_confirmed_at),
+                         (self.iqac, confirmed_at))
+        # The new verdict is dropped whole, like a reviewed fact's new value.
+        self.assertEqual((self.document.ai_confidence, self.document.ai_reasoning), (0.45, 'Unsure.'))
+        self.assertEqual(self.document.status, Document.Status.PROCESSED)  # the rest of the run still happened
+
+    def test_reprocessing_keeps_a_not_a_checklist_document_decision(self):
+        self._classify_as(None, 0.9)
+        self._run()
+        self._confirm_category(None)
+
+        self._classify_as('placement_report', 0.95)
+        self._run()
+
+        self.assertEqual(self.document.classification_status, Document.ClassificationStatus.UNCLASSIFIED)
+        self.assertEqual(self.document.ai_document_type, '')
+
+    def test_a_confirmation_made_while_the_job_runs_still_wins(self):
+        from .services.pipeline import ExtractionPipeline
+
+        stale = Document.objects.get(id=self.document.id)  # what the pipeline loaded at the start
+        Document.objects.filter(id=self.document.id).update(
+            classification_status=Document.ClassificationStatus.CLASSIFIED, ai_document_type='lab_inventory',
+            category_confirmed_by=self.iqac, category_confirmed_at=timezone.now(),
+        )
+
+        changed = ExtractionPipeline._apply_classification(
+            stale, {**FAKE_CLASSIFICATION_RESULT, 'document_type': 'naac_ssr', 'confidence': 0.99},
+        )
+
+        self.assertEqual(changed, [])
+        self.assertEqual((stale.classification_status, stale.ai_document_type), ('classified', 'lab_inventory'))
+
+    def test_ai_fields_cannot_be_written_through_the_document_api(self):
+        response = self.client.patch(
+            f'/api/v1/documents/{self.document.id}/',
+            {'ai_document_type': 'aqar_report', 'classification_status': 'classified', 'ai_confidence': 1},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.document.refresh_from_db()
+        self.assertEqual(
+            (self.document.ai_document_type, self.document.classification_status, self.document.ai_confidence),
+            ('', Document.ClassificationStatus.PENDING, None),
+        )
+
+
+class ClassifierPromptTests(TestCase):
+    def setUp(self):
+        institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
+        self.sprint = Sprint.objects.create(institution=institution, mode=Sprint.SprintMode.VERIFIED_CRI)
+
+    def _call_kwargs(self, **document_fields):
+        document = Document.objects.create(
+            sprint=self.sprint, original_filename='SSR_2025.pdf', mime_type='application/pdf',
+            file=SimpleUploadedFile('SSR_2025.pdf', make_pdf_bytes(['Self Study Report']), 'application/pdf'),
+            **document_fields,
+        )
+        service = MagicMock()
+        service.extract_structured_data.return_value = dict(FAKE_CLASSIFICATION_RESULT)
+        OpenAIDocumentClassifier(openai_service=service).classify(document)
+        return service.extract_structured_data.call_args.kwargs
+
+    def test_the_prompt_lists_every_checklist_category(self):
+        from apps.documents.constants import CHECKLIST_TYPE_LABELS
+
+        system_prompt = self._call_kwargs(document_type='naac_ssr')['system_prompt']
+        for slug in CHECKLIST_TYPE_LABELS:
+            self.assertIn(f'- {slug}:', system_prompt)
+
+    def test_the_assigned_type_is_sent_as_a_hint_with_where_it_came_from(self):
+        cases = [
+            ({'document_type': 'naac_ssr', 'document_type_source': 'filename'},
+             'Assigned document type: naac_ssr (guessed from filename keywords only)'),
+            ({'document_type': 'naac_ssr', 'document_type_source': 'uploader'},
+             'Assigned document type: naac_ssr (chosen by the uploader)'),
+            ({'document_type': 'unclassified', 'document_type_source': 'none'},
+             'Assigned document type: (none)'),
+        ]
+        for fields, expected in cases:
+            with self.subTest(**fields):
+                self.assertIn(expected, self._call_kwargs(**fields)['user_content'])
+
+
+def _indicator(code, confidence=0.9, reason='The evidence states it directly.'):
+    return {'indicator': code, 'reason': reason, 'confidence': confidence}
+
+
+class FactAIQIFTaggingTests(TestCase):
+    """OpenAIFactExtractor tags each fact with AI-QIF key indicators, from the
+    approved 36 only; an unclear or invalid tag is dropped, never guessed."""
+
+    def setUp(self):
+        institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
+        self.sprint = Sprint.objects.create(institution=institution, mode=Sprint.SprintMode.VERIFIED_CRI)
+        self.document = Document.objects.create(
+            sprint=self.sprint, document_type='naac_ssr', original_filename='ssr.pdf',
+            mime_type='application/pdf', status=Document.Status.UPLOADED,
+        )
+
+    def _extract(self, **fact_overrides):
+        service = MagicMock()
+        service.extract_structured_data.return_value = {'facts': [_valid_fact(**fact_overrides)]}
+        pages = {'pages': [_page(1, 'The institution has 42 faculty members on its rolls.')]}
+        facts = OpenAIFactExtractor(openai_service=service).extract_facts(self.document, pages)
+        return facts, service.extract_structured_data.call_args.kwargs
+
+    def test_indicators_are_kept_with_their_criterion_reason_and_confidence(self):
+        facts, _ = self._extract(aiqif_indicators=[
+            _indicator('AIQIF-C4.1', 0.6, 'Counts faculty, says nothing of AI literacy.'),
+            _indicator('C4.2', 0.92, 'Lists role-wise AI training.'),  # short code accepted
+            _indicator('AIQIF-C4.2', 0.5),  # same indicator again: the stronger one is kept
+        ])
+        self.assertEqual(facts[0]['aiqif_mappings'], [
+            {'indicator_code': 'AIQIF-C4.2', 'criterion': 'aiqif_c4', 'reason': 'Lists role-wise AI training.',
+             'confidence': 0.92},
+            {'indicator_code': 'AIQIF-C4.1', 'criterion': 'aiqif_c4',
+             'reason': 'Counts faculty, says nothing of AI literacy.', 'confidence': 0.6},
+        ])
+
+    def test_a_fact_can_support_indicators_of_more_than_one_criterion(self):
+        facts, _ = self._extract(aiqif_indicators=[_indicator('AIQIF-C4.1'), _indicator('AIQIF-C9.2', 0.8)])
+        self.assertEqual(
+            [(m['criterion'], m['indicator_code']) for m in facts[0]['aiqif_mappings']],
+            [('aiqif_c4', 'AIQIF-C4.1'), ('aiqif_c9', 'AIQIF-C9.2')],
+        )
+
+    def test_invalid_tags_are_dropped_but_the_fact_is_kept(self):
+        facts, _ = self._extract(aiqif_indicators=[
+            _indicator('AIQIF-C10.1'),             # not an AI-QIF indicator
+            _indicator('Faculty AI Literacy'),     # a name, not a code
+            _indicator('AIQIF-C4.1', 1.4),         # confidence out of range
+            _indicator('AIQIF-C4.3', 0.9, '  '),   # no reason
+            {'indicator': 'AIQIF-C4.4', 'reason': 'x'},  # no confidence
+            'AIQIF-C4.1',
+        ])
+        self.assertEqual(len(facts), 1)
+        self.assertEqual(facts[0]['aiqif_mappings'], [])
+
+    def test_missing_or_empty_tags_leave_the_fact_unmapped(self):
+        for raw in ({}, {'aiqif_indicators': []}, {'aiqif_indicators': None}, {'aiqif_indicators': 'AIQIF-C4.1'}):
+            with self.subTest(raw=raw):
+                facts, _ = self._extract(**raw)
+                self.assertEqual((len(facts), facts[0]['aiqif_mappings']), (1, []))
+
+    def test_at_most_three_tags_strongest_first(self):
+        codes = ['AIQIF-C4.1', 'AIQIF-C4.2', 'AIQIF-C4.3', 'AIQIF-C4.4', 'AIQIF-C9.2']
+        facts, _ = self._extract(aiqif_indicators=[_indicator(c, 0.5 + i / 10) for i, c in enumerate(codes)])
+        self.assertEqual(
+            [m['indicator_code'] for m in facts[0]['aiqif_mappings']], ['AIQIF-C9.2', 'AIQIF-C4.4', 'AIQIF-C4.3'],
+        )
+
+    def test_the_prompt_and_schema_offer_exactly_the_36_approved_indicators(self):
+        from apps.scoring.constants import AIQIF_INDICATORS
+
+        _, kwargs = self._extract()
+        self.assertEqual(len(AIQIF_INDICATORS), 36)
+        item_schema = kwargs['response_schema']['properties']['facts']['items']
+        self.assertEqual(
+            item_schema['properties']['aiqif_indicators']['items']['properties']['indicator']['enum'],
+            list(AIQIF_INDICATORS),
+        )
+        for code, (_criterion, name) in AIQIF_INDICATORS.items():
+            self.assertIn(f'- {code}: {name}', kwargs['system_prompt'])
+        self.assertIn('not from the document', kwargs['system_prompt'])
+        self.assertIn('Never state or imply a maturity level', kwargs['system_prompt'])
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True,
+                   AIQIF_MAPPING_MIN_CONFIDENCE=0.7)
+class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
+    """The pipeline saves each fact's AI-QIF tags, the facts API returns them,
+    and reprocessing replaces an unreviewed fact's tags without duplicating."""
+
+    def setUp(self):
+        super().setUp()
+        self._auth(self.iqac)
+
+    def _run(self, *facts):
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': list(facts)}
+        response = self.client.post(
+            f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/', {'document_id': str(self.document.id)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def _api_facts(self):
+        return {f['field_key']: f for f in self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/').data}
+
+    def test_tags_are_saved_and_shown_with_the_facts_evidence(self):
+        self._run(
+            _valid_fact(aiqif_indicators=[_indicator('AIQIF-C4.1', 0.9, 'Faculty count.'),
+                                          _indicator('AIQIF-C9.2', 0.4, 'Cited figure.')]),
+            _valid_fact(field_key='ai_labs', field_name='AI Labs', aiqif_indicators=[_indicator('AIQIF-C6.4', 0.5)]),
+            _valid_fact(field_key='campus_area', field_name='Campus Area', aiqif_indicators=[]),
+        )
+        facts = self._api_facts()
+
+        faculty = facts['total_faculty']
+        self.assertEqual(faculty['aiqif_mapping_status'], 'mapped')
+        self.assertEqual(faculty['aiqif_mappings'], [
+            {'criterion': 'aiqif_c4', 'criterion_code': 'AIQIF-C4',
+             'criterion_name': 'Faculty & Institutional Workforce AI Capability',
+             'indicator_code': 'AIQIF-C4.1', 'indicator_name': 'Faculty AI Literacy & Awareness',
+             'reason': 'Faculty count.', 'confidence': 0.9, 'status': 'mapped'},
+            {'criterion': 'aiqif_c9', 'criterion_code': 'AIQIF-C9',
+             'criterion_name': 'AI Assurance, Measurement & Continuous Improvement',
+             'indicator_code': 'AIQIF-C9.2', 'indicator_name': 'Evidence, Traceability & Auditability',
+             'reason': 'Cited figure.', 'confidence': 0.4, 'status': 'needs_review'},
+        ])
+        # The evidence stays on the fact; the CRI pillar is untouched by the tags.
+        self.assertEqual(
+            (faculty['source_document_id'], faculty['source_page'], faculty['source_snippet'], faculty['pillar']),
+            (self.document.id, '1', 'The institution has 42 faculty members.', 'aiqif_c4'),
+        )
+        self.assertEqual(facts['ai_labs']['aiqif_mapping_status'], 'needs_review')
+        self.assertEqual((facts['campus_area']['aiqif_mapping_status'], facts['campus_area']['aiqif_mappings']),
+                         ('unmapped', []))
+
+    def test_reprocessing_replaces_an_unreviewed_facts_tags_and_keeps_a_reviewed_facts(self):
+        self._run(
+            _valid_fact(aiqif_indicators=[_indicator('AIQIF-C4.1')]),
+            _valid_fact(field_key='ai_labs', field_name='AI Labs', aiqif_indicators=[_indicator('AIQIF-C6.4')]),
+        )
+        reviewed = self.document.extracted_facts.get(field_key='ai_labs')
+        reviewed.status = ExtractedFact.Status.CONFIRMED
+        reviewed.save()
+
+        self._run(
+            _valid_fact(aiqif_indicators=[_indicator('AIQIF-C4.2'), _indicator('AIQIF-C4.1', 0.8)]),
+            _valid_fact(field_key='ai_labs', field_name='AI Labs', aiqif_indicators=[_indicator('AIQIF-C6.1')]),
+        )
+
+        facts = self._api_facts()
+        self.assertEqual(len(facts), 2)
+        self.assertEqual([m['indicator_code'] for m in facts['total_faculty']['aiqif_mappings']],
+                         ['AIQIF-C4.2', 'AIQIF-C4.1'])
+        self.assertEqual([m['indicator_code'] for m in facts['ai_labs']['aiqif_mappings']], ['AIQIF-C6.4'])
+
+    def test_a_fact_saved_without_any_tagging_stays_not_yet_mapped(self):
+        """'Unmapped' means the AI looked and found no clear indicator; a fact
+        from an extractor that doesn't tag at all stays 'pending'."""
+        from .services.pipeline import ExtractionPipeline
+
+        self._run()
+        job = ExtractionJob.objects.filter(document=self.document).first()
+        ExtractionPipeline._persist_facts(job, [{
+            'field_name': 'Legacy', 'field_key': 'legacy_key', 'value': 1, 'normalized_value': 1,
+            'data_type': 'number', 'pillar': 'aiqif_c4', 'owner_role': 'hr_officer', 'source_page': '1',
+            'source_snippet': 'One.', 'confidence_score': 0.9, 'confidence_reason': 'Stated.',
+            'extraction_method': 'manual',
+        }])
+        self.assertEqual(self._api_facts()['legacy_key']['aiqif_mapping_status'], 'pending')
+
+    def test_facts_can_be_filtered_by_criterion_indicator_and_mapping_status(self):
+        self._run(
+            _valid_fact(aiqif_indicators=[_indicator('AIQIF-C4.1'), _indicator('AIQIF-C9.2')]),
+            _valid_fact(field_key='ai_labs', field_name='AI Labs', aiqif_indicators=[_indicator('AIQIF-C6.4')]),
+            _valid_fact(field_key='campus_area', field_name='Campus Area', aiqif_indicators=[]),
+        )
+        url = f'/api/v1/sprints/{self.sprint.id}/facts/'
+
+        def keys(query):
+            response = self.client.get(f'{url}?{query}')
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+            return sorted(f['field_key'] for f in response.data)
+
+        self.assertEqual(keys('aiqif_criterion=aiqif_c9'), ['total_faculty'])
+        self.assertEqual(keys('aiqif_criterion=aiqif_c4'), ['total_faculty'])  # once, despite two tags
+        self.assertEqual(keys('aiqif_indicator=AIQIF-C6.4'), ['ai_labs'])
+        self.assertEqual(keys('aiqif_mapping_status=unmapped'), ['campus_area'])

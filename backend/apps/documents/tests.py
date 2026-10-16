@@ -12,6 +12,7 @@ from apps.accounts.models import User
 from apps.institutions.models import Institution
 from apps.sprints.models import Sprint
 
+from .constants import normalize_checklist_type
 from .drive_import import DRIVE_API_BASE, classify_filename, list_drive_folder_files, parse_drive_folder_id
 from .exceptions import PermanentDriveImportError, RecoverableDriveImportError
 from .models import Document, DriveImportJob
@@ -80,6 +81,10 @@ class DocumentUploadTests(APITestCase):
         self.assertTrue(data['has_file'])
         self.assertIsNotNone(data['download_url'])
         self.assertIsNotNone(data['uploaded_at'])
+        # The uploader's choice is the assigned type; the AI hasn't read it yet.
+        self.assertEqual(data['document_type_source'], Document.TypeSource.UPLOADER)
+        self.assertEqual(data['classification_status'], Document.ClassificationStatus.PENDING)
+        self.assertEqual((data['ai_document_type'], data['ai_document_type_label'], data['ai_confidence']), ('', None, None))
 
     def test_valid_upload_moves_sprint_from_draft_to_collecting(self):
         self._auth(self.iqac)
@@ -238,6 +243,18 @@ class DocumentDetailTests(APITestCase):
         self._auth(self.uploader)
         response = self.client.patch(f'/api/v1/documents/{self.document.id}/', {'title': 'Renamed'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_retyping_a_filename_guess_makes_it_the_uploaders_choice(self):
+        Document.objects.filter(id=self.document.id).update(document_type_source=Document.TypeSource.FILENAME)
+        self._auth(self.uploader)
+
+        self.client.patch(f'/api/v1/documents/{self.document.id}/', {'title': 'Renamed'})
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.document_type_source, Document.TypeSource.FILENAME)  # type unchanged
+
+        response = self.client.patch(f'/api/v1/documents/{self.document.id}/', {'document_type': 'aqar_report'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['document_type_source'], Document.TypeSource.UPLOADER)
         self.assertEqual(response.data['title'], 'Renamed')
 
     def test_non_owner_non_viewer_can_patch(self):
@@ -319,6 +336,114 @@ class DocumentDetailTests(APITestCase):
         self.assertNotEqual(response.status_code, status.HTTP_200_OK)
 
 
+class DocumentConfirmCategoryTests(APITestCase):
+    """POST /documents/{id}/confirm-category: a person settles a document's AI category."""
+
+    setUp_detail = DocumentDetailTests.setUp
+    _make_user = staticmethod(DocumentDetailTests._make_user)
+    _auth = DocumentDetailTests._auth
+
+    def setUp(self):
+        self.setUp_detail()
+        # The AI read it as a low-confidence NAAC SSR.
+        Document.objects.filter(id=self.document.id).update(
+            classification_status=Document.ClassificationStatus.NEEDS_REVIEW, ai_document_type='naac_ssr',
+            ai_confidence=0.45, ai_reasoning='Mentions criteria, but no SSR title page.',
+        )
+
+    def _confirm(self, body, user=None):
+        if user is not None:
+            self._auth(user)
+        return self.client.post(f'/api/v1/documents/{self.document.id}/confirm-category', body, format='json')
+
+    def _assert_unchanged(self):
+        self.document.refresh_from_db()
+        self.assertEqual(
+            (self.document.classification_status, self.document.ai_document_type, self.document.category_confirmed_at),
+            (Document.ClassificationStatus.NEEDS_REVIEW, 'naac_ssr', None),
+        )
+
+    def test_choosing_a_category_classifies_it_and_records_who_and_when(self):
+        response = self._confirm({'category': 'aqar_report'}, user=self.other_hod)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['classification_status'], 'classified')
+        self.assertEqual(response.data['ai_document_type'], 'aqar_report')
+        self.assertEqual(response.data['ai_document_type_label'], 'AQAR / Annual Quality Assurance Report')
+        self.assertEqual(response.data['category_confirmed_by'], self.other_hod.id)
+        self.assertEqual(response.data['category_confirmed_by_name'], self.other_hod.get_full_name())
+        self.assertIsNotNone(response.data['category_confirmed_at'])
+
+        self.document.refresh_from_db()
+        self.assertTrue(self.document.category_manually_confirmed)
+        self.assertEqual(self.document.category_confirmed_by, self.other_hod)
+        # The AI's own verdict and the assigned type are kept for the record.
+        self.assertEqual(self.document.ai_confidence, 0.45)
+        self.assertEqual(self.document.ai_reasoning, 'Mentions criteria, but no SSR title page.')
+        self.assertEqual((self.document.document_type, self.document.document_type_source), ('naac_ssr', 'uploader'))
+
+    def test_null_marks_it_not_a_checklist_document(self):
+        response = self._confirm({'category': None}, user=self.uploader)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.classification_status, Document.ClassificationStatus.UNCLASSIFIED)
+        self.assertEqual(self.document.ai_document_type, '')
+        self.assertEqual(self.document.category_confirmed_by, self.uploader)
+
+    def test_an_ai_classified_document_can_be_overridden(self):
+        Document.objects.filter(id=self.document.id).update(
+            classification_status=Document.ClassificationStatus.CLASSIFIED, ai_confidence=0.92,
+        )
+        response = self._confirm({'category': 'faculty_master'}, user=self.institution_admin)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(
+            (response.data['classification_status'], response.data['ai_document_type']), ('classified', 'faculty_master'),
+        )
+
+    def test_aliases_are_normalized_to_the_checklist_slug(self):
+        response = self._confirm({'category': 'AQAR'}, user=self.uploader)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['ai_document_type'], 'aqar_report')
+
+    def test_anything_but_a_checklist_category_or_null_is_rejected(self):
+        self._auth(self.uploader)
+        for body in ({'category': 'campus_brochure'}, {'category': 'supporting_document'}, {'category': ''}, {}):
+            with self.subTest(body=body):
+                response = self._confirm(body)
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn('category', response.data)
+        self._assert_unchanged()
+
+    def test_a_viewer_cannot_confirm(self):
+        response = self._confirm({'category': 'aqar_report'}, user=self.viewer)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self._assert_unchanged()
+
+    def test_another_institution_cannot_confirm(self):
+        response = self._confirm({'category': 'aqar_report'}, user=self.outsider)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self._assert_unchanged()
+
+    def test_requires_authentication(self):
+        self.client.credentials()
+        self.assertEqual(self._confirm({'category': 'aqar_report'}).status_code, status.HTTP_401_UNAUTHORIZED)
+        self._assert_unchanged()
+
+    def test_the_document_list_shows_who_confirmed(self):
+        self._confirm({'category': 'aqar_report'}, user=self.other_hod)
+        row = self.client.get(f'/api/v1/sprints/{self.sprint.id}/documents').data[0]
+        self.assertEqual(row['category_confirmed_by_name'], self.other_hod.get_full_name())
+        self.assertEqual(row['classification_status'], 'classified')
+
+    def test_the_document_api_still_cannot_write_the_confirmation(self):
+        self._auth(self.uploader)
+        response = self.client.patch(f'/api/v1/documents/{self.document.id}/', {
+            'category_confirmed_by': str(self.uploader.id), 'category_confirmed_at': '2026-01-01T00:00:00Z',
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self._assert_unchanged()
+
+
 # -- Google Drive Link data source --------------------------------------
 
 
@@ -376,6 +501,58 @@ class ClassifyFilenameTests(SimpleTestCase):
 
     def test_returns_none_for_unrelated_filename(self):
         self.assertIsNone(classify_filename('Random_Notes.txt'))
+
+
+class NormalizeChecklistTypeTests(SimpleTestCase):
+    def test_checklist_slugs_and_aliases_are_recognised(self):
+        cases = {
+            'naac_ssr': 'naac_ssr', ' AQAR_Report ': 'aqar_report', 'aqar': 'aqar_report',
+            'faculty_master_list': 'faculty_master', 'research publication report': 'research_publications',
+            'ai-policy-doc': 'ai_policy_doc',
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(normalize_checklist_type(value), expected)
+
+    def test_anything_else_is_not_a_category(self):
+        for value in (None, '', 'supporting_document', 'unclassified', 'campus_brochure', 42):
+            with self.subTest(value=value):
+                self.assertIsNone(normalize_checklist_type(value))
+
+
+class BackfillTypeSourceMigrationTests(TestCase):
+    """0004's data step labels documents earlier Drive imports created."""
+
+    def test_drive_imported_documents_get_their_real_source(self):
+        from importlib import import_module
+
+        from django.apps import apps as django_apps
+
+        sprint = Sprint.objects.create(
+            institution=Institution.objects.create(name='MKCE', city='Karur', state='TN'),
+            mode=Sprint.SprintMode.VERIFIED_CRI,
+        )
+        slot_doc, extra_doc, manual_doc = (
+            create_document_from_file(
+                sprint=sprint, file_obj=make_pdf(name=name, content=name.encode()), document_type=doc_type,
+            )
+            for name, doc_type in (('ssr.pdf', 'naac_ssr'), ('brochure.pdf', 'supporting_document'),
+                                   ('aqar.pdf', 'aqar_report'))
+        )
+        DriveImportJob.objects.create(sprint=sprint, drive_url='https://drive.google.com/drive/folders/x', results={
+            'naac_ssr': {'status': 'found', 'filename': 'ssr.pdf', 'document_id': str(slot_doc.id)},
+            'aqar_report': {'status': 'missing', 'filename': None, 'document_id': None},
+            'additional_files': [{'filename': 'brochure.pdf', 'folder': '', 'document_id': str(extra_doc.id)}],
+            'skipped_files': [], 'progress': {'processed': 2, 'total': 2, 'current_file': ''},
+        })
+
+        import_module('apps.documents.migrations.0004_document_ai_classification').backfill_type_source(
+            django_apps, None,
+        )
+
+        sources = dict(Document.objects.values_list('original_filename', 'document_type_source'))
+        self.assertEqual(sources, {'ssr.pdf': 'filename', 'brochure.pdf': 'none', 'aqar.pdf': 'uploader'})
+        self.assertEqual(Document.objects.get(id=extra_doc.id).document_type, 'supporting_document')  # label kept
 
 
 class CreateDocumentFromFileTests(TestCase):
@@ -618,9 +795,21 @@ class DriveImportTaskTests(APITestCase):
             [(f['folder'], f['filename']) for f in job.results['additional_files']],
             [('', 'Campus_Brochure.pdf'), ('Misc', 'NAAC_SSR_2024.pdf'), ('Misc', 'Budget.xlsx')],
         )
+        # No silent 'supporting_document': a filename keyword match is kept as
+        # a hint (even for an already-claimed slot); no match is 'unclassified'
+        # until the AI reads the content during extraction.
         self.assertEqual(
-            Document.objects.filter(sprint=self.sprint, document_type='supporting_document').count(), 3,
+            sorted(Document.objects.filter(sprint=self.sprint).values_list(
+                'original_filename', 'document_type', 'document_type_source', 'classification_status',
+            )),
+            [
+                ('Budget.xlsx', 'unclassified', 'none', 'pending'),
+                ('Campus_Brochure.pdf', 'unclassified', 'none', 'pending'),
+                ('NAAC_SSR_2024.pdf', 'naac_ssr', 'filename', 'pending'),
+                ('NAAC_SSR_2025.pdf', 'naac_ssr', 'filename', 'pending'),
+            ],
         )
+        self.assertFalse(Document.objects.filter(document_type='supporting_document').exists())
         # Progress is written per file while importing; it ends fully processed.
         self.assertEqual(job.results['progress'], {'processed': 4, 'total': 4, 'current_file': ''})
 

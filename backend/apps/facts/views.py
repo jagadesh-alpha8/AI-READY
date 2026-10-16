@@ -36,7 +36,10 @@ class SprintFactListView(generics.ListAPIView):
 
     def get_queryset(self):
         get_authorized_sprint(self.request.user, self.kwargs['sprint_id'])
-        return ExtractedFact.objects.filter(sprint_id=self.kwargs['sprint_id']).select_related('source_document')
+        return (
+            ExtractedFact.objects.filter(sprint_id=self.kwargs['sprint_id'])
+            .select_related('source_document').prefetch_related('aiqif_mappings')
+        )
 
 
 class FactDetailView(generics.RetrieveAPIView):
@@ -44,7 +47,7 @@ class FactDetailView(generics.RetrieveAPIView):
     confirm/correct/reject/request-evidence actions below, so every change
     is captured in FactReviewHistory -- there's no generic PATCH here to
     bypass that."""
-    queryset = ExtractedFact.objects.select_related('source_document')
+    queryset = ExtractedFact.objects.select_related('source_document').prefetch_related('aiqif_mappings')
     serializer_class = ExtractedFactDetailSerializer
     lookup_field = 'pk'
     permission_classes = [IsInstitutionMember]

@@ -11,6 +11,22 @@ export interface FactReviewHistoryEntry {
   created_at: string;
 }
 
+/** Where a fact's AI-QIF category tags stand. 'pending' = extracted before tagging existed. */
+export type AIQIFMappingStatus = 'pending' | 'mapped' | 'needs_review' | 'unmapped';
+
+/** One AI-QIF key indicator a fact is evidence for -- a category tag, not a
+ * score or maturity level (the CRI scores `Fact.pillar`, not these). */
+export interface AIQIFMapping {
+  criterion: string;          // 'aiqif_c4'
+  criterion_code: string;     // 'AIQIF-C4'
+  criterion_name: string;
+  indicator_code: string;     // 'AIQIF-C4.1'
+  indicator_name: string;
+  reason: string;
+  confidence: number;
+  status: 'mapped' | 'needs_review';
+}
+
 export interface Fact {
   id: string;
   sprint_id: string;
@@ -34,6 +50,8 @@ export interface Fact {
   confidence_reason: string;
   extraction_method: string;
   status: FactStatus;
+  aiqif_mapping_status: AIQIFMappingStatus;
+  aiqif_mappings: AIQIFMapping[];
   reviewed_by: string | null;
   reviewed_at: string | null;
   created_at: string;

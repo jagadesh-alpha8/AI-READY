@@ -28,11 +28,18 @@ def mark_sprint_collecting(sprint):
         sprint.save(update_fields=['status', 'updated_at'])
 
 
-def create_document_from_file(*, sprint, file_obj, document_type, owner_role='', title='', uploaded_by=None):
+def create_document_from_file(
+    *, sprint, file_obj, document_type, owner_role='', title='', uploaded_by=None,
+    document_type_source=Document.TypeSource.UPLOADER,
+):
     """Validate + persist a Document exactly like the manual upload endpoint
     (extension allowlist, size limit via MAX_DOCUMENT_UPLOAD_SIZE, SHA-256
     checksum dedupe-per-sprint, ocr_required flagging, status=UPLOADED,
     sprint DRAFT->COLLECTING).
+
+    `document_type_source` records who set `document_type` (the uploader, or
+    the Drive importer's filename keywords) -- the AI's own category is
+    saved separately once extraction classifies the content.
 
     `file_obj` only needs to expose `.name` and `.size` (DRF's FileField.
     to_internal_value requirement) plus `.chunks()`/`.seek()` (used by
@@ -62,6 +69,7 @@ def create_document_from_file(*, sprint, file_obj, document_type, owner_role='',
     document = Document.objects.create(
         sprint=sprint,
         document_type=data['document_type'],
+        document_type_source=document_type_source,
         title=data['title'],
         owner_role=data['owner_role'],
         original_filename=file_obj.name,

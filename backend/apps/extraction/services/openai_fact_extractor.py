@@ -8,7 +8,9 @@ only ever returns `value` as plain text -- this module decides what it
 means for `data_type`), and merges duplicate facts across chunks.
 
 The dicts this returns are already shaped exactly like `ExtractedFact`
-creation kwargs (see `pipeline.py: _persist_facts`), which is what lets
+creation kwargs (see `pipeline.py: _persist_facts`) -- plus `aiqif_mappings`,
+the fact's AI-QIF indicator tags, saved alongside as FactAIQIFMapping rows --
+which is what lets
 `IdentityAuditFieldMapper` below be a genuine pass-through instead of
 another stub -- there's nothing left to map. The class name predates
 multi-provider support -- despite it, this works with any configured provider.
@@ -19,7 +21,7 @@ import re
 from django.conf import settings
 
 from apps.facts.models import ExtractedFact
-from apps.scoring.constants import AIQIF_PILLARS, PILLAR_CHOICES
+from apps.scoring.constants import AIQIF_INDICATORS, AIQIF_PILLARS, PILLAR_CHOICES
 
 from ..exceptions import (
     AIResponseError, ExtractionCancelled, PermanentExtractionError, RecoverableExtractionError,
@@ -46,6 +48,12 @@ FACT_OWNER_ROLE_CHOICES = [
 _PILLAR_GUIDE = '\n'.join(
     f'- {key}: {name} (covers: {"; ".join(kis)})' for key, _code, name, _weight, kis in AIQIF_PILLARS
 )
+
+_INDICATOR_GUIDE = '\n'.join(f'- {code}: {name}' for code, (_key, name) in AIQIF_INDICATORS.items())
+
+#: Most indicator tags kept per fact -- a fact is evidence for one or two
+#: indicators; a long list would mean the AI is guessing.
+MAX_AIQIF_MAPPINGS_PER_FACT = 3
 
 SYSTEM_PROMPT = f"""You are extracting structured facts from one institutional audit document for a \
 higher-education AI-readiness audit platform. Extracted facts feed a scoring engine across the nine \
@@ -84,6 +92,18 @@ institution_admin (policy/governance), iqac_coordinator (quality assurance, NAAC
 lab_admin (lab/compute infrastructure), placement_officer (placements, industry), faculty \
 (course-level AI engagement).
 
+`aiqif_indicators` tags the fact with the AI-QIF key indicators it is evidence for -- a category, \
+not a judgement of quality. Use only these codes:
+{_INDICATOR_GUIDE}
+- Decide from what this fact says and its quoted evidence -- not from the document's type or title.
+- List the indicator(s) the evidence directly supports: usually one, at most {MAX_AIQIF_MAPPINGS_PER_FACT}. \
+Prefer indicators of the fact's own `pillar`; add another criterion's indicator only when the evidence \
+plainly supports it too.
+- If no indicator clearly fits, return an empty list. Never pick the closest-sounding one to fill it.
+- For each, `reason` briefly says what in the evidence ties it to that indicator, and `confidence` \
+(0 to 1) says how clearly it does.
+- Never state or imply a maturity level, score or compliance verdict.
+
 Respond only with the requested structured fields."""
 
 FACT_ITEM_SCHEMA = {
@@ -105,10 +125,24 @@ FACT_ITEM_SCHEMA = {
         'source_snippet': {'type': 'string', 'description': 'A real snippet from the given text.'},
         'confidence_score': {'type': 'number', 'description': 'Between 0 and 1.'},
         'confidence_reason': {'type': 'string'},
+        'aiqif_indicators': {
+            'type': 'array',
+            'description': 'The AI-QIF key indicators this fact is evidence for; empty if none clearly fits.',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'indicator': {'type': 'string', 'enum': list(AIQIF_INDICATORS)},
+                    'reason': {'type': 'string'},
+                    'confidence': {'type': 'number', 'description': 'Between 0 and 1.'},
+                },
+                'required': ['indicator', 'reason', 'confidence'],
+                'additionalProperties': False,
+            },
+        },
     },
     'required': [
         'field_name', 'field_key', 'value', 'data_type', 'pillar', 'owner_role',
-        'source_page', 'source_snippet', 'confidence_score', 'confidence_reason',
+        'source_page', 'source_snippet', 'confidence_score', 'confidence_reason', 'aiqif_indicators',
     ],
     'additionalProperties': False,
 }
@@ -360,7 +394,50 @@ class OpenAIFactExtractor(FactExtractor):
             'confidence_score': float(confidence_score),
             'confidence_reason': confidence_reason,
             'extraction_method': 'openai',
+            # Not an ExtractedFact field: saved as FactAIQIFMapping rows by
+            # ExtractionPipeline._persist_facts.
+            'aiqif_mappings': _validate_aiqif_mappings(raw_fact.get('aiqif_indicators'), field_key),
         }
+
+
+def _validate_aiqif_mappings(raw_mappings, field_key):
+    """The AI's indicator tags for one fact, as [{indicator_code, criterion,
+    reason, confidence}], strongest first. A tag that isn't one of the 36
+    AI-QIF indicators, or lacks a reason or a 0-1 confidence, is dropped on
+    its own -- a bad tag never costs the fact itself, it just leaves it
+    unmapped. Same indicator twice: the more confident one is kept."""
+    if not isinstance(raw_mappings, list):
+        if raw_mappings is not None:
+            logger.warning('fact_extractor.aiqif_mappings_rejected field_key=%r value=%r', field_key, raw_mappings)
+        return []
+
+    by_code = {}
+    for raw in raw_mappings:
+        if not isinstance(raw, dict):
+            continue
+        code = raw.get('indicator')
+        code = code.strip().upper() if isinstance(code, str) else None
+        if code and not code.startswith('AIQIF-'):
+            code = f'AIQIF-{code}'  # 'C4.1' -> 'AIQIF-C4.1'
+        reason = raw.get('reason')
+        confidence = raw.get('confidence')
+        if (
+            code not in AIQIF_INDICATORS
+            or not isinstance(reason, str) or not reason.strip()
+            or not isinstance(confidence, (int, float)) or isinstance(confidence, bool)
+            or not 0 <= confidence <= 1
+        ):
+            logger.warning('fact_extractor.aiqif_mapping_rejected field_key=%r mapping=%r', field_key, raw)
+            continue
+        if code not in by_code or confidence > by_code[code]['confidence']:
+            by_code[code] = {
+                'indicator_code': code,
+                'criterion': AIQIF_INDICATORS[code][0],
+                'reason': reason.strip(),
+                'confidence': float(confidence),
+            }
+    mappings = sorted(by_code.values(), key=lambda m: m['confidence'], reverse=True)
+    return mappings[:MAX_AIQIF_MAPPINGS_PER_FACT]
 
 
 def _merge_fact(facts_by_key, fact):

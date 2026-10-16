@@ -378,6 +378,13 @@ CELERY_WORKER_CONCURRENCY = int(os.getenv('CELERY_WORKER_CONCURRENCY') or defaul
 # apps.extraction.services.openai_classifier: how many pages of a document's
 # extracted text get sampled and sent to OpenAI for classification.
 OPENAI_CLASSIFICATION_SAMPLE_PAGES = int(os.getenv('OPENAI_CLASSIFICATION_SAMPLE_PAGES', 3))
+# The AI's category counts toward the Upload Data Pack checklist only at or
+# above this confidence (0-1); below it the document shows "Needs review".
+AI_CLASSIFICATION_MIN_CONFIDENCE = float(os.getenv('AI_CLASSIFICATION_MIN_CONFIDENCE', 0.7))
+# An extracted fact's AI-QIF indicator tag counts as "mapped" at or above this
+# confidence (0-1); below it the tag shows "Needs review". Category only --
+# it doesn't affect CRI scoring.
+AIQIF_MAPPING_MIN_CONFIDENCE = float(os.getenv('AIQIF_MAPPING_MIN_CONFIDENCE', 0.7))
 
 # apps.extraction.services.pdf_reader: a page with fewer than this many
 # extractable characters (or mostly non-letter garbage) is sent to OCR; if

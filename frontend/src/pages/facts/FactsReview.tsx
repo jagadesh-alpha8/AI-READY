@@ -33,6 +33,8 @@ export const FactsReview: React.FC = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [pillarFilter, setPillarFilter] = useState('');
+  const [criterionFilter, setCriterionFilter] = useState('');
+  const [mappingFilter, setMappingFilter] = useState('');
   const [ownerFilter, setOwnerFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [confidenceFilter, setConfidenceFilter] = useState('');
@@ -40,14 +42,19 @@ export const FactsReview: React.FC = () => {
     () => facts.filter((fact) =>
       (!statusFilter || fact.status === statusFilter)
       && (!pillarFilter || (fact.pillar_label || fact.pillar || '') === pillarFilter)
+      && (!criterionFilter || fact.aiqif_mappings.some((m) => m.criterion === criterionFilter))
+      && (!mappingFilter || fact.aiqif_mapping_status === mappingFilter)
       && (!ownerFilter || (fact.owner_role || '') === ownerFilter)
       && (!sourceFilter || (fact.source_document_filename || '') === sourceFilter)
       && (!confidenceFilter || confidenceBand(fact.confidence) === confidenceFilter)
       && matchesSearch(
         search, fact.audit_field_id, fact.field_name, fact.value, fact.source_snippet, fact.source_document_filename,
+        ...fact.aiqif_mappings.flatMap((m) => [m.indicator_code, m.indicator_name]),
       )),
-    [facts, search, statusFilter, pillarFilter, ownerFilter, sourceFilter, confidenceFilter],
+    [facts, search, statusFilter, pillarFilter, criterionFilter, mappingFilter, ownerFilter, sourceFilter,
+      confidenceFilter],
   );
+  const criterionGroups = useMemo(() => aiqifCriterionGroups(facts), [facts]);
 
   const handleConfirm = async (factId: string) => {
     setActingOnId(factId);
@@ -159,16 +166,30 @@ export const FactsReview: React.FC = () => {
           </div>
         ) : (
           <>
+          <AIQIFCriterionStrip
+            groups={criterionGroups}
+            facts={facts}
+            criterion={criterionFilter}
+            mapping={mappingFilter}
+            onCriterion={(value) => { setCriterionFilter(value); setMappingFilter(''); }}
+            onMapping={(value) => { setMappingFilter(value); setCriterionFilter(''); }}
+          />
           <TableFilters
             search={search}
             onSearch={setSearch}
-            placeholder="Search field ID, value, snippet or document…"
+            placeholder="Search field ID, value, snippet, document or AI-QIF indicator…"
             shown={filteredFacts.length}
             total={facts.length}
             selects={[
+              { key: 'criterion', label: 'AI-QIF criterion', value: criterionFilter, onChange: setCriterionFilter,
+                options: criterionGroups.map((g) => ({
+                  value: g.criterion, label: `${shortCode(g.code)} ${g.name}`, count: g.count,
+                })) },
+              { key: 'mapping', label: 'AI-QIF mapping', value: mappingFilter, onChange: setMappingFilter,
+                options: optionsFrom(facts, (f) => f.aiqif_mapping_status, (v: string) => MAPPING_STATUS_LABELS[v] || v) },
               { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
                 options: optionsFrom(facts, (f) => f.status, (v: string) => v.replace(/_/g, ' ')) },
-              { key: 'pillar', label: 'Pillar', value: pillarFilter, onChange: setPillarFilter,
+              { key: 'pillar', label: 'CRI pillar', value: pillarFilter, onChange: setPillarFilter,
                 options: optionsFrom(facts, (f) => f.pillar_label || f.pillar) },
               { key: 'confidence', label: 'Confidence', value: confidenceFilter, onChange: setConfidenceFilter,
                 options: optionsFrom(facts, (f) => confidenceBand(f.confidence)) },
@@ -184,13 +205,16 @@ export const FactsReview: React.FC = () => {
             </div>
           ) : (
           <ScrollableTable>
-            <table className="table-base min-w-[1400px]">
+            <table className="table-base min-w-[1640px]">
               <thead>
                 <tr>
                   <th>S.No</th>
                   <th>Audit Field ID</th>
                   <th>Extracted Value</th>
-                  <th>Pillar</th>
+                  <th title="The AI-QIF criteria and key indicators this fact is evidence for. A category only: it does not change any score.">
+                    AI-QIF Category
+                  </th>
+                  <th title="The pillar the CRI scores this fact under once it is confirmed.">CRI Pillar</th>
                   <th>Source Document</th>
                   <th>Source Snippet</th>
                   <th>Confidence</th>
@@ -227,6 +251,7 @@ export const FactsReview: React.FC = () => {
                         <span>{typeof fact.value_json === 'object' ? JSON.stringify(fact.value_json) : String(fact.value_json)}</span>
                       )}
                     </td>
+                    <td><AIQIFCategoryCell fact={fact} /></td>
                     <td>
                       <span className="badge-neutral">
                         {fact.pillar_label || fact.pillar || '—'}
@@ -307,3 +332,115 @@ function confidenceBand(confidence: number): string {
   if (confidence >= 0.5) return 'Medium (50-79%)';
   return 'Low (<50%)';
 }
+
+const MAPPING_STATUS_LABELS: Record<string, string> = {
+  mapped: 'Mapped',
+  needs_review: 'Needs review',
+  unmapped: 'Unmapped',
+  pending: 'Not yet mapped',
+};
+
+/** 'AIQIF-C4.1' -> 'C4.1' for compact display. */
+const shortCode = (code: string) => code.replace(/^AIQIF-/, '');
+
+interface CriterionGroup { criterion: string; code: string; name: string; count: number }
+
+/** Each AI-QIF criterion the facts are tagged with, and how many facts it
+ * has (a fact tagged under two criteria counts in both), in framework order. */
+function aiqifCriterionGroups(facts: Fact[]): CriterionGroup[] {
+  const groups = new Map<string, CriterionGroup>();
+  for (const fact of facts) {
+    for (const criterion of new Set(fact.aiqif_mappings.map((m) => m.criterion))) {
+      const m = fact.aiqif_mappings.find((x) => x.criterion === criterion)!;
+      const group = groups.get(criterion) || { criterion, code: m.criterion_code, name: m.criterion_name, count: 0 };
+      group.count += 1;
+      groups.set(criterion, group);
+    }
+  }
+  return [...groups.values()].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+}
+
+/** Facts grouped by AI-QIF criterion, as one-click filters, plus the facts
+ * that still need a person to look at their category. */
+const AIQIFCriterionStrip: React.FC<{
+  groups: CriterionGroup[];
+  facts: Fact[];
+  criterion: string;
+  mapping: string;
+  onCriterion: (value: string) => void;
+  onMapping: (value: string) => void;
+}> = ({ groups, facts, criterion, mapping, onCriterion, onMapping }) => {
+  const countOf = (status: Fact['aiqif_mapping_status']) => facts.filter((f) => f.aiqif_mapping_status === status).length;
+  const unclear = (['needs_review', 'unmapped', 'pending'] as const).filter((s) => countOf(s) > 0);
+  if (groups.length === 0 && unclear.length === 0) return null;
+  const chip = (active: boolean) =>
+    `px-2.5 py-1 rounded-full border text-xs font-semibold transition-colors ${
+      active ? 'bg-brand-50 border-brand-500 text-brand-800' : 'bg-surface border-line-200 text-ink-600 hover:border-line-300'
+    }`;
+
+  return (
+    <div className="mb-4 space-y-2">
+      <p className="text-xs text-ink-500">
+        Facts by AI-QIF criterion. These are category tags only and don't change any score.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        <button onClick={() => { onCriterion(''); onMapping(''); }} className={chip(!criterion && !mapping)}>
+          All ({facts.length})
+        </button>
+        {groups.map((g) => (
+          <button
+            key={g.criterion}
+            onClick={() => onCriterion(criterion === g.criterion ? '' : g.criterion)}
+            className={chip(criterion === g.criterion)}
+            title={g.name}
+          >
+            {shortCode(g.code)} {g.name} ({g.count})
+          </button>
+        ))}
+        {unclear.map((status) => (
+          <button
+            key={status}
+            onClick={() => onMapping(mapping === status ? '' : status)}
+            className={`${chip(mapping === status)} ${status === 'needs_review' && mapping !== status ? 'text-warning' : ''}`}
+          >
+            {MAPPING_STATUS_LABELS[status]} ({countOf(status)})
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/** The fact's AI-QIF criterion and indicator(s), each with its confidence;
+ * the AI's reason on hover. Unclear tags say so instead of guessing. */
+const AIQIFCategoryCell: React.FC<{ fact: Fact }> = ({ fact }) => {
+  if (fact.aiqif_mapping_status === 'pending') {
+    return <span className="text-xs text-ink-400" title="Extracted before AI-QIF tagging; re-run extraction to tag it.">Not yet mapped</span>;
+  }
+  if (fact.aiqif_mappings.length === 0) {
+    return (
+      <span className="badge-neutral" title="The AI found no AI-QIF indicator this fact clearly supports.">
+        Unmapped
+      </span>
+    );
+  }
+  return (
+    <div className="min-w-[230px] max-w-[300px] space-y-1.5">
+      {fact.aiqif_mapping_status === 'needs_review' && <span className="badge-warning">Needs review</span>}
+      {fact.aiqif_mappings.map((m) => (
+        <div key={m.indicator_code} title={`${m.criterion_code} ${m.criterion_name}\n${m.indicator_code} ${m.indicator_name}\n\nWhy: ${m.reason}`}>
+          <div className="flex items-start gap-1.5">
+            <span className="font-mono text-[11px] font-bold text-brand-800 shrink-0 mt-px">{shortCode(m.indicator_code)}</span>
+            <span className="text-xs font-semibold text-ink-800 leading-snug">{m.indicator_name}</span>
+            <span className={`ml-auto shrink-0 ${m.status === 'mapped' ? 'badge-success' : 'badge-warning'}`}>
+              {Math.round(m.confidence * 100)}%
+            </span>
+          </div>
+          <p className="text-[11px] text-ink-500 truncate">
+            {shortCode(m.criterion_code)} · {m.criterion_name}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+};

@@ -82,6 +82,32 @@ class EngineDeterminismTests(ScoringTestBase):
         governance = Pillar.objects.get(key='aiqif_c1')
         self.assertEqual(pillar_score.weighted_score, round(pillar_score.raw_score * governance.weight, 2))
 
+    def test_ai_qif_category_tags_do_not_change_any_score(self):
+        """A fact's AI-QIF indicator tags are categories only: the CRI scores
+        `pillar` (+ `field_key`), so tagging a confirmed aiqif_c1 fact with
+        another criterion's indicators moves nothing."""
+        from apps.facts.models import FactAIQIFMapping
+
+        fact = self._make_fact(field_key='f1', confidence_score=0.8)
+        self._make_fact(field_key='f2', pillar='aiqif_c5', confidence_score=0.6)
+
+        def scores():
+            run = run_scoring_engine(self.sprint)
+            return run.overall_cri, sorted(
+                PillarScore.objects.filter(sprint=self.sprint).values_list('pillar__key', 'raw_score', 'evidence_count'),
+            )
+
+        before = scores()
+        for code, criterion in (('AIQIF-C5.4', 'aiqif_c5'), ('AIQIF-C9.2', 'aiqif_c9')):
+            FactAIQIFMapping.objects.create(
+                fact=fact, criterion=criterion, indicator_code=code, reason='Test tag.', confidence=0.95,
+                status=FactAIQIFMapping.Status.MAPPED,
+            )
+        fact.aiqif_mapping_status = ExtractedFact.AIQIFMappingStatus.MAPPED
+        fact.save()
+
+        self.assertEqual(scores(), before)
+
     def test_extracted_but_unreviewed_facts_do_not_count_as_evidence(self):
         self._make_fact(status=ExtractedFact.Status.EXTRACTED, confidence_score=0.99)
         run_scoring_engine(self.sprint)

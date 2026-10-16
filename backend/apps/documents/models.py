@@ -1,7 +1,7 @@
 import uuid
 
 from django.conf import settings
-from django.core.validators import RegexValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
 
 from .utils import document_upload_path
@@ -21,9 +21,50 @@ class Document(models.Model):
         FAILED = 'failed', 'Failed'
         REJECTED = 'rejected', 'Rejected'
 
+    class TypeSource(models.TextChoices):
+        """Who set `document_type`."""
+        UPLOADER = 'uploader', 'Chosen by uploader'
+        FILENAME = 'filename', 'Filename keyword match'
+        NONE = 'none', 'No type assigned'
+
+    class ClassificationStatus(models.TextChoices):
+        """Outcome of the AI classifier reading the document's content."""
+        PENDING = 'pending', 'Not yet categorized'
+        CLASSIFIED = 'classified', 'Classified'
+        NEEDS_REVIEW = 'needs_review', 'Needs review'
+        UNCLASSIFIED = 'unclassified', 'Unclassified'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     sprint = models.ForeignKey('sprints.Sprint', on_delete=models.CASCADE, related_name='documents')
+    # The type assigned at upload/import -- never overwritten by the AI, so
+    # the original label stays auditable. Gaps, scoring and the vector store
+    # keep reading this field; the AI's verdict lives in the ai_* fields.
     document_type = models.CharField(max_length=100, validators=[document_type_validator])
+    document_type_source = models.CharField(
+        max_length=20, choices=TypeSource.choices, default=TypeSource.UPLOADER,
+    )
+    # Set by the extraction pipeline's classification step, from the
+    # document's content (see apps.extraction.services.openai_classifier).
+    # `ai_document_type` is always a checklist slug
+    # (apps.documents.constants.CHECKLIST_TYPE_LABELS) or ''; only a
+    # CLASSIFIED result counts toward the Upload Data Pack checklist.
+    classification_status = models.CharField(
+        max_length=20, choices=ClassificationStatus.choices, default=ClassificationStatus.PENDING,
+    )
+    ai_document_type = models.CharField(max_length=100, blank=True)
+    ai_confidence = models.FloatField(
+        null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(1)],
+    )
+    ai_reasoning = models.TextField(blank=True)
+    classified_at = models.DateTimeField(null=True, blank=True)
+    # Set when a person decides the category (POST /documents/{id}/confirm-category):
+    # classification_status/ai_document_type then hold their decision, and
+    # reprocessing leaves it alone. ai_confidence/ai_reasoning/classified_at
+    # stay as the AI's last verdict, for the record.
+    category_confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    category_confirmed_at = models.DateTimeField(null=True, blank=True)
     title = models.CharField(max_length=255, blank=True)
     file = models.FileField(upload_to=document_upload_path, blank=True, null=True, max_length=500)
     original_filename = models.CharField(max_length=255, blank=True)
@@ -61,6 +102,11 @@ class Document(models.Model):
 
     def __str__(self):
         return self.title or self.original_filename or str(self.id)
+
+    @property
+    def category_manually_confirmed(self):
+        """A person, not the AI, decided this document's category."""
+        return self.category_confirmed_at is not None
 
 
 class DriveImportJob(models.Model):

@@ -27,7 +27,8 @@ const QUALITY_LEADS = [...SPRINT_MANAGERS, 'iqac_coordinator'] as const;     // 
 export const ACTION_ROLES = {
   /** Create a sprint, calculate the CRI, approve/return the baseline, generate reports (CanManageSprint). */
   'sprint.manage': SPRINT_MANAGERS,
-  /** Upload documents, import from Drive, start/stop AI processing (server: anyone but a viewer). */
+  /** Upload documents, import from Drive, start/stop AI processing, confirm a document's category
+   * (server: anyone but a viewer -- CanContribute). */
   'documents.contribute': ALL_EXCEPT_VIEWER,
   /** Delete someone else's document (DOCUMENT_MANAGE_ROLES); anyone but a viewer may delete their own. */
   'documents.manageAll': QUALITY_LEADS,

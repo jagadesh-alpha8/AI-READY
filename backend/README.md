@@ -198,6 +198,17 @@ bytes at upload time (never client-supplied) and are read-only afterwards, same 
 the (separate, not-yet-built) extraction pipeline populates them — per "no fake data," nothing here
 is guessed.
 
+**AI category**: `document_type` stays the type assigned at upload/import (`document_type_source`:
+`uploader`, `filename` for a Drive filename-keyword hint, `none`). Extraction's classification step
+saves its own reading of the content alongside it — `classification_status`
+(`pending`/`classified`/`needs_review`/`unclassified`), `ai_document_type` (a checklist slug or
+empty), `ai_confidence`, `ai_reasoning`, `classified_at` — read-only through the API and refreshed
+on every reprocess. The Upload Data Pack checklist counts `classified` documents; the threshold is
+`AI_CLASSIFICATION_MIN_CONFIDENCE` (default 0.7). A person (any role but viewer) can settle the
+category with `POST /documents/{id}/confirm-category` (`{"category": slug | null}`) — resolving
+"Needs review"/"Unclassified" or overriding the AI. That records `category_confirmed_by`/`_at`, and
+reprocessing then keeps their decision, the way a reviewed fact is kept.
+
 **`document_type` is deliberately not a `choices=` enum** — it's a validated lowercase-slug
 `CharField` (`apps/documents/models.py:document_type_validator`), so a brand-new document type needs
 no migration or code change. `apps/documents/constants.py` lists the 12 types the current AIOS

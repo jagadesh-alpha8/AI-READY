@@ -1,7 +1,10 @@
 import logging
 
+from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
+from apps.documents.constants import normalize_checklist_type
 from apps.documents.models import Document
 
 from ..exceptions import ExtractionCancelled
@@ -78,9 +81,10 @@ class ExtractionPipeline:
         # Every AI call is recorded (tokens + cost) against this job and step
         # -- see apps.extraction.usage / AIUsage.
         with usage_scope(job=job, stage=AIUsage.Stage.CLASSIFICATION):
-            self.classifier.classify(document)
+            classification = self.classifier.classify(document)
         document.processing_status = 'classified'
-        document.save(update_fields=['processing_status', 'updated_at'])
+        update_fields = ['processing_status', *self._apply_classification(document, classification)]
+        document.save(update_fields=[*update_fields, 'updated_at'])
 
         self._advance(job, Step.READING_PAGES)
         pages = self.page_reader.read_pages(document)
@@ -151,16 +155,135 @@ class ExtractionPipeline:
         logger.info('extraction.pipeline.step job_id=%s step=%s', job.id, step)
 
     @staticmethod
+    def _apply_classification(document, result):
+        """Copy the AI classifier's verdict onto `document` and return the
+        changed field names. Overwritten on every run, so reprocessing just
+        refreshes it -- unless a person confirmed the category (below);
+        `document_type` (the assigned type) is never touched.
+
+        - A checklist category at/above AI_CLASSIFICATION_MIN_CONFIDENCE ->
+          CLASSIFIED (counts toward the checklist).
+        - A checklist category below it -> NEEDS_REVIEW.
+        - null, or anything that isn't a checklist category -> UNCLASSIFIED.
+
+        A result without a confidence (stub.KnownMetadataClassifier just
+        echoes upload metadata) isn't an AI verdict -- nothing is saved.
+
+        A category a person confirmed (POST /documents/{id}/confirm-category)
+        is left exactly as they left it, like a reviewed fact in
+        _persist_facts -- the new verdict is dropped, including its
+        confidence and reasoning. Re-read from the database, so a
+        confirmation made while this job was running still wins."""
+        if not isinstance(result, dict) or 'confidence' not in result:
+            return []
+        document.refresh_from_db(fields=[
+            'classification_status', 'ai_document_type', 'category_confirmed_at', 'category_confirmed_by',
+        ])
+        if document.category_manually_confirmed:
+            logger.info(
+                'extraction.pipeline.classification_kept document_id=%s confirmed_type=%s ai_type=%s',
+                document.id, document.ai_document_type or None, result.get('document_type'),
+            )
+            return []
+
+        Status = Document.ClassificationStatus
+        category = normalize_checklist_type(result.get('document_type'))
+        confidence = float(result['confidence'])
+        if category is None:
+            status = Status.UNCLASSIFIED
+        elif confidence >= settings.AI_CLASSIFICATION_MIN_CONFIDENCE:
+            status = Status.CLASSIFIED
+        else:
+            status = Status.NEEDS_REVIEW
+
+        document.classification_status = status
+        document.ai_document_type = category or ''
+        document.ai_confidence = confidence
+        document.ai_reasoning = (result.get('reasoning') or '').strip()
+        document.classified_at = timezone.now()
+        logger.info(
+            'extraction.pipeline.classified document_id=%s assigned_type=%s ai_type=%s confidence=%.2f status=%s',
+            document.id, document.document_type, category, confidence, status,
+        )
+        return ['classification_status', 'ai_document_type', 'ai_confidence', 'ai_reasoning', 'classified_at']
+
+    @staticmethod
     def _persist_facts(job, mapped_facts):
+        """Save this run's facts for the document, one row per field_key.
+
+        Reprocessing a document must not duplicate its facts (or the gaps,
+        conflicts and recommendations that point at them), so a fact the
+        document already has for the same field_key is reused:
+        - still unreviewed (EXTRACTED): updated in place with the new value,
+          keeping its id so everything linked to it stays linked;
+        - already reviewed (confirmed/corrected/rejected/evidence requested):
+          left exactly as the reviewer left it -- the new run's value for
+          that field is dropped.
+        Facts an earlier run found that this run didn't are kept.
+        A fact's AI-QIF indicator tags (`aiqif_mappings`) follow the same
+        rule: replaced along with an unreviewed fact, untouched on a
+        reviewed one. Returns how many facts were created or updated."""
         from apps.facts.models import ExtractedFact
 
+        existing = {}
+        # Oldest first, so the newest unreviewed row wins a key -- unless a
+        # reviewed row already holds it.
+        for fact in ExtractedFact.objects.filter(document=job.document).order_by('created_at'):
+            key = fact.field_key.strip().lower()
+            held = existing.get(key)
+            if held is None or held.status == ExtractedFact.Status.EXTRACTED:
+                existing[key] = fact
+
         count = 0
-        for item in mapped_facts:
-            ExtractedFact.objects.create(
-                sprint=job.sprint, document=job.document, source_document=job.document, **item,
-            )
-            count += 1
+        with transaction.atomic():
+            for item in mapped_facts:
+                fields = {name: value for name, value in item.items() if name != 'aiqif_mappings'}
+                fact = existing.get(fields['field_key'].strip().lower())
+                if fact is None:
+                    fact = ExtractedFact.objects.create(
+                        sprint=job.sprint, document=job.document, source_document=job.document, **fields,
+                    )
+                    existing[fact.field_key.strip().lower()] = fact
+                elif fact.status == ExtractedFact.Status.EXTRACTED:
+                    for name, value in fields.items():
+                        setattr(fact, name, value)
+                    fact.source_document = job.document
+                    fact.save()
+                else:
+                    continue
+                if 'aiqif_mappings' in item:
+                    ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'])
+                count += 1
         return count
+
+    @staticmethod
+    def _save_aiqif_mappings(fact, mappings):
+        """Replace `fact`'s AI-QIF indicator tags with `mappings` (validated by
+        the fact extractor) and set its summary status. Each tag is MAPPED at
+        or above AIQIF_MAPPING_MIN_CONFIDENCE, else NEEDS_REVIEW; no tags at
+        all is UNMAPPED -- the AI found no clear indicator, and none is
+        guessed. Category only: CRI scoring never reads these."""
+        from apps.facts.models import ExtractedFact, FactAIQIFMapping
+
+        fact.aiqif_mappings.all().delete()
+        threshold = settings.AIQIF_MAPPING_MIN_CONFIDENCE
+        rows = FactAIQIFMapping.objects.bulk_create([
+            FactAIQIFMapping(
+                fact=fact, criterion=m['criterion'], indicator_code=m['indicator_code'], reason=m['reason'],
+                confidence=m['confidence'],
+                status=(FactAIQIFMapping.Status.MAPPED if m['confidence'] >= threshold
+                        else FactAIQIFMapping.Status.NEEDS_REVIEW),
+            )
+            for m in mappings
+        ])
+        Status = ExtractedFact.AIQIFMappingStatus
+        if any(row.status == FactAIQIFMapping.Status.MAPPED for row in rows):
+            fact.aiqif_mapping_status = Status.MAPPED
+        elif rows:
+            fact.aiqif_mapping_status = Status.NEEDS_REVIEW
+        else:
+            fact.aiqif_mapping_status = Status.UNMAPPED
+        fact.save(update_fields=['aiqif_mapping_status', 'updated_at'])
 
     @staticmethod
     def _persist_gaps(job, gaps):

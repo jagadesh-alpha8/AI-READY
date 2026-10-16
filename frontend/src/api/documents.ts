@@ -23,3 +23,8 @@ export function uploadDocument(
 export function deleteDocument(id: string) {
   return api.delete<void>(`/documents/${id}`);
 }
+
+/** Settle a document's category: a checklist slug, or null for "not a checklist document". */
+export function confirmDocumentCategory(id: string, category: string | null) {
+  return api.post<SprintDocument>(`/documents/${id}/confirm-category`, { category });
+}

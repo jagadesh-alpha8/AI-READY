@@ -1,8 +1,33 @@
 from rest_framework import serializers
 
-from apps.scoring.constants import PILLAR_LABELS
+from apps.scoring.constants import AIQIF_CRITERION_CODES, AIQIF_INDICATORS, PILLAR_LABELS
 
-from .models import ExtractedFact, FactReviewHistory
+from .models import ExtractedFact, FactAIQIFMapping, FactReviewHistory
+
+
+class FactAIQIFMappingSerializer(serializers.ModelSerializer):
+    """One AI-QIF category tag on a fact, with the framework's own code and
+    name for its criterion and indicator."""
+    criterion_code = serializers.SerializerMethodField()
+    criterion_name = serializers.SerializerMethodField()
+    indicator_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FactAIQIFMapping
+        fields = [
+            'criterion', 'criterion_code', 'criterion_name', 'indicator_code', 'indicator_name',
+            'reason', 'confidence', 'status',
+        ]
+        read_only_fields = fields
+
+    def get_criterion_code(self, obj):
+        return AIQIF_CRITERION_CODES.get(obj.criterion, '')
+
+    def get_criterion_name(self, obj):
+        return PILLAR_LABELS.get(obj.criterion, '')
+
+    def get_indicator_name(self, obj):
+        return AIQIF_INDICATORS.get(obj.indicator_code, ('', ''))[1]
 
 
 class ExtractedFactSerializer(serializers.ModelSerializer):
@@ -23,6 +48,9 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
     # one human-readable field a "source document" column actually needs,
     # the same way pillar_label backs the pillar column.
     source_document_filename = serializers.SerializerMethodField()
+    # The fact's AI-QIF category tags -- separate from `pillar`, which is what
+    # the CRI scores the fact under.
+    aiqif_mappings = FactAIQIFMappingSerializer(many=True, read_only=True)
 
     class Meta:
         model = ExtractedFact
@@ -31,6 +59,7 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
             'value_json', 'normalized_value', 'data_type', 'pillar', 'pillar_label', 'owner_role',
             'source_document_id', 'source_document_filename', 'source_page', 'source_snippet',
             'confidence_score', 'confidence', 'confidence_reason', 'extraction_method', 'status',
+            'aiqif_mapping_status', 'aiqif_mappings',
             'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
