@@ -8,8 +8,10 @@ import type { Gap } from '../../types';
 import { AlertCircle, ArrowRight } from 'lucide-react';
 import { ScrollableTable } from '../../components/ScrollableTable';
 import { TableFilters, matchesSearch, optionsFrom } from '../../components/TableFilters';
+import { useAccess } from '../../utils/access';
 
 export const GapDashboard: React.FC = () => {
+  const { canSee } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
@@ -109,8 +111,11 @@ export const GapDashboard: React.FC = () => {
               Identify missing required fields, weak evidence, stale documents, and conflicts affecting score and confidence.
             </p>
           </div>
-          <button onClick={() => navigate(`/sprint/${sprintId}/confirmation`)} className="btn-primary shrink-0">
-            <span>Proceed to Owner Workspace</span>
+          <button
+            onClick={() => navigate(`/sprint/${sprintId}/${canSee('sprint-confirmation') ? 'confirmation' : 'score'}`)}
+            className="btn-primary shrink-0"
+          >
+            <span>{canSee('sprint-confirmation') ? 'Proceed to Owner Workspace' : 'Proceed to Live CRI Preview'}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

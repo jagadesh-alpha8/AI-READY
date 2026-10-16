@@ -68,7 +68,7 @@ function humanRole(role: string): string {
 const PER_ROLE_LIMIT = 25;
 
 export const GoalsTasks: React.FC = () => {
-  const { can } = useAccess();
+  const { can, canSee } = useAccess();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('tasks');
   const [sprintId, setSprintId] = useState('');
@@ -275,14 +275,16 @@ export const GoalsTasks: React.FC = () => {
                   )}
 
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/sprint/${activeSprintId}/confirmation`)}
-                      className="btn-secondary btn-sm"
-                    >
-                      <span>Owner workspace</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
+                    {canSee('sprint-confirmation') && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/sprint/${activeSprintId}/confirmation`)}
+                        className="btn-secondary btn-sm"
+                      >
+                        <span>Owner workspace</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => navigate(`/sprint/${activeSprintId}/gaps`)}

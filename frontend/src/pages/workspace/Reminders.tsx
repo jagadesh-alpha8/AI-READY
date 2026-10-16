@@ -12,6 +12,7 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ApiStates';
 import { FilterPills, PageHeader } from '../../components/PageHeader';
 import type { Fact, Gap, Sprint, SprintDocument } from '../../types';
+import { useAccess } from '../../utils/access';
 
 /**
  * Reminders — what is waiting on someone, derived from the sprint's real state.
@@ -56,6 +57,8 @@ function daysSince(iso: string | null): number | null {
 }
 
 export const Reminders: React.FC = () => {
+  const { canSee } = useAccess();
+  const reviewStep = canSee('sprint-confirmation') ? 'confirmation' : 'facts';
   const navigate = useNavigate();
   const [sprintId, setSprintId] = useState('');
   const [filter, setFilter] = useState<Severity | 'all'>('all');
@@ -131,7 +134,7 @@ export const Reminders: React.FC = () => {
         title: `${unconfirmed.length} extracted fact${unconfirmed.length === 1 ? '' : 's'} awaiting review`,
         detail: 'An unconfirmed fact contributes nothing to the score until an owner accepts it.',
         severity: unconfirmed.length > 50 ? 'high' : 'medium', icon: Bell,
-        route: `/sprint/${activeSprintId}/confirmation`,
+        route: `/sprint/${activeSprintId}/${reviewStep}`,
       });
     }
 
@@ -147,7 +150,7 @@ export const Reminders: React.FC = () => {
 
     const order: Severity[] = ['critical', 'high', 'medium'];
     return list.sort((a, b) => order.indexOf(a.severity) - order.indexOf(b.severity));
-  }, [documents, facts, gaps, sprint, activeSprintId]);
+  }, [documents, facts, gaps, sprint, activeSprintId, reviewStep]);
 
   const visible = filter === 'all' ? alerts : alerts.filter((a) => a.severity === filter);
 

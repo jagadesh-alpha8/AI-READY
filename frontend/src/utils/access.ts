@@ -67,7 +67,8 @@ export const MENU_ROLES = {
   'sprint-monitor': ALL_EXCEPT_VIEWER,
   'sprint-facts': ALL_EXCEPT_VIEWER,
   'sprint-gaps': ALL_EXCEPT_VIEWER,
-  'sprint-confirmation': ALL_EXCEPT_VIEWER,
+  // College staff confirm the facts assigned to their role; a super admin has none.
+  'sprint-confirmation': ALL_EXCEPT_VIEWER.filter((r) => r !== 'super_admin'),
   'sprint-score': 'all',
   'sprint-approval': QUALITY_LEADS,
   'sprint-recommendations': 'all',
