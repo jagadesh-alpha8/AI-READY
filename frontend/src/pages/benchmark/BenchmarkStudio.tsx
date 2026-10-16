@@ -55,20 +55,35 @@ const BenchmarkStudioPage: React.FC = () => {
         </div>
       </div>
 
-      <TabStrip
-        tabs={[
-          { id: 'explorer', label: 'Catalogue', icon: Search },
-          { id: 'requirements', label: 'Requirements', icon: Layers },
-          { id: 'applicability', label: 'Applicability', icon: ShieldCheck },
-          { id: 'levels', label: 'Levels', icon: Layers },
-          { id: 'sources', label: 'Sources', icon: BookOpen },
-          { id: 'versions', label: 'Releases', icon: Clock },
-          { id: 'watcher', label: 'Watcher', icon: Eye },
-          { id: 'candidates', label: 'Candidates', icon: Sparkles },
-        ]}
-        active={tab}
-        onChange={setTab}
-      />
+      {/* Tabs in the order the work is done; keeping source documents current is its own section. */}
+      <div className="flex flex-col lg:flex-row lg:items-end gap-3 lg:gap-6">
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-ink-500 mb-1.5">Benchmark library</p>
+          <TabStrip
+            tabs={[
+              { id: 'sources', label: 'Sources', icon: BookOpen },
+              { id: 'explorer', label: 'Catalogue', icon: Search },
+              { id: 'requirements', label: 'Requirements', icon: Layers },
+              { id: 'levels', label: 'Levels', icon: Layers },
+              { id: 'applicability', label: 'Applicability', icon: ShieldCheck },
+              { id: 'versions', label: 'Releases', icon: Clock },
+            ]}
+            active={tab}
+            onChange={setTab}
+          />
+        </div>
+        <div className="min-w-0 lg:pl-6 lg:border-l lg:border-line-200">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-ink-500 mb-1.5">Source Updates</p>
+          <TabStrip
+            tabs={[
+              { id: 'watcher', label: 'Watcher', icon: Eye },
+              { id: 'candidates', label: 'Candidates', icon: Sparkles },
+            ]}
+            active={tab}
+            onChange={setTab}
+          />
+        </div>
+      </div>
 
       {tab === 'explorer' && <CatalogueTab onEditLevels={(c) => { setLevelsCode(c); setTab('levels'); }} />}
       {tab === 'requirements' && <RequirementsTab />}
