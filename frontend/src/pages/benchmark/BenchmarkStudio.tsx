@@ -64,7 +64,7 @@ const BenchmarkStudioPage: React.FC = () => {
             tabs={[
               { id: 'sources', label: 'Sources', icon: BookOpen },
               { id: 'requirements', label: 'Requirements', icon: Layers },
-              { id: 'explorer', label: 'Catalogue', icon: Search },
+              { id: 'explorer', label: 'Benchmark Library', icon: Search },
               { id: 'levels', label: 'Levels', icon: Layers },
               { id: 'applicability', label: 'Applicability', icon: ShieldCheck },
               { id: 'versions', label: 'Releases', icon: Clock },
