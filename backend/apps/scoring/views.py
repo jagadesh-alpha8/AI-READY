@@ -33,7 +33,8 @@ from .services import (
 class SprintScoreView(APIView):
     """GET returns the sprint's current, explainable CRI score -- computing
     it once, on first access, if the sprint has never been scored. POST
-    forces a fresh recalculation from the sprint's current fact/gap data."""
+    forces a fresh recalculation from the sprint's current fact/gap data,
+    at any stage (a decided baseline keeps its own pinned ScoringRun)."""
     permission_classes = [CanManageSprint]
 
     @extend_schema(responses=SprintScoreSerializer)
@@ -44,13 +45,10 @@ class SprintScoreView(APIView):
 
     @extend_schema(request=None, responses=SprintScoreSerializer)
     def post(self, request, sprint_id):
+        """Recalculate now -- allowed at any stage, including after a baseline
+        decision. Every run is a new ScoringRun (history); an approved baseline
+        stays pinned to its own run, so its snapshot never changes."""
         sprint = get_authorized_sprint(request.user, sprint_id)
-        if sprint.status in Sprint.BASELINE_LOCKED_STATUSES:
-            raise ValidationError(
-                f"This sprint's baseline is already '{sprint.status}' -- an approved baseline's score is "
-                'locked and cannot be recalculated. Return the baseline for correction first if the '
-                'underlying data needs to change.'
-            )
         run_scoring_engine(sprint, triggered_by=request.user)
         if sprint.status == Sprint.Status.REVIEWING:
             sprint.status = Sprint.Status.SCORING

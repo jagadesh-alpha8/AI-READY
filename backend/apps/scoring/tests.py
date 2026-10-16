@@ -587,14 +587,29 @@ class BaselineWorkflowTests(ScoringTestBase):
         response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve/')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_approving_baseline_locks_score_recalculation(self):
+    def test_score_can_be_recalculated_after_approval_without_touching_the_baseline(self):
         self._make_fact(confidence_score=0.8)
         self._get_baseline(self.admin)
         self._auth(self.admin)
         self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve/')
+        baseline = Baseline.objects.get(sprint=self.sprint)
+        pinned = (baseline.scoring_run_id, baseline.scoring_run.overall_cri, baseline.scoring_run.pillar_snapshot)
+        runs_before = ScoringRun.objects.filter(sprint=self.sprint).count()
+        status_before = Sprint.objects.get(pk=self.sprint.pk).status
 
+        self._make_fact(field_key='more_evidence', confidence_score=0.9, pillar='aiqif_c3')  # data changed
         response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/score/')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(ScoringRun.objects.filter(sprint=self.sprint).count(), runs_before + 1)  # new history entry
+        self.assertNotEqual(response.data['overall_cri'], pinned[1])
+
+        baseline.refresh_from_db()
+        self.assertEqual((baseline.scoring_run_id, baseline.scoring_run.overall_cri, baseline.scoring_run.pillar_snapshot),
+                         pinned)  # the approved snapshot is untouched
+        self.assertEqual(baseline.status, Baseline.Status.APPROVED)
+        self.assertEqual(Sprint.objects.get(pk=self.sprint.pk).status, status_before)
+        shown = self.client.get(f'/api/v1/sprints/{self.sprint.id}/baseline/').data['baseline']
+        self.assertEqual((shown['overall_cri'], shown['pillar_snapshot']), (pinned[1], pinned[2]))
 
     # -- approve provisionally ------------------------------------------------
 

@@ -424,6 +424,8 @@ Read-only via list — gaps are only ever created by `apps.gaps.services` (durin
 
 - Generation is **asynchronous** (Celery): the row is created immediately (`status=draft`) and `POST` returns `202 Accepted`; the task moves it through `generating → ready|failed`. Poll `GET /reports/{id}` for completion.
 - **Versioned**: each `POST` creates a new row (`version` = previous max + 1 for that sprint); a historical version's data/files are never overwritten by a later regeneration.
+- **Fresh CRI per report**: before building, the task runs the CRI engine (a new `ScoringRun` from the latest confirmed facts, open gaps and active scoring configuration) and builds the report from that run's frozen snapshot. The run is returned as `scoring_run_id`, and `report_data.cri_source` = `{scoring_run_id, calculation_version, calculated_at, recalculated, baseline_status, baseline_scoring_run_id, baseline_cri, differs_from_baseline, note}`; the PDF/DOCX show the note, flagged "RECALCULATED CRI" when it differs from the approved baseline. If scoring fails the report is `failed`, never `ready`.
+- `POST /sprints/{id}/score` is allowed at any stage, including after a baseline decision; an approved baseline keeps its own pinned run (`GET .../baseline` returns its `overall_cri` and `pillar_snapshot`).
 - **Errors**: `download` → `404` if the report isn't `ready` yet, or the requested file variant wasn't produced.
 
 **Response body** (Report object, list vs. detail):

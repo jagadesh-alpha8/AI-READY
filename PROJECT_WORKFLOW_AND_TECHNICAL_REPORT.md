@@ -399,8 +399,12 @@ unless the caller supplies an explicit `completion_percentage`:
 | `scoring` | 75 | `archived` | 100 |
 
 `Sprint.BASELINE_LOCKED_STATUSES = {baseline_approved, report_ready, completed}` —
-once in any of these, `POST /score` is **refused**, so an approved baseline's
-numbers can never drift out from under a report generated against them.
+the baseline decision is final in these statuses, but the CRI **can still be
+recalculated** (since 2026-10-16). Every recalculation is a new `ScoringRun`;
+an approved / provisional baseline stays pinned to its own run, so its numbers
+never change. Every report recalculates first and records its own run
+(`Report.scoring_run`, `report_data.cri_source`), and says so when that CRI
+differs from the approved baseline.
 
 ## 2.2 The end-to-end request/data flow
 
@@ -579,7 +583,7 @@ sequenceDiagram
 | **3–5. API** | `GET /sprints/{id}/score` (bootstraps a first run if never scored) · `POST /sprints/{id}/score` (forced recalculation) · `GET /sprints/{id}/score/history` |
 | **7. Auth** | `CanManageSprint` |
 | **8. Controller** | `apps/scoring/views.py::SprintScoreView` |
-| **9. Business logic** | `run_scoring_engine()` — the nine-step engine in §6.4. `POST` is **refused** if `sprint.status in BASELINE_LOCKED_STATUSES`. A successful `POST` also moves `reviewing → scoring` |
+| **9. Business logic** | `run_scoring_engine()` — the nine-step engine in §6.4, allowed at any stage (each call is a new `ScoringRun`; a decided baseline keeps its pinned run). A `POST` also moves `reviewing → scoring` |
 | **10. DB** | Reads `facts_extractedfact` (confirmed/corrected only) + `gaps_gapitem` (open/in_progress); writes `scoring_pillarscore` (upsert ×8), `scoring_scoringrun` (INSERT), `sprints_sprint.overall_cri/confidence_score` |
 | **11–12.** | None — **no AI is involved in scoring** |
 | **14. Response** | `SprintScoreSerializer`: overall CRI, confidence, 8 pillar scorecards, strengths, weaknesses, live evidence metrics, unresolved blocking gaps |

@@ -24,6 +24,18 @@ export interface ReportData {
   twelve_month_roadmap: ReportActionPlanBucket[];
   how_ingage_can_help: { offering: string; recommendation_count: number; pillars: string[] }[];
   evidence_metrics: Record<string, number>;
+  /** The score this report was built from: a fresh ScoringRun, compared with the approved baseline. */
+  cri_source?: {
+    scoring_run_id: string;
+    calculation_version: string;
+    calculated_at: string;
+    recalculated: boolean;
+    baseline_status: 'approved' | 'provisional' | null;
+    baseline_scoring_run_id: string | null;
+    baseline_cri: number | null;
+    differs_from_baseline: boolean;
+    note: string;
+  };
 }
 
 export interface Report {
@@ -36,6 +48,8 @@ export interface Report {
   confidence_score: number;
   generated_at: string | null;
   generated_by: string | null;
+  /** The ScoringRun calculated for this report (its own CRI snapshot). */
+  scoring_run_id: string | null;
   pdf_available: boolean;
   docx_available: boolean;
   created_at: string;

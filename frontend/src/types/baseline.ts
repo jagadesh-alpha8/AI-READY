@@ -20,6 +20,8 @@ export interface Baseline {
   overall_cri: number;
   overall_confidence: number;
   calculation_version: string;
+  /** Pillar scores of the run this baseline is pinned to (frozen). */
+  pillar_snapshot: { pillar: string; label: string; raw_score: number; status: string }[];
   approved_by: string | null;
   approved_by_name: string;
   approved_at: string | null;

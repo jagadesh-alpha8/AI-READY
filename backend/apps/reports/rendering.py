@@ -42,6 +42,13 @@ def render_pdf_bytes(report):
     pdf.set_font('Helvetica', 'B', 10)
     pdf.set_text_color(150, 90, 0)
     _line(pdf, 6, _latin1(f"Baseline status: {data['baseline']['status'].upper()}"))
+    source = data.get('cri_source') or {}
+    if source.get('differs_from_baseline'):
+        _line(pdf, 6, _latin1(f"RECALCULATED CRI: {source.get('note', '')}"))
+    elif source.get('note'):
+        pdf.set_font('Helvetica', '', 9)
+        pdf.set_text_color(90, 90, 90)
+        _line(pdf, 5, _latin1(source['note']))
     pdf.set_text_color(0, 0, 0)
     pdf.ln(4)
 
@@ -131,6 +138,11 @@ def render_docx_bytes(report):
     ).italic = True
     baseline_run = doc.add_paragraph().add_run(f"Baseline status: {data['baseline']['status'].upper()}")
     baseline_run.bold = True
+    source = data.get('cri_source') or {}
+    if source.get('note'):
+        note = doc.add_paragraph().add_run(
+            ('RECALCULATED CRI: ' if source.get('differs_from_baseline') else '') + source['note'])
+        note.bold = bool(source.get('differs_from_baseline'))
 
     doc.add_heading('1. Executive Summary', level=1)
     doc.add_paragraph(data['executive_summary'])

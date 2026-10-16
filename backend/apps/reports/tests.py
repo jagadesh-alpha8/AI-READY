@@ -277,3 +277,79 @@ class ReportEndpointTests(ReportsTestBase):
     def test_unauthenticated_rejected(self):
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/reports/')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
+class ReportRecalculationTests(ReportsTestBase):
+    """Every report recalculates the CRI first and keeps its own scoring run."""
+
+    def _generate(self):
+        report = Report.objects.create(sprint=self.sprint, version=next_report_version(self.sprint))
+        generate_report_task.delay(str(report.id))
+        report.refresh_from_db()
+        return report
+
+    def _approve_baseline(self):
+        from apps.scoring.services.baseline import approve_baseline, get_or_create_pending_baseline
+        get_or_create_pending_baseline(self.sprint, triggered_by=self.admin)
+        return approve_baseline(self.sprint, user=self.admin)
+
+    def test_each_report_runs_the_engine_and_records_its_own_run(self):
+        from apps.scoring.models import ScoringRun
+        self._make_fact(confidence_score=0.8)
+        first = self._generate()
+        self._make_fact(field_key='more', pillar='aiqif_c3', confidence_score=0.9)
+        second = self._generate()
+        self.assertEqual((first.status, second.status), (Report.Status.READY, Report.Status.READY))
+        self.assertNotEqual(first.scoring_run_id, second.scoring_run_id)
+        self.assertEqual(ScoringRun.objects.filter(sprint=self.sprint).count(), 2)
+        first.refresh_from_db()  # the earlier report keeps its own snapshot
+        self.assertEqual(first.overall_cri, first.scoring_run.overall_cri)
+        self.assertLess(first.overall_cri, second.overall_cri)
+        self.assertEqual(second.report_data['cri_source']['scoring_run_id'], str(second.scoring_run_id))
+        self.assertEqual(second.report_data['overall_cri'], second.scoring_run.overall_cri)
+        self.assertEqual([p['pillar'] for p in second.report_data['pillar_scorecards']],
+                         [p['pillar'] for p in second.scoring_run.pillar_snapshot])
+
+    def test_report_after_approval_is_labelled_when_the_score_differs(self):
+        self._make_fact(confidence_score=0.8)
+        baseline = self._approve_baseline()
+        pinned = (baseline.scoring_run_id, baseline.scoring_run.overall_cri)
+
+        same = self._generate()
+        self.assertFalse(same.report_data['cri_source']['differs_from_baseline'])
+        self.assertIn('matches', same.report_data['cri_source']['note'])
+
+        self._make_fact(field_key='more', pillar='aiqif_c3', confidence_score=0.9)
+        changed = self._generate()
+        source = changed.report_data['cri_source']
+        self.assertEqual(changed.status, Report.Status.READY)
+        self.assertTrue(source['differs_from_baseline'])
+        self.assertEqual(source['baseline_cri'], pinned[1])
+        self.assertIn('recalculated CRI', source['note'])
+        baseline.refresh_from_db()
+        self.assertEqual((baseline.scoring_run_id, baseline.scoring_run.overall_cri), pinned)  # never overwritten
+
+    def test_report_before_any_baseline_is_preliminary(self):
+        self._make_fact(confidence_score=0.8)
+        source = self._generate().report_data['cri_source']
+        self.assertFalse(source['differs_from_baseline'])
+        self.assertIsNone(source['baseline_cri'])
+        self.assertIn('preliminary', source['note'])
+
+    def test_a_scoring_failure_fails_the_report(self):
+        from unittest.mock import patch
+        self._make_fact(confidence_score=0.8)
+        with patch('apps.scoring.services.run_scoring_engine', side_effect=RuntimeError('scoring broke')):
+            report = self._generate()
+        self.assertEqual(report.status, Report.Status.FAILED)
+        self.assertIn('scoring broke', report.report_data['error'])
+        self.assertIsNone(report.scoring_run_id)
+        self.assertFalse(report.pdf_file)
+
+    def test_api_returns_the_run_and_the_label(self):
+        self._make_fact(confidence_score=0.8)
+        self._auth(self.admin)
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/reports/generate/')
+        detail = self.client.get(f'/api/v1/reports/{r.data["id"]}/').data
+        self.assertEqual(str(detail['scoring_run_id']), detail['report_data']['cri_source']['scoring_run_id'])

@@ -9,6 +9,7 @@ class ReportSerializer(serializers.ModelSerializer):
     bookkeeping is needed."""
     sprint_id = serializers.PrimaryKeyRelatedField(source='sprint', read_only=True)
     generated_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    scoring_run_id = serializers.PrimaryKeyRelatedField(source='scoring_run', read_only=True)
     pdf_available = serializers.SerializerMethodField()
     docx_available = serializers.SerializerMethodField()
 
@@ -16,7 +17,7 @@ class ReportSerializer(serializers.ModelSerializer):
         model = Report
         fields = [
             'id', 'sprint_id', 'version', 'status', 'executive_summary', 'overall_cri', 'confidence_score',
-            'generated_at', 'generated_by', 'pdf_available', 'docx_available', 'report_data',
+            'generated_at', 'generated_by', 'scoring_run_id', 'pdf_available', 'docx_available', 'report_data',
             'created_at', 'updated_at',
         ]
 

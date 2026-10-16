@@ -131,6 +131,15 @@ export const BaselineApproval: React.FC = () => {
         <LoadingState message="No score available for this sprint yet." />
       ) : (
         <>
+          {isDecided && baseline.status !== 'returned' && Math.abs(scorecard.overall_cri - baseline.overall_cri) >= 0.01 && (
+            <div className="rounded-lg border border-warning-line bg-warning-bg p-3 text-sm text-ink-700">
+              <strong className="text-warning">The CRI has been recalculated since this decision: </strong>
+              it is now {scorecard.overall_cri.toFixed(1)}. The baseline below keeps the {baseline.overall_cri.toFixed(1)} it
+              was decided on; strengths and areas for improvement further down show the latest calculation. New reports
+              use the latest calculation and say so.
+            </div>
+          )}
+
           {/* Approval Status + Score Summary */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="glass-card p-6 text-center">

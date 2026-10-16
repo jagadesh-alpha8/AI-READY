@@ -44,6 +44,10 @@ class Report(models.Model):
     #: The full structured report (all 11 sections) -- see
     #: apps.reports.services.build_report_data for its exact shape.
     report_data = models.JSONField(default=dict, blank=True, encoder=DjangoJSONEncoder)
+    #: The ScoringRun calculated for this report just before it was built (its CRI snapshot).
+    #: PROTECT: a run a report was built from is never deleted.
+    scoring_run = models.ForeignKey('scoring.ScoringRun', on_delete=models.PROTECT, null=True, blank=True,
+                                    related_name='reports')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

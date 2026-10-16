@@ -159,6 +159,14 @@ export const ReportPreviewExport: React.FC = () => {
               </div>
             </div>
 
+            {data.cri_source?.note && (
+              <div className={`rounded-lg border p-3 text-sm ${data.cri_source.differs_from_baseline
+                ? 'border-warning-line bg-warning-bg text-ink-700' : 'border-line-200 bg-surface text-ink-500'}`}>
+                {data.cri_source.differs_from_baseline && <strong className="text-warning">Recalculated CRI. </strong>}
+                {data.cri_source.note}
+              </div>
+            )}
+
             {/* Section 1: Executive Summary */}
             <div className="space-y-3">
               <h3 className="text-sm font-bold text-brand-800 uppercase tracking-wide">1. Executive Summary &amp; CRI Score</h3>
@@ -166,7 +174,11 @@ export const ReportPreviewExport: React.FC = () => {
                 <div className="p-4 bg-surface rounded-xl border border-line-200 text-center">
                   <span className="text-xs text-ink-500">Campus Readiness Index (CRI)</span>
                   <div className="text-3xl sm:text-4xl font-bold text-ink-900 my-1 tabular-nums">{data.overall_cri.toFixed(1)} <span className="text-sm text-ink-500 font-normal">/ 100</span></div>
-                  <span className="text-xs text-brand-800 font-semibold">Confidence-Weighted Baseline</span>
+                  <span className="text-xs text-brand-800 font-semibold">
+                    {data.cri_source?.differs_from_baseline
+                      ? `Recalculated · approved baseline ${data.cri_source.baseline_cri?.toFixed(1)}`
+                      : 'Confidence-Weighted Baseline'}
+                  </span>
                 </div>
                 <div className="p-4 bg-surface rounded-xl border border-line-200 text-center">
                   <span className="text-xs text-ink-500">CRI Evidence Confidence</span>

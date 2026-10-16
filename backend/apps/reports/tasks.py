@@ -33,7 +33,12 @@ def generate_report_task(self, report_id):
     logger.info('reports.task.generating report_id=%s sprint_id=%s', report.id, report.sprint_id)
 
     try:
-        data = build_report_data(report.sprint)
+        from apps.scoring.services import run_scoring_engine
+        # Fresh CRI for every report: a new ScoringRun from the latest eligible data. If scoring
+        # fails, the except below marks the report FAILED -- it is never marked ready.
+        run = run_scoring_engine(report.sprint, triggered_by=report.generated_by)
+        data = build_report_data(report.sprint, scoring_run=run)
+        report.scoring_run = run
         report.report_data = data
         report.executive_summary = data['executive_summary']
         report.overall_cri = data['overall_cri']
@@ -53,7 +58,7 @@ def generate_report_task(self, report_id):
     report.status = Report.Status.READY
     report.generated_at = timezone.now()
     report.save(update_fields=[
-        'status', 'report_data', 'executive_summary', 'overall_cri', 'confidence_score',
+        'status', 'report_data', 'executive_summary', 'overall_cri', 'confidence_score', 'scoring_run',
         'pdf_file', 'docx_file', 'generated_at', 'updated_at',
     ])
     logger.info('reports.task.ready report_id=%s', report.id)

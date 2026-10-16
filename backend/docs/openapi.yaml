@@ -8619,7 +8619,8 @@ paths:
       description: |-
         GET returns the sprint's current, explainable CRI score -- computing
         it once, on first access, if the sprint has never been scored. POST
-        forces a fresh recalculation from the sprint's current fact/gap data.
+        forces a fresh recalculation from the sprint's current fact/gap data,
+        at any stage (a decided baseline keeps its own pinned ScoringRun).
       parameters:
       - in: path
         name: sprint_id
@@ -8641,9 +8642,9 @@ paths:
     post:
       operationId: v1_sprints_score_create
       description: |-
-        GET returns the sprint's current, explainable CRI score -- computing
-        it once, on first access, if the sprint has never been scored. POST
-        forces a fresh recalculation from the sprint's current fact/gap data.
+        Recalculate now -- allowed at any stage, including after a baseline
+        decision. Every run is a new ScoringRun (history); an approved baseline
+        stays pinned to its own run, so its snapshot never changes.
       parameters:
       - in: path
         name: sprint_id
@@ -8668,7 +8669,8 @@ paths:
       description: |-
         GET returns the sprint's current, explainable CRI score -- computing
         it once, on first access, if the sprint has never been scored. POST
-        forces a fresh recalculation from the sprint's current fact/gap data.
+        forces a fresh recalculation from the sprint's current fact/gap data,
+        at any stage (a decided baseline keeps its own pinned ScoringRun).
       parameters:
       - in: path
         name: sprint_id
@@ -8690,9 +8692,9 @@ paths:
     post:
       operationId: v1_sprints_score_create_2
       description: |-
-        GET returns the sprint's current, explainable CRI score -- computing
-        it once, on first access, if the sprint has never been scored. POST
-        forces a fresh recalculation from the sprint's current fact/gap data.
+        Recalculate now -- allowed at any stage, including after a baseline
+        decision. Every run is a new ScoringRun (history); an approved baseline
+        stays pinned to its own run, so its snapshot never changes.
       parameters:
       - in: path
         name: sprint_id
@@ -9414,6 +9416,8 @@ components:
         calculation_version:
           type: string
           readOnly: true
+        pillar_snapshot:
+          readOnly: true
         approved_by:
           type: string
           format: uuid
@@ -9453,6 +9457,7 @@ components:
       - id
       - overall_confidence
       - overall_cri
+      - pillar_snapshot
       - scoring_run_id
       - sprint_id
       - status
@@ -12319,6 +12324,10 @@ components:
           type: string
           format: uuid
           readOnly: true
+        scoring_run_id:
+          type: string
+          format: uuid
+          readOnly: true
         pdf_available:
           type: string
           readOnly: true
@@ -12340,6 +12349,7 @@ components:
       - generated_by
       - id
       - pdf_available
+      - scoring_run_id
       - sprint_id
       - updated_at
       - version
@@ -12381,6 +12391,10 @@ components:
           type: string
           format: uuid
           readOnly: true
+        scoring_run_id:
+          type: string
+          format: uuid
+          readOnly: true
         pdf_available:
           type: string
           readOnly: true
@@ -12401,6 +12415,7 @@ components:
       - generated_by
       - id
       - pdf_available
+      - scoring_run_id
       - sprint_id
       - updated_at
       - version
