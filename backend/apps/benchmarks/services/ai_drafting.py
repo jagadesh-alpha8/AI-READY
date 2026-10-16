@@ -207,6 +207,19 @@ def _check(draft):
     return levels, rules, applic
 
 
+def _all_means_any(rule):
+    """A condition listing every option means "everyone" -- store it empty. (Kept as a
+    list it would be wrong: e.g. approval_bodies matches only colleges holding at
+    least one, so a college with none recorded would be left out.)"""
+    full = {
+        'institution_types': set(InstitutionType.objects.values_list('code', flat=True)),
+        'programme_types': set(ProgrammeType.objects.values_list('code', flat=True)),
+        'autonomous_statuses': {c for c, _ in AUTONOMOUS_STATUSES},
+        'approval_bodies': set(APPROVAL_BODIES),
+    }
+    return {**rule, **{k: [] for k, options in full.items() if options and set(rule.get(k) or []) >= options}}
+
+
 def draft_benchmark(benchmark, service, *, user=None):
     """Ask the AI for one benchmark's content and save it. Returns a DraftResult;
     on any failed check nothing is saved and the benchmark is unchanged."""
@@ -255,7 +268,7 @@ def draft_benchmark(benchmark, service, *, user=None):
             for old in ApplicabilityRule.objects.filter(benchmark=benchmark).exclude(ai_model=''):
                 applicability.delete_rule(old, user)
             for a in applic:
-                rule = applicability.create_rule(user, {**a, 'jurisdiction': 'India'}, benchmark=benchmark)
+                rule = applicability.create_rule(user, {**_all_means_any(a), 'jurisdiction': 'India'}, benchmark=benchmark)
                 ApplicabilityRule.objects.filter(pk=rule.pk).update(ai_model=model)
                 result.applicability_rules += 1
 
@@ -293,6 +306,28 @@ def draft_many(benchmarks, *, actor='ai_draft_benchmarks'):
             results.append(draft_benchmark(b, service, user=user))
             logger.info('benchmarks.ai_draft code=%s ok=%s %s', b.benchmark_code, results[-1].ok, results[-1].detail)
     return results
+
+
+def draft_with_router(benchmark, *, attempts=2):
+    """Draft one benchmark on a leased router; if the AI call fails (e.g. a router
+    is down), try once more on a different router."""
+    from apps.extraction.services.router_pool import get_router_pool, use_lease
+
+    pool = get_router_pool()
+    avoid, result = '', None
+    for _ in range(attempts):
+        lease = pool.acquire(avoid=avoid) if pool is not None else None
+        try:
+            with use_lease(lease):
+                result = draft_many([benchmark])[0]
+        finally:
+            if lease is not None:
+                pool.release(lease)
+        if result.ok or lease is None or not result.detail.startswith('AI call failed'):
+            break
+        avoid = lease.router.label
+        logger.warning('benchmarks.ai_draft.retry code=%s avoiding=%s', benchmark.benchmark_code, avoid)
+    return result
 
 
 def summary_json(results):

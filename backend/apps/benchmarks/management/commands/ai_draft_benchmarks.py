@@ -9,7 +9,7 @@ target guidance, owner) -- fully automatic, see services/ai_drafting.py.
 from django.core.management.base import BaseCommand
 
 from ...models import Benchmark
-from ...services.ai_drafting import draft_many
+from ...services.ai_drafting import draft_with_router
 
 
 class Command(BaseCommand):
@@ -40,15 +40,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f'Queued {len(benchmarks)} job(s); results appear in the Studio and the logs.'))
             return
 
-        from apps.extraction.services.router_pool import get_router_pool, use_lease
-        pool = get_router_pool()
-        lease = pool.acquire() if pool is not None else None
-        try:
-            with use_lease(lease):
-                results = draft_many(benchmarks)
-        finally:
-            if lease is not None:
-                pool.release(lease)
+        results = [draft_with_router(b) for b in benchmarks]
         for r in results:
             style = self.style.SUCCESS if r.ok else self.style.ERROR
             kept = f' (kept: {", ".join(r.kept_human)})' if r.kept_human else ''

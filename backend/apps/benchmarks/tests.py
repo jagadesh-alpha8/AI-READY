@@ -1804,3 +1804,46 @@ class AiDraftingTests(TestCase):
         ai = FakeDraftAI(_good_draft())
         self.assertFalse(ai_drafting.draft_benchmark(self.b, ai).ok)
         self.assertEqual(ai.calls, [])
+
+
+class AiDraftingFixTests(AiDraftingTests.__bases__[0]):
+    def setUp(self):
+        path = _aiqif_workbook()
+        self.addCleanup(os.remove, path)
+        apply_aiqif(read_aiqif(path), actor='test', commit=True)
+        self.b = Benchmark.objects.get(benchmark_code='AIQIF-C1.1')
+
+    def test_a_condition_listing_every_option_is_stored_as_everyone(self):
+        from .models import APPROVAL_BODIES, AUTONOMOUS_STATUSES, InstitutionType, ProgrammeType
+        draft = _good_draft()
+        draft['applicability_rules'][0].update({
+            'institution_types': list(InstitutionType.objects.values_list('code', flat=True)),
+            'programme_types': list(ProgrammeType.objects.values_list('code', flat=True)),
+            'autonomous_statuses': [c for c, _ in AUTONOMOUS_STATUSES],
+            'approval_bodies': list(APPROVAL_BODIES)})
+        self.assertTrue(ai_drafting.draft_benchmark(self.b, FakeDraftAI(draft)).ok)
+        rule = ApplicabilityRule.objects.get(benchmark=self.b)
+        self.assertEqual((rule.approval_bodies, rule.autonomous_statuses), ([], []))
+        self.assertFalse(rule.institution_types.exists() or rule.programme_types.exists())
+
+    def test_a_narrow_condition_is_kept(self):
+        draft = _good_draft()
+        draft['applicability_rules'][0].update({'result': 'requires_review', 'institution_types': ['iti']})
+        self.assertTrue(ai_drafting.draft_benchmark(self.b, FakeDraftAI(draft)).ok)
+        rule = ApplicabilityRule.objects.get(benchmark=self.b)
+        self.assertEqual(list(rule.institution_types.values_list('code', flat=True)), ['iti'])
+
+    def test_a_failed_call_is_retried_on_another_router(self):
+        from unittest.mock import MagicMock, patch
+        from apps.extraction.services.router_pool import Lease, Router
+        r1, r2 = Router(index=1, base_url='https://r/1/v1', api_key='k'), Router(index=2, base_url='https://r/2/v1', api_key='k')
+        pool = MagicMock()
+        pool.acquire.side_effect = [Lease(router=r1), Lease(router=r2)]
+        outcomes = iter([ai_drafting.DraftResult('AIQIF-C1.1', False, 'AI call failed: 502'),
+                         ai_drafting.DraftResult('AIQIF-C1.1', True, 'written')])
+        with patch('apps.extraction.services.router_pool.get_router_pool', return_value=pool), \
+                patch.object(ai_drafting, 'draft_many', side_effect=lambda bs: [next(outcomes)]):
+            result = ai_drafting.draft_with_router(self.b)
+        self.assertTrue(result.ok)
+        self.assertEqual(pool.acquire.call_args_list[1].kwargs['avoid'], r1.label)
+        self.assertEqual(pool.release.call_count, 2)
