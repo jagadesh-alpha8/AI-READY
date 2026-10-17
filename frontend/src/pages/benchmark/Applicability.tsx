@@ -93,6 +93,7 @@ export const ApplicabilityRulesPanel: React.FC<{ code: string; sourcePackText: s
         Which institutions this benchmark applies to. Rules run lowest priority number first; the first one that
         matches decides. Source Pack text (same for every benchmark, so not used): <em>{sourcePackText || '—'}</em>
       </p>
+      <p className="text-ink-500">To test the saved rules against a college profile, use the <strong>Applicability Preview</strong> tab.</p>
       {rules.loading && <LoadingState message="Loading rules…" />}
       {rules.error && <ErrorState message={rules.error} onRetry={rules.refetch} />}
       {rules.data && rules.data.length === 0 && (
@@ -170,10 +171,18 @@ export const ApplicabilityPreviewTab: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-ink-500">
-        Describe a college and see which benchmarks apply to it, and why. Benchmarks without rules show
-        "requires review".
-      </p>
+      <div className="space-y-1">
+        <h3 className="text-sm font-bold text-ink-900">Applicability Preview</h3>
+        <p className="text-sm text-ink-500">
+          Tests the saved applicability rules against an institution profile: describe a college and see which
+          benchmarks apply to it, which need review and which don't, and why. Nothing is saved here. Benchmarks
+          without rules show "requires review".
+        </p>
+        <p className="text-xs text-ink-500">
+          To create or edit the rules, open <strong>Levels</strong>, choose a benchmark, and use its{' '}
+          <strong>Applicability rules</strong> section.
+        </p>
+      </div>
       <div className="glass-card p-4 space-y-3 text-xs">
         <div className="grid md:grid-cols-2 gap-2">
           <label className="space-y-1"><span className="text-ink-500">Institution type</span>
