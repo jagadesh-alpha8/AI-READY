@@ -296,7 +296,8 @@ const AssessorForm: React.FC<{ cycleId: string; code: string; detail: CycleBench
   );
 };
 
-const WeightsForm: React.FC<{ code: string }> = ({ code }) => {
+/** Composite weights for one benchmark (approved by an InGage person; also used in Studio > Levels). */
+export const WeightsForm: React.FC<{ code: string; onSaved?: () => void }> = ({ code, onSaved }) => {
   const rules = useApiResource(() => listScoreRules(), []);
   const row = rules.data?.rules.find((r) => r.benchmark_code === code);
   const [w, setW] = useState<{ compliance: string; maturity: string; evidence: string; outcome: string } | null>(null);
@@ -312,7 +313,7 @@ const WeightsForm: React.FC<{ code: string }> = ({ code }) => {
     try {
       await saveScoreRule(code, { compliance_weight: current.compliance, maturity_weight: current.maturity,
         evidence_weight: current.evidence, outcome_weight: current.outcome, note });
-      setW(null); setNote(''); rules.refetch();
+      setW(null); setNote(''); rules.refetch(); onSaved?.();
     } catch (e) { setErr(getErrorMessage(e)); }
   };
   return (

@@ -10,6 +10,7 @@ import { ErrorState, InlineError, LoadingState } from '../../components/ApiState
 import { getErrorMessage } from '../../utils/errors';
 import { EvidenceRulesPanel } from './EvidenceRulesPanel';
 import { ApplicabilityRulesPanel } from './Applicability';
+import { WeightsForm } from '../assessments/CycleBenchmarkPanel';
 import { AiBadge } from './AiBadge';
 
 /**
@@ -91,6 +92,9 @@ const BenchmarkEditor: React.FC<{ code: string; onSaved: () => void }> = ({ code
       <EvidenceRulesPanel code={code} benchmarkTypes={b.evidence_types} editable={editable} onChanged={refreshAll} />
 
       <ApplicabilityRulesPanel code={code} sourcePackText={b.applicability} editable={editable} onChanged={refreshAll} />
+
+      {/* Composite weights are approved per benchmark by a person; a release that needs a composite score requires them. */}
+      <WeightsForm code={code} onSaved={refreshAll} />
 
       {readiness.data && <ReadinessPanel readiness={readiness.data} />}
 

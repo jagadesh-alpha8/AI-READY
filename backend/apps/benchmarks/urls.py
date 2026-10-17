@@ -14,7 +14,7 @@ from .views import (
     WatcherSummaryView, WatcherFeedListView, WatcherFeedEnableView, WatcherFeedCheckView, WatcherRunListView,
     WatcherEventListView, WatcherEventReviewView,
     BenchmarkCandidateListView, BenchmarkCandidateDetailView, BenchmarkCandidateActionView,
-    WatcherEventProposeView, BenchmarkConfirmView, BenchmarkUnconfirmView,
+    WatcherEventProposeView, BenchmarkConfirmView, BenchmarkUnconfirmView, BenchmarkApplicabilityValidationView,
 )
 
 _routes = [
@@ -46,6 +46,8 @@ _routes = [
     ('/applicability/reference', ApplicabilityReferenceView, 'applicability-reference'),
     ('/applicability/preview', ApplicabilityPreviewView, 'applicability-preview'),
     ('/catalogue/<str:benchmark_code>/applicability-rules', BenchmarkApplicabilityRulesView, 'benchmark-applicability'),
+    ('/catalogue/<str:benchmark_code>/applicability-validation', BenchmarkApplicabilityValidationView,
+     'benchmark-applicability-validation'),
     ('/requirements/<str:code>/applicability-rules', RequirementApplicabilityRulesView, 'requirement-applicability'),
     ('/applicability-rules/<uuid:pk>', ApplicabilityRuleDetailView, 'applicability-rule-detail'),
     ('/releases', ReleaseListView, 'benchmark-releases'),

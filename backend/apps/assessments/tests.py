@@ -53,8 +53,10 @@ class _AssessmentFixture(_LinkFixture):
             'programmes': [{'programme_type': 'ug_engineering', 'name': 'B.E. CSE', 'approval_body': 'NBA'}]})
 
     def _publish(self, label='Release 1.0'):
+        from apps.benchmarks.tests import confirm_current
         rel = releases.create_release(label, self.user)
         for b in (self.aca, self.gov):
+            confirm_current(b, self.user)  # the fixture edits them after make_ready
             releases.add_item(rel, b, self.user)
         releases.submit(rel, self.user)
         releases.approve(rel, self.boss)

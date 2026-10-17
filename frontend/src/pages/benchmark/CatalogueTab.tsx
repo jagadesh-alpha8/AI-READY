@@ -43,8 +43,9 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
     <div className="space-y-4">
       <p className="text-sm text-ink-500">
         InGage AI-QIF v1.0: the criteria below are the pillars (weights out of 1000), and each key indicator is a
-        benchmark with L3 / L2 / L1. Every one is a draft until experts confirm its levels, name an owner and add
-        evidence and applicability rules. NAAC evidence only supports a key indicator; it never proves AI readiness.
+        benchmark with L3 / L2 / L1. Every one is a draft until it has its levels, an owner, evidence and applicability
+        rules, and an InGage reviewer has <strong>confirmed</strong> that content -- a release cannot be submitted with
+        an unconfirmed benchmark. NAAC evidence only supports a key indicator; it never proves AI readiness.
       </p>
 
       {pillars.data && (
@@ -82,7 +83,8 @@ export const CatalogueTab: React.FC<{ onEditLevels?: (code: string) => void }> =
       {data && placeholderCount > 0 && (
         <div className="rounded-lg border border-warning-line bg-warning-bg p-3 text-xs text-ink-700">
           {placeholderCount} of {data.length} benchmarks shown still use the shared L3/L2/L1 template wording.
-          An expert confirms or rewrites each level (Write levels) before the benchmark can be released.
+          Write each level for the benchmark (Write levels); an InGage reviewer then confirms the content, which is
+          required before the release can be submitted.
         </div>
       )}
 
@@ -223,6 +225,9 @@ const ConfirmationBadge: React.FC<{ b: CatalogueBenchmark }> = ({ b }) => {
   if (c?.state === 'changed') {
     return <span className="badge badge-warning" title="Edited after it was confirmed - confirm again">Changed since confirmed</span>;
   }
+  if (c?.state === 'none') {
+    return <span className="badge badge-neutral" title="Required before the release can be submitted">Not confirmed</span>;
+  }
   return null;
 };
 
@@ -256,7 +261,11 @@ const ConfirmationPanel: React.FC<{ b: CatalogueBenchmark; onChanged: () => void
         {state === 'confirmed' && <>Confirmed by <strong>{b.confirmation.confirmed_by}</strong> on {when(b.confirmation.confirmed_at)}. </>}
         {state === 'changed' && <><strong className="text-warning">Edited since it was confirmed</strong> by {b.confirmation.confirmed_by} - confirm the new content. </>}
         {state === 'none' && <>Not confirmed yet. </>}
-        <span className="text-ink-500">Confirming does not publish: colleges are assessed on it only after it is in a published release (Releases tab).</span>
+        <span className="text-ink-500">
+          <strong>Required:</strong> an InGage reviewer (super admin or consultant) confirms the content before a release
+          containing it can be submitted; any later edit needs a new confirmation. Confirming does not publish: colleges are
+          assessed on it only after it is in a published release (Releases tab).
+        </span>
       </p>
       {msg && <p className={msg.ok ? 'text-success' : 'text-danger'}>{msg.text}</p>}
       {state !== 'confirmed' && (

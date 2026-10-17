@@ -49,7 +49,60 @@ def _require(release, *statuses):
         raise ReleaseError(f'{release.release_label} is {release.status}; this needs {" or ".join(statuses)}.')
 
 
-def create_release(label, user, notes=''):
+def eligibility(release, ready_map=None):
+    """Every draft benchmark, whether it is in this release, and what (if anything) keeps it out.
+    [{benchmark, code, title, included, ready, missing: [labels]}] sorted by code."""
+    in_release = set(release.items.values_list('benchmark_id', flat=True))
+    rows = []
+    for b in Benchmark.objects.filter(status=Benchmark.Status.DRAFT).order_by('benchmark_code'):
+        r = (ready_map or {}).get(b.pk) or readiness(b)
+        missing = [c['label'] for c in r['checks'] if c['severity'] == 'required' and not c['ok']]
+        rows.append({'benchmark': b, 'code': b.benchmark_code, 'title': b.title, 'included': b.pk in in_release,
+                     'ready': not missing, 'missing': missing})
+    return rows
+
+
+def prefill(release, user):
+    """Add every draft benchmark that passes its required checks and is not in the release yet.
+    Returns (added codes, omitted [(code, missing)]). Never duplicates an item."""
+    _require(release, BenchmarkRelease.Status.DRAFT)
+    added, omitted = [], []
+    for row in eligibility(release):
+        if row['included']:
+            continue
+        if row['ready']:
+            add_item(release, row['benchmark'], user, impact_summary='Added by "include all ready benchmarks".')
+            added.append(row['code'])
+        else:
+            omitted.append((row['code'], row['missing']))
+    _audit(user, 'release.prefilled', release, {'added': added, 'omitted': [c for c, _ in omitted]})
+    return added, omitted
+
+
+def set_requires_composite(release, user, value):
+    _require(release, BenchmarkRelease.Status.DRAFT)
+    value = bool(value)
+    if release.requires_composite != value:
+        release.requires_composite = value
+        release.save(update_fields=['requires_composite'])
+        _audit(user, 'release.requires_composite', release, {'requires_composite': value})
+    return release
+
+
+def scoring_summary(release):
+    """Which included benchmarks can produce a composite score under the active scoring model."""
+    from .release_gates import active_scoring_model, score_rule_status
+    model = active_scoring_model()
+    missing = []
+    for item in release.items.exclude(change_type=Item.RETIRED).select_related('benchmark').order_by('benchmark__benchmark_code'):
+        ok, detail = score_rule_status(item.benchmark, model)
+        if not ok:
+            missing.append({'benchmark_code': item.benchmark.benchmark_code, 'detail': detail})
+    return {'requires_composite': release.requires_composite, 'scoring_model': model.code if model else None,
+            'missing': missing, 'fully_scoreable': not missing}
+
+
+def create_release(label, user, notes='', *, requires_composite=False, prefill_ready=False):
     label = (label or '').strip()
     if not re.fullmatch(r'[A-Za-z0-9._ -]{1,40}', label):
         raise ReleaseError('Release label: up to 40 letters, digits, spaces, dots, dashes (e.g. "Release 1.0").')
@@ -59,12 +112,16 @@ def create_release(label, user, notes=''):
         raise ReleaseError('Finish (publish) or delete the release already in progress before starting another.')
     base = current_release()
     with transaction.atomic():
-        release = BenchmarkRelease.objects.create(release_label=label, release_notes=notes, based_on=base, created_by=user)
+        release = BenchmarkRelease.objects.create(release_label=label, release_notes=notes, based_on=base, created_by=user,
+                                                  requires_composite=bool(requires_composite))
         if base:
             for item in base.items.exclude(change_type=Item.RETIRED).select_related('benchmark'):
                 BenchmarkReleaseItem.objects.create(release=release, benchmark=item.benchmark, change_type=Item.UNCHANGED,
                                                     impact_summary='Carried forward unchanged.')
-        _audit(user, 'release.created', release, {'label': label, 'based_on': base.release_label if base else None})
+        _audit(user, 'release.created', release, {'label': label, 'based_on': base.release_label if base else None,
+                                                  'requires_composite': bool(requires_composite)})
+        if prefill_ready:
+            prefill(release, user)
     return release
 
 
@@ -117,7 +174,17 @@ def check_release(release):
                 problems.append(f'{item.benchmark.benchmark_code}: ' + '; '.join(missing))
     live = sum(1 for i in items if i.change_type != Item.RETIRED)
     if release.based_on is None and not PILOT_MIN <= live <= PILOT_MAX:
-        warnings.append(f'The first release is meant to hold {PILOT_MIN}-{PILOT_MAX} pilot benchmarks; this one has {live}.')
+        warnings.append(f'Pilot size (guidance only, does not block submission): the first release is suggested to '
+                        f'hold {PILOT_MIN}-{PILOT_MAX} pilot benchmarks; this one has {live}.')
+    scoring = scoring_summary(release)
+    if scoring['missing']:
+        codes = ', '.join(m['benchmark_code'] for m in scoring['missing'])
+        if release.requires_composite:
+            problems += [f'{m["benchmark_code"]}: {m["detail"]} - this release needs a composite score'
+                         for m in scoring['missing']]
+        else:
+            warnings.append(f'Not fully scoreable: {len(scoring["missing"])} benchmark(s) have no approved scoring '
+                            f'weights ({codes}); assessments will show their four scores but no composite.')
     return problems, warnings
 
 

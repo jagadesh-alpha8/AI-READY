@@ -284,7 +284,7 @@ class ReleaseSerializer(serializers.ModelSerializer):
         model = BenchmarkRelease
         fields = ['id', 'release_label', 'status', 'release_notes', 'based_on', 'created_by', 'created_at',
                   'submitted_by', 'submitted_at', 'approved_by', 'approved_at', 'published_by', 'published_at',
-                  'retired_at', 'content_hash', 'item_count']
+                  'retired_at', 'content_hash', 'item_count', 'requires_composite']
         read_only_fields = fields
 
     def get_item_count(self, obj):

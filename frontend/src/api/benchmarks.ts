@@ -524,12 +524,35 @@ export interface BenchmarkReleaseInfo {
   retired_at: string | null;
   content_hash: string;
   item_count: number;
+  /** Assessments need a composite score: missing scoring weights block submission. */
+  requires_composite: boolean;
+}
+
+export interface ReleaseScoring {
+  requires_composite: boolean;
+  scoring_model: string | null;
+  missing: { benchmark_code: string; detail: string }[];
+  fully_scoreable: boolean;
+}
+
+export interface ReleaseEligibilityRow {
+  code: string;
+  title: string;
+  included: boolean;
+  ready: boolean;
+  /** Required checks still failing. */
+  missing: string[];
 }
 
 export interface ReleaseDetail extends BenchmarkReleaseInfo {
   items: ReleaseItem[];
+  /** Block submission. */
   problems: string[];
+  /** Guidance only; do not block submission. */
   warnings: string[];
+  scoring: ReleaseScoring | null;
+  /** Draft releases only: every draft benchmark, included or not, with what keeps it out. */
+  eligibility: ReleaseEligibilityRow[] | null;
 }
 
 export interface ReleaseDiffRow {
@@ -546,8 +569,12 @@ export function listReleases() {
   return api.get<BenchmarkReleaseInfo[]>('/benchmarks/releases');
 }
 
-export function createRelease(body: { release_label: string; release_notes?: string }) {
+export function createRelease(body: { release_label: string; release_notes?: string; requires_composite?: boolean; prefill?: boolean }) {
   return api.post<ReleaseDetail>('/benchmarks/releases', body);
+}
+
+export function setReleaseRequiresComposite(label: string, requires_composite: boolean) {
+  return api.patch<ReleaseDetail>(rel(label), { requires_composite });
 }
 
 export function getRelease(label: string) {
@@ -562,7 +589,7 @@ export function removeReleaseItem(label: string, benchmarkCode: string) {
   return api.delete<ReleaseDetail>(`${rel(label)}/items/${benchmarkCode}`);
 }
 
-export function releaseAction(label: string, action: 'submit' | 'approve' | 'publish' | 'send-back', note = '') {
+export function releaseAction(label: string, action: 'submit' | 'approve' | 'publish' | 'send-back' | 'prefill', note = '') {
   return api.post<ReleaseDetail>(`${rel(label)}/${action}`, { note });
 }
 
@@ -732,4 +759,21 @@ export function reviewBenchmarkCandidate(id: string, body: { reviewer_role: Cand
 
 export function proposeFromEvent(eventId: string) {
   return api.post<BenchmarkCandidateInfo>(`/benchmarks/watcher/events/${eventId}/propose`);
+}
+
+// -- applicability validation (read-only) ---------------------------------------------
+
+export interface ApplicabilityValidation {
+  has_rules: boolean;
+  profiles_checked: number;
+  by_result: Record<string, number>;
+  rules: { id: string; priority: number; result: string; matches: number; decides: number; note: string }[];
+  unmatched: { count: number; by_institution_type: Record<string, number>; examples: Record<string, string> } | null;
+  requires_review: { count: number; by_institution_type: Record<string, number>; examples: Record<string, string> } | null;
+  issues: string[];
+  ok: boolean;
+}
+
+export function getApplicabilityValidation(code: string) {
+  return api.get<ApplicabilityValidation>(`/benchmarks/catalogue/${code}/applicability-validation`);
 }

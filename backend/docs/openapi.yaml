@@ -2080,6 +2080,44 @@ paths:
       responses:
         '200':
           description: No response body
+  /api/v1/benchmarks/catalogue/{benchmark_code}/applicability-validation:
+    get:
+      operationId: v1_benchmarks_catalogue_applicability_validation_retrieve
+      description: |-
+        GET /benchmarks/catalogue/<code>/applicability-validation -- the saved rules run against every
+        supported institution profile (read-only; services/release_gates.py).
+      parameters:
+      - in: path
+        name: benchmark_code
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/benchmarks/catalogue/{benchmark_code}/applicability-validation/:
+    get:
+      operationId: v1_benchmarks_catalogue_applicability_validation_retrieve_2
+      description: |-
+        GET /benchmarks/catalogue/<code>/applicability-validation -- the saved rules run against every
+        supported institution profile (read-only; services/release_gates.py).
+      parameters:
+      - in: path
+        name: benchmark_code
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
   /api/v1/benchmarks/catalogue/{benchmark_code}/confirm:
     post:
       operationId: v1_benchmarks_catalogue_confirm_create
@@ -2651,7 +2689,8 @@ paths:
   /api/v1/benchmarks/releases:
     get:
       operationId: v1_benchmarks_releases_retrieve
-      description: GET /benchmarks/releases   POST {release_label, release_notes}
+      description: GET /benchmarks/releases   POST {release_label, release_notes,
+        requires_composite, prefill}
       tags:
       - v1
       security:
@@ -2661,7 +2700,8 @@ paths:
           description: No response body
     post:
       operationId: v1_benchmarks_releases_create
-      description: GET /benchmarks/releases   POST {release_label, release_notes}
+      description: GET /benchmarks/releases   POST {release_label, release_notes,
+        requires_composite, prefill}
       tags:
       - v1
       security:
@@ -2672,7 +2712,8 @@ paths:
   /api/v1/benchmarks/releases/:
     get:
       operationId: v1_benchmarks_releases_retrieve_2
-      description: GET /benchmarks/releases   POST {release_label, release_notes}
+      description: GET /benchmarks/releases   POST {release_label, release_notes,
+        requires_composite, prefill}
       tags:
       - v1
       security:
@@ -2682,7 +2723,8 @@ paths:
           description: No response body
     post:
       operationId: v1_benchmarks_releases_create_2
-      description: GET /benchmarks/releases   POST {release_label, release_notes}
+      description: GET /benchmarks/releases   POST {release_label, release_notes,
+        requires_composite, prefill}
       tags:
       - v1
       security:
@@ -2693,7 +2735,27 @@ paths:
   /api/v1/benchmarks/releases/{label}:
     get:
       operationId: v1_benchmarks_releases_retrieve_3
-      description: GET /benchmarks/releases/<label>
+      description: |-
+        GET   /benchmarks/releases/<label>
+        PATCH /benchmarks/releases/<label> {requires_composite} (draft only)
+      parameters:
+      - in: path
+        name: label
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: v1_benchmarks_releases_partial_update
+      description: |-
+        GET   /benchmarks/releases/<label>
+        PATCH /benchmarks/releases/<label> {requires_composite} (draft only)
       parameters:
       - in: path
         name: label
@@ -2710,7 +2772,27 @@ paths:
   /api/v1/benchmarks/releases/{label}/:
     get:
       operationId: v1_benchmarks_releases_retrieve_4
-      description: GET /benchmarks/releases/<label>
+      description: |-
+        GET   /benchmarks/releases/<label>
+        PATCH /benchmarks/releases/<label> {requires_composite} (draft only)
+      parameters:
+      - in: path
+        name: label
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: v1_benchmarks_releases_partial_update_2
+      description: |-
+        GET   /benchmarks/releases/<label>
+        PATCH /benchmarks/releases/<label> {requires_composite} (draft only)
       parameters:
       - in: path
         name: label
@@ -2727,7 +2809,7 @@ paths:
   /api/v1/benchmarks/releases/{label}/{action}:
     post:
       operationId: v1_benchmarks_releases_create_3
-      description: POST /benchmarks/releases/<label>/<submit|approve|publish|send-back>
+      description: POST /benchmarks/releases/<label>/<submit|approve|publish|send-back|prefill>
         {note}
       parameters:
       - in: path
@@ -2750,7 +2832,7 @@ paths:
   /api/v1/benchmarks/releases/{label}/{action}/:
     post:
       operationId: v1_benchmarks_releases_create_4
-      description: POST /benchmarks/releases/<label>/<submit|approve|publish|send-back>
+      description: POST /benchmarks/releases/<label>/<submit|approve|publish|send-back|prefill>
         {note}
       parameters:
       - in: path
@@ -4110,6 +4192,90 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/documents/{id}/confirm-category:
+    post:
+      operationId: v1_documents_confirm_category_create
+      description: |-
+        POST {"category": "<checklist slug>" | null}: a person settles the
+        document's category -- resolving "Needs review" / "Unclassified", or
+        overriding the AI. Sets classification_status (classified, or unclassified
+        for null) and ai_document_type, and records who and when; the AI's own
+        ai_confidence/ai_reasoning are kept as its last verdict. Reprocessing
+        leaves a confirmed category alone (ExtractionPipeline._apply_classification).
+        Who may: anyone but a viewer, in the document's institution -- the same as
+        editing it.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentCategoryConfirm'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DocumentCategoryConfirm'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentCategoryConfirm'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/v1/documents/{id}/confirm-category/:
+    post:
+      operationId: v1_documents_confirm_category_create_2
+      description: |-
+        POST {"category": "<checklist slug>" | null}: a person settles the
+        document's category -- resolving "Needs review" / "Unclassified", or
+        overriding the AI. Sets classification_status (classified, or unclassified
+        for null) and ai_document_type, and records who and when; the AI's own
+        ai_confidence/ai_reasoning are kept as its last verdict. Reprocessing
+        leaves a confirmed category alone (ExtractionPipeline._apply_classification).
+        Who may: anyone but a viewer, in the document's institution -- the same as
+        editing it.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentCategoryConfirm'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DocumentCategoryConfirm'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentCategoryConfirm'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
   /api/v1/documents/{id}/download:
     get:
       operationId: v1_documents_download_retrieve
@@ -9381,6 +9547,18 @@ paths:
           description: No response body
 components:
   schemas:
+    AiqifMappingStatusEnum:
+      enum:
+      - pending
+      - mapped
+      - needs_review
+      - unmapped
+      type: string
+      description: |-
+        * `pending` - Not yet mapped
+        * `mapped` - Mapped
+        * `needs_review` - Needs review
+        * `unmapped` - Unmapped
     Baseline:
       type: object
       description: |-
@@ -9703,6 +9881,18 @@ components:
       required:
       - new_password
       - old_password
+    ClassificationStatusEnum:
+      enum:
+      - pending
+      - classified
+      - needs_review
+      - unclassified
+      type: string
+      description: |-
+        * `pending` - Not yet categorized
+        * `classified` - Classified
+        * `needs_review` - Needs review
+        * `unclassified` - Unclassified
     CollectionStatusEnum:
       enum:
       - to_find
@@ -9719,6 +9909,28 @@ components:
         * `blocked` - Blocked - portal/login
         * `licensed_link_only` - Licensed - link only
         * `not_available` - Not available
+    CriterionEnum:
+      enum:
+      - aiqif_c1
+      - aiqif_c2
+      - aiqif_c3
+      - aiqif_c4
+      - aiqif_c5
+      - aiqif_c6
+      - aiqif_c7
+      - aiqif_c8
+      - aiqif_c9
+      type: string
+      description: |-
+        * `aiqif_c1` - Institutional AI Strategy & Governance
+        * `aiqif_c2` - Responsible AI, Risk, Ethics & Compliance
+        * `aiqif_c3` - AI-Ready Curriculum & Learning
+        * `aiqif_c4` - Faculty & Institutional Workforce AI Capability
+        * `aiqif_c5` - Student AI Readiness, Skills & Employability
+        * `aiqif_c6` - AI Infrastructure, Data & Cybersecurity
+        * `aiqif_c7` - AI Research, Innovation & Ecosystem
+        * `aiqif_c8` - AI-Enabled Operations, Industry & Outcomes
+        * `aiqif_c9` - AI Assurance, Measurement & Continuous Improvement
     CurrentStepEnum:
       enum:
       - classifying_documents
@@ -9833,6 +10045,10 @@ components:
         document_type_label:
           type: string
           readOnly: true
+        document_type_source:
+          allOf:
+          - $ref: '#/components/schemas/DocumentTypeSourceEnum'
+          readOnly: true
         title:
           type: string
           maxLength: 255
@@ -9884,6 +10100,41 @@ components:
         processing_status:
           type: string
           maxLength: 100
+        classification_status:
+          allOf:
+          - $ref: '#/components/schemas/ClassificationStatusEnum'
+          readOnly: true
+        ai_document_type:
+          type: string
+          readOnly: true
+        ai_document_type_label:
+          type: string
+          readOnly: true
+        ai_confidence:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        ai_reasoning:
+          type: string
+          readOnly: true
+        classified_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        category_confirmed_by:
+          type: string
+          format: uuid
+          readOnly: true
+        category_confirmed_by_name:
+          type: string
+          readOnly: true
+        category_confirmed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
         uploaded_at:
           type: string
           format: date-time
@@ -9903,10 +10154,20 @@ components:
           format: date-time
           readOnly: true
       required:
+      - ai_confidence
+      - ai_document_type
+      - ai_document_type_label
+      - ai_reasoning
+      - category_confirmed_at
+      - category_confirmed_by
+      - category_confirmed_by_name
       - checksum
+      - classification_status
+      - classified_at
       - created_at
       - document_type
       - document_type_label
+      - document_type_source
       - download_url
       - file_size
       - file_size_display
@@ -9919,6 +10180,18 @@ components:
       - updated_at
       - uploaded_at
       - uploaded_by
+    DocumentCategoryConfirm:
+      type: object
+      description: |-
+        Request body for POST /documents/{id}/confirm-category: a checklist
+        slug (aliases tolerated, see normalize_checklist_type), or null for "not a
+        checklist document". The key is required, so an empty body isn't read as null.
+      properties:
+        category:
+          type: string
+          nullable: true
+      required:
+      - category
     DocumentStatusEnum:
       enum:
       - pending
@@ -9935,6 +10208,16 @@ components:
         * `processed` - Processed
         * `failed` - Failed
         * `rejected` - Rejected
+    DocumentTypeSourceEnum:
+      enum:
+      - uploader
+      - filename
+      - none
+      type: string
+      description: |-
+        * `uploader` - Chosen by uploader
+        * `filename` - Filename keyword match
+        * `none` - No type assigned
     DocumentUpload:
       type: object
       properties:
@@ -10201,6 +10484,15 @@ components:
           allOf:
           - $ref: '#/components/schemas/StatusD43Enum'
           readOnly: true
+        aiqif_mapping_status:
+          allOf:
+          - $ref: '#/components/schemas/AiqifMappingStatusEnum'
+          readOnly: true
+        aiqif_mappings:
+          type: array
+          items:
+            $ref: '#/components/schemas/FactAIQIFMapping'
+          readOnly: true
         reviewed_by:
           type: string
           format: uuid
@@ -10219,6 +10511,8 @@ components:
           format: date-time
           readOnly: true
       required:
+      - aiqif_mapping_status
+      - aiqif_mappings
       - audit_field_id
       - confidence
       - confidence_reason
@@ -10326,6 +10620,15 @@ components:
           allOf:
           - $ref: '#/components/schemas/StatusD43Enum'
           readOnly: true
+        aiqif_mapping_status:
+          allOf:
+          - $ref: '#/components/schemas/AiqifMappingStatusEnum'
+          readOnly: true
+        aiqif_mappings:
+          type: array
+          items:
+            $ref: '#/components/schemas/FactAIQIFMapping'
+          readOnly: true
         reviewed_by:
           type: string
           format: uuid
@@ -10349,6 +10652,8 @@ components:
             $ref: '#/components/schemas/FactReviewHistory'
           readOnly: true
       required:
+      - aiqif_mapping_status
+      - aiqif_mappings
       - audit_field_id
       - confidence
       - confidence_reason
@@ -10493,6 +10798,57 @@ components:
         * `running` - Drafting requirements
         * `done` - Drafts ready for review
         * `failed` - Failed
+    FactAIQIFMapping:
+      type: object
+      description: |-
+        One AI-QIF category tag on a fact, with the framework's own code and
+        name for its criterion and indicator.
+      properties:
+        criterion:
+          allOf:
+          - $ref: '#/components/schemas/CriterionEnum'
+          readOnly: true
+        criterion_code:
+          type: string
+          readOnly: true
+        criterion_name:
+          type: string
+          readOnly: true
+        indicator_code:
+          allOf:
+          - $ref: '#/components/schemas/IndicatorCodeEnum'
+          readOnly: true
+        indicator_name:
+          type: string
+          readOnly: true
+        reason:
+          type: string
+          readOnly: true
+        confidence:
+          type: number
+          format: double
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/FactAIQIFMappingStatusEnum'
+          readOnly: true
+      required:
+      - confidence
+      - criterion
+      - criterion_code
+      - criterion_name
+      - indicator_code
+      - indicator_name
+      - reason
+      - status
+    FactAIQIFMappingStatusEnum:
+      enum:
+      - mapped
+      - needs_review
+      type: string
+      description: |-
+        * `mapped` - Mapped
+        * `needs_review` - Needs review
     FactConfirm:
       type: object
       description: |-
@@ -10799,6 +11155,82 @@ components:
         * `conflict` - Conflict
         * `stale_data` - Stale Data
         * `low_confidence` - Low Confidence
+    IndicatorCodeEnum:
+      enum:
+      - AIQIF-C1.1
+      - AIQIF-C1.2
+      - AIQIF-C1.3
+      - AIQIF-C1.4
+      - AIQIF-C2.1
+      - AIQIF-C2.2
+      - AIQIF-C2.3
+      - AIQIF-C2.4
+      - AIQIF-C3.1
+      - AIQIF-C3.2
+      - AIQIF-C3.3
+      - AIQIF-C3.4
+      - AIQIF-C4.1
+      - AIQIF-C4.2
+      - AIQIF-C4.3
+      - AIQIF-C4.4
+      - AIQIF-C5.1
+      - AIQIF-C5.2
+      - AIQIF-C5.3
+      - AIQIF-C5.4
+      - AIQIF-C6.1
+      - AIQIF-C6.2
+      - AIQIF-C6.3
+      - AIQIF-C6.4
+      - AIQIF-C7.1
+      - AIQIF-C7.2
+      - AIQIF-C7.3
+      - AIQIF-C7.4
+      - AIQIF-C8.1
+      - AIQIF-C8.2
+      - AIQIF-C8.3
+      - AIQIF-C8.4
+      - AIQIF-C9.1
+      - AIQIF-C9.2
+      - AIQIF-C9.3
+      - AIQIF-C9.4
+      type: string
+      description: |-
+        * `AIQIF-C1.1` - AIQIF-C1.1 AI Vision, Strategy & Portfolio
+        * `AIQIF-C1.2` - AIQIF-C1.2 AI Governance & Accountability
+        * `AIQIF-C1.3` - AIQIF-C1.3 AI Investment & Resource Planning
+        * `AIQIF-C1.4` - AIQIF-C1.4 AI Adoption, Change & Institutional Alignment
+        * `AIQIF-C2.1` - AIQIF-C2.1 Responsible AI Policy & Principles
+        * `AIQIF-C2.2` - AIQIF-C2.2 AI Risk, Privacy & Security Governance
+        * `AIQIF-C2.3` - AIQIF-C2.3 AI Model, Data & Lifecycle Governance
+        * `AIQIF-C2.4` - AIQIF-C2.4 Human Oversight, Ethics & AI Assurance
+        * `AIQIF-C3.1` - AIQIF-C3.1 AI Curriculum Integration & Programme Design
+        * `AIQIF-C3.2` - AIQIF-C3.2 AI Literacy Across Disciplines
+        * `AIQIF-C3.3` - AIQIF-C3.3 AI-Enabled Pedagogy & Assessment
+        * `AIQIF-C3.4` - AIQIF-C3.4 Experiential, Project & Applied AI Learning
+        * `AIQIF-C4.1` - AIQIF-C4.1 Faculty AI Literacy & Awareness
+        * `AIQIF-C4.2` - AIQIF-C4.2 Role-Based Faculty AI Capability
+        * `AIQIF-C4.3` - AIQIF-C4.3 AI-Enabled Teaching, Research & Academic Practice
+        * `AIQIF-C4.4` - AIQIF-C4.4 Staff AI Capability, FDP & Change Enablement
+        * `AIQIF-C5.1` - AIQIF-C5.1 Universal Student AI Literacy
+        * `AIQIF-C5.2` - AIQIF-C5.2 Advanced & Role-Specific AI Skills
+        * `AIQIF-C5.3` - AIQIF-C5.3 Student AI Projects, Portfolio & Practice
+        * `AIQIF-C5.4` - AIQIF-C5.4 AI Employability, Internships & Career Outcomes
+        * `AIQIF-C6.1` - AIQIF-C6.1 AI Compute, Cloud & Platform Readiness
+        * `AIQIF-C6.2` - AIQIF-C6.2 Institutional Data Readiness
+        * `AIQIF-C6.3` - AIQIF-C6.3 AI Cybersecurity & Resilience
+        * `AIQIF-C6.4` - AIQIF-C6.4 AI Labs, Digital Learning Environment & Accessibility
+        * `AIQIF-C7.1` - AIQIF-C7.1 AI Research Capability & Agenda
+        * `AIQIF-C7.2` - AIQIF-C7.2 AI Centres of Excellence & Innovation
+        * `AIQIF-C7.3` - AIQIF-C7.3 AI Funding, IP & Entrepreneurship
+        * `AIQIF-C7.4` - AIQIF-C7.4 AI Collaboration, Knowledge Transfer & Societal Impact
+        * `AIQIF-C8.1` - AIQIF-C8.1 AI-Enabled Institutional Operations & Services
+        * `AIQIF-C8.2` - AIQIF-C8.2 Industry Integration & AI Partnerships
+        * `AIQIF-C8.3` - AIQIF-C8.3 AI Entrepreneurship, Placement & Workforce Outcomes
+        * `AIQIF-C8.4` - AIQIF-C8.4 Measured AI Business/Educational Outcomes
+        * `AIQIF-C9.1` - AIQIF-C9.1 AI Readiness Measurement & CRI
+        * `AIQIF-C9.2` - AIQIF-C9.2 Evidence, Traceability & Auditability
+        * `AIQIF-C9.3` - AIQIF-C9.3 Benchmark Evolution & AI Readiness Drift
+        * `AIQIF-C9.4` - AIQIF-C9.4 Outcome Learning, UAT & Continuous Improvement
     Institution:
       type: object
       properties:
@@ -11564,6 +11996,10 @@ components:
         document_type_label:
           type: string
           readOnly: true
+        document_type_source:
+          allOf:
+          - $ref: '#/components/schemas/DocumentTypeSourceEnum'
+          readOnly: true
         title:
           type: string
           maxLength: 255
@@ -11615,6 +12051,41 @@ components:
         processing_status:
           type: string
           maxLength: 100
+        classification_status:
+          allOf:
+          - $ref: '#/components/schemas/ClassificationStatusEnum'
+          readOnly: true
+        ai_document_type:
+          type: string
+          readOnly: true
+        ai_document_type_label:
+          type: string
+          readOnly: true
+        ai_confidence:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        ai_reasoning:
+          type: string
+          readOnly: true
+        classified_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        category_confirmed_by:
+          type: string
+          format: uuid
+          readOnly: true
+        category_confirmed_by_name:
+          type: string
+          readOnly: true
+        category_confirmed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
         uploaded_at:
           type: string
           format: date-time

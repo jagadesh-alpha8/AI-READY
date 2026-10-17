@@ -145,6 +145,9 @@ def readiness(benchmark):
                       .values_list('requirement_id', flat=True))
     reqs_with_rules = set(EvidenceRule.objects.filter(requirement_id__in=primary_ids)
                           .values_list('requirement_id', flat=True))
+    from .release_gates import applicability_detail, score_rule_status, validate_applicability
+    applic_check = validate_applicability(benchmark)
+    scoring_ok, scoring_detail = score_rule_status(benchmark)
     checks = [
         ('levels', 'L3, L2 and L1 written for this benchmark', 'required', len(defined) == 3,
          f'{len(defined)}/3 defined' + ('' if len(defined) == 3 else ' (others are placeholders)')),
@@ -162,11 +165,14 @@ def readiness(benchmark):
          ', '.join(f'{lv}: {n}' for lv, n in coverage.items())),
         ('requirement_evidence', 'Evidence rules on each primary requirement', 'recommended',
          primary_ids.issubset(reqs_with_rules), f'{len(primary_ids & reqs_with_rules)}/{len(primary_ids)} covered'),
-        ('confirmed', 'Content confirmed by InGage', 'recommended', _confirmation_ok(benchmark),
+        ('applicability_coverage', 'Applicability rules checked against every supported profile', 'recommended',
+         applic_check['ok'], applicability_detail(applic_check)),
+        # Scoring weights are human-approved per benchmark; a release that needs a composite score
+        # turns this into a blocker (services/releases.py check_release).
+        ('scoring', 'Approved scoring weights (composite score)', 'recommended', scoring_ok, scoring_detail),
+        # Required: an InGage reviewer confirms the content before the release can be submitted.
+        ('confirmed', 'Content confirmed by an InGage reviewer', 'required', _confirmation_ok(benchmark),
          _confirmation_detail(benchmark)),
-        ('scoring', 'Scoring rules and weight (release stage)', 'pending', False,
-         f'provisional weight {benchmark.weight} of 1000; scoring rules not built yet' if benchmark.weight is not None
-         else 'not built yet'),
     ]
     items = [{'key': k, 'label': lbl, 'severity': sev, 'ok': ok, 'detail': det} for k, lbl, sev, ok, det in checks]
     return {'ready_for_review': all(i['ok'] for i in items if i['severity'] == 'required'), 'checks': items}

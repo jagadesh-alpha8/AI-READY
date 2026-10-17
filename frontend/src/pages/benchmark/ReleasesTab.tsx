@@ -3,9 +3,11 @@ import { CheckCircle2, Lock, Plus, Send, Trash2, Undo2 } from 'lucide-react';
 
 import {
   addReleaseItem, createRelease, getRelease, getReleaseDiff, listCatalogue, listReleases, releaseAction,
-  removeReleaseItem,
+  removeReleaseItem, setReleaseRequiresComposite,
 } from '../../api/benchmarks';
-import type { BenchmarkReleaseInfo, CatalogueBenchmark, ReleaseDetail, ReleaseDiffRow, ReleaseStatus } from '../../api/benchmarks';
+import type {
+  BenchmarkReleaseInfo, CatalogueBenchmark, ReleaseDetail, ReleaseDiffRow, ReleaseEligibilityRow, ReleaseStatus,
+} from '../../api/benchmarks';
 import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage } from '../../utils/errors';
@@ -29,13 +31,15 @@ export const ReleasesTab: React.FC = () => {
   const [open, setOpen] = useState<string | null>(null);
   const [label, setLabel] = useState('');
   const [notes, setNotes] = useState('');
+  const [prefill, setPrefill] = useState(true);
+  const [needsComposite, setNeedsComposite] = useState(false);
   const [err, setErr] = useState('');
   const inProgress = (list.data || []).find((r) => !['published', 'retired'].includes(r.status));
 
   const create = async () => {
     setErr('');
     try {
-      const r = await createRelease({ release_label: label, release_notes: notes });
+      const r = await createRelease({ release_label: label, release_notes: notes, prefill, requires_composite: needsComposite });
       setLabel(''); setNotes(''); list.refetch(); setOpen(r.data.release_label);
     } catch (e) { setErr(getErrorMessage(e)); }
   };
@@ -70,7 +74,21 @@ export const ReleasesTab: React.FC = () => {
             <input className="input text-xs" placeholder="Release notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
             <button className="btn-primary btn-sm" disabled={!label.trim()} onClick={create}><Plus className="w-3.5 h-3.5" /> Create</button>
           </div>
-          <p className="text-ink-500">A new release starts with every benchmark of the current release, marked unchanged.</p>
+          <div className="flex flex-wrap gap-x-5 gap-y-1">
+            <label className="flex items-center gap-1.5 text-ink-700">
+              <input type="checkbox" checked={prefill} onChange={(e) => setPrefill(e.target.checked)} />
+              Include all ready draft benchmarks
+            </label>
+            <label className="flex items-center gap-1.5 text-ink-700">
+              <input type="checkbox" checked={needsComposite} onChange={(e) => setNeedsComposite(e.target.checked)} />
+              Assessments need a composite score (every benchmark must have approved scoring weights)
+            </label>
+          </div>
+          <p className="text-ink-500">
+            A later release starts with every benchmark of the current release, marked unchanged. "Include all ready"
+            adds every draft benchmark whose required checks pass (including a reviewer's confirmation); the others are
+            listed with what they still need.
+          </p>
         </div>
       )}
       {err && <InlineError message={err} onDismiss={() => setErr('')} />}
@@ -115,12 +133,21 @@ const ReleasePanel: React.FC<{ label: string; onChanged: () => void }> = ({ labe
       </p>
 
       {r.problems.length > 0 && (
-        <div className="rounded-lg border border-warning-line bg-warning-bg p-2 space-y-0.5">
-          <p className="font-bold text-ink-900">Not ready yet</p>
+        <div className="rounded-lg border border-danger-line bg-danger-bg p-2 space-y-0.5">
+          <p className="font-bold text-danger">Blocks submission ({r.problems.length})</p>
           {r.problems.map((p) => <p key={p} className="text-ink-700">• {p}</p>)}
         </div>
       )}
-      {r.warnings.map((w) => <p key={w} className="text-warning">{w}</p>)}
+      {r.warnings.length > 0 && (
+        <div className="rounded-lg border border-warning-line bg-warning-bg p-2 space-y-0.5">
+          <p className="font-bold text-ink-900">Warnings (do not block submission)</p>
+          {r.warnings.map((w) => <p key={w} className="text-ink-700">• {w}</p>)}
+        </div>
+      )}
+      {r.scoring && <ScoringPanel r={r} onChange={(v) => act('composite', () => setReleaseRequiresComposite(label, v))} busy={!!busy} />}
+      {r.eligibility && (
+        <EligibilityTable rows={r.eligibility} busy={!!busy} onPrefill={() => act('prefill', () => releaseAction(label, 'prefill'))} />
+      )}
 
       <div className="space-y-1">
         {r.items.map((i) => (
@@ -201,3 +228,72 @@ const ReleasePanel: React.FC<{ label: string; onChanged: () => void }> = ({ labe
     </div>
   );
 };
+
+/** Can every included benchmark produce a composite score? Weights are approved by people (per benchmark). */
+const ScoringPanel: React.FC<{ r: ReleaseDetail; onChange: (v: boolean) => void; busy: boolean }> = ({ r, onChange, busy }) => {
+  const s = r.scoring!;
+  return (
+    <div className={`rounded-lg border p-2 space-y-1 ${s.fully_scoreable ? 'border-line-200 bg-surface' : 'border-warning-line bg-warning-bg'}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="font-bold text-ink-900 flex-1 min-w-0">
+          Scoring: {s.fully_scoreable ? 'every benchmark can produce a composite score' : `${s.missing.length} benchmark(s) cannot produce a composite score`}
+          {s.scoring_model ? ` (model ${s.scoring_model})` : ' (no active scoring model)'}
+        </p>
+        <label className="flex items-center gap-1.5 text-ink-700">
+          <input type="checkbox" checked={s.requires_composite} disabled={r.status !== 'draft' || busy}
+            onChange={(e) => onChange(e.target.checked)} />
+          Assessments need a composite score
+        </label>
+      </div>
+      {s.missing.length > 0 && (
+        <p className="text-ink-700">
+          {s.requires_composite ? 'Blocks submission: ' : 'Shown, not blocking: '}
+          {s.missing.map((m) => `${m.benchmark_code} (${m.detail})`).join('; ')}.
+          {' '}Approve each benchmark's weights in Levels &rsaquo; Composite weights.
+        </p>
+      )}
+    </div>
+  );
+};
+
+/** Draft releases: which draft benchmarks are in, which are left out, and why. */
+const EligibilityTable: React.FC<{ rows: ReleaseEligibilityRow[]; busy: boolean; onPrefill: () => void }> = ({ rows, busy, onPrefill }) => {
+  const [showAll, setShowAll] = useState(false);
+  const readyOut = rows.filter((r) => r.ready && !r.included).length;
+  const included = rows.filter((r) => r.included).length;
+  const shown = showAll ? rows : rows.filter((r) => !r.included);
+  if (rows.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="font-bold text-ink-900 flex-1">
+          Draft benchmarks: {included} included · {rows.length - included} not included{readyOut ? ` (${readyOut} ready)` : ''}
+        </p>
+        <button className="btn-secondary btn-sm" disabled={busy || readyOut === 0} onClick={onPrefill}
+          title={readyOut ? 'Add every ready draft benchmark that is not in this release yet' : 'No ready benchmark is left out'}>
+          <Plus className="w-3.5 h-3.5" /> Add all ready ({readyOut})
+        </button>
+        <button className="btn-secondary btn-sm" onClick={() => setShowAll(!showAll)}>{showAll ? 'Only not included' : 'Show all'}</button>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-line-200">
+        <table className="w-full text-left">
+          <thead className="bg-surface text-ink-500">
+            <tr><th className="px-2 py-1">Benchmark</th><th className="px-2 py-1">In release</th><th className="px-2 py-1">Readiness</th></tr>
+          </thead>
+          <tbody>
+            {shown.map((r) => (
+              <tr key={r.code} className="border-t border-line-100 align-top">
+                <td className="px-2 py-1"><span className="font-mono text-ink-500 mr-1">{r.code}</span>{r.title}</td>
+                <td className="px-2 py-1 whitespace-nowrap">{r.included ? <span className="badge badge-success">included</span> : <span className="badge badge-neutral">not included</span>}</td>
+                <td className="px-2 py-1">{r.ready ? <span className="text-success">ready</span>
+                  : <span className="text-danger">needs: {r.missing.join('; ')}</span>}</td>
+              </tr>
+            ))}
+            {shown.length === 0 && <tr><td colSpan={3} className="px-2 py-2 text-ink-500">Every draft benchmark is included.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+

@@ -4,7 +4,9 @@ Confirmation is a sign-off on what the draft says right now. It is separate from
 a confirmed draft is still a draft, and it reaches assessments only when a release that
 includes it is published (services/releases.py) -- nothing here touches releases.
 
-- Only drafts, and only once the release checklist's required items pass.
+- Only drafts, and only once the release checklist's other required items pass. Confirmation is
+  itself a required item, so a release cannot be submitted with an unconfirmed benchmark.
+- Only an active InGage reviewer (super admin / consultant) can confirm -- never a system account.
 - What was confirmed is fingerprinted (the same frozen snapshot a release would take). If the
   benchmark is edited afterwards -- levels, evidence or applicability rules, requirement links,
   owner, target -- it shows "changed since confirmed" until someone confirms it again.
@@ -54,8 +56,11 @@ def _current(benchmark):
 def confirm(benchmark, user, note=''):
     if benchmark.status != Benchmark.Status.DRAFT:
         raise ConfirmationError(f'{benchmark.benchmark_code} is {benchmark.status}; only a draft can be confirmed.')
+    from apps.accounts.models import User
+    if not (user and user.is_active and user.role in User.CROSS_INSTITUTION_ROLES):
+        raise ConfirmationError('Only an active InGage reviewer (super admin or consultant) can confirm a benchmark.')
     missing = [c['label'] for c in authoring.readiness(benchmark)['checks']
-               if c['severity'] == 'required' and not c['ok']]
+               if c['severity'] == 'required' and not c['ok'] and c['key'] != 'confirmed']
     if missing:
         raise ConfirmationError('Finish these before confirming: ' + '; '.join(missing) + '.')
     with transaction.atomic():

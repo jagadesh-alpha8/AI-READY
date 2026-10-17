@@ -600,10 +600,18 @@ def _release(label):
 
 
 def _release_payload(release):
-    problems, warnings = release_svc.check_release(release) if release.status in ('draft', 'review', 'approved') else ([], [])
+    open_release = release.status in ('draft', 'review', 'approved')
+    problems, warnings = release_svc.check_release(release) if open_release else ([], [])
     items = release.items.select_related('benchmark__pillar')
-    return {**ReleaseSerializer(release).data, 'items': ReleaseItemSerializer(items, many=True).data,
-            'problems': problems, 'warnings': warnings}
+    payload = {**ReleaseSerializer(release).data, 'items': ReleaseItemSerializer(items, many=True).data,
+               'problems': problems, 'warnings': warnings,
+               'scoring': release_svc.scoring_summary(release) if open_release else None,
+               'eligibility': None}
+    if release.status == 'draft':
+        # Included and omitted draft benchmarks, with what keeps an omitted one out.
+        payload['eligibility'] = [{k: v for k, v in row.items() if k != 'benchmark'}
+                                  for row in release_svc.eligibility(release)]
+    return payload
 
 
 def _release_error(exc):
@@ -611,7 +619,7 @@ def _release_error(exc):
 
 
 class ReleaseListView(APIView):
-    """GET /benchmarks/releases   POST {release_label, release_notes}"""
+    """GET /benchmarks/releases   POST {release_label, release_notes, requires_composite, prefill}"""
     permission_classes = [IsInGageStaff]
 
     def get(self, request):
@@ -620,7 +628,9 @@ class ReleaseListView(APIView):
     def post(self, request):
         try:
             release = release_svc.create_release(request.data.get('release_label'), request.user,
-                                                 request.data.get('release_notes', ''))
+                                                 request.data.get('release_notes', ''),
+                                                 requires_composite=str(request.data.get('requires_composite', '')).lower() in ('1', 'true', 'yes', 'on'),
+                                                 prefill_ready=str(request.data.get('prefill', '')).lower() in ('1', 'true', 'yes', 'on'))
         except release_svc.ReleaseError as exc:
             return _release_error(exc)
         return Response(_release_payload(release), status=status.HTTP_201_CREATED)
@@ -638,11 +648,22 @@ class CurrentReleaseView(APIView):
 
 
 class ReleaseDetailView(APIView):
-    """GET /benchmarks/releases/<label>"""
+    """GET   /benchmarks/releases/<label>
+       PATCH /benchmarks/releases/<label> {requires_composite} (draft only)"""
     permission_classes = [IsInGageStaff]
 
     def get(self, request, label):
         return Response(_release_payload(_release(label)))
+
+    def patch(self, request, label):
+        release = _release(label)
+        if 'requires_composite' not in request.data:
+            return Response({'detail': 'Only requires_composite can be changed here.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            release_svc.set_requires_composite(release, request.user, str(request.data.get('requires_composite', '')).lower() in ('1', 'true', 'yes', 'on'))
+        except release_svc.ReleaseError as exc:
+            return _release_error(exc)
+        return Response(_release_payload(release))
 
 
 class ReleaseItemsView(APIView):
@@ -670,7 +691,7 @@ class ReleaseItemsView(APIView):
 
 
 class ReleaseActionView(APIView):
-    """POST /benchmarks/releases/<label>/<submit|approve|publish|send-back> {note}"""
+    """POST /benchmarks/releases/<label>/<submit|approve|publish|send-back|prefill> {note}"""
     permission_classes = [IsInGageStaff]
 
     def post(self, request, label, action):
@@ -685,6 +706,8 @@ class ReleaseActionView(APIView):
                 release_svc.publish(release, request.user)
             elif action == 'send-back':
                 release_svc.send_back(release, request.user, note)
+            elif action == 'prefill':
+                release_svc.prefill(release, request.user)
             else:
                 return Response({'detail': 'Unknown action.'}, status=status.HTTP_404_NOT_FOUND)
         except release_svc.ReleaseError as exc:
@@ -975,3 +998,13 @@ class BenchmarkConfirmView(APIView):
 class BenchmarkUnconfirmView(BenchmarkConfirmView):
     def post(self, request, benchmark_code):
         return super().post(request, benchmark_code, action='unconfirm')
+
+
+class BenchmarkApplicabilityValidationView(APIView):
+    """GET /benchmarks/catalogue/<code>/applicability-validation -- the saved rules run against every
+    supported institution profile (read-only; services/release_gates.py)."""
+    permission_classes = [IsInGageStaff]
+
+    def get(self, request, benchmark_code):
+        from .services.release_gates import validate_applicability
+        return Response(validate_applicability(get_object_or_404(Benchmark, benchmark_code=benchmark_code)))

@@ -806,7 +806,9 @@ class AuthoringTests(_CataloguePack, TestCase):
         checks = {c['key']: c for c in r['checks']}
         self.assertFalse(r['ready_for_review'])
         self.assertEqual(checks['levels']['detail'], '0/3 defined (others are placeholders)')
-        self.assertEqual(checks['scoring']['severity'], 'pending')
+        self.assertEqual((checks['scoring']['severity'], checks['scoring']['ok']), ('recommended', False))
+        self.assertIn('no approved weights', checks['scoring']['detail'])
+        self.assertEqual((checks['confirmed']['severity'], checks['confirmed']['ok']), ('required', False))
         for lvl, text in (('L3', REAL_L3), ('L2', REAL_L2), ('L1', REAL_L1)):
             authoring.save_level(self.aca, lvl, self.user, {'definition': text})
         checks = {c['key']: c for c in authoring.readiness(self.aca)['checks']}
@@ -1081,13 +1083,22 @@ from .models import BenchmarkRelease, BenchmarkReleaseItem  # noqa: E402
 from .services import releases  # noqa: E402
 
 
+def confirm_current(benchmark, user):
+    """An InGage reviewer confirms the benchmark's current content (required before release submission)."""
+    from .services import confirmation
+    if confirmation.state(benchmark) != confirmation.CONFIRMED:
+        confirmation.confirm(benchmark, user)
+
+
 def make_ready(benchmark, user, requirement):
-    """Everything readiness requires: 3 levels, an evidence rule, an applicability rule, a primary requirement."""
+    """Everything readiness requires: 3 levels, an evidence rule, an applicability rule, a primary
+    requirement, and a reviewer's confirmation of that content."""
     for lvl, text in (('L3', REAL_L3), ('L2', REAL_L2), ('L1', REAL_L1)):
         authoring.save_level(benchmark, lvl, user, {'definition': text})
     evidence_rules.create_rule(user, RULE, benchmark=benchmark)
     applicability.create_rule(user, {'result': 'applies', 'institution_types': ['engineering']}, benchmark=benchmark)
     linking.link(benchmark, requirement, user, relationship='primary')
+    confirm_current(benchmark, user)
 
 
 class ReleaseTests(_LinkFixture, TestCase):
@@ -1174,6 +1185,9 @@ class ReleaseTests(_LinkFixture, TestCase):
         self.assertEqual(second.items.get(benchmark=self.aca).change_type, 'updated')
         changes = {d['benchmark_code']: d for d in releases.diff(second)}
         self.assertEqual((changes['ACA-05']['changed'], changes['GOV-01']['change_type']), (['levels'], 'added'))
+        with self.assertRaisesMessage(releases.ReleaseError, 'Not ready'):
+            releases.submit(second, self.user)  # the reopened version has not been confirmed yet
+        confirm_current(self.aca, self.user)
         releases.submit(second, self.user)
         releases.approve(second, self.approver)
         releases.publish(second, self.approver)
@@ -1752,7 +1766,10 @@ class AiDraftingTests(TestCase):
         self.assertEqual(EvidenceRule.objects.filter(benchmark=self.b, ai_model='fake-model-1').count(), 4)
         self.assertEqual(ApplicabilityRule.objects.filter(benchmark=self.b, ai_model='fake-model-1').count(), 1)
         self.assertEqual(self.b.expert_owner, 'AI (auto) - fake-model-1')
-        self.assertTrue(_authoring.readiness(self.b)['ready_for_review'])
+        # Complete except for the reviewer's confirmation, which AI never gives.
+        r = _authoring.readiness(self.b)
+        self.assertEqual([c['key'] for c in r['checks'] if c['severity'] == 'required' and not c['ok']], ['confirmed'])
+        self.assertFalse(r['ready_for_review'])
         # The AI was given the real catalogues and the indicator.
         prompt = ai.calls[0]['user_content']
         self.assertIn('AIQIF-C1.1', prompt)
@@ -1994,7 +2011,7 @@ class BenchmarkConfirmationTests(APITestCase):
         self.assertIsNone(_releases.current_release())
         check = {c['key']: c for c in _authoring.readiness(self.b)['checks']}['confirmed']
         self.assertTrue(check['ok'])
-        self.assertEqual(check['severity'], 'recommended')
+        self.assertEqual(check['severity'], 'required')
 
     def test_an_edit_after_confirming_needs_a_new_confirmation(self):
         _confirmation.confirm(self.b, self.staff)
@@ -2072,3 +2089,133 @@ class TidyApplicabilityTests(AiDraftingFixTests):
         nothing_recorded = evaluate(rules, Profile('engineering'))
         self.assertEqual(nothing_recorded.result, 'applies')
         self.assertEqual(evaluate(rules, Profile('iti')).result, 'requires_review')
+
+
+# -- release gates: confirmation, scoring weights, applicability validation, prefill ----------
+
+from decimal import Decimal as _D  # noqa: E402
+
+from rest_framework.test import APIClient as _APIClient  # noqa: E402
+
+from .services import confirmation as _conf  # noqa: E402
+from .services.release_gates import score_rule_status, validate_applicability  # noqa: E402
+
+
+def _approve_weights(benchmark, user, weights=('0.25', '0.25', '0.25', '0.25')):
+    from apps.assessments.models import BenchmarkScoreRule, ScoringModel
+    from django.utils import timezone
+    model = ScoringModel.objects.get(active=True)
+    c, m, e, o = (_D(w) for w in weights)
+    return BenchmarkScoreRule.objects.create(benchmark=benchmark, scoring_model=model, compliance_weight=c,
+                                             maturity_weight=m, evidence_weight=e, outcome_weight=o,
+                                             approved_by=user, approved_at=timezone.now())
+
+
+class ReleaseGateTests(_LinkFixture, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.aca = Benchmark.objects.get(benchmark_code='ACA-05')
+        self.gov = Benchmark.objects.get(benchmark_code='GOV-01')
+
+    # confirmation is a required, human step
+    def test_only_an_active_ingage_reviewer_can_confirm(self):
+        for lvl, text in (('L3', REAL_L3), ('L2', REAL_L2), ('L1', REAL_L1)):
+            authoring.save_level(self.aca, lvl, self.user, {'definition': text})
+        evidence_rules.create_rule(self.user, RULE, benchmark=self.aca)
+        applicability.create_rule(self.user, {'result': 'applies'}, benchmark=self.aca)
+        linking.link(self.aca, self.req, self.user, relationship='primary')
+        college = User.objects.create_user(email='p@c.edu', username='pc', password=PASSWORD, role='institution_admin')
+        system = User.objects.create_user(email='bot@system.ingage.local', username='bot', password=PASSWORD,
+                                          role='consultant', is_active=False)
+        for who in (college, system):
+            with self.assertRaisesMessage(_conf.ConfirmationError, 'InGage reviewer'):
+                _conf.confirm(self.aca, who)
+        rel = releases.create_release('Release 1.0', self.user)
+        releases.add_item(rel, self.aca, self.user)
+        with self.assertRaises(releases.ReleaseError) as ctx:
+            releases.submit(rel, self.user)
+        self.assertIn('Content confirmed by an InGage reviewer', ctx.exception.problems[0])
+        _conf.confirm(self.aca, self.user)
+        releases.submit(rel, self.user)
+
+    # scoring weights
+    def test_composite_release_is_blocked_without_approved_weights(self):
+        make_ready(self.aca, self.user, self.req)
+        rel = releases.create_release('Release 1.0', self.user, requires_composite=True)
+        releases.add_item(rel, self.aca, self.user)
+        with self.assertRaises(releases.ReleaseError) as ctx:
+            releases.submit(rel, self.user)
+        self.assertIn('ACA-05: no approved weights for BM-SCORE-1 - this release needs a composite score',
+                      ctx.exception.problems)
+        _approve_weights(self.aca, self.user)
+        self.assertTrue(score_rule_status(self.aca)[0])
+        self.assertTrue(releases.scoring_summary(rel)['fully_scoreable'])
+        releases.submit(rel, self.user)
+
+    def test_without_composite_it_warns_not_fully_scoreable(self):
+        make_ready(self.aca, self.user, self.req)
+        rel = releases.create_release('Release 1.0', self.user)
+        releases.add_item(rel, self.aca, self.user)
+        warnings = releases.submit(rel, self.user)
+        self.assertTrue(any(w.startswith('Not fully scoreable') and 'ACA-05' in w for w in warnings))
+        self.assertTrue(any(w.startswith('Pilot size (guidance only, does not block submission)') for w in warnings))
+
+    def test_weights_not_adding_up_to_one_are_not_valid(self):
+        _approve_weights(self.aca, self.user, ('0.5', '0.5', '0.5', '0'))
+        ok, detail = score_rule_status(self.aca)
+        self.assertFalse(ok)
+        self.assertIn('add up to 1.5000, not 1', detail)
+
+    # applicability validation
+    def test_validation_finds_overridden_rules_and_unmatched_profiles(self):
+        self.assertFalse(validate_applicability(self.aca)['has_rules'])
+        applicability.create_rule(self.user, {'result': 'applies', 'priority': 10,
+                                              'institution_types': ['engineering', 'polytechnic']}, benchmark=self.aca)
+        applicability.create_rule(self.user, {'result': 'requires_review', 'priority': 20,
+                                              'institution_types': ['polytechnic']}, benchmark=self.aca)
+        v = validate_applicability(self.aca)
+        rules = {r['priority']: r for r in v['rules']}
+        self.assertEqual(rules[20]['decides'], 0)
+        self.assertIn('always overridden by earlier rule(s) #10', rules[20]['note'])
+        self.assertFalse(v['ok'])
+        self.assertIn('arts_science', v['unmatched']['by_institution_type'])  # matches no rule -> does not apply
+        self.assertIsNone(v['requires_review'])
+        check = {c['key']: c for c in authoring.readiness(self.aca)['checks']}['applicability_coverage']
+        self.assertEqual((check['severity'], check['ok']), ('recommended', False))
+
+    def test_validation_reports_requires_review_profiles(self):
+        applicability.create_rule(self.user, {'result': 'requires_review', 'priority': 10,
+                                              'institution_types': ['iti']}, benchmark=self.aca)
+        applicability.create_rule(self.user, {'result': 'applies', 'priority': 20}, benchmark=self.aca)
+        v = validate_applicability(self.aca)
+        self.assertTrue(v['ok'])
+        self.assertEqual(list(v['requires_review']['by_institution_type']), ['iti'])
+        self.assertIsNone(v['unmatched'])
+
+    # prefill
+    def test_prefill_adds_only_ready_benchmarks_once_and_lists_the_rest(self):
+        make_ready(self.aca, self.user, self.req)
+        rel = releases.create_release('Release 1.0', self.user, prefill_ready=True)
+        self.assertEqual(list(rel.items.values_list('benchmark__benchmark_code', flat=True)), ['ACA-05'])
+        releases.prefill(rel, self.user)  # again: nothing duplicated
+        self.assertEqual(rel.items.count(), 1)
+        rows = {r['code']: r for r in releases.eligibility(rel)}
+        self.assertTrue(rows['ACA-05']['included'])
+        self.assertFalse(rows['GOV-01']['included'])
+        self.assertIn('L3, L2 and L1 written for this benchmark', rows['GOV-01']['missing'])
+
+    def test_api_create_with_options_patch_and_validation(self):
+        make_ready(self.aca, self.user, self.req)
+        client = _APIClient()
+        client.force_authenticate(self.user)
+        r = client.post('/api/v1/benchmarks/releases', {'release_label': 'Release 1.0', 'prefill': True,
+                                                         'requires_composite': True}, format='json')
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual((r.data['requires_composite'], r.data['item_count']), (True, 1))
+        self.assertEqual(r.data['scoring']['missing'][0]['benchmark_code'], 'ACA-05')
+        self.assertTrue(any(row['code'] == 'GOV-01' and not row['included'] for row in r.data['eligibility']))
+        p = client.patch('/api/v1/benchmarks/releases/Release%201.0', {'requires_composite': False}, format='json')
+        self.assertEqual((p.status_code, p.data['requires_composite']), (200, False))
+        self.assertEqual(p.data['problems'], [])
+        v = client.get('/api/v1/benchmarks/catalogue/ACA-05/applicability-validation')
+        self.assertEqual((v.status_code, v.data['has_rules']), (200, True))

@@ -11,6 +11,7 @@ import type {
 import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage } from '../../utils/errors';
+import { SourceUpdatesGuide } from './SourceUpdatesGuide';
 
 /**
  * Stage 4: the daily watcher. It checks the official pages people have turned on,
@@ -53,6 +54,7 @@ export const WatcherTab: React.FC = () => {
         changed — a new document, a removed document, or changed text. It never changes anything by itself:
         each change waits here for a person to decide.
       </p>
+      <SourceUpdatesGuide current="watcher" />
       {summary.loading && <LoadingState message="Loading watcher…" />}
       {summary.error && <ErrorState message={summary.error} onRetry={summary.refetch} />}
       {s && (
@@ -76,10 +78,24 @@ export const WatcherTab: React.FC = () => {
           </div>
         </div>
       )}
+      {s && s.feeds === 0 && (
+        <div className="rounded-lg border border-warning-line bg-warning-bg p-3 text-xs text-ink-700">
+          <strong>No source pages are set up yet.</strong> Watched pages come from the Source Register's "Watch Feeds"
+          sheet (import_source_register). Until there is at least one, the watcher has nothing to check.
+        </div>
+      )}
+      {s && s.feeds > 0 && s.feeds_enabled === 0 && (
+        <div className="rounded-lg border border-warning-line bg-warning-bg p-3 text-xs text-ink-700">
+          <strong>{s.feeds} page(s) are set up, but none is turned on.</strong> Turn pages on in <em>Watched pages</em>;
+          only turned-on pages are checked.
+        </div>
+      )}
       {s && !s.schedule_enabled && (
-        <p className="text-xs text-ink-500">
-          The daily check is off on this server (WATCHER_ENABLED is not set). You can still check a page by hand below.
-        </p>
+        <div className="rounded-lg border border-line-200 bg-surface p-3 text-xs text-ink-700">
+          <strong>The daily check is off on this server</strong> (WATCHER_ENABLED is not set), so nothing is checked
+          automatically. To check by hand: turn a page on in <em>Watched pages</em>, then use <em>Check now</em> on that
+          page or <em>Check all now</em> above the list. New changes appear under <em>Changes</em>.
+        </div>
       )}
 
       <div className="flex flex-wrap items-center gap-2">

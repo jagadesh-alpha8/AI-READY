@@ -18,19 +18,21 @@ Re-run step 1 any time the sheet changes: drafts update in place, approved versi
 
 ## Confirming a draft benchmark
 
-Studio > Benchmark Library: open a draft and **Confirm** it (InGage staff; `services/confirmation.py`). It then
+Studio > Benchmark Library: open a draft and **Confirm** it (an active InGage reviewer -- super admin or
+consultant, never a system account; `services/confirmation.py`). It then
 shows **Confirmed** in the same list. Confirmation is a sign-off on the content, not a publish: the benchmark stays
 a draft and is used by assessments only once a release that includes it is published.
 
-- Only drafts whose release checklist has no missing required item can be confirmed.
+- Only drafts whose release checklist has no other missing required item can be confirmed.
 - The confirmed content is fingerprinted (the same snapshot a release freezes). Any later edit -- levels, rules,
   links, owner, target -- shows **Changed since confirmed** until it is confirmed again.
 - Withdrawing a confirmation needs a reason. Reopening a published benchmark as its next draft version starts
   unconfirmed.
 - Every confirmation / withdrawal is in the audit trail (`benchmark.confirmed`, `benchmark.confirmation_withdrawn`,
   with fingerprint, version, person, note), so earlier confirmations stay as history.
-- It is a *recommended* item on the release checklist, so it does not block a release. Source Library versions
-  keep their own approval; this does not apply to them.
+- It is a **required** item on the release checklist: a release cannot be submitted (and a submitted one cannot
+  be approved or published) while an added/updated benchmark is unconfirmed or changed since confirmation.
+  Source Library versions keep their own approval; this does not apply to them.
 
 ```
 POST /api/v1/benchmarks/catalogue/<code>/confirm    {note}
@@ -268,9 +270,9 @@ Studio > Releases. A release is a complete, versioned set of benchmarks (schema:
 
 | Step | Rule |
 |---|---|
-| Create | One release in progress at a time; starts with every benchmark of the current release as `unchanged` |
+| Create | One release in progress at a time; starts with every benchmark of the current release as `unchanged`. Options: **include all ready draft benchmarks** (`prefill`; adds every draft whose required checks pass, never twice) and **assessments need a composite score** (`requires_composite`) |
 | Add / retire | Draft benchmarks are `added` (or `updated` if published before); an active one can be `retired` |
-| Submit (draft -> review) | Every added/updated benchmark must pass all `required` readiness checks; first release warns outside 20-30 benchmarks |
+| Submit (draft -> review) | Every added/updated benchmark must pass all `required` readiness checks (including a reviewer's confirmation). With `requires_composite`, every included benchmark also needs valid approved scoring weights for the active scoring model. Warnings never block: pilot size (first release suggested 20-30; a 36-benchmark AI-QIF release is fine) and "not fully scoreable" when weights are missing without `requires_composite` |
 | Approve (review -> approved) | The approver must not be the submitter (four-eyes) |
 | Publish (approved -> published) | Freezes each item's snapshot (levels, evidence rules, applicability, requirements + quotes) with a SHA-256, plus a release hash; benchmarks become `active` (or `withdrawn`); the previous release becomes `retired` but is never changed |
 | Send back | review/approved -> draft, reason required |
@@ -280,13 +282,27 @@ While a benchmark is in a release under review or approved, every edit to it (le
 applicability, links) is refused -- what was approved is exactly what is published. Published items can never
 change. `GET /releases/current` is the only release new scorecards may use.
 
+A draft release's detail also returns `eligibility` (every draft benchmark: included or not, and the required
+checks it still fails) and `scoring` (`{requires_composite, scoring_model, missing, fully_scoreable}`). Composite
+weights are approved per benchmark by an InGage person in Studio > Levels > Composite weights (or on the
+assessment page); they must add up to 1 and need a note (`assessments.set_score_rule`, audited).
+
+Release checklist items added here (`services/release_gates.py`): **Approved scoring weights** (recommended; a
+blocker only for `requires_composite` releases) and **Applicability rules checked against every supported
+profile** (recommended): the saved rules are run against every institution type x status (or none) x programme
+(or none) x approval body (or none) and the result lists rules that never decide (overridden by an earlier
+rule), profiles no rule matches (so the benchmark does not apply to them) and profiles that end as "requires
+review". Shown in Levels > Applicability rules; rules stay human-authored.
+
 ```
-GET/POST /api/v1/benchmarks/releases                         {release_label, release_notes}
+GET/POST /api/v1/benchmarks/releases                         {release_label, release_notes, requires_composite, prefill}
 GET      /api/v1/benchmarks/releases/current
-GET      /api/v1/benchmarks/releases/<label>                  (+ problems, warnings)
+GET      /api/v1/benchmarks/releases/<label>                  (+ problems, warnings, scoring, eligibility)
+PATCH    /api/v1/benchmarks/releases/<label>                  {requires_composite}   (draft only)
 POST     /api/v1/benchmarks/releases/<label>/items            {benchmark_code, retire, impact_summary}
 DELETE   /api/v1/benchmarks/releases/<label>/items/<code>
-POST     /api/v1/benchmarks/releases/<label>/submit | approve | publish | send-back   {note}
+POST     /api/v1/benchmarks/releases/<label>/submit | approve | publish | send-back | prefill   {note}
+GET      /api/v1/benchmarks/catalogue/<code>/applicability-validation
 GET      /api/v1/benchmarks/releases/<label>/diff
 POST     /api/v1/benchmarks/catalogue/<code>/reopen           {reason}
 ```

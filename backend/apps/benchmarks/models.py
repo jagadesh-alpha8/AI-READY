@@ -674,6 +674,9 @@ class BenchmarkRelease(models.Model):
     release_label = models.CharField(max_length=40, unique=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     release_notes = models.TextField(blank=True)
+    #: Assessments on this release need a composite score, so every included benchmark must have
+    #: approved scoring weights for the active scoring model before the release can be submitted.
+    requires_composite = models.BooleanField(default=False)
     based_on = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
     created_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, related_name='+')
     submitted_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, blank=True, related_name='+')

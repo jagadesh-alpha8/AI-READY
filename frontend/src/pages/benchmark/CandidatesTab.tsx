@@ -9,6 +9,7 @@ import type { BenchmarkCandidateInfo, CandidateRole, CandidateStatus } from '../
 import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage } from '../../utils/errors';
+import { SourceUpdatesGuide } from './SourceUpdatesGuide';
 
 /**
  * Stage 4b: benchmark candidates. Proposed changes to the library, kept apart
@@ -40,6 +41,7 @@ export const CandidatesTab: React.FC = () => {
         you can also propose a new benchmark. Each needs approval from the listed expert roles — a different person
         for each — before a benchmark can be revised, and nothing reaches colleges until a release is published.
       </p>
+      <SourceUpdatesGuide current="candidates" />
       <div className="flex flex-wrap gap-2 items-center">
         <select className="input text-xs w-auto" value={filter} onChange={(e) => setFilter(e.target.value as 'open' | 'all')}>
           <option value="open">Open (research, review, approved)</option>

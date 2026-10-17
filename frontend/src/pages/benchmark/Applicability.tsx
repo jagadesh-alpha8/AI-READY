@@ -13,6 +13,8 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage } from '../../utils/errors';
 import { AiBadge } from './AiBadge';
+import { getApplicabilityValidation } from '../../api/benchmarks';
+import type { ApplicabilityValidation } from '../../api/benchmarks';
 
 /**
  * Stage 3.5: which institutions a benchmark applies to.
@@ -94,6 +96,7 @@ export const ApplicabilityRulesPanel: React.FC<{ code: string; sourcePackText: s
         matches decides. Source Pack text (same for every benchmark, so not used): <em>{sourcePackText || '—'}</em>
       </p>
       <p className="text-ink-500">To test the saved rules against a college profile, use the <strong>Applicability Preview</strong> tab.</p>
+      <ValidationSummary code={code} version={(rules.data || []).map((r) => `${r.id}:${r.priority}:${r.result}`).join('|')} />
       {rules.loading && <LoadingState message="Loading rules…" />}
       {rules.error && <ErrorState message={rules.error} onRetry={rules.refetch} />}
       {rules.data && rules.data.length === 0 && (
@@ -231,3 +234,42 @@ export const ApplicabilityPreviewTab: React.FC = () => {
     </div>
   );
 };
+
+/** The saved rules run against every supported institution profile (read-only). */
+const ValidationSummary: React.FC<{ code: string; version: string }> = ({ code, version }) => {
+  const v = useApiResource<ApplicabilityValidation>(() => getApplicabilityValidation(code), [code, version]);
+  if (v.loading || !v.data) return null;
+  const d = v.data;
+  const byType = (x: Record<string, number>) => Object.entries(x).map(([t, n]) => `${t.replace(/_/g, ' ')} (${n})`).join(', ');
+  return (
+    <div className={`rounded-lg border p-2 space-y-1 ${!d.has_rules || d.issues.length ? 'border-warning-line bg-warning-bg' : 'border-line-200 bg-surface'}`}>
+      <p className="font-bold text-ink-900">
+        Validation summary{d.has_rules ? ` - ${d.profiles_checked} institution profiles checked (type x status x programme x approval body)` : ''}
+      </p>
+      {!d.has_rules && <p className="text-danger">No rules yet: every college sees this benchmark as "requires review". Required before release.</p>}
+      {d.has_rules && (
+        <>
+          <p className="text-ink-700">
+            Results: {Object.entries(d.by_result).map(([k, n]) => `${k.replace(/_/g, ' ')} ${n}`).join(' · ')}
+          </p>
+          {d.requires_review && (
+            <p className="text-ink-700">
+              <strong>{d.requires_review.count}</strong> profile(s) end as "requires review": {byType(d.requires_review.by_institution_type)}.
+            </p>
+          )}
+          {d.unmatched && (
+            <p className="text-ink-700">
+              <strong>{d.unmatched.count}</strong> profile(s) match no rule, so the benchmark does not apply to them:{' '}
+              {byType(d.unmatched.by_institution_type)}. Add a rule if any of them should be assessed.
+            </p>
+          )}
+          {d.rules.filter((r) => r.note).map((r) => (
+            <p key={r.id} className={r.decides === 0 ? 'text-danger' : 'text-ink-700'}>Rule #{r.priority} ({r.result.replace(/_/g, ' ')}): {r.note}.</p>
+          ))}
+          {d.issues.length === 0 && !d.requires_review && !d.unmatched && <p className="text-success">Every rule decides at least one profile and every profile is decided.</p>}
+        </>
+      )}
+    </div>
+  );
+};
+
