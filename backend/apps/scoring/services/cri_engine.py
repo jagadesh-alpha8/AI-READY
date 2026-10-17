@@ -21,6 +21,9 @@ rather than one opaque black box:
 7. `_persist_pillar_scores` / `run_scoring_engine` -- store the results.
 8. `_compute_calculation_version`   -- record the calculation version.
 9. `build_score_snapshot`           -- return explainable scoring details.
+
+Each run also records AI-QIF evidence coverage and the coverage-adjusted CRI
+(services/coverage.py) next to the Raw CRI (`overall_cri`), which it never changes.
 """
 import hashlib
 
@@ -38,6 +41,7 @@ from ..constants import (
     SCORING_ENGINE_VERSION,
 )
 from ..models import Pillar, PillarCriterion, PillarScore, ScoringRun
+from .coverage import adjusted_cri, compute_coverage
 
 _GAP_PENALTY_CASE = Case(
     *[When(priority=priority, then=Value(penalty)) for priority, penalty in GAP_PRIORITY_SCORE_PENALTY.items()],
@@ -254,6 +258,7 @@ def run_scoring_engine(sprint, *, triggered_by=None):
     )
 
     _persist_pillar_scores(sprint, pillar_results, calculation_version, calculated_at)
+    coverage = compute_coverage(sprint, pillars)
 
     scoring_run = ScoringRun.objects.create(
         sprint=sprint,
@@ -263,6 +268,8 @@ def run_scoring_engine(sprint, *, triggered_by=None):
         evidence_count=sum(r['evidence_count'] for r in pillar_results),
         gap_count=sum(r['gap_count'] for r in pillar_results),
         pillar_snapshot=_serialize_pillar_snapshot(pillar_results),
+        coverage_adjusted_cri=adjusted_cri(overall_cri, coverage),
+        evidence_coverage=coverage,
         triggered_by=triggered_by if (triggered_by and triggered_by.is_authenticated) else None,
     )
 
@@ -334,9 +341,12 @@ def build_score_snapshot(sprint, *, bootstrap=True):
         'unresolved_gaps': sprint.gaps.filter(status__in=GapItem.ACTIVE_STATUSES).count(),
     }
 
+    latest_run = ScoringRun.objects.filter(sprint=sprint).first()
     return {
         'sprint': sprint,
         'overall_cri': sprint.overall_cri or 0.0,
+        'coverage_adjusted_cri': latest_run.coverage_adjusted_cri if latest_run else None,
+        'evidence_coverage': (latest_run.evidence_coverage or {}) if latest_run else {},
         'overall_confidence': sprint.confidence_score or 0.0,
         'calculation_version': pillar_scores[0].calculation_version if pillar_scores else '',
         'calculated_at': max((p.calculated_at for p in pillar_scores), default=None),

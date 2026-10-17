@@ -172,7 +172,7 @@ export const ReportPreviewExport: React.FC = () => {
               <h3 className="text-sm font-bold text-brand-800 uppercase tracking-wide">1. Executive Summary &amp; CRI Score</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="p-4 bg-surface rounded-xl border border-line-200 text-center">
-                  <span className="text-xs text-ink-500">Campus Readiness Index (CRI)</span>
+                  <span className="text-xs text-ink-500">{data.evidence_coverage ? 'Raw CRI' : 'Campus Readiness Index (CRI)'}</span>
                   <div className="text-3xl sm:text-4xl font-bold text-ink-900 my-1 tabular-nums">{data.overall_cri.toFixed(1)} <span className="text-sm text-ink-500 font-normal">/ 100</span></div>
                   <span className="text-xs text-brand-800 font-semibold">
                     {data.cri_source?.differs_from_baseline
@@ -188,6 +188,26 @@ export const ReportPreviewExport: React.FC = () => {
                   </span>
                 </div>
               </div>
+              {data.evidence_coverage && (
+                <div className="p-4 bg-surface rounded-xl border border-line-200 text-sm space-y-1">
+                  {data.evidence_coverage.available ? (
+                    <>
+                      <p>
+                        <span className="text-ink-500">Coverage-adjusted CRI: </span>
+                        <strong className="text-brand-800 tabular-nums">
+                          {data.coverage_adjusted_cri == null ? 'not available' : `${data.coverage_adjusted_cri.toFixed(1)} / 100`}
+                        </strong>
+                        <span className="text-xs text-ink-500"> (Raw CRI × evidence coverage, {data.evidence_coverage.formula_version})</span>
+                      </p>
+                      <p>
+                        <span className="text-ink-500">AI-QIF evidence coverage: </span>{data.evidence_coverage.summary}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-ink-500">{data.evidence_coverage.summary}</p>
+                  )}
+                </div>
+              )}
               <p className="text-sm leading-relaxed text-ink-700 bg-surface p-4 rounded-lg border border-line-200">
                 {data.executive_summary}
               </p>

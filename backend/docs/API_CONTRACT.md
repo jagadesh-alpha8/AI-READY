@@ -284,6 +284,7 @@ Facts are **read-only via list** — only the extraction pipeline creates them. 
 | POST | `/facts/{id}/correct` | CanReviewFacts |
 | POST | `/facts/{id}/reject` | CanReviewFacts |
 | POST | `/facts/{id}/request-evidence` | CanReviewFacts |
+| POST | `/facts/{id}/aiqif-mappings/{indicator_code}/review` | CanReviewFacts -- `{decision: "confirm"\|"reject", note}`; returns the fact |
 
 **Filters** (list): `pillar`, `status`, `owner_role` (case-insensitive), `document` (UUID), `confidence`/`confidence_min`/`confidence_max`. **Ordering**: `created_at, updated_at, confidence_score, reviewed_at, field_key`.
 
@@ -380,6 +381,19 @@ Read-only via list — gaps are only ever created by `apps.gaps.services` (durin
 {
   "sprint_id": "uuid", "overall_cri": float, "overall_confidence": float,
   "cri_score": float, "cri_confidence": float,     // aliases of overall_cri/overall_confidence
+  "raw_cri": float,                                 // = overall_cri (the CRI before coverage)
+  "coverage_adjusted_cri": float|null,              // latest run; null before coverage / no applicable weight
+  "evidence_coverage": {                            // latest run's frozen block; {} on older runs
+    "formula_version": "AIQIF-COV-1", "formula": str,
+    "status": "complete|incomplete|no_applicable_indicators", "ratio": float|null,
+    "covered_count": int, "applicable_count": int, "excluded_count": int, "unresolved_applicability_count": int,
+    "covered_weight": float, "applicable_weight": float,
+    "weights_source": "release|equal_within_criterion", "weights_note": str,
+    "release_label": str|null, "release_hash": str|null, "applicability_note": str,
+    "mappings_awaiting_review": int,
+    "indicators": [{"code", "criterion", "name", "applicability", "applicability_reason", "applicable",
+                    "weight", "covered", "fact_ids"}]
+  },
   "calculation_version": str, "calculated_at": "iso8601|null",
   "pillar_scores": [{
     "pillar": str, "label": str, "weight": float,
@@ -387,13 +401,49 @@ Read-only via list — gaps are only ever created by `apps.gaps.services` (durin
     "score": float, "confidence": float,           // aliases of raw_score/confidence_score
     "status": "not_started|at_risk|developing|strong",
     "evidence_count": int, "gap_count": int, "calculation_version": str, "calculated_at": "iso8601|null"
-  }, ...],   // always exactly 8 entries
+  }, ...],   // one per active pillar (the 9 AI-QIF criteria)
   "strengths": [{"pillar": str, "label": str, "raw_score": float, "status": str}, ...],
   "weaknesses": [{"pillar": str, "label": str, "raw_score": float, "status": str}, ...],
   "evidence_metrics": {"confirmed_facts": int, "corrected_facts": int, "total_extracted_facts": int, "documents_processed": int, "unresolved_gaps": int},
   "unresolved_blocking_gaps": [Gap, ...]
 }
 ```
+
+`score/history` rows and `GET .../baseline` (`baseline.coverage_adjusted_cri`, `baseline.evidence_coverage`)
+carry the same two fields, frozen with their run. Reports add `report_data.raw_cri`,
+`coverage_adjusted_cri` and `evidence_coverage` (`{available, summary, formula_version, ...}`).
+
+### AI-QIF evidence coverage and the coverage-adjusted CRI (formula `AIQIF-COV-1`)
+
+`overall_cri` is the **Raw CRI** (unchanged). Every scoring run also stores, next to it
+(`apps/scoring/services/coverage.py`, `ScoringRun.coverage_adjusted_cri` / `evidence_coverage`):
+
+```
+coverage              = covered applicable indicator weight / total applicable indicator weight
+coverage-adjusted CRI = Raw CRI x coverage
+```
+
+- **Indicators**: the 36 AI-QIF key indicators of the active CRI pillars.
+- **Applicable**: all of them, except those the *published* benchmark release's applicability rules say
+  explicitly do **not** apply to the college's benchmark profile. `requires_review` (no rules, no profile,
+  no published release, indicator not in the release) stays applicable and is reported as unresolved;
+  `optional` stays applicable.
+- **Covered**: at least one *confirmed or corrected* fact whose AI-QIF tag a **reviewer confirmed**
+  (`FactAIQIFMapping.review_status = confirmed`). Unreviewed, rejected or evidence-requested facts, and AI
+  tags nobody confirmed, never count. Distinct indicators: two facts on one indicator count once; one fact
+  may cover several indicators.
+- **Weights**: the published release's approved key-indicator weights when it carries one for every
+  indicator; otherwise equal weights within each criterion x the approved CRI pillar weight. No weight is
+  invented. The source used is stored (`weights_source`, `weights_note`).
+- Deterministic: no AI call; AI never confirms a fact or a tag or sets a score. Each run freezes its
+  coverage (with `formula_version`, release label/hash and the per-indicator rows), so history and an
+  approved baseline's pinned run never change. `SCORING_ENGINE_VERSION` is `2.1` for runs that include it;
+  runs made before it have `coverage_adjusted_cri = null` and `evidence_coverage = {}`.
+- Benchmark Assessment (cycles, evidence, maturity scoring) is separate and unchanged.
+
+A reviewer confirms or rejects each AI-QIF tag in Facts Review
+(`POST /facts/{id}/aiqif-mappings/{indicator_code}/review {decision: confirm|reject, note}`, every role
+except `viewer`, institution-scoped). Reprocessing a document keeps reviewed tags.
 
 ---
 

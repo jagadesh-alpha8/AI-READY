@@ -282,19 +282,23 @@ class ExtractionPipeline:
         the fact extractor) and set its summary status. Each tag is MAPPED at
         or above AIQIF_MAPPING_MIN_CONFIDENCE, else NEEDS_REVIEW; no tags at
         all is UNMAPPED -- the AI found no clear indicator, and none is
-        guessed. Category only: CRI scoring never reads these."""
+        guessed. A tag a reviewer already confirmed or rejected is kept as
+        they left it (and the new run's tag for that indicator dropped).
+        The Raw CRI never reads these; coverage counts only reviewer-confirmed ones."""
         from apps.facts.models import ExtractedFact, FactAIQIFMapping
 
-        fact.aiqif_mappings.all().delete()
+        fact.aiqif_mappings.filter(review_status=FactAIQIFMapping.ReviewStatus.UNREVIEWED).delete()
+        reviewed = list(fact.aiqif_mappings.all())
+        reviewed_codes = {row.indicator_code for row in reviewed}
         threshold = settings.AIQIF_MAPPING_MIN_CONFIDENCE
-        rows = FactAIQIFMapping.objects.bulk_create([
+        rows = reviewed + FactAIQIFMapping.objects.bulk_create([
             FactAIQIFMapping(
                 fact=fact, criterion=m['criterion'], indicator_code=m['indicator_code'], reason=m['reason'],
                 confidence=m['confidence'],
                 status=(FactAIQIFMapping.Status.MAPPED if m['confidence'] >= threshold
                         else FactAIQIFMapping.Status.NEEDS_REVIEW),
             )
-            for m in mappings
+            for m in mappings if m['indicator_code'] not in reviewed_codes
         ])
         Status = ExtractedFact.AIQIFMappingStatus
         if any(row.status == FactAIQIFMapping.Status.MAPPED for row in rows):

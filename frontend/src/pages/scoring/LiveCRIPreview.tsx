@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { EvidenceCoverageCard } from './EvidenceCoverageCard';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getScore, recalculateScore } from '../../api/scoring';
 import { useApiResource } from '../../hooks/useApiResource';
@@ -85,7 +86,7 @@ export const LiveCRIPreview: React.FC = () => {
           {/* Main Score Overview Header */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="glass-card p-6 sm:p-8 bg-gradient-to-br from-brand-50 to-card text-center">
-              <span className="text-xs font-bold text-brand-800 uppercase tracking-wide">Overall CRI Baseline Score</span>
+              <span className="text-xs font-bold text-brand-800 uppercase tracking-wide">Raw CRI</span>
               <div className="text-4xl sm:text-5xl font-bold text-ink-900 my-3 tracking-tight tabular-nums">
                 {scorecard.cri_score} <span className="text-lg font-normal text-ink-500">/ 100</span>
               </div>
@@ -102,6 +103,14 @@ export const LiveCRIPreview: React.FC = () => {
               </span>
             </div>
           </div>
+
+          <EvidenceCoverageCard
+            rawCri={scorecard.raw_cri ?? scorecard.overall_cri}
+            adjustedCri={scorecard.coverage_adjusted_cri}
+            coverage={scorecard.evidence_coverage}
+            missingHint="Recalculate the CRI to see it."
+            showRaw={false}
+          />
 
           {/* Pillar (AI-QIF criterion) scorecards */}
           <div className="glass-card p-5 sm:p-6">

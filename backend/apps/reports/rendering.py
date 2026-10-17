@@ -25,6 +25,20 @@ def _line(pdf, height, text):
     pdf.multi_cell(0, height, text, new_x='LMARGIN', new_y='NEXT')
 
 
+def _coverage_lines(data):
+    """Coverage-adjusted CRI and AI-QIF evidence coverage, shown apart from the Raw CRI.
+    Older reports (before coverage) have neither key and show nothing extra."""
+    coverage = data.get('evidence_coverage')
+    if not coverage:
+        return []
+    if not coverage.get('available'):
+        return [coverage.get('summary', '')]
+    adjusted = data.get('coverage_adjusted_cri')
+    first = (f'Coverage-adjusted CRI: {adjusted:.1f} / 100 (Raw CRI x coverage, {coverage["formula_version"]})'
+             if adjusted is not None else 'Coverage-adjusted CRI: not available (no applicable indicator weight)')
+    return [first, f'AI-QIF evidence coverage: {coverage["summary"]}']
+
+
 # ---------------------------------------------------------------- PDF -----
 
 def render_pdf_bytes(report):
@@ -56,7 +70,9 @@ def render_pdf_bytes(report):
 
     _heading(pdf, '2. Overall CRI & Confidence')
     pdf.set_font('Helvetica', '', 11)
-    _line(pdf, 7, _latin1(f"Overall CRI: {data['overall_cri']:.1f} / 100"))
+    _line(pdf, 7, _latin1(f"Raw CRI: {data['overall_cri']:.1f} / 100"))
+    for text in _coverage_lines(data):
+        _line(pdf, 6, _latin1(text))
     _line(pdf, 7, _latin1(f"Confidence: {data['confidence_score']:.0%}"))
     pdf.ln(2)
 
@@ -148,7 +164,9 @@ def render_docx_bytes(report):
     doc.add_paragraph(data['executive_summary'])
 
     doc.add_heading('2. Overall CRI & Confidence', level=1)
-    doc.add_paragraph(f"Overall CRI: {data['overall_cri']:.1f} / 100")
+    doc.add_paragraph(f"Raw CRI: {data['overall_cri']:.1f} / 100")
+    for text in _coverage_lines(data):
+        doc.add_paragraph(text)
     doc.add_paragraph(f"Confidence: {data['confidence_score']:.0%}")
 
     doc.add_heading('3. Eight Pillar Scorecards', level=1)

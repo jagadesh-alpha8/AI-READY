@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { EvidenceCoverageCard } from './EvidenceCoverageCard';
 import { useParams, useNavigate } from 'react-router-dom';
 import { approveBaseline, approveBaselineProvisional, getBaseline, returnBaseline } from '../../api/baseline';
 import { getSprint } from '../../api/sprints';
@@ -143,7 +144,7 @@ export const BaselineApproval: React.FC = () => {
           {/* Approval Status + Score Summary */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="glass-card p-6 text-center">
-              <span className="text-xs font-bold text-brand-800 uppercase tracking-wide">Baseline CRI Score</span>
+              <span className="text-xs font-bold text-brand-800 uppercase tracking-wide">Baseline Raw CRI</span>
               <div className="text-3xl sm:text-4xl font-bold text-ink-900 my-3 tracking-tight tabular-nums">
                 {baseline.overall_cri.toFixed(1)} <span className="text-base font-normal text-ink-500">/ 100</span>
               </div>
@@ -247,6 +248,13 @@ export const BaselineApproval: React.FC = () => {
               )}
             </div>
           </div>
+
+          <EvidenceCoverageCard
+            rawCri={baseline.overall_cri}
+            adjustedCri={baseline.coverage_adjusted_cri}
+            coverage={baseline.evidence_coverage}
+            missingHint="This baseline's run was made before coverage existed."
+          />
 
           {/* Strengths / Weaknesses */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

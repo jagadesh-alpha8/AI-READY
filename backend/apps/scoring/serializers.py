@@ -47,6 +47,10 @@ class SprintScoreSerializer(serializers.Serializer):
     # reads scorecard.cri_score / scorecard.cri_confidence.
     cri_score = serializers.FloatField(source='overall_cri', read_only=True)
     cri_confidence = serializers.FloatField(source='overall_confidence', read_only=True)
+    #: overall_cri IS the Raw CRI; raw_cri says so explicitly. Coverage comes from the latest run.
+    raw_cri = serializers.FloatField(source='overall_cri', read_only=True)
+    coverage_adjusted_cri = serializers.FloatField(read_only=True, allow_null=True)
+    evidence_coverage = serializers.DictField(read_only=True)
     calculation_version = serializers.CharField(read_only=True)
     calculated_at = serializers.DateTimeField(read_only=True, allow_null=True)
     pillar_scores = PillarScoreSerializer(many=True, read_only=True)
@@ -62,8 +66,8 @@ class ScoringRunSerializer(serializers.ModelSerializer):
     class Meta:
         model = ScoringRun
         fields = [
-            'id', 'calculation_version', 'overall_cri', 'overall_confidence',
-            'evidence_count', 'gap_count', 'pillar_snapshot', 'triggered_by', 'created_at',
+            'id', 'calculation_version', 'overall_cri', 'overall_confidence', 'coverage_adjusted_cri',
+            'evidence_coverage', 'evidence_count', 'gap_count', 'pillar_snapshot', 'triggered_by', 'created_at',
         ]
 
 
@@ -94,13 +98,16 @@ class BaselineSerializer(serializers.ModelSerializer):
     calculation_version = serializers.CharField(source='scoring_run.calculation_version', read_only=True)
     #: The pillar scores the decision was made against (frozen; later recalculations don't change it).
     pillar_snapshot = serializers.JSONField(source='scoring_run.pillar_snapshot', read_only=True)
+    coverage_adjusted_cri = serializers.FloatField(source='scoring_run.coverage_adjusted_cri', read_only=True,
+                                                   allow_null=True)
+    evidence_coverage = serializers.JSONField(source='scoring_run.evidence_coverage', read_only=True)
     history = BaselineDecisionHistorySerializer(many=True, read_only=True)
 
     class Meta:
         model = Baseline
         fields = [
             'id', 'sprint_id', 'scoring_run_id', 'status', 'overall_cri', 'overall_confidence',
-            'calculation_version', 'pillar_snapshot', 'approved_by', 'approved_by_name', 'approved_at', 'comments',
+            'calculation_version', 'pillar_snapshot', 'coverage_adjusted_cri', 'evidence_coverage', 'approved_by', 'approved_by_name', 'approved_at', 'comments',
             'created_at', 'updated_at', 'history',
         ]
         read_only_fields = fields

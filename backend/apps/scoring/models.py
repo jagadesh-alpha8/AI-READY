@@ -122,6 +122,11 @@ class ScoringRun(models.Model):
     evidence_count = models.PositiveIntegerField(default=0)
     gap_count = models.PositiveIntegerField(default=0)
     pillar_snapshot = models.JSONField(default=list, blank=True)
+    #: overall_cri is the Raw CRI. These add how much of AI-QIF the reviewed evidence reaches
+    #: (services/coverage.py, formula in evidence_coverage['formula_version']): Raw CRI x coverage.
+    #: Null / {} on runs made before coverage existed.
+    coverage_adjusted_cri = models.FloatField(null=True, blank=True)
+    evidence_coverage = models.JSONField(default=dict, blank=True)
     triggered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
     )

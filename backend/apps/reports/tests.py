@@ -67,6 +67,24 @@ class BuildReportDataTests(ReportsTestBase):
         self.assertEqual(data['institution']['name'], 'MKCE')
         self.assertIn('MKCE', data['executive_summary'])
 
+    def test_report_shows_raw_cri_coverage_and_the_adjusted_cri_apart(self):
+        from apps.facts.models import FactAIQIFMapping
+
+        from .rendering import _coverage_lines
+        fact = self._make_fact(confidence_score=0.8)
+        FactAIQIFMapping.objects.create(
+            fact=fact, criterion='aiqif_c1', indicator_code='AIQIF-C1.1', reason='Test.', confidence=0.9,
+            status=FactAIQIFMapping.Status.MAPPED, review_status=FactAIQIFMapping.ReviewStatus.CONFIRMED)
+        data = build_report_data(self.sprint)
+
+        self.assertEqual((data['raw_cri'], data['overall_cri']), (9.6, 9.6))
+        self.assertEqual(data['coverage_adjusted_cri'], round(9.6 * 0.03, 2))  # C1.1 = 0.12 / 4 of the weight
+        self.assertIn('1 of 36 applicable AI-QIF indicators covered', data['evidence_coverage']['summary'])
+        self.assertIn('coverage incomplete', data['evidence_coverage']['summary'])
+        lines = _coverage_lines(data)
+        self.assertTrue(lines[0].startswith('Coverage-adjusted CRI: 0.3 / 100'))
+        self.assertEqual(_coverage_lines({'overall_cri': 50}), [])  # a report made before coverage
+
     def test_unscored_sprint_still_gets_a_real_computed_score_not_a_placeholder(self):
         data = build_report_data(self.sprint)
         self.assertEqual(data['overall_cri'], 0.0)

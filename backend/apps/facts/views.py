@@ -14,10 +14,11 @@ from apps.sprints.access import get_authorized_sprint
 from config.pagination import OptionalPageNumberPagination
 
 from .filters import ExtractedFactFilter
-from .models import ExtractedFact, FactReviewHistory
+from .models import ExtractedFact, FactAIQIFMapping, FactReviewHistory
 from .serializers import (
     ExtractedFactDetailSerializer,
     ExtractedFactSerializer,
+    FactAIQIFMappingReviewSerializer,
     FactConfirmSerializer,
     FactCorrectSerializer,
     FactEvidenceRequestSerializer,
@@ -145,3 +146,29 @@ class FactCorrectView(BaseFactActionView):
     @extend_schema(request=FactCorrectSerializer, responses=ExtractedFactDetailSerializer)
     def post(self, request, pk):
         return super().post(request, pk)
+
+
+class FactAIQIFMappingReviewView(APIView):
+    """POST /facts/<id>/aiqif-mappings/<indicator_code>/review {decision: confirm|reject, note}.
+
+    A reviewer confirms or rejects one of the AI's AI-QIF tags on a fact. Only confirmed tags on
+    confirmed/corrected facts count toward AI-QIF evidence coverage (scoring/services/coverage.py);
+    the decision takes effect at the next CRI recalculation. Reprocessing keeps reviewed tags."""
+    permission_classes = [CanReviewFacts]
+
+    @extend_schema(request=FactAIQIFMappingReviewSerializer, responses=ExtractedFactDetailSerializer)
+    def post(self, request, pk, indicator_code):
+        fact = get_object_or_404(ExtractedFact, pk=pk)
+        require_institution_access(request.user, fact)
+        mapping = get_object_or_404(FactAIQIFMapping, fact=fact, indicator_code=indicator_code)
+        serializer = FactAIQIFMappingReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        mapping.review_status = (FactAIQIFMapping.ReviewStatus.CONFIRMED
+                                 if serializer.validated_data['decision'] == 'confirm'
+                                 else FactAIQIFMapping.ReviewStatus.REJECTED)
+        mapping.reviewed_by = request.user
+        mapping.reviewed_at = timezone.now()
+        mapping.review_note = serializer.validated_data['note'].strip()
+        mapping.save(update_fields=['review_status', 'reviewed_by', 'reviewed_at', 'review_note'])
+        fact = ExtractedFact.objects.prefetch_related('aiqif_mappings').get(pk=fact.pk)
+        return Response(ExtractedFactDetailSerializer(fact).data)

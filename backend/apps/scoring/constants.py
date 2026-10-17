@@ -98,7 +98,11 @@ PILLAR_LABELS = {**dict(LEGACY_PILLARS), **dict(PILLAR_CHOICES)}
 #: a Pillar/PillarCriterion weight in the database -- that's captured
 #: automatically by the config fingerprint appended to this in
 #: `cri_engine._compute_calculation_version`). See that function's docstring.
-SCORING_ENGINE_VERSION = '2.0'  # 2.0: pillars are the 9 AI-QIF v1.0 criteria
+SCORING_ENGINE_VERSION = '2.1'  # 2.0: pillars are the 9 AI-QIF v1.0 criteria; 2.1: + evidence coverage
+
+#: The AI-QIF evidence coverage / coverage-adjusted CRI formula (scoring/services/coverage.py).
+#: Bump it when that calculation changes; every ScoringRun stores the version it used.
+COVERAGE_FORMULA_VERSION = 'AIQIF-COV-1'
 
 #: Fixed status rubric a pillar's `raw_score` (0-100) is classified against,
 #: same style as apps.gaps.constants.GAP_PRIORITY_SCORE_PENALTY -- a

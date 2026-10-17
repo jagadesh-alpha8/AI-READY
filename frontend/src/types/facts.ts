@@ -15,7 +15,8 @@ export interface FactReviewHistoryEntry {
 export type AIQIFMappingStatus = 'pending' | 'mapped' | 'needs_review' | 'unmapped';
 
 /** One AI-QIF key indicator a fact is evidence for -- a category tag, not a
- * score or maturity level (the CRI scores `Fact.pillar`, not these). */
+ * score or maturity level (the Raw CRI scores `Fact.pillar`, not these; reviewer-confirmed
+ * tags count toward AI-QIF evidence coverage). */
 export interface AIQIFMapping {
   criterion: string;          // 'aiqif_c4'
   criterion_code: string;     // 'AIQIF-C4'
@@ -25,6 +26,12 @@ export interface AIQIFMapping {
   reason: string;
   confidence: number;
   status: 'mapped' | 'needs_review';
+  /** A person's decision. Only `confirmed` tags on confirmed/corrected facts count toward AI-QIF evidence coverage. */
+  review_status: 'unreviewed' | 'confirmed' | 'rejected';
+  reviewed_by: string | null;
+  reviewed_by_name: string;
+  reviewed_at: string | null;
+  review_note: string;
 }
 
 export interface Fact {

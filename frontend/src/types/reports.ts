@@ -11,6 +11,23 @@ export interface ReportData {
   generated_at: string;
   executive_summary: string;
   overall_cri: number;
+  /** Reports made since coverage existed: the same as overall_cri, then the adjusted score and coverage. */
+  raw_cri?: number;
+  coverage_adjusted_cri?: number | null;
+  evidence_coverage?: {
+    available: boolean;
+    summary: string;
+    formula_version?: string;
+    formula?: string;
+    status?: string;
+    ratio?: number | null;
+    covered_count?: number;
+    applicable_count?: number;
+    excluded_count?: number;
+    unresolved_applicability_count?: number;
+    weights_note?: string;
+    applicability_note?: string;
+  };
   confidence_score: number;
   pillar_scorecards: {
     pillar: string; label: string; weight: number; raw_score: number; weighted_score: number;

@@ -87,13 +87,20 @@ class FactAIQIFMapping(models.Model):
     sure. A fact can support several indicators (one row each), or none.
 
     A category tag only: it says what the fact is about, never how mature
-    the institution is, and nothing in benchmark maturity, compliance or CRI
-    scoring reads it -- the CRI scores `ExtractedFact.pillar`/`field_key`.
+    the institution is. The Raw CRI scores `ExtractedFact.pillar`/`field_key`
+    and never reads it. AI-QIF evidence coverage (scoring/services/coverage.py)
+    counts a tag only once a reviewer has confirmed it (`review_status`) on a
+    confirmed/corrected fact -- the AI's own `status` never counts.
     The fact's source document, page and quote stay on the fact itself."""
 
     class Status(models.TextChoices):
         MAPPED = 'mapped', 'Mapped'
         NEEDS_REVIEW = 'needs_review', 'Needs review'
+
+    class ReviewStatus(models.TextChoices):
+        UNREVIEWED = 'unreviewed', 'Not reviewed'
+        CONFIRMED = 'confirmed', 'Confirmed by a reviewer'
+        REJECTED = 'rejected', 'Rejected by a reviewer'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     fact = models.ForeignKey(ExtractedFact, on_delete=models.CASCADE, related_name='aiqif_mappings')
@@ -103,6 +110,13 @@ class FactAIQIFMapping(models.Model):
     reason = models.TextField()
     confidence = models.FloatField(validators=[MinValueValidator(0), MaxValueValidator(1)])
     status = models.CharField(max_length=20, choices=Status.choices)
+    # A person's decision on the tag (the AI's `status` is only its confidence).
+    review_status = models.CharField(max_length=20, choices=ReviewStatus.choices, default=ReviewStatus.UNREVIEWED)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

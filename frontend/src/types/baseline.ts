@@ -22,6 +22,9 @@ export interface Baseline {
   calculation_version: string;
   /** Pillar scores of the run this baseline is pinned to (frozen). */
   pillar_snapshot: { pillar: string; label: string; raw_score: number; status: string }[];
+  /** Frozen with the run; null / {} for runs made before coverage existed. */
+  coverage_adjusted_cri: number | null;
+  evidence_coverage: import('./scoring').EvidenceCoverage | Record<string, never>;
   approved_by: string | null;
   approved_by_name: string;
   approved_at: string | null;

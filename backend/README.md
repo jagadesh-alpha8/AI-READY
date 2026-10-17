@@ -367,6 +367,38 @@ machinery around it doesn't change.
 these calls would silently go nowhere, since Python's logging module has no visible output configured
 by default.
 
+## AI-QIF evidence coverage and the coverage-adjusted CRI (formula `AIQIF-COV-1`)
+
+`overall_cri` is the **Raw CRI** (unchanged). Every scoring run also stores, next to it
+(`apps/scoring/services/coverage.py`, `ScoringRun.coverage_adjusted_cri` / `evidence_coverage`):
+
+```
+coverage              = covered applicable indicator weight / total applicable indicator weight
+coverage-adjusted CRI = Raw CRI x coverage
+```
+
+- **Indicators**: the 36 AI-QIF key indicators of the active CRI pillars.
+- **Applicable**: all of them, except those the *published* benchmark release's applicability rules say
+  explicitly do **not** apply to the college's benchmark profile. `requires_review` (no rules, no profile,
+  no published release, indicator not in the release) stays applicable and is reported as unresolved;
+  `optional` stays applicable.
+- **Covered**: at least one *confirmed or corrected* fact whose AI-QIF tag a **reviewer confirmed**
+  (`FactAIQIFMapping.review_status = confirmed`). Unreviewed, rejected or evidence-requested facts, and AI
+  tags nobody confirmed, never count. Distinct indicators: two facts on one indicator count once; one fact
+  may cover several indicators.
+- **Weights**: the published release's approved key-indicator weights when it carries one for every
+  indicator; otherwise equal weights within each criterion x the approved CRI pillar weight. No weight is
+  invented. The source used is stored (`weights_source`, `weights_note`).
+- Deterministic: no AI call; AI never confirms a fact or a tag or sets a score. Each run freezes its
+  coverage (with `formula_version`, release label/hash and the per-indicator rows), so history and an
+  approved baseline's pinned run never change. `SCORING_ENGINE_VERSION` is `2.1` for runs that include it;
+  runs made before it have `coverage_adjusted_cri = null` and `evidence_coverage = {}`.
+- Benchmark Assessment (cycles, evidence, maturity scoring) is separate and unchanged.
+
+A reviewer confirms or rejects each AI-QIF tag in Facts Review
+(`POST /facts/{id}/aiqif-mappings/{indicator_code}/review {decision: confirm|reject, note}`, every role
+except `viewer`, institution-scoped). Reprocessing a document keeps reviewed tags.
+
 ## Extracted fact review (`apps/facts`)
 
 `ExtractedFact` replaces the earlier `Fact` model with the fuller review-workflow schema this task
@@ -380,6 +412,7 @@ specifies, plus a `FactReviewHistory` model that makes every review action perma
 | POST | `/api/v1/facts/{id}/correct/` | replace the value; requires `new_value` |
 | POST | `/api/v1/facts/{id}/reject/` | mark the fact invalid; value untouched |
 | POST | `/api/v1/facts/{id}/request-evidence/` | flag for more evidence; value untouched |
+| POST | `/api/v1/facts/{id}/aiqif-mappings/{code}/review` | confirm/reject one AI-QIF tag (counts toward evidence coverage) |
 
 All six registered both with and without a trailing slash, as elsewhere in this project. As with
 documents, the nested `/facts/` list is **read-only** — facts are only ever created by the extraction

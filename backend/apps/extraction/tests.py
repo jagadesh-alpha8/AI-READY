@@ -3006,16 +3006,18 @@ class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
         facts = self._api_facts()
 
         faculty = facts['total_faculty']
+        UNREVIEWED = {'review_status': 'unreviewed', 'reviewed_by': None, 'reviewed_by_name': '', 'reviewed_at': None,
+                      'review_note': ''}  # no person has looked at the AI's tags yet
         self.assertEqual(faculty['aiqif_mapping_status'], 'mapped')
         self.assertEqual(faculty['aiqif_mappings'], [
             {'criterion': 'aiqif_c4', 'criterion_code': 'AIQIF-C4',
              'criterion_name': 'Faculty & Institutional Workforce AI Capability',
              'indicator_code': 'AIQIF-C4.1', 'indicator_name': 'Faculty AI Literacy & Awareness',
-             'reason': 'Faculty count.', 'confidence': 0.9, 'status': 'mapped'},
+             'reason': 'Faculty count.', 'confidence': 0.9, 'status': 'mapped', **UNREVIEWED},
             {'criterion': 'aiqif_c9', 'criterion_code': 'AIQIF-C9',
              'criterion_name': 'AI Assurance, Measurement & Continuous Improvement',
              'indicator_code': 'AIQIF-C9.2', 'indicator_name': 'Evidence, Traceability & Auditability',
-             'reason': 'Cited figure.', 'confidence': 0.4, 'status': 'needs_review'},
+             'reason': 'Cited figure.', 'confidence': 0.4, 'status': 'needs_review', **UNREVIEWED},
         ])
         # The evidence stays on the fact; the CRI pillar is untouched by the tags.
         self.assertEqual(

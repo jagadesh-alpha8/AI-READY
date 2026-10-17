@@ -1,6 +1,13 @@
 from django.urls import path
 
-from .views import FactConfirmView, FactCorrectView, FactDetailView, FactRejectView, FactRequestEvidenceView
+from .views import (
+    FactAIQIFMappingReviewView,
+    FactConfirmView,
+    FactCorrectView,
+    FactDetailView,
+    FactRejectView,
+    FactRequestEvidenceView,
+)
 
 urlpatterns = [
     path('/<uuid:pk>', FactDetailView.as_view(), name='fact-detail'),
@@ -17,4 +24,6 @@ urlpatterns = [
         FactRequestEvidenceView.as_view(),
         name='fact-request-evidence-slash',
     ),
+    path('/<uuid:pk>/aiqif-mappings/<str:indicator_code>/review', FactAIQIFMappingReviewView.as_view(),
+         name='fact-aiqif-mapping-review'),
 ]

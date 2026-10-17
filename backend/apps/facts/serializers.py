@@ -11,14 +11,19 @@ class FactAIQIFMappingSerializer(serializers.ModelSerializer):
     criterion_code = serializers.SerializerMethodField()
     criterion_name = serializers.SerializerMethodField()
     indicator_name = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = FactAIQIFMapping
         fields = [
             'criterion', 'criterion_code', 'criterion_name', 'indicator_code', 'indicator_name',
-            'reason', 'confidence', 'status',
+            'reason', 'confidence', 'status', 'review_status', 'reviewed_by', 'reviewed_by_name', 'reviewed_at',
+            'review_note',
         ]
         read_only_fields = fields
+
+    def get_reviewed_by_name(self, obj):
+        return obj.reviewed_by.get_full_name() if obj.reviewed_by_id else ''
 
     def get_criterion_code(self, obj):
         return AIQIF_CRITERION_CODES.get(obj.criterion, '')
@@ -136,3 +141,9 @@ class FactCorrectSerializer(_ReasonSerializer):
         if 'new_value' in self.validated_data:
             return self.validated_data['new_value']
         return self.validated_data.get('corrected_value')
+
+
+class FactAIQIFMappingReviewSerializer(serializers.Serializer):
+    """A reviewer's decision on one AI-QIF tag of a fact."""
+    decision = serializers.ChoiceField(choices=['confirm', 'reject'])
+    note = serializers.CharField(required=False, allow_blank=True, default='')

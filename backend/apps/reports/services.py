@@ -210,12 +210,37 @@ def _score_from_run(sprint, run):
     live = build_score_snapshot(sprint, bootstrap=False) or {}
     return {
         'overall_cri': run.overall_cri, 'overall_confidence': run.overall_confidence,
+        'coverage_adjusted_cri': run.coverage_adjusted_cri, 'evidence_coverage': run.evidence_coverage or {},
         'calculated_at': run.created_at, 'calculation_version': run.calculation_version,
         'pillar_scores': pillars,
         'strengths': sorted((p for p in pillars if p['status'] == _STRONG), key=lambda p: p['raw_score'], reverse=True),
         'weaknesses': sorted((p for p in pillars if p['status'] in _WEAK), key=lambda p: p['raw_score']),
         'evidence_metrics': live.get('evidence_metrics') or dict.fromkeys(
             ('confirmed_facts', 'corrected_facts', 'total_extracted_facts', 'documents_processed', 'unresolved_gaps'), 0),
+    }
+
+
+def _coverage_summary(coverage):
+    """The report's coverage block: the run's numbers plus a plain sentence (no per-fact ids)."""
+    if not coverage:
+        return {'available': False, 'summary': 'AI-QIF evidence coverage was not calculated for this score.'}
+    summary = (f"{coverage['covered_count']} of {coverage['applicable_count']} applicable AI-QIF indicators covered "
+               'by reviewer-confirmed evidence')
+    if coverage.get('ratio') is not None:
+        summary += f" ({coverage['ratio']:.0%} of applicable indicator weight)"
+    labels = []
+    if coverage.get('status') != 'complete':
+        labels.append('coverage incomplete')
+    if coverage.get('unresolved_applicability_count'):
+        labels.append(f"applicability unresolved for {coverage['unresolved_applicability_count']} indicator(s)")
+    return {
+        'available': True, 'summary': summary + ('; ' + '; '.join(labels) if labels else '') + '.',
+        **{k: coverage.get(k) for k in (
+            'formula_version', 'formula', 'status', 'ratio', 'covered_count', 'applicable_count', 'excluded_count',
+            'unresolved_applicability_count', 'weights_source', 'weights_note', 'release_label',
+            'applicability_note', 'mappings_awaiting_review')},
+        'indicators': [{k: r[k] for k in ('code', 'name', 'applicability', 'covered', 'weight')}
+                       for r in coverage.get('indicators', [])],
     }
 
 
@@ -245,6 +270,9 @@ def build_report_data(sprint, scoring_run=None):
         'cri_source': _cri_source(sprint, run),
         'executive_summary': _build_executive_summary(sprint, score),
         'overall_cri': score['overall_cri'],
+        'raw_cri': score['overall_cri'],
+        'coverage_adjusted_cri': score['coverage_adjusted_cri'],
+        'evidence_coverage': _coverage_summary(score['evidence_coverage']),
         'confidence_score': score['overall_confidence'],
         'pillar_scorecards': _pillar_scorecards(score['pillar_scores']),
         'strengths': _pillar_summary_list(score['strengths']),

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { listSprintFacts, confirmFact, correctFact, rejectFact, requestFactEvidence } from '../../api/facts';
+import { listSprintFacts, confirmFact, correctFact, rejectFact, requestFactEvidence, reviewFactMapping } from '../../api/facts';
 import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
@@ -11,7 +11,8 @@ import { TableFilters, matchesSearch, optionsFrom } from '../../components/Table
 import { useAccess } from '../../utils/access';
 
 export const FactsReview: React.FC = () => {
-  const { step } = useAccess();
+  const { step, can } = useAccess();
+  const canReview = can('facts.review');
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
@@ -64,6 +65,19 @@ export const FactsReview: React.FC = () => {
       refetch();
     } catch (err) {
       setActionError(getErrorMessage(err, 'Failed to confirm fact.'));
+    } finally {
+      setActingOnId(null);
+    }
+  };
+
+  const handleMappingReview = async (factId: string, code: string, decision: 'confirm' | 'reject') => {
+    setActingOnId(factId);
+    setActionError('');
+    try {
+      await reviewFactMapping(factId, code, decision);
+      refetch();
+    } catch (err) {
+      setActionError(getErrorMessage(err, 'Failed to save the AI-QIF tag decision.'));
     } finally {
       setActingOnId(null);
     }
@@ -251,7 +265,7 @@ export const FactsReview: React.FC = () => {
                         <span>{typeof fact.value_json === 'object' ? JSON.stringify(fact.value_json) : String(fact.value_json)}</span>
                       )}
                     </td>
-                    <td><AIQIFCategoryCell fact={fact} /></td>
+                    <td><AIQIFCategoryCell fact={fact} busy={actingOnId === fact.id} onReview={canReview ? (code, d) => handleMappingReview(fact.id, code, d) : undefined} /></td>
                     <td>
                       <span className="badge-neutral">
                         {fact.pillar_label || fact.pillar || '—'}
@@ -381,7 +395,8 @@ const AIQIFCriterionStrip: React.FC<{
   return (
     <div className="mb-4 space-y-2">
       <p className="text-xs text-ink-500">
-        Facts by AI-QIF criterion. These are category tags only and don't change any score.
+        Facts by AI-QIF criterion. The tags never change the Raw CRI. A tag counts toward AI-QIF evidence coverage
+        only after a reviewer confirms it (✓ on the tag) and the fact itself is confirmed or corrected.
       </p>
       <div className="flex flex-wrap gap-1.5">
         <button onClick={() => { onCriterion(''); onMapping(''); }} className={chip(!criterion && !mapping)}>
@@ -413,7 +428,12 @@ const AIQIFCriterionStrip: React.FC<{
 
 /** The fact's AI-QIF criterion and indicator(s), each with its confidence;
  * the AI's reason on hover. Unclear tags say so instead of guessing. */
-const AIQIFCategoryCell: React.FC<{ fact: Fact }> = ({ fact }) => {
+const AIQIFCategoryCell: React.FC<{
+  fact: Fact;
+  busy?: boolean;
+  /** Reviewers only: confirm or reject one tag. */
+  onReview?: (indicatorCode: string, decision: 'confirm' | 'reject') => void;
+}> = ({ fact, busy, onReview }) => {
   if (fact.aiqif_mapping_status === 'pending') {
     return <span className="text-xs text-ink-400" title="Extracted before AI-QIF tagging; re-run extraction to tag it.">Not yet mapped</span>;
   }
@@ -439,6 +459,29 @@ const AIQIFCategoryCell: React.FC<{ fact: Fact }> = ({ fact }) => {
           <p className="text-[11px] text-ink-500 truncate">
             {shortCode(m.criterion_code)} · {m.criterion_name}
           </p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            {m.review_status === 'confirmed' && (
+              <span className="text-[11px] font-semibold text-success" title={m.review_note || undefined}>
+                ✓ Confirmed{m.reviewed_by_name ? ` by ${m.reviewed_by_name}` : ''}
+              </span>
+            )}
+            {m.review_status === 'rejected' && (
+              <span className="text-[11px] font-semibold text-danger" title={m.review_note || undefined}>
+                ✕ Rejected{m.reviewed_by_name ? ` by ${m.reviewed_by_name}` : ''}
+              </span>
+            )}
+            {m.review_status === 'unreviewed' && <span className="text-[11px] text-ink-400">Not reviewed</span>}
+            {onReview && m.review_status !== 'confirmed' && (
+              <button disabled={busy} onClick={() => onReview(m.indicator_code, 'confirm')}
+                className="ml-auto text-[11px] font-semibold text-success hover:underline disabled:opacity-50"
+                title="This fact is evidence for this indicator">✓ Confirm tag</button>
+            )}
+            {onReview && m.review_status !== 'rejected' && (
+              <button disabled={busy} onClick={() => onReview(m.indicator_code, 'reject')}
+                className={`${m.review_status === 'confirmed' ? 'ml-auto ' : ''}text-[11px] font-semibold text-danger hover:underline disabled:opacity-50`}
+                title="This fact is not evidence for this indicator">✕ Reject</button>
+            )}
+          </div>
         </div>
       ))}
     </div>

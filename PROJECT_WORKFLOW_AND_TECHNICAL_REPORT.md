@@ -589,6 +589,8 @@ sequenceDiagram
 | **14. Response** | `SprintScoreSerializer`: overall CRI, confidence, 8 pillar scorecards, strengths, weaknesses, live evidence metrics, unresolved blocking gaps |
 | **16. User sees** | A 9-criterion (AI-QIF) view with a headline CRI/100 and a confidence percentage |
 
+> **AI-QIF evidence coverage (`AIQIF-COV-1`, scoring engine 2.1).** Each run also stores the coverage-adjusted CRI = Raw CRI x (covered applicable indicator weight / total applicable indicator weight). An indicator is covered only by a reviewer-confirmed AI-QIF tag on a confirmed/corrected fact; only indicators the published release rules say do not apply are excluded (unresolved stays in); weights are the release's approved key-indicator weights, else equal within each criterion x the pillar weight. The screen shows Raw CRI, coverage-adjusted CRI and "N of M applicable indicators covered" separately, labelled when incomplete or unresolved. Deterministic, no AI. Details: backend/README.md and docs/API_CONTRACT.md §8.
+
 ### Step 8 — Baseline approval
 
 | Dimension | Detail |
