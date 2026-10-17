@@ -443,9 +443,9 @@ sequenceDiagram
     loop 7 pipeline stages
         W->>DB: UPDATE job.current_step / progress_percentage
     end
-    W->>AI: classify (1 call)
-    W->>W: PyMuPDF reads pages (PaddleOCR for scanned ones)
-    W->>AI: extract facts (1 call per ≤12k-char chunk)
+    W->>W: PyMuPDF reads pages once (PaddleOCR for scanned ones)
+    W->>AI: classify + extract chunk 1's facts (1 combined call)
+    W->>AI: extract facts (1 call per further ≤12k-char chunk)
     W->>DB: INSERT ExtractedFact rows
     W->>DB: INSERT GapItem rows (deterministic)
     W->>AI: conflict verdicts (≤10 calls)
@@ -1812,7 +1812,7 @@ scoring model, active, with no weights).
 
 ### `extraction.AIUsage` — `extraction_aiusage`
 - **Purpose:** one AI API call and what it cost — the billing record (§3.15).
-- **Key fields:** `stage` (classification / fact_extraction / conflict_check / other), `source` (recorded / imported / estimated), `request_count`, `note`, `provider`, `model`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `duration_ms`, **`cost_usd`** (computed at call time; NULL when the model has no price), `created_at` (indexed).
+- **Key fields:** `stage` (classification / document_analysis / fact_extraction / conflict_check / other; `document_analysis` is the one combined classification + first-chunk facts request, recorded once and never split), `source` (recorded / imported / estimated), `request_count`, `note`, `provider`, `model`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `duration_ms`, **`cost_usd`** (computed at call time; NULL when the model has no price), `created_at` (indexed).
 - **FK:** `institution`, `sprint`, `document`, `extraction_job` — **all `SET_NULL`**, so the usage history survives deleting any of them.
 - **Indexes:** `(sprint, created_at)`, `(institution, created_at)`.
 
@@ -2661,6 +2661,15 @@ extraction, the pipeline checks whether the user pressed Stop (job status
 runs inside a `usage_scope(...)`, so every AI call is attributed to its sprint,
 document, job and stage (§3.15).
 
+> **Update (combined analysis):** the document is now read once at stage 1, and the
+> first chunk's single request returns both the classification and that chunk's facts
+> (`services/document_analysis.py`, usage stage `document_analysis`); further chunks
+> are fact-only. A separate classification request is made only when the document
+> has no extractable text. The classification is saved to the Document
+> (`classification_status`, `ai_document_type`, …; see backend/README.md). The notes
+> below describe the original separate requests and their validation rules, which
+> still apply.
+
 ### Stage 1 — Classification
 `openai_classifier.py`. Reads the first `OPENAI_CLASSIFICATION_SAMPLE_PAGES` (**3**)
 pages, sends filename + uploader-tagged type + text sample, asks for
@@ -2820,10 +2829,11 @@ Admin › AI Usage & Billing.
 
 | Stage | Calls | Input scale |
 |---|---|---|
-| Classification | 1 | 3 pages of text + system prompt (~700 tokens) |
-| Fact extraction | 1 per chunk, **≤ 20** | ≤ 12 000 chars per chunk **+ the ~1 500-token system prompt resent every time** |
+| Document analysis (classification + chunk 1 facts) | 1 | ≤ 12 000 chars + both system prompts (~2 200 tokens) |
+| Fact extraction | 1 per further chunk, **≤ 19** | ≤ 12 000 chars per chunk **+ the ~1 500-token system prompt resent every time** |
+| Classification only | 0 (1 only when the document has no text) | filename + assigned type |
 | Conflict checking | **≤ 10** | 2 values + 2 snippets + a ~250-token prompt |
-| **Worst case** | **31 calls** | |
+| **Worst case** | **30 calls** | |
 
 ### Where tokens can be reduced without changing functionality
 

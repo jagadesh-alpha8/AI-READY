@@ -17,8 +17,9 @@ class DocumentClassifier(ABC):
     """Confirms/derives a document's type and structural characteristics."""
 
     @abstractmethod
-    def classify(self, document):
-        """Return a dict of classification metadata for `document`."""
+    def classify(self, document, pages=None):
+        """Return a dict of classification metadata for `document`. `pages` is the
+        PageReader result when the caller already read the document (so it is not read again)."""
 
 
 class PageReader(ABC):

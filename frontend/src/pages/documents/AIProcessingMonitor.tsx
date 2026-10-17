@@ -453,6 +453,8 @@ const RunTimingPanel: React.FC<{ run: RunTiming }> = ({ run }) => {
 
 const STAGE_LABELS: Record<string, string> = {
   classification: 'Classification',
+  // One request that classified the document and extracted its first chunk's facts; tokens are not split.
+  document_analysis: 'Document analysis (classification + facts)',
   fact_extraction: 'Fact extraction',
   conflict_check: 'Conflict check',
   other: 'Other',

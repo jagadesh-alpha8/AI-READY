@@ -12,6 +12,7 @@ from ..models import AIUsage, ExtractionJob
 from ..usage import usage_scope
 from . import stub
 from .conflict_checker import OpenAIConflictChecker
+from .document_analysis import DocumentAnalyzer
 from .gap_detector import RuleBasedGapDetector
 from .openai_classifier import OpenAIDocumentClassifier
 from .openai_fact_extractor import IdentityAuditFieldMapper, OpenAIFactExtractor
@@ -62,11 +63,17 @@ class ExtractionPipeline:
     def __init__(
         self, *,
         classifier=None, page_reader=None, fact_extractor=None,
-        field_mapper=None, gap_detector=None, conflict_checker=None,
+        field_mapper=None, gap_detector=None, conflict_checker=None, analyzer=None,
     ):
-        self.classifier = classifier or OpenAIDocumentClassifier()
+        # The default: one DocumentAnalyzer pairs the AI classifier and fact extractor so the first
+        # request does both (services/document_analysis.py). Passing your own classifier or fact
+        # extractor (e.g. a stub) runs them separately instead, as before -- still on one read.
+        if analyzer is None and classifier is None and fact_extractor is None:
+            analyzer = DocumentAnalyzer()
+        self.analyzer = analyzer
+        self.classifier = classifier or (analyzer.classifier if analyzer else OpenAIDocumentClassifier())
         self.page_reader = page_reader or PDFPageReader()
-        self.fact_extractor = fact_extractor or OpenAIFactExtractor()
+        self.fact_extractor = fact_extractor or (analyzer.fact_extractor if analyzer else OpenAIFactExtractor())
         self.field_mapper = field_mapper or IdentityAuditFieldMapper()
         self.gap_detector = gap_detector or RuleBasedGapDetector()
         self.conflict_checker = conflict_checker or OpenAIConflictChecker()
@@ -78,16 +85,25 @@ class ExtractionPipeline:
         )
 
         self._advance(job, Step.CLASSIFYING_DOCUMENTS)
-        # Every AI call is recorded (tokens + cost) against this job and step
-        # -- see apps.extraction.usage / AIUsage.
-        with usage_scope(job=job, stage=AIUsage.Stage.CLASSIFICATION):
-            classification = self.classifier.classify(document)
+        # The document is read and parsed ONCE; classification and fact extraction both use these pages.
+        pages = self.page_reader.read_pages(document)
+        # Every AI call is recorded (tokens + cost) against this job and its stage -- see
+        # apps.extraction.usage / AIUsage. With the analyzer, the first request classifies the document
+        # AND extracts the first chunk's facts (stage document_analysis).
+        first = None
+        if self.analyzer is not None:
+            self.analyzer.should_stop = lambda: _is_cancelled(job)
+            with usage_scope(job=job):
+                first = self.analyzer.analyze_first(document, pages)
+            classification = first.classification
+        else:
+            with usage_scope(job=job, stage=AIUsage.Stage.CLASSIFICATION):
+                classification = self.classifier.classify(document, pages=pages)
         document.processing_status = 'classified'
         update_fields = ['processing_status', *self._apply_classification(document, classification)]
         document.save(update_fields=[*update_fields, 'updated_at'])
 
         self._advance(job, Step.READING_PAGES)
-        pages = self.page_reader.read_pages(document)
         update_fields = []
         if pages.get('page_count') is not None:
             document.page_count = pages['page_count']
@@ -114,9 +130,13 @@ class ExtractionPipeline:
         self._advance(job, Step.EXTRACTING_FACTS)
         # Fact extraction is many AI calls on a big document; let it check for
         # a Stop between calls instead of only at the next step.
-        self.fact_extractor.should_stop = lambda: _is_cancelled(job)
-        with usage_scope(job=job, stage=AIUsage.Stage.FACT_EXTRACTION):
-            raw_facts = self.fact_extractor.extract_facts(document, pages)
+        if first is not None:
+            with usage_scope(job=job):
+                raw_facts = self.analyzer.extract_rest(document, first)
+        else:
+            self.fact_extractor.should_stop = lambda: _is_cancelled(job)
+            with usage_scope(job=job, stage=AIUsage.Stage.FACT_EXTRACTION):
+                raw_facts = self.fact_extractor.extract_facts(document, pages)
 
         self._advance(job, Step.MAPPING_AUDIT_FIELDS)
         mapped_facts = self.field_mapper.map_fields(document, raw_facts)

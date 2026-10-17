@@ -29,7 +29,7 @@ class KnownMetadataClassifier(DocumentClassifier):
     as a trivial, network-free classifier for anything that still wants
     one (e.g. as an explicit fallback, or in a test)."""
 
-    def classify(self, document):
+    def classify(self, document, pages=None):
         return {
             'document_type': document.document_type,
             'mime_type': document.mime_type,

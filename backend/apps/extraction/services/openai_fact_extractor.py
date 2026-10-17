@@ -256,18 +256,25 @@ class OpenAIFactExtractor(FactExtractor):
         )
         self.max_chunks = max_chunks if max_chunks is not None else settings.OPENAI_FACT_EXTRACTION_MAX_CHUNKS
 
-    def extract_facts(self, document, pages):
+    def chunks_for(self, document, pages):
+        """The page chunks this document is analysed in (empty when there is no text), capped at
+        max_chunks. Shared with services/document_analysis.py."""
         chunks = _build_chunks(pages.get('pages', []), self.max_chunk_chars)
         if not chunks:
             logger.info('fact_extractor.no_extractable_text document_id=%s', document.id)
             return []
-
         if len(chunks) > self.max_chunks:
             logger.warning(
                 'fact_extractor.too_many_chunks document_id=%s chunk_count=%d max_chunks=%d',
                 document.id, len(chunks), self.max_chunks,
             )
             chunks = chunks[:self.max_chunks]
+        return chunks
+
+    def extract_facts(self, document, pages):
+        chunks = self.chunks_for(document, pages)
+        if not chunks:
+            return []
 
         service = self._openai_service or get_ai_service()
         facts_by_key = {}

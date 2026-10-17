@@ -41,6 +41,26 @@ from .tasks import _handle_recoverable, run_extraction_job
 
 PASSWORD = 'Str0ng!DevPassw0rd'
 
+def route_combined_analysis(test):
+    """The pipeline's first AI request now classifies AND extracts the first chunk's facts
+    (services/document_analysis.py). Route it to the two existing mocks -- classification from
+    the classifier's, facts from the fact extractor's -- so a test keeps steering each part the
+    way it always has; later chunks go to the fact extractor's mock as before."""
+    from apps.extraction.services import openai_classifier, openai_fact_extractor
+
+    def answer(**kwargs):
+        if kwargs.get('schema_name') == 'document_analysis':
+            classification = openai_classifier.get_ai_service().extract_structured_data(**kwargs)
+            facts = openai_fact_extractor.get_ai_service().extract_structured_data(**kwargs)
+            return {'classification': classification, **(facts if isinstance(facts, dict) else {'facts': facts})}
+        return openai_fact_extractor.get_ai_service().extract_structured_data(**kwargs)
+
+    patcher = patch('apps.extraction.services.document_analysis.get_ai_service')
+    test.analysis_service = patcher.start().return_value
+    test.analysis_service.extract_structured_data.side_effect = answer
+    test.addCleanup(patcher.stop)
+
+
 #: A classification result the real OpenAIDocumentClassifier would accept --
 #: used to fake a plausible AI response wherever a test just needs the
 #: pipeline to get past the (now real, OpenAI-backed) classification step
@@ -114,6 +134,7 @@ class ExtractionJobTestBase(APITestCase):
         self.fact_openai_mock = fact_patcher.start()
         self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': []}
         self.addCleanup(fact_patcher.stop)
+        route_combined_analysis(self)
 
         self._auth(self.iqac)
         upload = self.client.post(
@@ -470,13 +491,13 @@ class StopAndProcessTests(ExtractionJobTestBase):
     def test_running_job_stops_at_next_step_and_stays_cancelled(self):
         job = self._job(ExtractionJob.Status.PENDING)
 
-        def stop_during_classification(document):
+        def stop_during_classification(**kwargs):
+            # The first request classifies the document (and extracts the first chunk's facts).
             ExtractionJob.objects.filter(id=job.id).update(status=ExtractionJob.Status.CANCELLED)
-            return dict(FAKE_CLASSIFICATION_RESULT)
+            return {'classification': dict(FAKE_CLASSIFICATION_RESULT), 'facts': []}
 
-        with patch('apps.extraction.services.openai_classifier.OpenAIDocumentClassifier.classify',
-                   side_effect=stop_during_classification):
-            run_extraction_job.apply(args=[str(job.id)])
+        self.analysis_service.extract_structured_data.side_effect = stop_during_classification
+        run_extraction_job.apply(args=[str(job.id)])
 
         job.refresh_from_db()
         self.assertEqual(job.status, ExtractionJob.Status.CANCELLED)
@@ -3057,3 +3078,219 @@ class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
         self.assertEqual(keys('aiqif_criterion=aiqif_c4'), ['total_faculty'])  # once, despite two tags
         self.assertEqual(keys('aiqif_indicator=AIQIF-C6.4'), ['ai_labs'])
         self.assertEqual(keys('aiqif_mapping_status=unmapped'), ['campus_area'])
+
+
+
+def _stage_now():
+    from .usage import _scope
+    return (_scope.get() or {}).get('stage')
+
+
+class DocumentAnalyzerTests(TestCase):
+    """services/document_analysis.py: the first chunk's request returns classification AND facts;
+    later chunks are fact-only; there is never a separate classification request for the same text."""
+
+    def setUp(self):
+        from .services.openai_classifier import OpenAIDocumentClassifier
+        institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
+        sprint = Sprint.objects.create(institution=institution, mode=Sprint.SprintMode.VERIFIED_CRI)
+        self.document = Document.objects.create(
+            sprint=sprint, document_type='naac_ssr', original_filename='ssr.pdf',
+            mime_type='application/pdf', status=Document.Status.UPLOADED,
+        )
+        self.classifier = MagicMock()
+        self.classifier.validate.side_effect = OpenAIDocumentClassifier.validate  # the real checks
+        self.calls = []  # (schema_name, usage stage) per request
+
+    def _analyzer(self, answers, max_chunk_chars=60):
+        from .services.document_analysis import DocumentAnalyzer
+        from .services.openai_fact_extractor import OpenAIFactExtractor
+        service = MagicMock()
+        answers = list(answers)
+
+        def answer(**kwargs):
+            self.calls.append((kwargs.get('schema_name'), _stage_now()))
+            result = answers.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
+        service.extract_structured_data.side_effect = answer
+        extractor = OpenAIFactExtractor(openai_service=service, max_chunk_chars=max_chunk_chars, max_chunks=10)
+        return DocumentAnalyzer(classifier=self.classifier, fact_extractor=extractor, ai_service=service)
+
+    @staticmethod
+    def _pages(*texts):
+        return {'pages': [_page(i, t) for i, t in enumerate(texts, start=1)]}
+
+    def _analyze(self, analyzer, pages):
+        first = analyzer.analyze_first(self.document, pages)
+        return first, analyzer.extract_rest(self.document, first)
+
+    def test_one_request_returns_a_validated_classification_and_facts(self):
+        analyzer = self._analyzer([{
+            'classification': dict(FAKE_CLASSIFICATION_RESULT),
+            'facts': [_valid_fact(), _valid_fact(field_key='bad', source_page='99')],  # page 99 was not sent
+        }], max_chunk_chars=10_000)
+        first, facts = self._analyze(analyzer, self._pages('The institution has 42 faculty members.'))
+
+        self.assertEqual(first.classification['document_type'], 'naac_ssr')
+        self.assertEqual([f['field_key'] for f in facts], ['total_faculty'])  # the invalid one dropped
+        self.assertEqual(self.calls, [('document_analysis', 'document_analysis')])
+        self.classifier.classify.assert_not_called()
+
+    def test_an_invalid_classification_fails_the_combined_answer(self):
+        from .services.openai_classifier import ClassificationValidationError
+        for bad in (None, 'naac_ssr', {**FAKE_CLASSIFICATION_RESULT, 'confidence': 7}):
+            with self.subTest(bad=bad):
+                analyzer = self._analyzer([{'classification': bad, 'facts': []}], max_chunk_chars=10_000)
+                with self.assertRaises(ClassificationValidationError):
+                    analyzer.analyze_first(self.document, self._pages('Some text.'))
+
+    def test_missing_facts_keep_the_classification(self):
+        analyzer = self._analyzer([{'classification': dict(FAKE_CLASSIFICATION_RESULT), 'facts': None}],
+                                  max_chunk_chars=10_000)
+        first, facts = self._analyze(analyzer, self._pages('Some text.'))
+        self.assertEqual(first.classification['confidence'], 0.9)
+        self.assertEqual(facts, [])
+
+    def test_a_long_document_classifies_once_with_the_first_chunk_then_extracts_facts_only(self):
+        text = 'The institution has 42 faculty members. ' + 'x' * 30
+        analyzer = self._analyzer([
+            {'classification': dict(FAKE_CLASSIFICATION_RESULT), 'facts': [_valid_fact()]},
+            {'facts': [_valid_fact(field_key='total_students', field_name='Total Students', value='900',
+                                   source_page='2')]},
+            {'facts': [_valid_fact(value='42', source_page='3', confidence_score=0.99)]},  # same key: merged
+        ])
+        first, facts = self._analyze(analyzer, self._pages(text, text, text))
+
+        self.assertEqual(first.chunk_count, 3)
+        self.assertEqual(self.calls, [
+            ('document_analysis', 'document_analysis'),
+            ('extracted_facts', 'fact_extraction'),
+            ('extracted_facts', 'fact_extraction'),
+        ])
+        self.classifier.classify.assert_not_called()
+        self.assertEqual(sorted(f['field_key'] for f in facts), ['total_faculty', 'total_students'])
+
+    def test_a_document_without_text_asks_for_classification_only(self):
+        def classify(document, pages=None):
+            self.calls.append(('document_classification', _stage_now()))
+            return dict(FAKE_CLASSIFICATION_RESULT)
+        self.classifier.classify.side_effect = classify
+        first, facts = self._analyze(self._analyzer([]), self._pages('', '   '))
+        self.assertEqual(self.calls, [('document_classification', 'classification')])
+        self.assertEqual((first.classification['document_type'], facts), ('naac_ssr', []))
+
+    def test_a_recoverable_error_retries_the_job_whichever_request_it_hits(self):
+        text = 'y' * 70
+        analyzer = self._analyzer([RecoverableExtractionError('router busy')])
+        with self.assertRaises(RecoverableExtractionError):
+            analyzer.analyze_first(self.document, self._pages(text, text))
+
+        analyzer = self._analyzer([
+            {'classification': dict(FAKE_CLASSIFICATION_RESULT), 'facts': []},
+            RecoverableExtractionError('timeout'),
+        ])
+        first = analyzer.analyze_first(self.document, self._pages(text, text))
+        with self.assertRaises(RecoverableExtractionError):
+            analyzer.extract_rest(self.document, first)
+
+    def test_a_permanent_error_on_a_later_chunk_only_skips_that_chunk(self):
+        text = 'The institution has 42 faculty members. ' + 'x' * 30
+        analyzer = self._analyzer([
+            {'classification': dict(FAKE_CLASSIFICATION_RESULT), 'facts': [_valid_fact()]},
+            PermanentExtractionError('refused'),
+        ])
+        _, facts = self._analyze(analyzer, self._pages(text, text))
+        self.assertEqual([f['field_key'] for f in facts], ['total_faculty'])
+
+    def test_stop_is_honoured_before_the_first_request_and_between_chunks(self):
+        from .exceptions import ExtractionCancelled
+        text = 'y' * 70
+        analyzer = self._analyzer([])
+        analyzer.should_stop = lambda: True
+        with self.assertRaises(ExtractionCancelled):
+            analyzer.analyze_first(self.document, self._pages(text))
+        self.assertEqual(self.calls, [])
+
+        stopped = []
+        analyzer = self._analyzer([{'classification': dict(FAKE_CLASSIFICATION_RESULT), 'facts': []}])
+        analyzer.should_stop = lambda: bool(stopped)
+        first = analyzer.analyze_first(self.document, self._pages(text, text, text))
+        stopped.append(True)
+        with self.assertRaises(ExtractionCancelled):
+            analyzer.extract_rest(self.document, first)
+        self.assertEqual(len(self.calls), 1)  # no request after Stop
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
+class CombinedAnalysisPipelineTests(ExtractionJobTestBase):
+    """The real pipeline makes ONE AI request for a one-chunk document; its classification still goes
+    through the existing confidence / category rules and its facts through the existing persistence."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch('apps.extraction.services.openai_classifier.get_ai_service')
+        self.classify_mock = patcher.start().return_value.extract_structured_data
+        self.classify_mock.return_value = dict(FAKE_CLASSIFICATION_RESULT)
+        self.addCleanup(patcher.stop)
+        self._auth(self.iqac)
+
+    _run = DocumentClassificationTests._run
+    _classify_as = DocumentClassificationTests._classify_as
+    _confirm_category = DocumentClassificationTests._confirm_category
+
+    def test_a_one_chunk_document_needs_one_request(self):
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact()]}
+        job = self._run()
+
+        self.assertEqual(job.status, ExtractionJob.Status.COMPLETED)
+        schemas = [c.kwargs.get('schema_name') for c in self.analysis_service.extract_structured_data.call_args_list]
+        self.assertEqual(schemas, ['document_analysis'])
+        self.assertEqual(self.document.classification_status, Document.ClassificationStatus.CLASSIFIED)
+        self.assertEqual(self.document.extracted_facts.get().field_key, 'total_faculty')
+
+    def test_usage_is_recorded_once_per_response_under_the_combined_stage(self):
+        from .models import AIUsage
+        from .usage import _save
+
+        def answer(**kwargs):  # what a real AI client does with each response
+            _save(provider='openai', model='m', input_tokens=1000, output_tokens=200)
+            return {'classification': dict(FAKE_CLASSIFICATION_RESULT), 'facts': [_valid_fact()]}
+        self.analysis_service.extract_structured_data.side_effect = answer
+        job = self._run()
+
+        row = AIUsage.objects.get()
+        self.assertEqual((row.stage, row.extraction_job_id, row.document_id),
+                         ('document_analysis', job.id, self.document.id))
+        self.assertEqual((row.input_tokens, row.output_tokens), (1000, 200))  # one row, not split in two
+
+    def test_a_low_confidence_combined_classification_needs_review(self):
+        self._classify_as('naac_ssr', 0.3, 'Unsure.')
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact()]}
+        self._run()
+        self.assertEqual(self.document.classification_status, Document.ClassificationStatus.NEEDS_REVIEW)
+        self.assertEqual(self.document.extracted_facts.count(), 1)  # the facts are still kept
+
+    def test_an_unsupported_category_is_unclassified(self):
+        self._classify_as('not_a_real_category', 0.95)
+        self._run()
+        self.assertEqual(self.document.classification_status, Document.ClassificationStatus.UNCLASSIFIED)
+
+    def test_a_confirmed_category_and_a_reviewed_fact_survive_reprocessing(self):
+        self._classify_as('naac_ssr', 0.45, 'Unsure.')
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact(value='42')]}
+        self._run()
+        self._confirm_category('aqar_report')
+        fact = self.document.extracted_facts.get()
+        fact.status = ExtractedFact.Status.CONFIRMED
+        fact.save()
+
+        self._classify_as('naac_ssr', 0.97)
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact(value='99')]}
+        self._run()
+
+        fact.refresh_from_db()
+        self.assertEqual(self.document.ai_document_type, 'aqar_report')
+        self.assertEqual(self.document.extracted_facts.count(), 1)
+        self.assertEqual((fact.status, fact.value), (ExtractedFact.Status.CONFIRMED, 42))

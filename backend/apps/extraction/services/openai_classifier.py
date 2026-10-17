@@ -104,8 +104,14 @@ class OpenAIDocumentClassifier(DocumentClassifier):
         self._page_reader = page_reader or PDFPageReader()
         self.sample_pages = sample_pages if sample_pages is not None else settings.OPENAI_CLASSIFICATION_SAMPLE_PAGES
 
-    def classify(self, document):
-        sample = self._page_reader.read_pages(document, max_pages=self.sample_pages)
+    def classify(self, document, pages=None):
+        """`pages`: the document's already-read PageReader result -- its first `sample_pages` pages are
+        used instead of reading the file again."""
+        if pages is None:
+            sample = self._page_reader.read_pages(document, max_pages=self.sample_pages)
+        else:
+            sample = {**pages, 'pages': list(pages.get('pages', []))[:self.sample_pages],
+                      'pages_read': min(len(pages.get('pages', [])), self.sample_pages)}
         user_content = self._build_user_content(document, sample)
 
         service = self._openai_service or get_ai_service()
@@ -152,6 +158,11 @@ class OpenAIDocumentClassifier(DocumentClassifier):
                     '(the document may be a scanned image with no OCR performed yet).'
                 )
         return '\n'.join(lines)
+
+    @staticmethod
+    def validate(result):
+        """Check a classification answer (also used for the combined analysis request)."""
+        OpenAIDocumentClassifier._validate(result)
 
     @staticmethod
     def _validate(result):

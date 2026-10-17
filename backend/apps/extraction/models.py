@@ -65,6 +65,9 @@ class AIUsage(models.Model):
 
     class Stage(models.TextChoices):
         CLASSIFICATION = 'classification', 'Classification'
+        #: One request that both classified the document and extracted the first chunk's facts
+        #: (services/document_analysis.py). Its tokens are not split between the two.
+        DOCUMENT_ANALYSIS = 'document_analysis', 'Document analysis (classification + facts)'
         FACT_EXTRACTION = 'fact_extraction', 'Fact extraction'
         CONFLICT_CHECK = 'conflict_check', 'Conflict check'
         OTHER = 'other', 'Other'

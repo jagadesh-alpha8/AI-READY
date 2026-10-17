@@ -305,6 +305,24 @@ classifying_documents → reading_pages → extracting_facts → mapping_audit_f
     → detecting_gaps → checking_conflicts → preparing_review_workspace
 ```
 
+**One read, one combined AI analysis** (`services/document_analysis.py`, `DocumentAnalyzer`). The
+document is read and parsed once, at `classifying_documents`, and both classification and fact
+extraction use those pages. The first chunk's single AI request returns
+`{classification, facts}`; any further chunks (long documents) are fact-only requests. There is no
+separate classification-only request for the same text; only a document with no extractable text
+gets one (from its filename and assigned type), as before. Validation is unchanged: the
+classification goes through the classifier's checks and then `_apply_classification` (confidence
+threshold, checklist categories, needs review / unclassified, a person's confirmed category is
+kept), and every fact goes through the fact extractor's schema, page-citation and AI-QIF indicator
+checks. Facts are still persisted by `field_key`: reviewed facts are never overwritten and
+reprocessing creates no duplicates. AI usage is recorded once per AI response. The combined request's
+stage is `document_analysis` ("Document analysis (classification + facts)"); its tokens are not split
+between the two parts. Later chunks are `fact_extraction`, and a no-text classification is
+`classification`. Router selection, retries (a recoverable error on any request retries the job), Stop
+(checked before each request) and human review are unchanged. AI-QIF indicator tags stay
+informational; the CRI stays deterministic. Passing your own `classifier`/`fact_extractor` to
+`ExtractionPipeline` (e.g. the stubs) runs them separately, still on the one read.
+
 **No artificial delays** — the task does exactly the real work each stage currently has (see
 "Service layer" below) and moves on; nothing sleeps to simulate processing time. A job with the
 default stub services genuinely completes in milliseconds because there's genuinely nothing yet to
