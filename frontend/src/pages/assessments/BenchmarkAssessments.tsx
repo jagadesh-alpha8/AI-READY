@@ -326,7 +326,8 @@ const BenchTable: React.FC<{ rows: CycleDetail['benchmarks']; active: string | n
   </div>
 );
 
-const ScorecardView: React.FC<{ cycleId: string }> = ({ cycleId }) => {
+/** One cycle's scorecard: the four scores (and composite) per benchmark. Also shown on Live CRI Preview. */
+export const ScorecardView: React.FC<{ cycleId: string }> = ({ cycleId }) => {
   const card = useApiResource<Scorecard>(() => getScorecard(cycleId), [cycleId]);
   if (card.loading) return <LoadingState message="Loading scorecard…" />;
   if (card.error || !card.data) return <ErrorState message={card.error || 'Not found'} onRetry={card.refetch} />;

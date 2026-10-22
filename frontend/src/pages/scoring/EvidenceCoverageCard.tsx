@@ -83,35 +83,42 @@ export const EvidenceCoverageCard: React.FC<{
         <p className="font-mono">{c.formula_version}: {c.formula}{c.release_label ? ` · release ${c.release_label}` : ''}</p>
       </div>
 
-      <details>
-        <summary className="cursor-pointer text-xs font-bold text-ink-700">Indicators ({c.indicators.length})</summary>
-        <div className="mt-2 overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-ink-500">
-                <th className="py-1 pr-2">Indicator</th>
-                <th className="py-1 pr-2">Applicability</th>
-                <th className="py-1 pr-2 text-right">Weight</th>
-                <th className="py-1">Covered</th>
-              </tr>
-            </thead>
-            <tbody>
-              {c.indicators.map((r) => (
-                <tr key={r.code} className="border-t border-line-200">
-                  <td className="py-1 pr-2"><span className="font-mono font-bold">{r.code.replace(/^AIQIF-/, '')}</span> {r.name}</td>
-                  <td className="py-1 pr-2" title={r.applicability_reason}>{APPLICABILITY_LABEL[r.applicability] || r.applicability}</td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{Number(r.weight.toFixed(4))}</td>
-                  <td className="py-1">
-                    {!r.applicable ? '—' : r.covered
-                      ? <span className="text-success font-semibold">Yes ({r.fact_ids.length} fact{r.fact_ids.length === 1 ? '' : 's'})</span>
-                      : <span className="text-warning">No</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </details>
+      <CoverageIndicatorTable indicators={c.indicators} />
     </div>
   );
 };
+
+/** The 36 AI-QIF indicators of a coverage block: applicability, weight and whether each is covered. */
+export const CoverageIndicatorTable: React.FC<{ indicators: EvidenceCoverage['indicators']; open?: boolean }> = (
+  { indicators, open = false },
+) => (
+  <details open={open}>
+    <summary className="cursor-pointer text-xs font-bold text-ink-700">Indicators ({indicators.length})</summary>
+    <div className="mt-2 overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-ink-500">
+            <th className="py-1 pr-2">Indicator</th>
+            <th className="py-1 pr-2">Applicability</th>
+            <th className="py-1 pr-2 text-right">Weight</th>
+            <th className="py-1">Covered</th>
+          </tr>
+        </thead>
+        <tbody>
+          {indicators.map((r) => (
+            <tr key={r.code} className="border-t border-line-200">
+              <td className="py-1 pr-2"><span className="font-mono font-bold">{r.code.replace(/^AIQIF-/, '')}</span> {r.name}</td>
+              <td className="py-1 pr-2" title={r.applicability_reason}>{APPLICABILITY_LABEL[r.applicability] || r.applicability}</td>
+              <td className="py-1 pr-2 text-right tabular-nums">{Number(r.weight.toFixed(4))}</td>
+              <td className="py-1">
+                {!r.applicable ? '—' : r.covered
+                  ? <span className="text-success font-semibold">Yes ({r.fact_ids.length} fact{r.fact_ids.length === 1 ? '' : 's'})</span>
+                  : <span className="text-warning">No</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </details>
+);

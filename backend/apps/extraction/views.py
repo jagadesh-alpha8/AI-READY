@@ -90,7 +90,11 @@ class SprintExtractionJobListCreateView(generics.ListCreateAPIView):
         handled_document_ids = ExtractionJob.objects.filter(sprint=sprint).filter(
             Q(status__in=ACTIVE_STATUSES) | _COMPLETE_JOB,
         ).values_list('document_id', flat=True)
-        return sprint.documents.exclude(status=Document.Status.REJECTED).exclude(id__in=handled_document_ids)
+        # A version replaced by a newer upload is history: the same set of documents the processing summary
+        # counts (services/completeness.included_documents), so "process everything left" never runs an
+        # outdated file. One can still be selected explicitly (document_id / document_ids).
+        return (sprint.documents.exclude(status=Document.Status.REJECTED).filter(superseded_at__isnull=True)
+                .exclude(id__in=handled_document_ids))
 
     @staticmethod
     def _prepare_jobs(sprint, documents, rerun_completed=False):

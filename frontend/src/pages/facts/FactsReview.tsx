@@ -14,6 +14,7 @@ import { FileSearch, ArrowRight } from 'lucide-react';
 import { ScrollableTable } from '../../components/ScrollableTable';
 import { TableFilters, matchesSearch, optionsFrom } from '../../components/TableFilters';
 import { useAccess } from '../../utils/access';
+import { CriConfidenceTile } from '../scoring/CriConfidenceTile';
 import { RequestEvidenceModal } from './RequestEvidenceModal';
 
 export const FactsReview: React.FC = () => {
@@ -211,6 +212,8 @@ export const FactsReview: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {isRealSprint && <CriConfidenceTile sprintId={sprintId!} />}
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
       {actionMessage && (

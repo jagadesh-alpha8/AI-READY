@@ -1,31 +1,40 @@
 import React, { useState } from 'react';
-import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
-import { ScorecardsNote } from './ScorecardsNote';
-import { EvidenceCoverageCard } from './EvidenceCoverageCard';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getScore, recalculateScore } from '../../api/scoring';
-import { useApiResource } from '../../hooks/useApiResource';
-import { getErrorMessage } from '../../utils/errors';
-import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
-import type { Scorecard } from '../../types';
 import { BarChart3, ArrowRight, RefreshCw } from 'lucide-react';
-import { useAccess } from '../../utils/access';
 
+import { getScore, recalculateScore } from '../../api/scoring';
+import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
+import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
+import { useApiResource } from '../../hooks/useApiResource';
+import type { Scorecard } from '../../types';
+import { useAccess } from '../../utils/access';
+import { getErrorMessage } from '../../utils/errors';
+import { BenchmarkAssessmentSection } from './BenchmarkAssessmentSection';
+import { CoverageIndicatorTable } from './EvidenceCoverageCard';
+import { FactorBreakdown } from './FactorBreakdown';
+import { ScorecardsNote } from './ScorecardsNote';
+import {
+  adjustedReason, coverageCounts, coverageReason, hasCoverage, rawCriZeroReason, reportingPeriod,
+} from './scoreExplain.ts';
+
+/**
+ * Live CRI Preview: the selected sprint's Raw CRI, evidence coverage and coverage-adjusted CRI, each explained,
+ * and the college's Benchmark Assessment in its own section (CRI Evidence Confidence is a tile on Extracted
+ * Facts Review). Every number is the score API's (backend apps/scoring: cri_engine.py and coverage.py); this
+ * page computes none of them. The page is remounted when the selected sprint changes.
+ */
 export const LiveCRIPreview: React.FC = () => {
   const { can, canSee, step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
+  const { sprint } = useSelectedSprint();
   const [recalculating, setRecalculating] = useState(false);
   const [actionError, setActionError] = useState('');
 
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
-  const {
-    data: scorecard,
-    setData: setScorecard,
-    loading,
-    error,
-    refetch,
-  } = useApiResource<Scorecard>(() => getScore(sprintId!), [sprintId], isRealSprint);
+  const { data: scorecard, setData: setScorecard, loading, error, refetch } =
+    useApiResource<Scorecard>(() => getScore(sprintId!), [sprintId], isRealSprint);
 
   const handleRecalculate = async () => {
     if (!isRealSprint) {
@@ -35,8 +44,7 @@ export const LiveCRIPreview: React.FC = () => {
     setRecalculating(true);
     setActionError('');
     try {
-      const res = await recalculateScore(sprintId!);
-      setScorecard(res.data);
+      setScorecard((await recalculateScore(sprintId!)).data);
     } catch (err) {
       setActionError(getErrorMessage(err, 'Failed to recalculate the CRI score.'));
     } finally {
@@ -44,9 +52,12 @@ export const LiveCRIPreview: React.FC = () => {
     }
   };
 
+  const coverage = scorecard && hasCoverage(scorecard.evidence_coverage) ? scorecard.evidence_coverage : null;
+  const counts = coverage ? coverageCounts(coverage) : null;
+  const period = sprint ? reportingPeriod(sprint) : '';
+
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
       <div className="glass-card p-5 sm:p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -54,7 +65,8 @@ export const LiveCRIPreview: React.FC = () => {
               <BarChart3 className="w-5 h-5 text-brand-800" /> Step {step('sprint-score')}: Live CRI Score Preview
             </h1>
             <p className="text-sm text-ink-500 mt-1">
-              CRI calculated across the 9 InGage AI-QIF criteria (weights out of 1000), with confidence weighting and gap penalties.
+              The sprint's CRI values from its own reviewed facts and open gaps, and the college's Benchmark Assessment
+              apart from them.
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -84,64 +96,106 @@ export const LiveCRIPreview: React.FC = () => {
       ) : error ? (
         <ErrorState message={error} onRetry={refetch} />
       ) : !scorecard ? (
-        <LoadingState message="No score available for this sprint yet." />
+        <div className="glass-card p-5 text-sm text-ink-600">No score is available for this sprint yet.</div>
       ) : (
         <>
-          {/* Main Score Overview Header */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="glass-card p-6 sm:p-8 bg-gradient-to-br from-brand-50 to-card text-center">
-              <span className="text-xs font-bold text-brand-800 uppercase tracking-wide">Raw CRI</span>
-              <div className="text-4xl sm:text-5xl font-bold text-ink-900 my-3 tracking-tight tabular-nums">
-                {scorecard.cri_score} <span className="text-lg font-normal text-ink-500">/ 100</span>
-              </div>
-              <span className="badge-brand">Confidence-Weighted Baseline</span>
-            </div>
-
-            <div className="glass-card p-6 sm:p-8 text-center">
-              <span className="text-xs font-bold text-accent uppercase tracking-wide">CRI Evidence Confidence</span>
-              <div className="text-4xl sm:text-5xl font-bold text-accent my-3 tracking-tight tabular-nums">
-                {(scorecard.cri_confidence * 100).toFixed(0)}%
-              </div>
-              <span className="badge-accent">
-                {scorecard.cri_confidence >= 0.8 ? 'Confidence Band: High (>=80%)' : 'Confidence Band: Building'}
-              </span>
-            </div>
+          {/* Which sprint, which period, when calculated -- right next to the numbers. */}
+          <div className="glass-card px-5 py-3 text-xs text-ink-600 flex flex-wrap gap-x-4 gap-y-1" aria-label="Scored sprint">
+            <span>Sprint <strong className="font-mono text-ink-900">{sprint?.sprint_code || '—'}</strong>
+              {sprint?.name && sprint.name !== sprint.institution_name ? ` · ${sprint.name}` : ''}</span>
+            <span>{sprint?.institution_name || ''}</span>
+            <span>{period || 'Reporting period not set'}</span>
+            <span>Calculated {scorecard.calculated_at ? new Date(scorecard.calculated_at).toLocaleString() : '—'}</span>
           </div>
 
-          <EvidenceCoverageCard
-            rawCri={scorecard.raw_cri ?? scorecard.overall_cri}
-            adjustedCri={scorecard.coverage_adjusted_cri}
-            coverage={scorecard.evidence_coverage}
-            missingHint="Recalculate the CRI to see it."
-            showRaw={false}
-          />
+          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6">
+            {/* 1. Raw / Sprint CRI */}
+            <ScoreTile label="1 · Raw / Sprint CRI" tone="brand" value={`${scorecard.raw_cri}`} suffix="/ 100"
+              note={rawCriZeroReason(scorecard)}>
+              Calculated across the 9 AI-QIF factors from this sprint's confirmed and corrected facts. Each factor scores
+              0-100 (the weighted average of its criteria, minus penalties for its open gaps) and contributes score x
+              weight; the contributions add up to the CRI. See the breakdown below.
+            </ScoreTile>
 
-          {/* Pillar (AI-QIF criterion) scorecards */}
-          <div className="glass-card p-5 sm:p-6">
-            <h2 className="eyebrow mb-4">AI-QIF Criteria Scorecard ({(scorecard.pillar_scores || []).length})</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {(scorecard.pillar_scores || []).map((p) => (
-                <div key={p.pillar} className="p-4 bg-surface rounded-xl border border-line-200 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-bold text-ink-900">{p.label || p.pillar}</span>
-                    <span className="text-xs font-mono font-bold text-brand-800 tabular-nums">{p.score} / 100</span>
-                  </div>
-                  <div className="w-full bg-line-200 h-2 rounded-full overflow-hidden">
-                    <div
-                      className="bg-brand-500 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${p.score}%` }}
-                    ></div>
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-ink-500">
-                    <span>Weight: {(p.weight * 100).toFixed(0)}%</span>
-                    <span>Confidence: {(p.confidence * 100).toFixed(0)}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {/* 2. AI-QIF Evidence Coverage (CRI Evidence Confidence is on Extracted Facts Review) */}
+            <ScoreTile label="2 · AI-QIF Evidence Coverage" tone="accent"
+              value={coverage?.ratio == null ? '—' : `${Math.round(coverage.ratio * 100)}%`}
+              badge={counts ? `${counts.covered} of ${counts.applicable} applicable indicators covered` : undefined}
+              note={coverageReason(coverage)}>
+              The share of the 36 AI-QIF indicators (by weight) that this sprint's evidence reaches. An indicator is
+              covered only when a reviewer has confirmed its AI-QIF tag on a confirmed or corrected fact.
+              {counts && (
+                <span className="flex flex-wrap gap-1.5 mt-2">
+                  <span className="badge-success">Covered {counts.covered}</span>
+                  <span className="badge-warning">Not covered {counts.uncovered}</span>
+                  <span className="badge-neutral">Excluded (not applicable) {counts.excluded}</span>
+                  <span className={counts.unresolved ? 'badge-warning' : 'badge-neutral'}>Applicability unresolved {counts.unresolved}</span>
+                </span>
+              )}
+            </ScoreTile>
+
+            {/* 3. Coverage-Adjusted CRI */}
+            <ScoreTile label="3 · Coverage-Adjusted CRI" tone="brand"
+              value={scorecard.coverage_adjusted_cri == null ? '—' : `${scorecard.coverage_adjusted_cri}`}
+              suffix={scorecard.coverage_adjusted_cri == null ? undefined : '/ 100'} note={adjustedReason(scorecard)}>
+              {coverage ? (
+                <>
+                  <span className="block font-mono text-[11px] text-ink-700">{coverage.formula_version}: {coverage.formula}</span>
+                  <span className="block mt-1">
+                    Used here: Raw CRI {scorecard.raw_cri} x ({coverage.covered_weight} covered weight / {coverage.applicable_weight}{' '}
+                    applicable weight){coverage.ratio != null ? ` = ${scorecard.raw_cri} x ${coverage.ratio}` : ''}.
+                    Weights: {coverage.weights_note}
+                  </span>
+                </>
+              ) : 'Raw CRI x evidence coverage, once coverage has been calculated.'}
+            </ScoreTile>
           </div>
+
+          {coverage?.applicability_note && (
+            <p className="text-xs text-ink-600 -mt-2">
+              <strong>Why applicability is unresolved:</strong> {coverage.applicability_note} Unresolved indicators stay in the
+              denominator (they are never dropped), so they cannot raise coverage.
+            </p>
+          )}
+
+          <section className="glass-card p-5 sm:p-6 space-y-3">
+            <h2 className="eyebrow">Raw CRI breakdown: the 9 AI-QIF factors</h2>
+            <FactorBreakdown pillars={scorecard.pillar_scores || []} rawCri={scorecard.raw_cri} />
+          </section>
+
+          {coverage && (
+            <section className="glass-card p-5 sm:p-6 space-y-2">
+              <h2 className="eyebrow">How coverage was counted</h2>
+              <p className="text-xs text-ink-500">
+                {coverage.release_label ? `Applicability from published release ${coverage.release_label}. ` : ''}
+                {coverage.mappings_awaiting_review > 0
+                  ? `${coverage.mappings_awaiting_review} AI-QIF tag(s) on confirmed facts are waiting for reviewer confirmation. `
+                  : ''}
+                Each row's weight is the one used in the coverage-adjusted CRI.
+              </p>
+              <CoverageIndicatorTable indicators={coverage.indicators} />
+            </section>
+          )}
         </>
       )}
+
+      {/* Benchmark Assessment -- the college's, not the sprint's. */}
+      <BenchmarkAssessmentSection institutionId={sprint?.institution_id || null} institutionName={sprint?.institution_name || ''} />
     </div>
   );
 };
+
+const ScoreTile: React.FC<{
+  label: string; value: string; suffix?: string; badge?: string; note?: string; tone: 'brand' | 'accent';
+  children: React.ReactNode;
+}> = ({ label, value, suffix, badge, note, tone, children }) => (
+  <div className="glass-card p-5 sm:p-6 space-y-2">
+    <span className={`text-xs font-bold uppercase tracking-wide ${tone === 'brand' ? 'text-brand-800' : 'text-accent'}`}>{label}</span>
+    <div className={`text-4xl font-bold tracking-tight tabular-nums ${tone === 'brand' ? 'text-ink-900' : 'text-accent'}`}>
+      {value} {suffix && <span className="text-lg font-normal text-ink-500">{suffix}</span>}
+    </div>
+    {badge && <span className={tone === 'brand' ? 'badge-brand' : 'badge-accent'}>{badge}</span>}
+    {note && <p className="text-xs font-semibold text-warning">{note}</p>}
+    <p className="text-xs text-ink-600">{children}</p>
+  </div>
+);
