@@ -220,6 +220,20 @@ def _score_from_run(sprint, run):
     }
 
 
+def _processing_section(sprint):
+    """Document processing as it stood when this report was built, and whether the decided baseline was
+    approved over incomplete processing (with its recorded reason). Never reported as complete when it isn't."""
+    from apps.extraction.services.completeness import processing_summary, snapshot
+
+    section = snapshot(processing_summary(sprint))
+    baseline = _decided_baseline(sprint)
+    section['baseline_override'] = ({
+        'reason': baseline.processing_override_reason,
+        'description': (baseline.processing_snapshot or {}).get('description', ''),
+    } if baseline is not None and baseline.processing_incomplete else None)
+    return section
+
+
 def _coverage_summary(coverage):
     """The report's coverage block: the run's numbers plus a plain sentence (no per-fact ids)."""
     if not coverage:
@@ -268,6 +282,7 @@ def build_report_data(sprint, scoring_run=None):
         'generated_at': timezone.now(),
         'baseline': _baseline_summary(sprint),
         'cri_source': _cri_source(sprint, run),
+        'processing': _processing_section(sprint),
         'executive_summary': _build_executive_summary(sprint, score),
         'overall_cri': score['overall_cri'],
         'raw_cri': score['overall_cri'],

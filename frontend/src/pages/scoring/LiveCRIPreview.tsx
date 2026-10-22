@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
+import { ScorecardsNote } from './ScorecardsNote';
 import { EvidenceCoverageCard } from './EvidenceCoverageCard';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getScore, recalculateScore } from '../../api/scoring';
@@ -74,6 +76,8 @@ export const LiveCRIPreview: React.FC = () => {
       </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
+      {sprintId && <ProcessingStatusBanner sprintId={sprintId} consequence="This CRI can only use facts from what was read, so it may be understated." />}
+      <ScorecardsNote here="cri" />
 
       {loading ? (
         <LoadingState message="Calculating CRI score..." />

@@ -184,6 +184,12 @@ class Baseline(models.Model):
     #: distinct from `BaselineDecisionHistory`, which is the append-only
     #: log of every decision made across every Baseline row for this sprint.
     comments = models.TextField(blank=True)
+    #: Document processing when the decision was made (apps.extraction.services.completeness.snapshot).
+    processing_snapshot = models.JSONField(default=dict, blank=True)
+    #: Approved although included documents were not fully processed -- only with a recorded reason, and
+    #: shown with the baseline and in every report; never treated as complete processing.
+    processing_incomplete = models.BooleanField(default=False)
+    processing_override_reason = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

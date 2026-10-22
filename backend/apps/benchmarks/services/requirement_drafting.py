@@ -9,10 +9,15 @@ Safeguards (the blueprint: AI proposes, people decide):
   one into a Requirement (see accept_candidate).
 - AI calls go through get_ai_service(), so they follow AI_PROCESSING_MODE
   (single / multi_router) and are recorded in AI usage like extraction calls.
+- A rate limit (HTTP 429, e.g. a free-tier "requests per minute" quota) waits
+  as long as the provider asks and retries the same section; each finished
+  section is marked (drafted_at), so a rerun after a failure drafts only the
+  sections that are left and keeps the drafts already made.
 """
 import logging
 import os
 import re
+import time
 from types import SimpleNamespace
 
 from django.conf import settings
@@ -28,6 +33,11 @@ logger = logging.getLogger(__name__)
 
 SECTION_MAX_CHARS = 12000  # same page-grouping cap as the fact extractor
 MAX_SECTIONS = 60          # safety cap on AI calls per document
+
+RATE_LIMIT_RETRIES = 6        # per section, after a 429
+RATE_LIMIT_DEFAULT_WAIT = 20  # seconds, when the provider gives no retry hint
+RATE_LIMIT_MAX_WAIT = 120     # never sleep longer than this at once
+_sleep = time.sleep           # replaced in tests
 
 SYSTEM_PROMPT = (
     'You extract atomic requirements from an official Indian higher-education / skills / technology source '
@@ -137,12 +147,52 @@ def _norm(text):
     return re.sub(r'\s+', ' ', (text or '')).strip().lower()
 
 
-def draft_section(section, service):
-    """Ask the AI for requirements in one section; keep only verifiable ones."""
-    result = service.extract_structured_data(
-        system_prompt=SYSTEM_PROMPT,
-        user_content=f'Source: {section.version.document.title} ({section.version.version_label})\n\n{section.text}',
-        response_schema=SCHEMA, schema_name='source_requirements')
+#: A provider's own retry hint in its error text: Gemini's "retryDelay': '4s'" or "Please retry in 4.5s".
+_RETRY_HINT = re.compile(r'retry(?:Delay[\'"]?\s*:\s*[\'"]|\s+in\s+)(\d+(?:\.\d+)?)\s*s', re.I)
+
+
+def rate_limit_wait(exc):
+    """Seconds to wait before retrying `exc`, or None when it is not a rate limit (HTTP 429). Uses the
+    provider's own hint -- a Retry-After header, else a delay named in the message -- plus a second of
+    margin, capped at RATE_LIMIT_MAX_WAIT."""
+    cause = exc.__cause__ or exc
+    if getattr(cause, 'status_code', None) != 429 and 'rate limit' not in str(exc).lower():
+        return None
+    wait = None
+    response = getattr(cause, 'response', None)
+    header = getattr(response, 'headers', {}).get('retry-after') if response is not None else None
+    if header:
+        try:
+            wait = float(header)
+        except ValueError:
+            wait = None
+    if wait is None:
+        match = _RETRY_HINT.search(str(exc))
+        wait = float(match.group(1)) if match else RATE_LIMIT_DEFAULT_WAIT
+    return min(max(wait, 0) + 1, RATE_LIMIT_MAX_WAIT)
+
+
+def _ask_ai(section, service):
+    """One AI call for the section, retried after a rate limit (any other error is raised at once)."""
+    from apps.extraction.exceptions import RecoverableExtractionError
+
+    for attempt in range(RATE_LIMIT_RETRIES + 1):
+        try:
+            return service.extract_structured_data(
+                system_prompt=SYSTEM_PROMPT,
+                user_content=f'Source: {section.version.document.title} ({section.version.version_label})\n\n{section.text}',
+                response_schema=SCHEMA, schema_name='source_requirements')
+        except RecoverableExtractionError as exc:
+            wait = rate_limit_wait(exc)
+            if wait is None or attempt == RATE_LIMIT_RETRIES:
+                raise
+            logger.warning('benchmarks.drafting.rate_limited section=%s attempt=%d wait=%.1fs',
+                           section.pk, attempt + 1, wait)
+            _sleep(wait)
+
+
+def _verified(section, service, result):
+    """The AI's drafts for the section that quote its text on one of its pages (others are dropped)."""
     kept, dropped = [], 0
     haystack = _norm(section.text)
     for item in (result or {}).get('requirements', []):
@@ -158,29 +208,56 @@ def draft_section(section, service):
             version=section.version, section=section, statement=statement[:2000], kind=kind, page=page,
             source_quote=quote[:2000], confidence=max(0.0, min(1.0, float(item.get('confidence') or 0))),
             rationale=(item.get('rationale') or '')[:2000], model=getattr(service, 'model', '') or ''))
-    RequirementCandidate.objects.bulk_create(kept)
+    return kept, dropped
+
+
+def _save_section(section, kept):
+    """Store the section's drafts and mark it finished, together (a crash never leaves half a section)."""
+    with transaction.atomic():
+        section.candidates.filter(status=RequirementCandidate.Status.PENDING).delete()  # an interrupted attempt
+        RequirementCandidate.objects.bulk_create(kept)
+        section.drafted_at = timezone.now()
+        section.save(update_fields=['drafted_at'])
+
+
+def draft_section(section, service):
+    """Ask the AI for requirements in one section; keep only verifiable ones."""
+    kept, dropped = _verified(section, service, _ask_ai(section, service))
+    _save_section(section, kept)
     return len(kept), dropped
 
 
 def draft_version(version, *, actor='requirement_drafting'):
-    """Sections (if missing) + AI drafts for every section. Call inside a router
-    lease in multi_router mode (the Celery task does that)."""
+    """Sections (if missing) + AI drafts for every section not drafted yet. Call inside a router
+    lease in multi_router mode (the Celery task does that).
+
+    A rerun after an interrupted run (a rate limit that outlasted its retries, a crash) drafts only the
+    sections left and keeps the drafts of the finished ones. A version whose sections are all finished
+    is drafted afresh, as before: its pending drafts are replaced; reviewed ones are never touched."""
     from apps.extraction.models import AIUsage
     from apps.extraction.services.ai_service import get_ai_service
     from apps.extraction.usage import usage_scope
 
     if not version.sections.exists():
         build_sections(version)
-    version.requirement_candidates.filter(status=RequirementCandidate.Status.PENDING).delete()
+    sections = list(version.sections.all())
+    if all(s.drafted_at for s in sections):
+        version.requirement_candidates.filter(status=RequirementCandidate.Status.PENDING).delete()
+        version.sections.update(drafted_at=None)
+        for s in sections:
+            s.drafted_at = None
+    todo = [s for s in sections if s.drafted_at is None]
     service = get_ai_service()
     kept = dropped = 0
     with usage_scope(stage=AIUsage.Stage.OTHER):
-        for section in version.sections.all():
+        for section in todo:
             k, d = draft_section(section, service)
             kept, dropped = kept + k, dropped + d
     SourceAuditEvent.objects.create(actor=actor, action='requirements.drafted', object_type='SourceVersion',
-                                    object_id=str(version.pk), after={'drafts': kept, 'dropped_unverifiable': dropped,
-                                                                      'model': getattr(service, 'model', '')})
+                                    object_id=str(version.pk), after={
+                                        'drafts': kept, 'dropped_unverifiable': dropped,
+                                        'sections_drafted': len(todo), 'sections_kept': len(sections) - len(todo),
+                                        'model': getattr(service, 'model', '')})
     return kept, dropped
 
 

@@ -34,8 +34,11 @@ export const ACTION_ROLES = {
   'documents.manageAll': QUALITY_LEADS,
   /** Confirm / correct / reject facts (CanReviewFacts). */
   'facts.review': ALL_EXCEPT_VIEWER,
-  /** Resolve / skip gaps (CanResolveGaps). */
+  /** Resolve / skip gaps (CanResolveGaps). Which ones a role may settle is decided per item by the
+   * server (apps/facts/ownership.py) and sent as each fact's / gap's `can_act`. */
   'gaps.resolve': ALL_EXCEPT_VIEWER,
+  /** Assign facts and gaps to people, and see every task of the sprint (ownership.COORDINATOR_ROLES). */
+  'work.assign': QUALITY_LEADS,
   /** Generate recommendations (CanManageRecommendations). */
   'recommendations.generate': QUALITY_LEADS,
   /** Edit, accept or hide a recommendation (CanEditRecommendation). */
@@ -76,6 +79,8 @@ export const MENU_ROLES = {
   'sprint-report': 'all',
   // Modules
   'evidence-intelligence': ALL_EXCEPT_VIEWER,
+  // Evidence asked for behind facts: the assignee's task list and the reviewer's decisions.
+  'evidence-requests': ALL_EXCEPT_VIEWER,
   'cri-benchmark-intelligence': 'all',
   'benchmark-studio': STAFF,
   'benchmark-assessment': 'all',

@@ -152,9 +152,25 @@ class DocumentUploadTests(APITestCase):
         other_sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.QUICK_CRI)
         response = self.client.post(
             f'/api/v1/sprints/{other_sprint.id}/upload-file/',
-            {'file': make_pdf(), 'document_type': 'naac_ssr'}, format='multipart',
+            {'file': make_pdf(name='renamed_ssr_copy.pdf'), 'document_type': 'naac_ssr'}, format='multipart',
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['original_filename'], 'renamed_ssr_copy.pdf')
+        self.assertEqual(response.data['checksum'], Document.objects.get(sprint=self.sprint).checksum)
+        self.assertEqual(Document.objects.filter(sprint=other_sprint).count(), 1)
+
+    def test_changed_file_content_creates_a_linked_version_in_the_same_sprint(self):
+        self._auth(self.iqac)
+        first = self._upload(file=make_pdf(name='ssr.pdf', content=b'%PDF-1.4 version one'))
+        second = self._upload(file=make_pdf(name='ssr.pdf', content=b'%PDF-1.4 version two'))
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.data)
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED, second.data)
+        old = Document.objects.get(id=first.data['id'])
+        new = Document.objects.get(id=second.data['id'])
+        self.assertEqual((old.version_number, old.superseded_at), (1, new.uploaded_at))
+        self.assertEqual((new.version_number, new.previous_version_id), (2, old.id))
+        self.assertNotEqual(old.checksum, new.checksum)
 
     # -- unauthorized upload -------------------------------------------------
 
@@ -957,6 +973,104 @@ class DriveImportTaskTests(APITestCase):
         job = DriveImportJob.objects.get(id=response.data['id'])
         self.assertEqual(job.status, DriveImportJob.Status.SCANNING)
         self.assertIn('Network error', job.error_message)
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_automated_traffic_block_while_listing_is_retried_not_failed(self, mock_get):
+        mock_get.return_value = _FakeDriveResponse(403, text=_SORRY_PAGE)
+        response = self._start_import()
+        job = DriveImportJob.objects.get(id=response.data['id'])
+        self.assertEqual(job.status, DriveImportJob.Status.SCANNING)  # rescheduled, like a network error
+        self.assertIn('automated traffic', job.error_message)
+        self.assertNotIn('Anyone with the link', job.error_message)
+
+    @patch('apps.documents.drive_import._sleep')
+    @patch('apps.documents.drive_import.requests.get')
+    def test_a_file_blocked_on_every_try_is_skipped_with_googles_reason(self, mock_get, _sleep):
+        listing = _make_fake_drive_get(files=[
+            {'id': 'f1', 'name': 'NAAC_SSR_2024.pdf', 'mimeType': 'application/pdf'}])
+
+        def fake_get(url, params=None, timeout=None):
+            if url == f'{DRIVE_API_BASE}/files':
+                return listing(url, params=params, timeout=timeout)
+            return _FakeDriveResponse(403, text=_SORRY_PAGE)
+        mock_get.side_effect = fake_get
+        response = self._start_import()
+        job = DriveImportJob.objects.get(id=response.data['id'])
+        self.assertEqual((job.status, job.files_imported), (DriveImportJob.Status.COMPLETED, 0))
+        reason = job.results['skipped_files'][0]['reason']
+        self.assertTrue(reason.startswith('Google is temporarily blocking requests from this network'), reason)
+        self.assertEqual(_sleep.call_count, 2)  # tried 3 times
+
+
+_SORRY_PAGE = ('<html><head><title>Sorry...</title></head><body><h1>We\'re sorry...</h1><p>... but your computer '
+               'or network may be sending automated queries. To protect our users, we can\'t process your request '
+               'right now.</p></body></html>')
+
+
+def _drive_error(code, reason, message):
+    return _FakeDriveResponse(code, json_data={'error': {'code': code, 'message': message,
+                                                         'errors': [{'reason': reason, 'message': message}]}})
+
+
+class DriveErrorReasonTests(SimpleTestCase):
+    """Google's own reason is shown, and only what can clear up by itself is retried."""
+
+    def _raise(self, resp):
+        from .drive_import import _raise_for_drive_status
+        _raise_for_drive_status(resp, context="downloading 'ssr.pdf'")
+
+    def test_the_automated_traffic_page_is_recoverable_and_says_so(self):
+        with self.assertRaises(RecoverableDriveImportError) as ctx:
+            self._raise(_FakeDriveResponse(403, text=_SORRY_PAGE))
+        self.assertIn('blocking requests from this network as automated traffic', str(ctx.exception))
+        self.assertIn('switch to another network', str(ctx.exception))
+
+    def test_rate_limits_are_recoverable(self):
+        for resp in (_drive_error(403, 'userRateLimitExceeded', 'User rate limit exceeded.'),
+                     _FakeDriveResponse(429, text='Too Many Requests')):
+            with self.assertRaises(RecoverableDriveImportError) as ctx:
+                self._raise(resp)
+            self.assertIn('rate-limiting', str(ctx.exception))
+
+    def test_googles_reason_and_message_are_shown_with_what_to_do(self):
+        cases = {
+            'cannotDownloadFile': ('The user does not have sufficient permissions for file x.', 'turned off downloading'),
+            'downloadQuotaExceeded': ('The download quota for this file has been exceeded.', 'resets within about a day'),
+            'keyInvalid': ('API key not valid. Please pass a valid API key.', 'GOOGLE_DRIVE_API_KEY'),
+        }
+        for reason, (message, hint) in cases.items():
+            with self.assertRaises(PermanentDriveImportError) as ctx:
+                self._raise(_drive_error(403, reason, message))
+            text = str(ctx.exception)
+            self.assertIn(f'HTTP 403 {reason}', text)
+            self.assertIn(message, text)
+            self.assertIn(hint, text)
+            self.assertNotIn('Anyone with the link', text)
+
+    def test_a_bare_403_still_points_at_sharing(self):
+        with self.assertRaises(PermanentDriveImportError) as ctx:
+            self._raise(_FakeDriveResponse(403, text='Forbidden'))
+        self.assertIn('Anyone with the link', str(ctx.exception))
+
+    @patch('apps.documents.drive_import._sleep')
+    @patch('apps.documents.drive_import.requests.get')
+    def test_a_download_is_retried_after_a_block_and_then_succeeds(self, mock_get, sleep):
+        from .drive_import import download_drive_file
+        mock_get.side_effect = [_FakeDriveResponse(403, text=_SORRY_PAGE),
+                                _drive_error(403, 'userRateLimitExceeded', 'Slow down.'),
+                                _FakeDriveResponse(200, content=b'%PDF-1.4')]
+        content, name, _mime = download_drive_file({'id': 'f1', 'name': 'ssr.pdf', 'mimeType': 'application/pdf'}, 'k')
+        self.assertEqual((content, name, mock_get.call_count), (b'%PDF-1.4', 'ssr.pdf', 3))
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10])
+
+    @patch('apps.documents.drive_import._sleep')
+    @patch('apps.documents.drive_import.requests.get')
+    def test_a_permanent_refusal_is_not_retried(self, mock_get, sleep):
+        from .drive_import import download_drive_file
+        mock_get.return_value = _drive_error(403, 'cannotDownloadFile', 'Download disabled.')
+        with self.assertRaises(PermanentDriveImportError):
+            download_drive_file({'id': 'f1', 'name': 'ssr.pdf', 'mimeType': 'application/pdf'}, 'k')
+        self.assertEqual((mock_get.call_count, sleep.call_count), (1, 0))
 
 
 class DriveImportRetryDecisionLogicTests(TestCase):

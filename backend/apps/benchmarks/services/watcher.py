@@ -236,6 +236,10 @@ def _candidates_for(events):
             made += len(create_from_event(ev))
         except Exception:
             logger.exception('watcher.candidate_error event=%s', ev.pk)
+    # Each material change also gets an AI analysis (summary with the changed text quoted, affected items,
+    # impact), shown with the event and its candidates. Detection and hashing above stay deterministic.
+    from .studio_ai import queue_change_analysis
+    queue_change_analysis(events)
     return made
 
 

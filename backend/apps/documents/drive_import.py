@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -10,6 +11,10 @@ from .exceptions import PermanentDriveImportError, RecoverableDriveImportError
 DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3'
 _LIST_TIMEOUT = 30
 _DOWNLOAD_TIMEOUT = 60
+#: Tries per file download when the failure is recoverable, waiting _DOWNLOAD_RETRY_SECONDS x attempt between.
+_DOWNLOAD_ATTEMPTS = 3
+_DOWNLOAD_RETRY_SECONDS = 5
+_sleep = time.sleep  # replaced in tests
 
 #: Native Google Workspace types have no raw binary -- export to a real file
 #: format instead, mapped to something ALLOWED_UPLOAD_EXTENSIONS accepts.
@@ -192,29 +197,89 @@ def download_drive_file(file_meta, api_key):
         out_name = name
         out_mime = mime_type or 'application/octet-stream'
 
-    try:
-        resp = requests.get(url, params=params, timeout=_DOWNLOAD_TIMEOUT)
-    except requests.RequestException as exc:
-        raise RecoverableDriveImportError(f"Network error downloading '{name}': {exc}") from exc
+    # A recoverable failure (network error, rate limit, Google's automated-traffic block, a 5xx) is
+    # retried a couple of times with a growing pause before the file is given up on.
+    for attempt in range(1, _DOWNLOAD_ATTEMPTS + 1):
+        try:
+            try:
+                resp = requests.get(url, params=params, timeout=_DOWNLOAD_TIMEOUT)
+            except requests.RequestException as exc:
+                raise RecoverableDriveImportError(f"Network error downloading '{name}': {exc}") from exc
+            _raise_for_drive_status(resp, context=f"downloading '{name}'")
+            return resp.content, out_name, out_mime
+        except RecoverableDriveImportError:
+            if attempt == _DOWNLOAD_ATTEMPTS:
+                raise
+            _sleep(_DOWNLOAD_RETRY_SECONDS * attempt)
 
-    _raise_for_drive_status(resp, context=f"downloading '{name}'")
-    return resp.content, out_name, out_mime
+
+_SHARING_HINT = 'Confirm the folder is shared as "Anyone with the link — Viewer".'
+_KEY_HINT = ('Check GOOGLE_DRIVE_API_KEY on the server: it may be invalid, restricted to other apps or '
+             'addresses, or the Drive API may not be enabled for it.')
+#: What to do about Google's own error reasons (error.errors[0].reason).
+_REASON_HINTS = {
+    'cannotDownloadFile': 'The file\'s owner has turned off downloading for viewers; ask them to allow it, '
+                          'or upload the file by hand.',
+    'downloadQuotaExceeded': 'Google has stopped downloads of this file for now because it was downloaded too '
+                             'often (it resets within about a day); try later, or upload the file by hand.',
+    'insufficientFilePermissions': _SHARING_HINT,
+    'forbidden': _SHARING_HINT,
+    'appNotAuthorizedToFile': _SHARING_HINT,
+    'keyInvalid': _KEY_HINT,
+    'ipRefererBlocked': _KEY_HINT,
+    'accessNotConfigured': _KEY_HINT,
+}
+#: Reasons that clear up by themselves: retried instead of failing.
+_RATE_LIMIT_REASONS = {'userRateLimitExceeded', 'rateLimitExceeded', 'sharingRateLimitExceeded'}
+#: Google's "Sorry..." page, served instead of an API error when it treats a network's traffic as automated.
+_AUTOMATED_TRAFFIC_RE = re.compile(r'automated queries|unusual traffic', re.I)
+AUTOMATED_TRAFFIC = 'automatedTraffic'
+
+
+def _google_error(resp):
+    """(reason, message) Google gave for a failed request: the Drive API's JSON error, or its
+    automated-traffic page. Either part may be '' when Google said nothing more specific."""
+    try:
+        data = resp.json()
+    except ValueError:
+        data = None
+    error = data.get('error') if isinstance(data, dict) else None
+    if isinstance(error, dict):
+        first = (error.get('errors') or [{}])[0] or {}
+        return first.get('reason') or error.get('status') or '', (error.get('message') or '').strip()
+    text = resp.text or ''
+    if _AUTOMATED_TRAFFIC_RE.search(text):
+        return AUTOMATED_TRAFFIC, ''
+    return '', ' '.join(re.sub(r'<[^>]+>', ' ', text).split())[:200]
 
 
 def _raise_for_drive_status(resp, *, context):
-    if resp.status_code == 200:
+    """Turn a failed Drive response into an error that says what Google actually said, and whether
+    trying again can help (RecoverableDriveImportError) or not (PermanentDriveImportError)."""
+    code = resp.status_code
+    if code == 200:
         return
-    if resp.status_code == 403:
-        raise PermanentDriveImportError(
-            f'Google Drive denied access while {context} (403). Confirm the folder is shared as '
-            '"Anyone with the link — Viewer".',
+    reason, message = _google_error(resp)
+    said = f' Google said: "{message}"' if message else ''
+    if reason == AUTOMATED_TRAFFIC:
+        raise RecoverableDriveImportError(
+            f'Google is temporarily blocking requests from this network as automated traffic (HTTP {code}, '
+            f'while {context}). Wait a few minutes or switch to another network, then import again.',
         )
-    if resp.status_code == 404:
-        raise PermanentDriveImportError(f'Google Drive returned 404 while {context}. Check the link.')
-    if resp.status_code >= 500:
-        raise RecoverableDriveImportError(f'Google Drive returned {resp.status_code} while {context}.')
+    if code == 429 or reason in _RATE_LIMIT_REASONS:
+        raise RecoverableDriveImportError(
+            f'Google Drive is rate-limiting requests (HTTP {code}{f" {reason}" if reason else ""}, '
+            f'while {context}).{said}',
+        )
+    if code >= 500:
+        raise RecoverableDriveImportError(f'Google Drive returned {code} while {context}.{said}')
+    label = f'HTTP {code}{f" {reason}" if reason else ""}'
+    if code == 404:
+        raise PermanentDriveImportError(f'Google Drive could not find it ({label}, while {context}).{said} '
+                                        'Check the link.')
+    hint = _REASON_HINTS.get(reason) or (_SHARING_HINT if code in (401, 403) else '')
     raise PermanentDriveImportError(
-        f'Google Drive rejected the request while {context} ({resp.status_code}): {resp.text[:200]}',
+        f'Google Drive refused the request ({label}, while {context}).{said}{f" {hint}" if hint else ""}',
     )
 
 

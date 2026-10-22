@@ -145,6 +145,7 @@ class SprintViewSet(viewsets.ModelViewSet):
                 'total': gaps.count(),
                 'open': gaps.filter(status=GapItem.Status.OPEN).count(),
                 'in_progress': gaps.filter(status=GapItem.Status.IN_PROGRESS).count(),
+                'needs_replacement': gaps.filter(status=GapItem.Status.NEEDS_REPLACEMENT).count(),
                 'resolved': gaps.filter(status=GapItem.Status.RESOLVED).count(),
                 'blocking_open': gaps.filter(
                     status=GapItem.Status.OPEN, priority=GapItem.Priority.BLOCKING,

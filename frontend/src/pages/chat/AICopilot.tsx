@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, FileText, Info, Send } from 'lucide-react';
 
 import { listSprints } from '../../api/sprints';
+import { SelectSprintPrompt } from '../../components/SprintContextBar';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { getScore } from '../../api/scoring';
 import { listSprintGaps } from '../../api/gaps';
 import { listSprintDocuments } from '../../api/documents';
@@ -76,7 +78,8 @@ function has(text: string, ...words: string[]): boolean {
 }
 
 export const AICopilot: React.FC = () => {
-  const [sprintId, setSprintId] = useState('');
+  // The selected sprint is shared by every page (context/SelectedSprintContext.tsx).
+  const { sprintId: selectedSprintId } = useSelectedSprint();
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -85,7 +88,7 @@ export const AICopilot: React.FC = () => {
   const { data: sprints, loading: sprintsLoading, error: sprintsError, refetch: refetchSprints } =
     useApiResource<Sprint[]>(() => listSprints(), []);
 
-  const activeSprintId = sprintId || sprints?.[0]?.id || '';
+  const activeSprintId = selectedSprintId;
 
   const { data: scorecard } = useApiResource<Scorecard>(
     () => getScore(activeSprintId), [activeSprintId], !!activeSprintId,
@@ -257,6 +260,8 @@ export const AICopilot: React.FC = () => {
     );
   }
 
+  if (!activeSprintId) return <SelectSprintPrompt />;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -265,21 +270,6 @@ export const AICopilot: React.FC = () => {
         description="Ask about this institution's readiness. Answers come from its own audit data and documents."
       />
 
-      <div className="glass-card p-4">
-        <label className="label" htmlFor="copilot-sprint">Sprint</label>
-        <select
-          id="copilot-sprint"
-          value={activeSprintId}
-          onChange={(e) => setSprintId(e.target.value)}
-          className="input"
-        >
-          {sprints.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.institution_name || s.name || 'Institution'} · {s.sprint_code} ({s.status.replace(/_/g, ' ')})
-            </option>
-          ))}
-        </select>
-      </div>
 
       <div className="rounded-lg border border-info-line bg-info-bg p-4 flex items-start gap-3">
         <Info className="w-4 h-4 text-info shrink-0 mt-0.5" />

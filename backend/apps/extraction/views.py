@@ -3,7 +3,8 @@ import logging
 
 from celery.exceptions import Retry as CeleryRetry
 from celery import current_app
-from django.db.models import Sum
+from django.db import IntegrityError, transaction
+from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
@@ -56,12 +57,7 @@ class SprintExtractionJobListCreateView(generics.ListCreateAPIView):
             selected = Document.objects.filter(id__in=document_ids, sprint=sprint)
             if selected.count() != len(document_ids):
                 raise NotFound('One or more selected documents were not found in this sprint.')
-            # Skip any selected document that is already mid-extraction, so a
-            # double click can't queue the same document twice.
-            active_document_ids = ExtractionJob.objects.filter(
-                sprint=sprint, status__in=ACTIVE_STATUSES,
-            ).values_list('document_id', flat=True)
-            documents = list(selected.exclude(id__in=active_document_ids))
+            documents = list(selected)
         else:
             documents = list(self._eligible_documents(sprint))
 
@@ -71,28 +67,63 @@ class SprintExtractionJobListCreateView(generics.ListCreateAPIView):
         # and the task's own "advance to reviewing once nothing's left
         # active" check only fires while the sprint is 'processing'. Setting
         # it after dispatch would race an eagerly-completed job.
-        if documents and sprint.status == Sprint.Status.COLLECTING:
+        # One explicitly chosen document (Upload Data Pack's "Process again", whatever its status) is run
+        # again even when complete -- as its existing job row, so it never gets a second processing record.
+        jobs = self._prepare_jobs(sprint, documents, rerun_completed=bool(document_id))
+        if jobs and sprint.status in (Sprint.Status.COLLECTING, Sprint.Status.REVIEWING):
             sprint.status = Sprint.Status.PROCESSING
             sprint.save(update_fields=['status', 'updated_at'])
 
-        created_jobs = [self._create_and_dispatch(sprint, document) for document in documents]
+        created_jobs = [dispatch_job(job) for job in jobs]
 
         return Response(ExtractionJobSerializer(created_jobs, many=True).data, status=201)
 
     @staticmethod
     def _eligible_documents(sprint):
-        """Every document ready to (re)process and not already mid-flight."""
-        active_document_ids = ExtractionJob.objects.filter(
-            sprint=sprint, status__in=ACTIVE_STATUSES,
+        """Every non-rejected sprint document without a completed or active job.
+
+        This deliberately does not filter on Document.status: legacy documents
+        can say PROCESSED without having a sprint-specific ExtractionJob. They
+        still need a job and fresh facts in this sprint. Failed/stopped jobs are
+        reused by _prepare_jobs rather than duplicated.
+        """
+        handled_document_ids = ExtractionJob.objects.filter(sprint=sprint).filter(
+            Q(status__in=ACTIVE_STATUSES) | _COMPLETE_JOB,
         ).values_list('document_id', flat=True)
-        return sprint.documents.filter(
-            status__in=[Document.Status.UPLOADED, Document.Status.FAILED],
-        ).exclude(id__in=active_document_ids)
+        return sprint.documents.exclude(status=Document.Status.REJECTED).exclude(id__in=handled_document_ids)
 
     @staticmethod
-    def _create_and_dispatch(sprint, document):
-        job = ExtractionJob.objects.create(sprint=sprint, document=document)
-        return dispatch_job(job)
+    def _prepare_jobs(sprint, documents, rerun_completed=False):
+        """Create one job per newly included document, or reuse its retryable job.
+
+        The document row is locked and the partial unique constraint is the
+        final guard against simultaneous requests. A completed/active job is
+        never duplicated by clicking Process again.
+        """
+        jobs = []
+        for candidate in documents:
+            try:
+                with transaction.atomic():
+                    document = Document.objects.select_for_update().get(id=candidate.id, sprint=sprint)
+                    queryset = ExtractionJob.objects.select_for_update().filter(document=document)
+                    if queryset.filter(status__in=ACTIVE_STATUSES).exists():
+                        continue
+                    if not rerun_completed and queryset.filter(_COMPLETE_JOB).exists():
+                        continue
+                    # A failed / stopped / partially extracted attempt is run again as the same row.
+                    retryable = (_RETRYABLE_JOB | Q(status=ExtractionJob.Status.COMPLETED)) if rerun_completed else _RETRYABLE_JOB
+                    job = queryset.filter(retryable).order_by('-created_at').first()
+                    if job is not None:
+                        _reset(job)
+                        job.save()
+                    else:
+                        job = ExtractionJob.objects.create(sprint=sprint, document=document)
+                    jobs.append(job)
+            except (Document.DoesNotExist, IntegrityError):
+                # A concurrent request may have queued this document while we
+                # waited. It is already represented by its active job.
+                continue
+        return jobs
 
 
 def dispatch_job(job):
@@ -140,6 +171,32 @@ class ExtractionJobDetailView(generics.RetrieveDestroyAPIView):
 
 #: A job the user can run again with the Process button.
 REPROCESSABLE_STATUSES = [ExtractionJob.Status.FAILED, ExtractionJob.Status.CANCELLED]
+#: Completed AND everything was read -- never queued again by "Process" / "Process incomplete".
+_COMPLETE_JOB = Q(status=ExtractionJob.Status.COMPLETED) & ~Q(completeness=ExtractionJob.Completeness.PARTIAL)
+#: Failed, stopped, or completed with chunks / pages missing: run again as the same row.
+_RETRYABLE_JOB = Q(status__in=REPROCESSABLE_STATUSES) | Q(
+    status=ExtractionJob.Status.COMPLETED, completeness=ExtractionJob.Completeness.PARTIAL)
+
+
+def _is_retryable(job):
+    return job.status in REPROCESSABLE_STATUSES or (
+        job.status == ExtractionJob.Status.COMPLETED and job.completeness == ExtractionJob.Completeness.PARTIAL)
+
+
+def _reset(job):
+    """Back to pending for another attempt, forgetting the previous attempt's outcome (not its facts:
+    those are re-persisted idempotently by field_key, and reviewed ones are never overwritten)."""
+    job.status = ExtractionJob.Status.PENDING
+    job.current_step = ''
+    job.progress_percentage = 0
+    job.error_message = ''
+    job.retry_count = 0
+    job.started_at = None
+    job.completed_at = None
+    job.celery_task_id = ''
+    job.completeness = ''
+    job.extraction_warnings = []
+    job.chunks_total = job.chunks_completed = 0
 
 
 def _cancel_job(job):
@@ -175,14 +232,7 @@ def _requeue(job):
         document_id=job.document_id, status__in=ACTIVE_STATUSES,
     ).exclude(id=job.id).exists():
         raise ValidationError({'detail': f"'{job.document.original_filename}' is already being processed."})
-    job.status = ExtractionJob.Status.PENDING
-    job.current_step = ''
-    job.progress_percentage = 0
-    job.error_message = ''
-    job.retry_count = 0
-    job.started_at = None
-    job.completed_at = None
-    job.celery_task_id = ''
+    _reset(job)
     job.save()
     sprint = job.sprint
     if sprint.status in (Sprint.Status.COLLECTING, Sprint.Status.REVIEWING):
@@ -229,32 +279,46 @@ class ExtractionJobProcessView(APIView):
     def post(self, request, pk):
         job = get_object_or_404(ExtractionJob.objects.select_related('sprint', 'document'), pk=pk)
         get_authorized_sprint(request.user, job.sprint_id)
-        if job.status not in REPROCESSABLE_STATUSES:
+        if not _is_retryable(job):
             raise ValidationError(
-                {'detail': f'Only failed or stopped jobs can be processed again (this one is {job.status}).'},
+                {'detail': 'Only failed, stopped or partially extracted jobs can be processed again '
+                           f'(this one is {job.status}).'},
             )
         return Response(ExtractionJobSerializer(_requeue(job)).data)
 
 
 class SprintExtractionProcessIncompleteView(APIView):
-    """Process every not-completed document again: the latest failed/stopped
-    job of each document that has no completed or active job."""
+    """Process all sprint documents without a completed or active job.
+
+    Documents with no job are included too; failed/stopped attempts reuse the
+    existing job row so retries do not create duplicate processing history.
+    """
     permission_classes = [CanContribute, IsInstitutionMember]
 
     @extend_schema(request=None, responses=ExtractionJobSerializer(many=True))
     def post(self, request, sprint_id):
         sprint = get_authorized_sprint(request.user, sprint_id)
-        done_or_active = set(ExtractionJob.objects.filter(
-            sprint=sprint, status__in=[*ACTIVE_STATUSES, ExtractionJob.Status.COMPLETED],
-        ).values_list('document_id', flat=True))
-        latest_per_document = {}
-        for job in ExtractionJob.objects.filter(
-            sprint=sprint, status__in=REPROCESSABLE_STATUSES,
-        ).select_related('sprint', 'document').order_by('-created_at'):
-            if job.document_id not in done_or_active:
-                latest_per_document.setdefault(job.document_id, job)
-        requeued = [_requeue(job) for job in latest_per_document.values()]
-        return Response(ExtractionJobSerializer(requeued, many=True).data)
+        jobs = SprintExtractionJobListCreateView._prepare_jobs(
+            sprint, SprintExtractionJobListCreateView._eligible_documents(sprint),
+        )
+        if jobs and sprint.status in (Sprint.Status.COLLECTING, Sprint.Status.REVIEWING):
+            sprint.status = Sprint.Status.PROCESSING
+            sprint.save(update_fields=['status', 'updated_at'])
+        dispatched = [dispatch_job(job) for job in jobs]
+        return Response(ExtractionJobSerializer(dispatched, many=True).data)
+
+
+class SprintProcessingSummaryView(APIView):
+    """GET: how completely the sprint's included documents are processed -- counts per state (complete,
+    partial, failed, active, not processed) and each document's state and warnings
+    (services/completeness.py). Read-only; institution-scoped like the sprint itself."""
+    permission_classes = [IsInstitutionMember]
+
+    def get(self, request, sprint_id):
+        from .services.completeness import describe, processing_summary
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        summary = processing_summary(sprint)
+        return Response({**summary, 'description': describe(summary)})
 
 
 class SprintAIUsageView(APIView):

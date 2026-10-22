@@ -1,5 +1,5 @@
 import api from './client';
-import type { ExtractionJob, PlatformAIUsage, SprintAIUsage } from '../types';
+import type { ExtractionJob, PlatformAIUsage, ProcessingSummary, SprintAIUsage } from '../types';
 
 export function listExtractionJobs(sprintId: string) {
   return api.get<ExtractionJob[]>(`/sprints/${sprintId}/extraction-jobs`);
@@ -45,4 +45,9 @@ export function getSprintAIUsage(sprintId: string) {
 /** Admin only: AI tokens and cost across all colleges, per college x sprint x month. */
 export function getPlatformAIUsage(params: { since?: string; until?: string; institution?: string } = {}) {
   return api.get<PlatformAIUsage>('/extraction-jobs/usage-report', { params });
+}
+
+/** How completely the sprint's included documents are processed (complete / partial / failed / active / not processed). */
+export function getProcessingSummary(sprintId: string) {
+  return api.get<ProcessingSummary>(`/sprints/${sprintId}/processing-summary`);
 }

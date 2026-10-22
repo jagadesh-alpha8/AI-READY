@@ -25,6 +25,10 @@ export interface Baseline {
   /** Frozen with the run; null / {} for runs made before coverage existed. */
   coverage_adjusted_cri: number | null;
   evidence_coverage: import('./scoring').EvidenceCoverage | Record<string, never>;
+  /** Processing when the decision was made; processing_incomplete = decided over incomplete processing. */
+  processing_snapshot?: { complete?: boolean; description?: string; counts?: Record<string, number> };
+  processing_incomplete?: boolean;
+  processing_override_reason?: string;
   approved_by: string | null;
   approved_by_name: string;
   approved_at: string | null;
@@ -36,6 +40,8 @@ export interface Baseline {
 
 export interface SprintBaseline {
   baseline: Baseline;
+  /** Live document processing (deciding is refused while incomplete, unless a reason is given). */
+  processing?: import('./extraction').ProcessingSummary;
   score: Scorecard | null;
   high_priority_gaps: Gap[];
   can_approve: boolean;

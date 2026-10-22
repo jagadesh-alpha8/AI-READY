@@ -145,7 +145,28 @@ class VersionApproveView(APIView):
                              acknowledge_flags=bool(request.data.get('acknowledge_flags')))
         except approval.ApprovalError as exc:
             return Response({'detail': str(exc), 'flags': exc.flags}, status=status.HTTP_400_BAD_REQUEST)
+        # An approved version with a stored file goes straight to AI requirement drafting (for review).
+        version = _version(pk)
+        if version.file_uri and version.extraction_status == SourceVersion.Extraction.IDLE:
+            _queue_drafting(pk, request.user.email)
         return Response(_version_data(pk))
+
+
+def _queue_drafting(pk, actor):
+    """Queue AI requirement drafting for a version; False when it is already queued or running."""
+    from .tasks import draft_source_requirements
+
+    queued = SourceVersion.objects.filter(pk=pk).exclude(
+        extraction_status__in=[SourceVersion.Extraction.QUEUED, SourceVersion.Extraction.RUNNING],
+    ).update(extraction_status=SourceVersion.Extraction.QUEUED, extraction_note='')
+    if not queued:
+        return False
+    try:
+        draft_source_requirements.delay(str(pk), actor=actor)
+    except Exception as exc:  # broker down: don't leave it "queued" forever
+        SourceVersion.objects.filter(pk=pk).update(extraction_status=SourceVersion.Extraction.FAILED,
+                                                   extraction_note=f'Could not reach the Celery broker: {exc}')
+    return True
 
 
 class VersionWithdrawView(APIView):
@@ -165,23 +186,17 @@ class VersionDraftRequirementsView(APIView):
     permission_classes = [IsInGageStaff]
 
     def post(self, request, pk):
-        from .tasks import draft_source_requirements
-
         version = _version(pk)
         if not version.file_uri:
             return Response({'detail': 'Store and verify the file first (file intake).'},
                             status=status.HTTP_400_BAD_REQUEST)
-        queued = SourceVersion.objects.filter(pk=pk).exclude(
-            extraction_status__in=[SourceVersion.Extraction.QUEUED, SourceVersion.Extraction.RUNNING],
-        ).update(extraction_status=SourceVersion.Extraction.QUEUED, extraction_note='')
-        if not queued:
+        if version.status != SourceVersion.Status.ACTIVE:
+            # Requirements are drafted only from an approved source version (the text a person checked).
+            return Response({'detail': f'Approve the version first; it is {version.status}.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not _queue_drafting(pk, request.user.email):
             return Response({'detail': 'Drafting is already queued or running for this version.'},
                             status=status.HTTP_409_CONFLICT)
-        try:
-            draft_source_requirements.delay(str(pk), actor=request.user.email)
-        except Exception as exc:  # broker down: don't leave it "queued" forever
-            SourceVersion.objects.filter(pk=pk).update(extraction_status=SourceVersion.Extraction.FAILED,
-                                                       extraction_note=f'Could not reach the Celery broker: {exc}')
         return Response(_version_data(pk), status=status.HTTP_202_ACCEPTED)
 
 
@@ -934,11 +949,26 @@ class BenchmarkCandidateDetailView(APIView):
 class BenchmarkCandidateActionView(APIView):
     """POST /benchmarks/benchmark-candidates/<id>/submit
        POST /benchmarks/benchmark-candidates/<id>/review {reviewer_role, decision, notes}
-       POST /benchmarks/benchmark-candidates/<id>/open-revision"""
+       POST /benchmarks/benchmark-candidates/<id>/open-revision
+       GET  /benchmarks/benchmark-candidates/<id>/draft-options
+       POST /benchmarks/benchmark-candidates/<id>/create-draft {pillar_code, capability_code, title?, target_guidance?}
+            (an approved new-benchmark candidate; 201 with the candidate when created, 200 when it already was)"""
     permission_classes = [IsInGageStaff]
+
+    def get(self, request, pk, action):
+        if action != 'draft-options':
+            return Response({'detail': 'Unknown action.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(candidate_svc.draft_options(_candidate(pk)))
 
     def post(self, request, pk, action):
         c = _candidate(pk)
+        if action == 'create-draft':
+            try:
+                _bench, created = candidate_svc.create_benchmark_draft(c, request.user, request.data)
+            except candidate_svc.CandidateError as exc:
+                return _candidate_error(exc)
+            return Response(BenchmarkCandidateSerializer(_candidate(pk)).data,
+                            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
         try:
             if action == 'submit':
                 candidate_svc.submit(c, request.user)
@@ -1008,3 +1038,88 @@ class BenchmarkApplicabilityValidationView(APIView):
     def get(self, request, benchmark_code):
         from .services.release_gates import validate_applicability
         return Response(validate_applicability(get_object_or_404(Benchmark, benchmark_code=benchmark_code)))
+
+
+# -- AI assistance across the Studio (services/studio_ai.py) ---------------------------------------------
+
+from .models import StudioAIJob  # noqa: E402
+from .serializers import StudioAIJobSerializer  # noqa: E402
+from .services import comparison, studio_ai  # noqa: E402
+
+
+def _ai_error(exc):
+    return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class StudioAIJobListView(APIView):
+    """GET  /benchmarks/ai-jobs?kind=&target_id=&status=&latest=1   (latest=1: the newest job per target)
+       POST /benchmarks/ai-jobs {kind, target_id}  -- queue an AI preparation step (202)."""
+    permission_classes = [IsInGageStaff]
+
+    def get(self, request):
+        qs = StudioAIJob.objects.select_related('requested_by', 'decided_by')
+        for f in ('kind', 'target_id', 'target_type'):
+            if request.query_params.get(f):
+                qs = qs.filter(**{f: request.query_params[f]})
+        if request.query_params.get('status'):
+            qs = qs.filter(status__in=request.query_params['status'].split(','))
+        rows = list(qs.order_by('-created_at')[:500])
+        if request.query_params.get('latest'):
+            seen, newest = set(), []
+            for job in rows:
+                if (job.kind, job.target_id) not in seen:
+                    seen.add((job.kind, job.target_id))
+                    newest.append(job)
+            rows = newest
+        return Response(StudioAIJobSerializer(rows, many=True).data)
+
+    def post(self, request):
+        try:
+            job = studio_ai.start(request.data.get('kind', ''), str(request.data.get('target_id', '')), request.user)
+        except studio_ai.StudioAIError as exc:
+            return _ai_error(exc)
+        return Response(StudioAIJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+
+
+class StudioAIJobActionView(APIView):
+    """POST /benchmarks/ai-jobs/<id>/<action>:
+         retry                      a failed job
+         dismiss {note}             a ready draft nobody will use
+         apply   {fields: [...]}    source details: copy the chosen verified values (draft version only)
+         apply   {overwrite_items}  release notes: write them onto the draft release
+         propose {note}             indicator fit: send the new-indicator proposal to expert review
+         candidate {note}           change analysis: prepare a candidate in expert review"""
+    permission_classes = [IsInGageStaff]
+
+    def post(self, request, pk, action):
+        job = get_object_or_404(StudioAIJob, pk=pk)
+        note = request.data.get('note', '')
+        try:
+            if action == 'retry':
+                job = studio_ai.retry(job, request.user)
+                return Response(StudioAIJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+            if action == 'dismiss':
+                studio_ai.dismiss(job, request.user, note)
+            elif action == 'apply' and job.kind == StudioAIJob.Kind.SOURCE_METADATA:
+                studio_ai.apply_source_metadata(job, request.user, request.data.get('fields') or [])
+            elif action == 'apply' and job.kind == StudioAIJob.Kind.RELEASE_NOTES:
+                studio_ai.apply_release_notes(job, request.user,
+                                              overwrite_items=bool(request.data.get('overwrite_items')))
+            elif action == 'propose':
+                studio_ai.propose_indicator(job, request.user, note)
+            elif action == 'candidate':
+                studio_ai.candidate_from_change(job, request.user, note)
+            else:
+                return Response({'detail': 'Unknown action for this kind of AI job.'}, status=status.HTTP_404_NOT_FOUND)
+        except (studio_ai.StudioAIError, release_svc.ReleaseError, candidate_svc.CandidateError) as exc:
+            return _ai_error(exc)
+        job.refresh_from_db()
+        return Response(StudioAIJobSerializer(job).data)
+
+
+class VersionCompareView(APIView):
+    """GET /benchmarks/versions/<id>/compare -- this version against the previous one of the same source."""
+    permission_classes = [IsInGageStaff]
+
+    def get(self, request, pk):
+        return Response(comparison.compare_versions(_version(pk)))

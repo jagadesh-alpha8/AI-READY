@@ -89,12 +89,44 @@ scoring does not use them yet.
 The catalogue list hides withdrawn benchmarks (`?status=all` shows them) and the pillar list hides pillars whose
 benchmarks are all withdrawn.
 
-## AI-written benchmark content (fully automatic)
+## AI preparation at every stage (people approve)
 
-Decided 2026-10-15 (experts: "use AI for all", fully automatic): the AI writes each draft AI-QIF indicator's
-L3/L2/L1 (definition, measurement rule, observable requirements, minimum evidence, outcomes, non-examples),
-3-9 evidence rules (a mandatory one on every level), 1-3 applicability rules, target guidance and owner -- and
-that counts as the content, with no expert approval first.
+AI prepares content and analysis at each Studio stage; authorized people make every approval. Each AI step is a
+`StudioAIJob` (`services/studio_ai.py`, Celery task `run_studio_ai_job`, router lease with one retry on another
+router). The job row records what was sent (ids, sizes, a hash of the text), the validated answer, citations, model,
+confidence, any error, and the reviewer's decision; every state change is also a `SourceAuditEvent`. In the Studio
+each step is an "AI" panel showing its status and next action (AI processing, draft ready - needs review, applied,
+dismissed, failed + Retry).
+
+| Stage | AI prepares (kind) | Checks before anything is kept | A person decides |
+|---|---|---|---|
+| Sources | Source details: title, document type, source role, scope, version label, dates (`source_metadata`) from the stored file or official page | every value needs a quote found in the source text | ticks the values to apply (draft version only; approved versions stay frozen) |
+| Sources | Comparison with the previous version (deterministic, `GET /versions/<id>/compare`) | -- | approves the version as before |
+| Requirements | Drafts per approved version (existing) + duplicate / related-indicator hints (deterministic) | quote must be in the section text, else dropped | accept / edit / reject |
+| Requirements -> indicators | Fits existing indicators, or proposes a distinct new one (`requirement_fit`) | indicator / criterion / capability codes must exist; quote must be in the requirement; duplicate check by word overlap (>= 50 % blocks the proposal) | links it, or sends the proposal to expert review |
+| New indicators | -- | -- | every required expert approves; the draft is then **created from the proposal** (criterion, capability, title), the source requirement linked as primary, and content drafting queued. Never published. |
+| Levels / evidence / applicability | L3/L2/L1, evidence rules, applicability rules, target guidance, owner suggestion, references, confidence (`benchmark_content`) | schema with real catalogues; same services as a person's edit; nothing a person wrote is replaced (levels, rules, target guidance); owner only suggested | edits, approves the scoring weights, **confirms** the draft |
+| Watcher | Analysis of each material change (`change_analysis`, queued automatically; hashing stays deterministic) | each point quotes the detected diff; affected items only from the source's own requirements / indicators | sends a candidate to expert review, or dismisses |
+| Releases | Version notes, change and impact summaries, per-item impact (`release_notes`) | item codes must be in the release | applies them to the draft release; submits; a different person approves; people publish |
+
+API: `GET/POST /benchmarks/ai-jobs` (`{kind, target_id}`), `POST /benchmarks/ai-jobs/<id>/retry | dismiss | apply |
+propose | candidate`. InGage staff only.
+
+### Release gates (now)
+
+Every added/updated benchmark must pass every **required** readiness check before a release can be submitted:
+levels, evidence types, applicability rules, a mandatory evidence rule per level, primary requirement (mandatory
+kinds), expert owner (proposed kinds), **applicability validation without dead rules**, **approved scoring weights**
+for the active scoring model, and a reviewer's **confirmation**. Confirmation itself does not need the weights
+(they are a release gate, approved separately). The submitter cannot approve; approval and publishing are human.
+The old per-release "needs a composite score" option no longer changes anything (weights are always required).
+
+### The benchmark content drafting (services/ai_drafting.py)
+
+The AI writes a draft indicator's L3/L2/L1 (definition, measurement rule, observable requirements, minimum
+evidence, outcomes, non-examples), 3-9 evidence rules (a mandatory one on every level), 1-3 applicability rules
+and target guidance (only when empty), and suggests an owner. It is DRAFT content labelled as AI's; a reviewer
+must confirm the benchmark before a release can take it. From the Studio (Levels > "Prepare with AI") or:
 
 ```
 python manage.py ai_draft_benchmarks                  # every AI-QIF draft still on template levels, one after another
@@ -108,9 +140,9 @@ Safeguards (`services/ai_drafting.py`):
 - It is saved through the same services as a person's edit, so the same checks apply: no template text, distinct
   levels, list and value limits, a mandatory rule per level.
 - A draft that fails any check is not saved; the indicator stays exactly as it was.
-- Every AI-written level and rule has `ai_model` (shown as an **AI-generated** badge in the Studio), is saved as
+- Every AI-written level and rule has `ai_model` (shown as an **AI draft** badge in the Studio), is saved as
   the `ai.drafter@system.ingage.local` account (inactive, cannot sign in), and is audited (`benchmark.ai_drafted`
-  with the model's rationale).
+  with the model, confidence, cited requirement codes, owner suggestion and rationale).
 - A level or rule a person wrote is never overwritten. A person editing AI content clears its `ai_model`.
 - Only drafts are written; creating and publishing a release is still a separate step.
 

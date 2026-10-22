@@ -20,8 +20,10 @@ Each required role must be approved by a different person; any reject
 rejects the candidate; "needs research" sends it back to research.
 
 An approved "update" candidate lets staff reopen the active benchmark as a new
-draft (`reopen_for_revision`); it is marked published when a release carrying
-that benchmark is published (`mark_published`, called by releases.publish).
+draft (`reopen_for_revision`); an approved "new benchmark" candidate lets staff
+create its draft benchmark (`create_benchmark_draft`). Either is marked published
+when a release carrying that benchmark is published (`mark_published`, called by
+releases.publish).
 """
 from decimal import Decimal
 
@@ -29,7 +31,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from ..models import (
-    Authority, Benchmark, BenchmarkCandidate, BenchmarkRequirement, CandidateReview, SourceAuditEvent,
+    Authority, Benchmark, BenchmarkCandidate, BenchmarkRequirement, CandidateReview, Requirement, SourceAuditEvent,
     SourceChangeEvent, SourceDocument,
 )
 
@@ -231,7 +233,37 @@ def review(candidate, user, role, decision, notes=''):
         candidate.save(update_fields=['status', 'decided_at'])
         _audit(user.email, 'candidate.reviewed', candidate,
                after={'role': role, 'decision': decision, 'status': candidate.status}, reason=notes)
+    if candidate.status == Status.APPROVED:
+        draft_from_ai_proposal(candidate, user)
     return candidate
+
+
+def draft_from_ai_proposal(candidate, user):
+    """Once every required expert approved an AI-proposed new indicator, create its draft from the proposal
+    (criterion, capability, title -- nobody re-enters them), link the source requirement it came from, and queue
+    the AI's level / evidence / applicability drafting. Never publishes: the draft still needs a reviewer's
+    confirmation and a release. If anything is missing or fails, staff use "Create benchmark draft" as before."""
+    prop = candidate.ai_proposal or {}
+    if (candidate.candidate_type != Type.NEW_BENCHMARK or candidate.benchmark_id
+            or not prop.get('pillar_code') or not prop.get('capability_code')):
+        return None
+    from . import linking
+    from .studio_ai import Kind, start
+    try:
+        with transaction.atomic():
+            bench, created = create_benchmark_draft(candidate, user, {
+                'pillar_code': prop['pillar_code'], 'capability_code': prop['capability_code'],
+                'title': prop.get('title') or candidate.title})
+            req = Requirement.objects.filter(code=prop.get('requirement_code') or '').first()
+            if created and req is not None:
+                linking.link(bench, req, user, relationship=BenchmarkRequirement.Relationship.PRIMARY,
+                             note='The requirement this indicator was proposed from (AI proposal, approved by experts).')
+    except (CandidateError, linking.LinkError) as exc:
+        _audit(user.email, 'candidate.auto_draft_failed', candidate, reason=str(exc))
+        return None
+    if created:
+        start(Kind.BENCHMARK_CONTENT, bench.benchmark_code, user)
+    return bench
 
 
 def reopen_for_revision(candidate, user):
@@ -239,6 +271,8 @@ def reopen_for_revision(candidate, user):
     version for the next release (releases.reopen_benchmark)."""
     from .releases import ReleaseError, reopen_benchmark
 
+    if candidate.candidate_type == Type.NEW_BENCHMARK:
+        raise CandidateError('A new-benchmark candidate gets its draft with "Create benchmark draft".')
     if candidate.status != Status.APPROVED or candidate.benchmark is None:
         raise CandidateError('Only an approved candidate for a specific benchmark can open a revision.')
     if candidate.benchmark.status == Benchmark.Status.DRAFT:
@@ -260,3 +294,152 @@ def mark_published(release):
         c.status = Status.PUBLISHED
         c.save(update_fields=['status'])
         _audit('release', 'candidate.published', c, after={'release': release.release_label})
+
+
+# -- an approved "new benchmark" candidate -> a draft benchmark ----------------------------------------
+# Staff create the draft explicitly (never on approval). It is placed under one of the existing AI-QIF
+# criteria and capabilities, gets the next code of that criterion, and starts as an empty draft: the
+# levels are "(not defined)" placeholders (as the AI-QIF import stores undefined levels) and applicability,
+# evidence types, evidence rules and the expert owner are left for staff in the existing Studio flows --
+# no AI writes any of it. From there it needs the usual readiness checks, a reviewer's confirmation and a
+# published release; mark_published() then marks the candidate published.
+
+NOT_DEFINED = '(not defined)'
+
+
+def _aiqif_framework():
+    from ..models import Framework
+    from .aiqif_import import FRAMEWORK_CODE
+    return Framework.objects.filter(code=FRAMEWORK_CODE).first()
+
+
+def criteria(framework=None):
+    """The AI-QIF criteria a new indicator can go under: the pillars of the framework's benchmarks."""
+    from ..models import Pillar
+    framework = framework or _aiqif_framework()
+    if framework is None:
+        return Pillar.objects.none()
+    return Pillar.objects.filter(benchmarks__framework=framework).distinct().order_by('code')
+
+
+def capabilities_for(pillar, framework=None):
+    """Existing capabilities assessed under this criterion (by its AI-QIF benchmarks still in use)."""
+    from ..models import Capability
+    framework = framework or _aiqif_framework()
+    in_use = Benchmark.objects.filter(pillar=pillar, framework=framework).exclude(status=Benchmark.Status.WITHDRAWN)
+    return Capability.objects.filter(benchmarks__in=in_use).distinct().order_by('code')
+
+
+def next_code(pillar):
+    """The criterion's next key-indicator code, e.g. AIQIF-C1.5 after C1.1-C1.4. Withdrawn codes count
+    too, so a code is never reused for different content."""
+    import re
+    pattern = re.compile(rf'^{re.escape(pillar.code)}\.(\d+)$')
+    numbers = []
+    for code in Benchmark.objects.filter(benchmark_code__startswith=f'{pillar.code}.').values_list('benchmark_code', flat=True):
+        match = pattern.match(code)
+        if match:
+            numbers.append(int(match.group(1)))
+    return f'{pillar.code}.{max(numbers, default=0) + 1}'
+
+
+def _all_roles_approved(candidate):
+    latest = _latest_by_role(candidate)
+    return all(latest.get(r) is not None and latest[r].decision == CandidateReview.Decision.APPROVE
+               for r in candidate.required_roles)
+
+
+def _check_new_benchmark(candidate):
+    if candidate.candidate_type != Type.NEW_BENCHMARK:
+        raise CandidateError('Only a "new benchmark" candidate creates a benchmark draft; '
+                             'an update or retirement opens a new draft of its benchmark instead.')
+
+
+def _check_can_create(candidate):
+    _check_new_benchmark(candidate)
+    if candidate.status != Status.APPROVED or not _all_roles_approved(candidate):
+        raise CandidateError('Every required expert role must approve the candidate before its draft is created.')
+
+
+def draft_options(candidate):
+    """What the "Create benchmark draft" form offers: the criteria with their capabilities and next code,
+    and the candidate's own title, rationale and kind (fixed: the experts approved it as that kind)."""
+    framework = _aiqif_framework()
+    return {
+        'can_create': (candidate.benchmark_id is None and candidate.candidate_type == Type.NEW_BENCHMARK
+                       and candidate.status == Status.APPROVED and _all_roles_approved(candidate)),
+        'existing_benchmark': (candidate.benchmark.benchmark_code
+                               if candidate.benchmark_id and candidate.candidate_type == Type.NEW_BENCHMARK else None),
+        'title': candidate.title,
+        'source_rationale': candidate.source_rationale,
+        'source_code': candidate.source_document.source_code if candidate.source_document_id else None,
+        'benchmark_kind': candidate.proposed_kind,
+        'benchmark_kind_label': candidate.get_proposed_kind_display(),
+        'framework': framework.code if framework else None,
+        'criteria': [{
+            'code': p.code, 'name': p.name, 'next_code': next_code(p),
+            'capabilities': [{'code': c.code, 'name': c.name, 'definition': c.definition}
+                             for c in capabilities_for(p, framework)],
+        } for p in criteria(framework)],
+    }
+
+
+def create_benchmark_draft(candidate, user, data):
+    """Approved new-benchmark candidate -> one DRAFT benchmark under an existing criterion and capability.
+    Idempotent: a candidate that already has its draft returns that draft. Returns (benchmark, created)."""
+    from django.db import IntegrityError
+
+    from ..models import MaturityDefinition
+    from .aiqif_import import VERSION_LABEL
+
+    with transaction.atomic():
+        candidate = BenchmarkCandidate.objects.select_for_update().get(pk=candidate.pk)
+        _check_new_benchmark(candidate)  # an update candidate's benchmark is not "its draft"
+        if candidate.benchmark_id:
+            return candidate.benchmark, False  # already created (a repeated click, or a second tab)
+        _check_can_create(candidate)
+        framework = _aiqif_framework()
+        pillar = criteria(framework).filter(code=(data.get('pillar_code') or '').strip()).first()
+        if pillar is None:
+            raise CandidateError('Choose one of the existing AI-QIF criteria for the new indicator.')
+        capability = capabilities_for(pillar, framework).filter(code=(data.get('capability_code') or '').strip()).first()
+        if capability is None:
+            raise CandidateError(f'Choose an existing capability under {pillar.code}.')
+        title = ' '.join((data.get('title') or candidate.title).split())[:300]
+        if not title:
+            raise CandidateError('The benchmark needs a title.')
+        kind = candidate.proposed_kind
+        kind_label = candidate.get_proposed_kind_display().lower()
+        source = candidate.source_document.source_code if candidate.source_document_id else ''
+        provenance = (f'From approved candidate "{candidate.title}" ({candidate.pk})'
+                      + (f'; source {source}' if source else '') + f'. Rationale: {candidate.source_rationale}')
+
+        bench = None
+        for _attempt in range(3):  # another draft may take the same next code at the same moment
+            code = next_code(pillar)
+            try:
+                with transaction.atomic():
+                    bench = Benchmark.objects.create(
+                        benchmark_code=code, capability=capability, pillar=pillar, framework=framework, title=title,
+                        benchmark_kind=kind, benchmark_class=f'InGage {VERSION_LABEL} ({kind_label})',
+                        version_label=VERSION_LABEL, status=Benchmark.Status.DRAFT, source_basis=provenance,
+                        target_guidance=(data.get('target_guidance') or '').strip())
+                break
+            except IntegrityError:
+                continue
+        if bench is None:
+            raise CandidateError('Could not reserve a benchmark code; try again.')
+        for level in ('L3', 'L2', 'L1'):
+            MaturityDefinition.objects.create(benchmark=bench, level=level, definition=NOT_DEFINED,
+                                              is_placeholder=True)
+
+        candidate.benchmark, candidate.capability = bench, capability
+        candidate.save(update_fields=['benchmark', 'capability'])
+        detail = {'benchmark': bench.benchmark_code, 'pillar': pillar.code, 'capability': capability.code,
+                  'title': title, 'kind': kind, 'candidate': str(candidate.pk), 'candidate_title': candidate.title,
+                  'source': source or None}
+        SourceAuditEvent.objects.create(actor=user.email, action='benchmark.created_from_candidate',
+                                        object_type='Benchmark', object_id=str(bench.pk), after=detail,
+                                        reason=candidate.source_rationale)
+        _audit(user.email, 'candidate.draft_created', candidate, after=detail)
+    return bench, True

@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 
 import { listSprints } from '../../api/sprints';
+import { SelectSprintPrompt } from '../../components/SprintContextBar';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { getScore } from '../../api/scoring';
 import { generateRecommendations, listRecommendations } from '../../api/recommendations';
 import { useApiResource } from '../../hooks/useApiResource';
@@ -52,7 +54,8 @@ const PRIORITY_DOT: Record<RecommendationPriority, string> = {
 export const TransformationPlan: React.FC = () => {
   const { can } = useAccess();
   const navigate = useNavigate();
-  const [sprintId, setSprintId] = useState('');
+  // The selected sprint is shared by every page (context/SelectedSprintContext.tsx).
+  const { sprintId: selectedSprintId } = useSelectedSprint();
   const [expanded, setExpanded] = useState<string | null>(HORIZONS[0].timeline);
   const [generating, setGenerating] = useState(false);
   const [actionError, setActionError] = useState('');
@@ -60,7 +63,7 @@ export const TransformationPlan: React.FC = () => {
   const { data: sprints, loading: sprintsLoading, error: sprintsError, refetch: refetchSprints } =
     useApiResource<Sprint[]>(() => listSprints(), []);
 
-  const activeSprintId = sprintId || sprints?.[0]?.id || '';
+  const activeSprintId = selectedSprintId;
 
   const {
     data: recommendations, setData: setRecommendations,
@@ -125,8 +128,8 @@ export const TransformationPlan: React.FC = () => {
       <div className="space-y-6">
         <PageHeader
           icon={Target}
-          title="Transformation Plan"
-          description="The audit's findings, sequenced into dated horizons with an owner and an expected score movement."
+          title="Sprint Transformation Plan"
+          description="A discovery sprint's findings and recommendations, sequenced into dated horizons with an owner and an expected score movement. A finalized Benchmark Assessment has its own improvement plan (Benchmark Assessment page)."
         />
         <EmptyState
           message="No sprints yet. A plan is generated from a completed discovery sprint."
@@ -136,12 +139,14 @@ export const TransformationPlan: React.FC = () => {
     );
   }
 
+  if (!activeSprintId) return <SelectSprintPrompt />;
+
   return (
     <div className="space-y-6">
       <PageHeader
         icon={Target}
-        title="Transformation Plan"
-        description="The audit's findings, sequenced into dated horizons with an owner and an expected score movement."
+        title="Sprint Transformation Plan"
+        description="This sprint's findings and recommendations, sequenced into dated horizons with an owner and an expected score movement. A finalized Benchmark Assessment has its own improvement plan (Benchmark Assessment page)."
         actions={
           <button
             type="button"
@@ -155,21 +160,6 @@ export const TransformationPlan: React.FC = () => {
         }
       />
 
-      <div className="glass-card p-4">
-        <label className="label" htmlFor="plan-sprint">Sprint</label>
-        <select
-          id="plan-sprint"
-          value={activeSprintId}
-          onChange={(e) => setSprintId(e.target.value)}
-          className="input"
-        >
-          {sprints.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.institution_name || s.name || 'Institution'} · {s.sprint_code} ({s.status.replace(/_/g, ' ')})
-            </option>
-          ))}
-        </select>
-      </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
       {recsError && <ErrorState message={recsError} onRetry={refetchRecs} />}

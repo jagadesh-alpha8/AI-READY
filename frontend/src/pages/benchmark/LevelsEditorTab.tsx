@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Circle, Clock, Save } from 'lucide-react';
 
 import {
-  getBenchmark, getHistory, getReadiness, listCatalogue, saveLevel, updateBenchmark,
+  confirmBenchmark, getBenchmark, getHistory, getReadiness, listCatalogue, saveLevel, updateBenchmark,
 } from '../../api/benchmarks';
 import type { CatalogueBenchmark, EditableLevel, HistoryEntry, Readiness } from '../../api/benchmarks';
 import { useApiResource } from '../../hooks/useApiResource';
@@ -12,6 +12,7 @@ import { EvidenceRulesPanel } from './EvidenceRulesPanel';
 import { ApplicabilityRulesPanel } from './Applicability';
 import { WeightsForm } from '../assessments/CycleBenchmarkPanel';
 import { AiBadge } from './AiBadge';
+import { AIJobPanel } from './AIJobPanel';
 
 /**
  * Stage 3.3: experts write each benchmark's real L3 / L2 / L1 levels.
@@ -80,6 +81,35 @@ const BenchmarkEditor: React.FC<{ code: string; onSaved: () => void }> = ({ code
         <OwnerFields code={code} owner={b.expert_owner} guidance={b.target_guidance} editable={editable} onSaved={refreshAll} />
       </div>
 
+      <AIJobPanel kind="benchmark_content" targetId={code} title="Levels, evidence and applicability (AI draft)"
+        startLabel="Prepare with AI" onChanged={refreshAll}
+        disabled={editable ? undefined : 'Only a draft can be prepared; reopen it as a new version first.'}>
+        {(job) => (
+          <div className="space-y-1">
+            <p className="text-ink-700">
+              Wrote {job.output.levels} level(s), {job.output.evidence_rules} evidence rule(s) and {job.output.applicability_rules}
+              {' '}applicability rule(s){job.output.target_guidance_written ? ' and the target guidance' : ''}.
+              {(job.output.kept_human || []).length > 0 && ` Kept as people wrote them: ${job.output.kept_human.join(', ')}.`}
+            </p>
+            {job.output.rationale && <p className="text-ink-600">Why: {job.output.rationale}</p>}
+            {job.output.owner_suggestion && (
+              <p className="text-ink-700">Suggested owner: <strong>{job.output.owner_suggestion}</strong>
+                {editable && !b.expert_owner && (
+                  <button className="btn-secondary btn-sm ml-2"
+                    onClick={async () => { await updateBenchmark(code, { expert_owner: job.output.owner_suggestion }); refreshAll(); }}>
+                    Use as expert owner
+                  </button>
+                )}
+              </p>
+            )}
+            <p className="text-warning">
+              Review the AI-labelled content below and edit anything that is wrong. Then approve the scoring weights
+              and confirm the draft: nothing AI wrote can enter a release before a reviewer confirms it.
+            </p>
+          </div>
+        )}
+      </AIJobPanel>
+
       <div className="grid lg:grid-cols-3 gap-3">
         {LEVELS.map((lv) => {
           const level = b.maturity_levels.find((m) => m.level === lv);
@@ -97,6 +127,9 @@ const BenchmarkEditor: React.FC<{ code: string; onSaved: () => void }> = ({ code
       <WeightsForm code={code} onSaved={refreshAll} />
 
       {readiness.data && <ReadinessPanel readiness={readiness.data} />}
+      {editable && <ConfirmBar code={code} state={b.confirmation?.state || null} by={b.confirmation?.confirmed_by || null}
+        ready={!!readiness.data && readiness.data.checks.every((c) => c.ok || c.severity !== 'required' || ['confirmed', 'scoring'].includes(c.key))}
+        onConfirmed={refreshAll} />}
 
       <button className="btn-secondary btn-sm" onClick={() => setHistoryOpen(!historyOpen)}>
         <Clock className="w-3.5 h-3.5" /> {historyOpen ? 'Hide history' : 'Show history'}
@@ -236,6 +269,32 @@ const HistoryList: React.FC<{ code: string }> = ({ code }) => {
         </div>
       ))}
       {data && data.length === 0 && <p className="text-ink-500">No edits yet.</p>}
+    </div>
+  );
+};
+
+/** The reviewer's confirmation of the draft's content (AI-written or not) -- required before a release can take it. */
+const ConfirmBar: React.FC<{ code: string; state: string | null; by: string | null; ready: boolean; onConfirmed: () => void }> = ({
+  code, state, by, ready, onConfirmed,
+}) => {
+  const [note, setNote] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (state === 'confirmed') {
+    return <p className="glass-card p-3 text-xs text-success">Content confirmed{by ? ` by ${by}` : ''}. Any later edit asks for a new confirmation.</p>;
+  }
+  return (
+    <div className="glass-card p-3 text-xs space-y-2">
+      <p className="font-bold text-ink-900">Reviewer confirmation {state === 'changed' && <span className="badge badge-warning ml-1">changed since confirmed</span>}</p>
+      <p className="text-ink-500">{ready ? 'All required content is in place. Confirm once you have reviewed it.' : 'Finish the required items above first.'}</p>
+      <div className="flex gap-2">
+        <input className="input flex-1" placeholder="What you checked (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+        <button className="btn-primary btn-sm" disabled={!ready || busy} onClick={async () => {
+          setBusy(true); setErr('');
+          try { await confirmBenchmark(code, note); onConfirmed(); } catch (e) { setErr(getErrorMessage(e)); } finally { setBusy(false); }
+        }}><CheckCircle2 className="w-3.5 h-3.5" /> Confirm draft</button>
+      </div>
+      {err && <InlineError message={err} onDismiss={() => setErr('')} />}
     </div>
   );
 };

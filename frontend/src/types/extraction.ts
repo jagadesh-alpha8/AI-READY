@@ -17,6 +17,11 @@ export interface ExtractionJob {
   retry_count: number;
   /** Router that ran the latest attempt, e.g. "router2 (localhost:20229)"; "" in single-router mode. */
   ai_router: string;
+  /** How much the latest completed attempt read: '' = not recorded (older run). */
+  completeness: '' | 'complete' | 'partial';
+  extraction_warnings: ExtractionWarning[];
+  chunks_total: number;
+  chunks_completed: number;
   created_at: string;
   updated_at: string;
   /** AI tokens and cost of this job (all attempts); cost is null when the model has no price. */
@@ -85,4 +90,38 @@ export interface PlatformAIUsage extends AIUsageTotals {
   by_stage: (AIUsageTotals & { stage: string })[];
   by_model: (AIUsageTotals & { model: string })[];
   rows: AIUsageBillingRow[];
+}
+
+export interface ExtractionWarning {
+  kind: 'chunk_failed' | 'chunks_skipped' | 'unreadable_pages' | 'unsupported_format' | 'no_text' | string;
+  detail: string;
+  chunk?: number;
+  chunks?: number[];
+  pages?: string[];
+}
+
+export type DocumentProcessingState = 'complete' | 'partial' | 'failed' | 'active' | 'not_processed';
+
+export interface DocumentProcessingRow {
+  document_id: string;
+  filename: string;
+  state: DocumentProcessingState;
+  label: string;
+  job_id: string | null;
+  job_status: string | null;
+  /** False for a completion recorded before chunk checks existed. */
+  checked: boolean;
+  chunks_total: number;
+  chunks_completed: number;
+  warnings: ExtractionWarning[];
+  error: string;
+}
+
+/** backend apps/extraction/services/completeness.py */
+export interface ProcessingSummary {
+  complete: boolean;
+  description: string;
+  counts: Record<DocumentProcessingState, number> & { total: number };
+  documents: DocumentProcessingRow[];
+  incomplete: DocumentProcessingRow[];
 }

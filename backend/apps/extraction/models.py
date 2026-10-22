@@ -42,11 +42,33 @@ class ExtractionJob(models.Model):
     # -- only set when AI_ROUTER_URLS lists several (see router_pool.py).
     ai_router = models.CharField(max_length=100, blank=True)
 
+    class Completeness(models.TextChoices):
+        #: Run before completeness was recorded -- not checked.
+        UNKNOWN = '', 'Not recorded'
+        COMPLETE = 'complete', 'Complete'
+        #: A text chunk failed or was skipped, pages were unreadable, or the file could not be read.
+        PARTIAL = 'partial', 'Partial'
+
+    #: How much of the document the latest completed attempt actually read (services/completeness.py).
+    completeness = models.CharField(max_length=10, choices=Completeness.choices, blank=True, default='')
+    #: [{kind: chunk_failed|chunks_skipped|unreadable_pages|unsupported_format, detail, ...}]
+    extraction_warnings = models.JSONField(default=list, blank=True)
+    chunks_total = models.PositiveIntegerField(default=0)
+    chunks_completed = models.PositiveIntegerField(default=0)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [
+            # One live run per document, enforced by the database too: two clicks (or two coordinators)
+            # at the same moment can't queue the same document twice.
+            models.UniqueConstraint(
+                fields=['document'], condition=models.Q(status__in=['pending', 'running', 'retrying']),
+                name='one_active_extraction_job_per_document',
+            ),
+        ]
 
     def __str__(self):
         return f'ExtractionJob({self.id}) — {self.status}'
@@ -70,6 +92,7 @@ class AIUsage(models.Model):
         DOCUMENT_ANALYSIS = 'document_analysis', 'Document analysis (classification + facts)'
         FACT_EXTRACTION = 'fact_extraction', 'Fact extraction'
         CONFLICT_CHECK = 'conflict_check', 'Conflict check'
+        EVIDENCE_ASSESSMENT = 'evidence_assessment', 'Evidence assessment'
         OTHER = 'other', 'Other'
 
     class Source(models.TextChoices):

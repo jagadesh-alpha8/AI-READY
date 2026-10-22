@@ -276,6 +276,9 @@ class SourceSection(models.Model):
     page_start = models.PositiveIntegerField()
     page_end = models.PositiveIntegerField()
     text = models.TextField()
+    #: When the AI finished drafting this section (its drafts, possibly none, are saved). A rerun of an
+    #: interrupted drafting job skips these sections and keeps their drafts (requirement_drafting.draft_version).
+    drafted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -859,6 +862,10 @@ class BenchmarkCandidate(models.Model):
     feasibility_score = models.DecimalField(max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     duplication_score = models.DecimalField(max_digits=5, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     required_roles = models.JSONField(default=list, help_text='Expert roles that must each approve.')
+    #: An AI proposal behind this candidate (services/studio_ai.py): for a new indicator its criterion,
+    #: capability, title, kind, source quotes, rationale and duplicate check, so that once the experts approve,
+    #: the draft is created from it without anyone re-entering the details. {} = proposed by a person.
+    ai_proposal = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.RESEARCH)
     created_by = models.CharField(max_length=150, help_text='User email, or "watcher".')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -894,3 +901,65 @@ class CandidateReview(models.Model):
         if not self._state.adding:
             raise ValidationError('Candidate reviews are append-only; add a new review instead.')
         super().save(*args, **kwargs)
+
+
+# -- AI assistance across the Studio ---------------------------------------------------------
+
+class StudioAIJob(models.Model):
+    """One AI preparation step in Benchmark Studio (services/studio_ai.py): what was asked, what came
+    back (validated), its citations, model and confidence, and what a person then did with it.
+
+    AI output never approves anything. For most kinds it is a proposal a person applies or dismisses;
+    `benchmark_content` writes AI-labelled draft content (never over a person's) that still needs a
+    reviewer's confirmation before it can enter a release. A failed job is shown with its error and can be
+    retried; nothing from it is applied."""
+
+    class Kind(models.TextChoices):
+        SOURCE_METADATA = 'source_metadata', 'Source details'
+        REQUIREMENT_FIT = 'requirement_fit', 'Indicator fit for a requirement'
+        BENCHMARK_CONTENT = 'benchmark_content', 'Levels, evidence and applicability'
+        CHANGE_ANALYSIS = 'change_analysis', 'Source change analysis'
+        RELEASE_NOTES = 'release_notes', 'Release notes'
+
+    class Status(models.TextChoices):
+        QUEUED = 'queued', 'Queued'
+        RUNNING = 'running', 'AI processing'
+        READY = 'ready', 'Draft ready - needs review'
+        APPLIED = 'applied', 'Applied by a reviewer'
+        DISMISSED = 'dismissed', 'Dismissed by a reviewer'
+        FAILED = 'failed', 'Failed'
+
+    ACTIVE = (Status.QUEUED, Status.RUNNING)
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    kind = models.CharField(max_length=30, choices=Kind.choices)
+    #: What it is about: a SourceDocument / Requirement / Benchmark / SourceChangeEvent / BenchmarkRelease.
+    target_type = models.CharField(max_length=40)
+    target_id = models.CharField(max_length=64)
+    target_label = models.CharField(max_length=200, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.QUEUED)
+    model = models.CharField(max_length=150, blank=True)
+    #: What was sent: ids, sizes and a hash of the text (not the full text).
+    inputs = models.JSONField(default=dict, blank=True)
+    #: The validated answer (anything that failed validation is listed under `rejected`).
+    output = models.JSONField(default=dict, blank=True)
+    citations = models.JSONField(default=list, blank=True)
+    confidence = models.FloatField(null=True, blank=True)
+    error = models.TextField(blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    requested_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
+    decided_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['kind', 'target_id'])]
+        constraints = [models.UniqueConstraint(fields=['kind', 'target_id'], condition=models.Q(status__in=['queued', 'running']),
+                                               name='one_active_studio_ai_job')]
+
+    def __str__(self):
+        return f'{self.get_kind_display()} for {self.target_label or self.target_id} ({self.status})'

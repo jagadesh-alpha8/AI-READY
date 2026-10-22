@@ -41,6 +41,14 @@ export interface ReportData {
   twelve_month_roadmap: ReportActionPlanBucket[];
   how_ingage_can_help: { offering: string; recommendation_count: number; pillars: string[] }[];
   evidence_metrics: Record<string, number>;
+  /** Document processing when the report was built (and any baseline approved over incomplete processing). */
+  processing?: {
+    complete: boolean;
+    description: string;
+    counts: Record<string, number>;
+    incomplete: { document_id: string; filename: string; state: string; label: string }[];
+    baseline_override: { reason: string; description: string } | null;
+  };
   /** The score this report was built from: a fresh ScoringRun, compared with the approved baseline. */
   cri_source?: {
     scoring_run_id: string;

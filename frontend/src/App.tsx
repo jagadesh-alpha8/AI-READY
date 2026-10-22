@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SelectedSprintProvider, useSelectedSprint } from './context/SelectedSprintContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AppShell } from './layouts/AppShell';
 import { ScrollToTop } from './components/ScrollToTop';
@@ -19,6 +20,7 @@ import { AdminSettings } from './pages/admin/AdminSettings';
 // Platform modules (originally ported from the InGage prototype; all now read
 // real API data).
 import { EvidenceIntelligence } from './pages/evidence/EvidenceIntelligence';
+import { EvidenceRequests } from './pages/evidence/EvidenceRequests';
 import { CriBenchmarkIntelligence } from './pages/benchmark/CriBenchmarkIntelligence';
 import { BenchmarkStudio } from './pages/benchmark/BenchmarkStudio';
 import { BenchmarkAssessments } from './pages/assessments/BenchmarkAssessments';
@@ -48,18 +50,39 @@ const LoginRoute: React.FC = () => {
 };
 
 /** Every other route: requires a session, then wraps the page in the
- * Navbar/Sidebar shell (aware of :sprintId when the current route has one).
- * `menu` names the menu entry the page belongs to; a role that may not see
- * that menu (utils/access.ts) gets "No access" instead of the page. */
-const ProtectedLayout: React.FC<{ children: React.ReactNode; menu?: MenuKey }> = ({ children, menu }) => {
+ * Navbar/Sidebar shell. `menu` names the menu entry the page belongs to; a
+ * role that may not see that menu (utils/access.ts) gets "No access" instead
+ * of the page.
+ *
+ * `sprint` is how the page relates to the selected sprint
+ * (context/SelectedSprintContext.tsx): 'show' puts the selected-sprint header
+ * on top (the dashboard, and /sprint/:sprintId pages, whose URL is the
+ * selection); 'required' also waits for the selection and remounts the page
+ * when it changes (module pages that read the sprint from the context). Both
+ * remount the page on a switch, so nothing of the previous sprint stays on
+ * screen. */
+const ProtectedLayout: React.FC<{ children: React.ReactNode; menu?: MenuKey; sprint?: 'show' | 'required' }> = ({
+  children, menu, sprint,
+}) => {
   const { user, loading } = useAuth();
-  const { sprintId } = useParams<{ sprintId: string }>();
+  const { sprintId: routeSprintId } = useParams<{ sprintId: string }>();
+  const selection = useSelectedSprint();
 
   if (loading) return <FullScreenLoading />;
   if (!user) return <Navigate to="/login" replace />;
   const allowed = !menu || canSeeMenu(user.role, menu);
-  return <AppShell activeSprintId={sprintId}>{allowed ? children : <NoAccess />}</AppShell>;
+  let page: React.ReactNode = allowed ? children : <NoAccess />;
+  if (allowed && sprint === 'required' && selection.status === 'loading' && !selection.loadError) page = <FullPageLoading />;
+  // A new sprint = a fresh page (state, requests and all).
+  const pageKey = sprint ? `sprint:${routeSprintId || selection.sprintId || 'none'}` : undefined;
+  return (
+    <AppShell showSprintBar={!!sprint && allowed}>
+      <React.Fragment key={pageKey}>{page}</React.Fragment>
+    </AppShell>
+  );
 };
+
+const FullPageLoading: React.FC = () => <div className="text-sm text-ink-500 py-10 text-center">Loading...</div>;
 
 /** A session-guarded page with no Navbar and no Sidebar.
  *
@@ -88,7 +111,7 @@ function AppRoutes() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
 
-      <Route path="/dashboard" element={<ProtectedLayout menu="dashboard"><Dashboard /></ProtectedLayout>} />
+      <Route path="/dashboard" element={<ProtectedLayout menu="dashboard" sprint="show"><Dashboard /></ProtectedLayout>} />
       <Route path="/institution-dna" element={<ProtectedLayout menu="institution-dna"><InstitutionList /></ProtectedLayout>} />
       <Route path="/institution-dna/:institutionId" element={<ProtectedLayout menu="institution-dna"><InstitutionDetail /></ProtectedLayout>} />
       {/* Build-progress report, deliberately OUTSIDE the app shell and absent
@@ -98,37 +121,38 @@ function AppRoutes() {
       <Route path="/status-dashboard" element={<StandaloneRoute><StatusDashboard /></StandaloneRoute>} />
 
       {/* Ported from the InGage prototype: real screens, demo data. */}
-      <Route path="/evidence" element={<ProtectedLayout menu="evidence-intelligence"><EvidenceIntelligence /></ProtectedLayout>} />
-      <Route path="/cri-benchmark" element={<ProtectedLayout menu="cri-benchmark-intelligence"><CriBenchmarkIntelligence /></ProtectedLayout>} />
+      <Route path="/evidence" element={<ProtectedLayout menu="evidence-intelligence" sprint="required"><EvidenceIntelligence /></ProtectedLayout>} />
+      <Route path="/evidence-requests" element={<ProtectedLayout menu="evidence-requests"><EvidenceRequests /></ProtectedLayout>} />
+      <Route path="/cri-benchmark" element={<ProtectedLayout menu="cri-benchmark-intelligence" sprint="required"><CriBenchmarkIntelligence /></ProtectedLayout>} />
       <Route path="/benchmark-studio" element={<ProtectedLayout menu="benchmark-studio"><BenchmarkStudio /></ProtectedLayout>} />
       <Route path="/benchmark-assessment" element={<ProtectedLayout menu="benchmark-assessment"><BenchmarkAssessments /></ProtectedLayout>} />
-      <Route path="/transformation-plan" element={<ProtectedLayout menu="transformation-plan"><TransformationPlan /></ProtectedLayout>} />
-      <Route path="/goals-tasks" element={<ProtectedLayout menu="goals-tasks"><GoalsTasks /></ProtectedLayout>} />
-      <Route path="/ai-copilot" element={<ProtectedLayout menu="ai-copilot"><AICopilot /></ProtectedLayout>} />
-      <Route path="/reminders" element={<ProtectedLayout menu="reminders"><Reminders /></ProtectedLayout>} />
-      <Route path="/compliance" element={<ProtectedLayout menu="compliance-mapping"><ComplianceMapping /></ProtectedLayout>} />
-      <Route path="/uat-readiness" element={<ProtectedLayout menu="uat-readiness"><UatReadiness /></ProtectedLayout>} />
+      <Route path="/transformation-plan" element={<ProtectedLayout menu="transformation-plan" sprint="required"><TransformationPlan /></ProtectedLayout>} />
+      <Route path="/goals-tasks" element={<ProtectedLayout menu="goals-tasks" sprint="required"><GoalsTasks /></ProtectedLayout>} />
+      <Route path="/ai-copilot" element={<ProtectedLayout menu="ai-copilot" sprint="required"><AICopilot /></ProtectedLayout>} />
+      <Route path="/reminders" element={<ProtectedLayout menu="reminders" sprint="required"><Reminders /></ProtectedLayout>} />
+      <Route path="/compliance" element={<ProtectedLayout menu="compliance-mapping" sprint="required"><ComplianceMapping /></ProtectedLayout>} />
+      <Route path="/uat-readiness" element={<ProtectedLayout menu="uat-readiness" sprint="required"><UatReadiness /></ProtectedLayout>} />
       <Route path="/admin-settings" element={<ProtectedLayout menu="admin-settings"><AdminSettings /></ProtectedLayout>} />
 
       {/* Design previews for the modules with no prototype screen to port.
           Every one of these says so at the top — see ModulePreview. */}
       <Route path="/preview/:moduleKey" element={<ProtectedLayout><ModulePreview /></ProtectedLayout>} />
       <Route path="/sprint/setup" element={<ProtectedLayout menu="sprint-setup"><SprintSetup /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/upload" element={<ProtectedLayout menu="sprint-upload"><UploadDataPack /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/monitor" element={<ProtectedLayout menu="sprint-monitor"><AIProcessingMonitor /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/facts" element={<ProtectedLayout menu="sprint-facts"><FactsReview /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/gaps" element={<ProtectedLayout menu="sprint-gaps"><GapDashboard /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/upload" element={<ProtectedLayout menu="sprint-upload" sprint="show"><UploadDataPack /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/monitor" element={<ProtectedLayout menu="sprint-monitor" sprint="show"><AIProcessingMonitor /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/facts" element={<ProtectedLayout menu="sprint-facts" sprint="show"><FactsReview /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/gaps" element={<ProtectedLayout menu="sprint-gaps" sprint="show"><GapDashboard /></ProtectedLayout>} />
       <Route
         path="/sprint/:sprintId/confirmation"
-        element={<ProtectedLayout menu="sprint-confirmation"><ConfirmationWorkspace /></ProtectedLayout>}
+        element={<ProtectedLayout menu="sprint-confirmation" sprint="show"><ConfirmationWorkspace /></ProtectedLayout>}
       />
-      <Route path="/sprint/:sprintId/score" element={<ProtectedLayout menu="sprint-score"><LiveCRIPreview /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/approval" element={<ProtectedLayout menu="sprint-approval"><BaselineApproval /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/score" element={<ProtectedLayout menu="sprint-score" sprint="show"><LiveCRIPreview /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/approval" element={<ProtectedLayout menu="sprint-approval" sprint="show"><BaselineApproval /></ProtectedLayout>} />
       <Route
         path="/sprint/:sprintId/recommendations"
-        element={<ProtectedLayout menu="sprint-recommendations"><RecommendationsReview /></ProtectedLayout>}
+        element={<ProtectedLayout menu="sprint-recommendations" sprint="show"><RecommendationsReview /></ProtectedLayout>}
       />
-      <Route path="/sprint/:sprintId/report" element={<ProtectedLayout menu="sprint-report"><ReportPreviewExport /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/report" element={<ProtectedLayout menu="sprint-report" sprint="show"><ReportPreviewExport /></ProtectedLayout>} />
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
@@ -145,7 +169,9 @@ export default function App() {
               routes so a navigation resets scroll before the new screen
               paints. */}
           <ScrollToTop />
-          <AppRoutes />
+          <SelectedSprintProvider>
+            <AppRoutes />
+          </SelectedSprintProvider>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>

@@ -27,6 +27,9 @@ export interface SprintDocument {
   category_confirmed_by: string | null;
   category_confirmed_by_name: string | null;
   category_confirmed_at: string | null;
+  version_number: number;
+  previous_version_id: string | null;
+  superseded_at: string | null;
   title: string;
   original_filename: string;
   mime_type: string;

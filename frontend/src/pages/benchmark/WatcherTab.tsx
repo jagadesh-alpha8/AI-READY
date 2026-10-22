@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AIJobPanel } from './AIJobPanel';
 import { CheckCircle2, Eye, EyeOff, Play, RefreshCw, XCircle } from 'lucide-react';
 
 import {
@@ -191,6 +192,28 @@ const EventCard: React.FC<{ event: SourceChangeEventInfo; onDone: () => void }> 
             {!!imp.benchmarks?.length && <p>Benchmarks: {imp.benchmarks.join(', ')}</p>}
             {!!imp.published_releases?.length && <p>Published releases: {imp.published_releases.join(', ')}</p>}
           </div>
+          <AIJobPanel kind="change_analysis" targetId={e.id} title="What changed (AI analysis)" startLabel="Analyse with AI">
+            {(job, act) => {
+              const o = job.output;
+              return (
+                <div className="space-y-1">
+                  <p className="text-ink-900">{o.summary}</p>
+                  {(o.changes || []).map((c: { description: string; quote: string }, i: number) => (
+                    <p key={i}>• {c.description} <span className="italic text-ink-600">“{c.quote}”</span></p>
+                  ))}
+                  <p>Impact: <strong>{o.impact_level}</strong> - {o.impact_rationale}</p>
+                  <p className="text-ink-600">Affected requirements: {(o.affected_requirements || []).join(', ') || 'none named'} ·
+                    {' '}indicators: {(o.affected_benchmarks || []).join(', ') || 'none named'}</p>
+                  <p className="text-ink-600">Recommendation: {String(o.recommendation || '').replace(/_/g, ' ')}
+                    {o.proposed_title ? ` - “${o.proposed_title}”` : ''}</p>
+                  {(o.rejected || []).length > 0 && <p className="text-ink-500">{o.rejected.length} point(s) dropped: their quote was not in the detected change.</p>}
+                  {job.status === 'ready' && o.recommendation !== 'no_action' && (
+                    <button className="btn-primary btn-sm" onClick={() => act('candidate')}>Send a candidate to expert review</button>
+                  )}
+                </div>
+              );
+            }}
+          </AIJobPanel>
           <div className="flex items-center gap-2">
             <button className="btn-secondary btn-sm" onClick={async () => {
               setErr('');

@@ -138,8 +138,25 @@ class ScoringTests(_AssessmentFixture, TestCase):
         self.assertEqual(a.evidence_confidence_score, Decimal('90.00'))
         self.assertIsNone(a.outcome_score)
         self.assertIsNone(a.composite_score)
-        self.assertIn('not approved weights', a.detail['composite'])
+        # Released benchmarks have approved weights (a release gate); the composite then waits for the outcome.
+        self.assertIn('Waiting for: outcome', a.detail['composite'])
         self.assertIn('L2 not reached: missing Similarity-check reports', a.detail['level_notes'][0])
+        from .models import BenchmarkScoreRule
+        BenchmarkScoreRule.objects.filter(benchmark=self.aca).delete()  # weights withdrawn later
+        self.assertIn('not approved weights', self._score().detail['composite'])
+
+    def test_an_assessment_never_changes_the_sprint_cri(self):
+        from apps.scoring.models import ScoringRun
+        from apps.sprints.models import Sprint
+        sprint = Sprint.objects.create(institution=self.college, mode=Sprint.SprintMode.VERIFIED_CRI)
+        Sprint.objects.filter(pk=sprint.pk).update(overall_cri=41.5, confidence_score=0.7)
+        runs = ScoringRun.objects.count()
+        svc.review_evidence(self.upload(self.aca_ab, RULE), self.user, GOOD_REVIEW)
+        svc.submit_cycle(self.c, self.admin)
+        self.assertIsNotNone(self._score().compliance_score)  # the assessment was scored...
+        sprint.refresh_from_db()
+        self.assertEqual((sprint.overall_cri, sprint.confidence_score), (41.5, 0.7))  # ...the CRI was not touched
+        self.assertEqual(ScoringRun.objects.count(), runs)
 
     def test_levels_build_up_and_composite_needs_approved_weights_and_outcome(self):
         for rule, n in ((RULE, 1), (L2_RULE, 2), (L1_RULE, 1)):

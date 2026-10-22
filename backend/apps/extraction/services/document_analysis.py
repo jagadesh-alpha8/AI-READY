@@ -26,7 +26,9 @@ from ..usage import usage_scope
 from .ai_service import get_ai_service
 from .openai_classifier import CLASSIFICATION_SCHEMA, ClassificationValidationError, OpenAIDocumentClassifier
 from .openai_classifier import SYSTEM_PROMPT as CLASSIFICATION_PROMPT
-from .openai_fact_extractor import FACT_ITEM_SCHEMA, FactValidationError, OpenAIFactExtractor, _merge_fact
+from .openai_fact_extractor import (
+    FACT_ITEM_SCHEMA, FactValidationError, OpenAIFactExtractor, _merge_fact, chunk_failed_issue, completeness_issue,
+)
 from .openai_fact_extractor import SYSTEM_PROMPT as FACT_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -112,11 +114,15 @@ class DocumentAnalyzer:
         first = FirstPass(classification=classification, chunk_count=len(chunks),
                           remaining=list(enumerate(chunks[1:], start=2)))
         raw_facts = result.get('facts')
+        report = self.fact_extractor.report
         if isinstance(raw_facts, list):
             self._collect(document, raw_facts, first_pages, first_index, first.facts_by_key)
+            report['chunks_completed'] += 1
         else:
             # The classification is still good; only this chunk's facts are lost (like a failed chunk).
             logger.error('extraction.analysis.facts_missing document_id=%s value=%r', document.id, raw_facts)
+            report['issues'].append(completeness_issue(
+                'chunk_failed', 'Text chunk 1: the AI answer had no facts list, so its facts were not read.', chunk=1))
         return first
 
     # -- step 2: the remaining chunks, facts only ------------------------------------------------
@@ -134,7 +140,9 @@ class DocumentAnalyzer:
             except PermanentExtractionError as exc:
                 logger.error('fact_extractor.chunk_failed document_id=%s chunk=%d/%d error=%s',
                              document.id, chunk_index, first.chunk_count, exc)
+                self.fact_extractor.report['issues'].append(chunk_failed_issue(chunk_index, chunk_pages, exc))
                 continue
+            self.fact_extractor.report['chunks_completed'] += 1
             self._collect(document, raw_facts, chunk_pages, chunk_index, facts_by_key)
         facts = list(facts_by_key.values())
         logger.info('extraction.analysis.complete document_id=%s chunk_count=%d fact_count=%d',

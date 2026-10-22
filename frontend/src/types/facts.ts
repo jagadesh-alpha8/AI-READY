@@ -59,6 +59,19 @@ export interface Fact {
   status: FactStatus;
   aiqif_mapping_status: AIQIFMappingStatus;
   aiqif_mappings: AIQIFMapping[];
+  /** The fact's unresolved evidence request, or null. */
+  open_evidence_request: import('./evidenceRequests').OpenEvidenceRequest | null;
+  /** Confirmed by the system (AI confidence above the auto-confirm threshold), not by a person. */
+  auto_confirmed?: boolean;
+  /** Responsibility (backend apps/facts/ownership.py): the owner role in words, the assigned person and by when. */
+  owner_role_label: string;
+  assigned_to: string | null;
+  assigned_to_name: string;
+  assigned_at: string | null;
+  due_date: string | null;
+  /** Whether the current user may confirm / correct / reject it; when not, who may. The server decides. */
+  can_act: boolean | null;
+  act_blocked_reason: string;
   reviewed_by: string | null;
   reviewed_at: string | null;
   created_at: string;

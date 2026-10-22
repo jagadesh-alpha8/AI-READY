@@ -87,6 +87,14 @@ class Document(models.Model):
     processing_status = models.CharField(max_length=100, blank=True)
     uploaded_at = models.DateTimeField(null=True, blank=True)
     processed_at = models.DateTimeField(null=True, blank=True)
+    # Versions within one sprint (services.create_document_from_file): a file with the same name as a
+    # current document of the sprint but different content is its next version. The earlier version is
+    # kept, with its facts and reviews, as history; only the current one still needs processing.
+    previous_version = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='newer_versions',
+    )
+    version_number = models.PositiveIntegerField(default=1)
+    superseded_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

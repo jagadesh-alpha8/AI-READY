@@ -90,8 +90,12 @@ class SprintBaselineView(APIView):
             priority__in=[GapItem.Priority.BLOCKING, GapItem.Priority.HIGH],
         ).order_by('priority', '-created_at')
 
+        from apps.extraction.services.completeness import describe, processing_summary
+        processing = processing_summary(sprint)
         return Response({
             'baseline': BaselineSerializer(baseline).data,
+            # Live: what deciding now would face (approval is refused while incomplete without a reason).
+            'processing': {**processing, 'description': describe(processing)},
             'score': SprintScoreSerializer(snapshot).data if snapshot else None,
             'high_priority_gaps': GapItemSerializer(high_priority_gaps, many=True).data,
             'can_approve': not blocking_gaps.exists(),
@@ -101,14 +105,16 @@ class SprintBaselineView(APIView):
 class BaseBaselineActionView(APIView):
     permission_classes = [CanApproveBaseline]
 
-    def perform_action(self, sprint, *, user, comments):
+    def perform_action(self, sprint, *, user, comments, processing_override_reason=''):
         raise NotImplementedError
 
     def post(self, request, sprint_id):
         sprint = get_authorized_sprint(request.user, sprint_id)
         serializer = BaselineActionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        baseline = self.perform_action(sprint, user=request.user, comments=serializer.validated_data['comments'])
+        baseline = self.perform_action(
+            sprint, user=request.user, comments=serializer.validated_data['comments'],
+            processing_override_reason=serializer.validated_data['processing_override_reason'])
         return Response(BaselineSerializer(baseline).data)
 
 
@@ -120,8 +126,9 @@ class SprintBaselineApproveView(BaseBaselineActionView):
     def post(self, request, sprint_id):
         return super().post(request, sprint_id)
 
-    def perform_action(self, sprint, *, user, comments):
-        return approve_baseline(sprint, user=user, comments=comments)
+    def perform_action(self, sprint, *, user, comments, processing_override_reason=''):
+        return approve_baseline(sprint, user=user, comments=comments,
+                                processing_override_reason=processing_override_reason)
 
 
 class SprintBaselineApproveProvisionalView(BaseBaselineActionView):
@@ -133,8 +140,9 @@ class SprintBaselineApproveProvisionalView(BaseBaselineActionView):
     def post(self, request, sprint_id):
         return super().post(request, sprint_id)
 
-    def perform_action(self, sprint, *, user, comments):
-        return approve_baseline_provisional(sprint, user=user, comments=comments)
+    def perform_action(self, sprint, *, user, comments, processing_override_reason=''):
+        return approve_baseline_provisional(sprint, user=user, comments=comments,
+                                            processing_override_reason=processing_override_reason)
 
 
 class SprintBaselineReturnView(BaseBaselineActionView):
@@ -145,7 +153,7 @@ class SprintBaselineReturnView(BaseBaselineActionView):
     def post(self, request, sprint_id):
         return super().post(request, sprint_id)
 
-    def perform_action(self, sprint, *, user, comments):
+    def perform_action(self, sprint, *, user, comments, processing_override_reason=''):
         return return_baseline_for_correction(sprint, user=user, comments=comments)
 
 

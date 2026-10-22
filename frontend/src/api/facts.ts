@@ -21,11 +21,12 @@ export function rejectFact(id: string, comment = 'Rejected by reviewer') {
   return api.post<Fact>(`/facts/${id}/reject`, { comment });
 }
 
-export function requestFactEvidence(id: string, comment = 'Additional evidence requested') {
-  return api.post<Fact>(`/facts/${id}/request-evidence`, { comment });
-}
-
 /** A reviewer's decision on one AI-QIF tag of a fact (counts toward evidence coverage at the next recalculation). */
 export function reviewFactMapping(id: string, indicatorCode: string, decision: 'confirm' | 'reject', note = '') {
   return api.post<Fact>(`/facts/${id}/aiqif-mappings/${indicatorCode}/review`, { decision, note });
+}
+
+/** Coordinators assign / reassign (or unassign, with null) a fact to someone who may act on it. */
+export function assignFact(id: string, body: { assigned_to: string | null; due_date?: string | null; note?: string }) {
+  return api.post<Fact>(`/facts/${id}/assign`, body);
 }

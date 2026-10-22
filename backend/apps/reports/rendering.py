@@ -25,6 +25,20 @@ def _line(pdf, height, text):
     pdf.multi_cell(0, height, text, new_x='LMARGIN', new_y='NEXT')
 
 
+def _processing_lines(data):
+    """Incomplete document processing, said plainly (older reports have no "processing" key)."""
+    processing = data.get('processing') or {}
+    lines = []
+    if processing and not processing.get('complete', True):
+        lines.append(f"INCOMPLETE DOCUMENT PROCESSING: {processing.get('description', '')} Facts from those "
+                     'documents may be missing from this report.')
+    override = processing.get('baseline_override')
+    if override:
+        lines.append(f"The baseline was approved with incomplete processing ({override.get('description', '')}). "
+                     f"Reason recorded: {override.get('reason', '')}")
+    return lines
+
+
 def _coverage_lines(data):
     """Coverage-adjusted CRI and AI-QIF evidence coverage, shown apart from the Raw CRI.
     Older reports (before coverage) have neither key and show nothing extra."""
@@ -56,6 +70,8 @@ def render_pdf_bytes(report):
     pdf.set_font('Helvetica', 'B', 10)
     pdf.set_text_color(150, 90, 0)
     _line(pdf, 6, _latin1(f"Baseline status: {data['baseline']['status'].upper()}"))
+    for text in _processing_lines(data):
+        _line(pdf, 6, _latin1(text))
     source = data.get('cri_source') or {}
     if source.get('differs_from_baseline'):
         _line(pdf, 6, _latin1(f"RECALCULATED CRI: {source.get('note', '')}"))
@@ -154,6 +170,8 @@ def render_docx_bytes(report):
     ).italic = True
     baseline_run = doc.add_paragraph().add_run(f"Baseline status: {data['baseline']['status'].upper()}")
     baseline_run.bold = True
+    for text in _processing_lines(data):
+        doc.add_paragraph().add_run(text).bold = True
     source = data.get('cri_source') or {}
     if source.get('note'):
         note = doc.add_paragraph().add_run(

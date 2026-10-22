@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { ScorecardsNote } from '../scoring/ScorecardsNote';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { CheckCircle2, ClipboardList, Lock, Play, Plus, Send, Undo2 } from 'lucide-react';
 
 import { PageHeader } from '../../components/PageHeader';
@@ -41,6 +43,7 @@ export const BenchmarkAssessments: React.FC = () => {
     if (!college && colleges.data && colleges.data.length > 0) setCollege(colleges.data[0].id);
   }, [colleges.data, college]);
 
+  const { sprintId: selectedSprintId } = useSelectedSprint();
   if (ref.loading || colleges.loading) return <LoadingState message="Loading assessments…" />;
   if (ref.error || !ref.data) return <ErrorState message={ref.error || 'Could not load'} onRetry={ref.refetch} />;
   const r = ref.data;
@@ -48,7 +51,8 @@ export const BenchmarkAssessments: React.FC = () => {
   return (
     <div className="space-y-5">
       <PageHeader icon={ClipboardList} title="Benchmark Assessment"
-        description="A college's evidence, checked against the published benchmark release, with four separate scores." />
+        description="A college's evidence, checked benchmark by benchmark against a published benchmark release, with four separate scores. Separate from the sprint CRI." />
+      <ScorecardsNote here="assessment" sprintId={selectedSprintId || undefined} />
       <div className="glass-card p-3 text-xs text-ink-600 space-y-1">
         <p>
           Current release: <strong>{r.current_release || 'none published yet'}</strong>
@@ -240,7 +244,10 @@ const CyclePanel: React.FC<{ cycleId: string; reference: AssessmentReference; on
       <div className="flex items-center gap-2 flex-wrap">
         <p className="text-sm font-bold text-ink-900">{c.name}</p>
         <span className={`badge ${STATUS_BADGE[c.status]}`}>{c.status_label}</span>
-        <span className="text-ink-500" title={c.release_hash}>{c.release_label} · started by {c.created_by}</span>
+        <span className="text-ink-500" title={`Content hash ${c.release_hash}`}>
+          Assessed against published release <strong className="text-ink-700">{c.release_label}</strong>
+          {c.release_hash ? ` (#${c.release_hash.slice(0, 10)})` : ''} · started by {c.created_by}
+        </span>
       </div>
       <div className="flex flex-wrap gap-1">
         {STEPS.map((s, i) => (

@@ -78,12 +78,37 @@ class SourceDocumentDetailSerializer(SourceDocumentListSerializer):
 class RequirementCandidateSerializer(serializers.ModelSerializer):
     reviewed_by = serializers.CharField(source='reviewed_by.email', default=None, read_only=True)
     requirement_code = serializers.CharField(source='requirement.code', default=None, read_only=True)
+    #: Pending drafts only: approved requirements that say nearly the same (accept would duplicate them), and
+    #: the indicators the draft's wording points to (deterministic word overlap, services/comparison.py).
+    duplicates = serializers.SerializerMethodField()
+    suggested_benchmarks = serializers.SerializerMethodField()
 
     class Meta:
         model = RequirementCandidate
         fields = ['id', 'statement', 'kind', 'page', 'source_quote', 'confidence', 'rationale', 'model', 'status',
-                  'reviewed_by', 'reviewed_at', 'review_note', 'requirement_code', 'created_at']
+                  'reviewed_by', 'reviewed_at', 'review_note', 'requirement_code', 'created_at', 'duplicates',
+                  'suggested_benchmarks']
         read_only_fields = fields
+
+    def get_duplicates(self, obj):
+        from .services.comparison import similar_requirements
+        return similar_requirements(obj.statement) if obj.status == RequirementCandidate.Status.PENDING else []
+
+    def get_suggested_benchmarks(self, obj):
+        if obj.status != RequirementCandidate.Status.PENDING:
+            return []
+        from types import SimpleNamespace
+
+        from .models import BenchmarkRequirement
+        from .services.linking import suggest_benchmarks
+        probe = SimpleNamespace(statement=obj.statement, source_quote=obj.source_quote, version=obj.version,
+                                benchmark_links=BenchmarkRequirement.objects.none(), code='')
+        try:
+            rows = suggest_benchmarks(probe, limit=3)
+        except Exception:
+            return []
+        return [{'code': r['benchmark'].benchmark_code, 'title': r['benchmark'].title, 'reasons': r['reasons']}
+                for r in rows]
 
 
 class RequirementSerializer(serializers.ModelSerializer):
@@ -368,7 +393,7 @@ class BenchmarkCandidateSerializer(serializers.ModelSerializer):
                   'benchmark_title', 'benchmark_status', 'source_code', 'change_event', 'proposed_kind',
                   'source_rationale', 'proposed_maturity', 'proposed_evidence_rules', 'emergence_score',
                   'feasibility_score', 'duplication_score', 'required_roles', 'role_status', 'created_by',
-                  'created_at', 'decided_at', 'reviews']
+                  'created_at', 'decided_at', 'reviews', 'ai_proposal']
         read_only_fields = fields
 
     def get_role_status(self, obj):
@@ -376,3 +401,18 @@ class BenchmarkCandidateSerializer(serializers.ModelSerializer):
         for r in sorted(obj.reviews.all(), key=lambda r: r.reviewed_at):
             latest[r.reviewer_role] = {'decision': r.decision, 'reviewer': r.reviewer.email}
         return {role: latest.get(role) for role in obj.required_roles}
+
+
+class StudioAIJobSerializer(serializers.ModelSerializer):
+    kind_label = serializers.CharField(source='get_kind_display', read_only=True)
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+    requested_by = serializers.CharField(source='requested_by.email', default=None, read_only=True)
+    decided_by = serializers.CharField(source='decided_by.email', default=None, read_only=True)
+
+    class Meta:
+        from .models import StudioAIJob
+        model = StudioAIJob
+        fields = ['id', 'kind', 'kind_label', 'target_type', 'target_id', 'target_label', 'status', 'status_label',
+                  'model', 'inputs', 'output', 'citations', 'confidence', 'error', 'attempts', 'requested_by',
+                  'decided_by', 'decided_at', 'decision_note', 'created_at', 'started_at', 'finished_at']
+        read_only_fields = fields

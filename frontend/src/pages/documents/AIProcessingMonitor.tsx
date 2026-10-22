@@ -8,7 +8,9 @@ import {
   deleteExtractionJob,
   processExtractionJob,
   processIncompleteExtraction,
+  startExtraction,
 } from '../../api/extraction';
+import { listSprintDocuments } from '../../api/documents';
 import { listSprintFacts } from '../../api/facts';
 import { listSprintGaps } from '../../api/gaps';
 import { useApiResource } from '../../hooks/useApiResource';
@@ -18,6 +20,7 @@ import { formatDuration, formatEstimate, latestRunTiming, type RunTiming } from 
 import {
   ACTIVE_EXTRACTION_STATUSES, type ExtractionJob, type Fact, type Gap, type SprintAIUsage,
 } from '../../types';
+import type { SprintDocument } from '../../types/documents';
 import {
   Activity, CheckCircle2, AlertTriangle, ArrowRight, Cpu, Layers, XCircle, Loader2, Trash2, Square, Play, RotateCcw,
   Timer, Coins,
@@ -48,6 +51,13 @@ export const AIProcessingMonitor: React.FC = () => {
     isRealSprint,
   );
   const jobs = jobsData || [];
+  const { data: documentsData, loading: documentsLoading, error: documentsError, refetch: refetchDocuments } =
+    useApiResource<SprintDocument[]>(() => listSprintDocuments(sprintId!), [sprintId], isRealSprint);
+  const documents = documentsData || [];
+  const latestJobByDocument = new Map<string, ExtractionJob>();
+  for (const job of [...jobs].sort((a, b) => b.created_at.localeCompare(a.created_at))) {
+    if (!latestJobByDocument.has(job.document_id)) latestJobByDocument.set(job.document_id, job);
+  }
 
   // Facts/gaps counts back the same four stat-card labels the original
   // design used ("Facts Extracted", "Gaps Detected", "Conflicts Detected")
@@ -69,25 +79,37 @@ export const AIProcessingMonitor: React.FC = () => {
     isRealSprint,
   );
   const facts = factsData || [];
+  const factCountsByDocument = new Map<string, number>();
+  for (const fact of facts) {
+    const documentId = fact.document_id || fact.source_document_id;
+    if (documentId) factCountsByDocument.set(documentId, (factCountsByDocument.get(documentId) || 0) + 1);
+  }
   const gaps = gapsData || [];
   const conflictCount = gaps.filter((g) => g.gap_type === 'conflict').length;
 
   const hasActiveJob = jobs.some((j) => ACTIVE_EXTRACTION_STATUSES.includes(j.status));
-  // Rows the user can run again: failed or stopped.
-  const incompleteCount = jobs.filter((j) => j.status === 'failed' || j.status === 'cancelled').length;
+  // Rows the user can run again: not processed, failed, stopped, or partially extracted.
+  const isPartial = (job?: ExtractionJob) => job?.status === 'completed' && job.completeness === 'partial';
+  const incompleteDocuments = documents.filter((doc) => {
+    if (doc.status === 'rejected' || doc.superseded_at) return false;
+    const job = latestJobByDocument.get(doc.id);
+    return !job || isPartial(job) || (job.status !== 'completed' && !ACTIVE_EXTRACTION_STATUSES.includes(job.status));
+  });
+  const incompleteCount = incompleteDocuments.length;
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [actionError, setActionError] = useState('');
 
-  const runRowAction = async (job: ExtractionJob, action: 'stop' | 'process') => {
-    setBusyJobId(job.id);
+  const runRowAction = async (document: SprintDocument, job: ExtractionJob | undefined, action: 'stop' | 'process') => {
+    setBusyJobId(document.id);
     setActionError('');
     try {
-      if (action === 'stop') await cancelExtractionJob(job.id);
+      if (!job) await startExtraction(sprintId!, [document.id]);
+      else if (action === 'stop') await cancelExtractionJob(job.id);
       else await processExtractionJob(job.id);
       refetchAllRef.current();
     } catch (err) {
-      setActionError(getErrorMessage(err, `Failed to ${action} "${job.document_filename}".`));
+      setActionError(getErrorMessage(err, `Failed to ${action} "${document.original_filename}".`));
     } finally {
       setBusyJobId(null);
     }
@@ -127,7 +149,7 @@ export const AIProcessingMonitor: React.FC = () => {
 
     try {
       await deleteExtractionJob(job.id);
-      refetch();
+      refetchAllRef.current();
     } catch (err) {
       console.error('Failed to delete extraction job:', err);
       alert('Failed to delete the job. Please try again.');
@@ -136,12 +158,14 @@ export const AIProcessingMonitor: React.FC = () => {
 
   const refetchAllRef = useRef(() => {
     refetch();
+    refetchDocuments();
     refetchFacts();
     refetchGaps();
     refetchUsage();
   });
   refetchAllRef.current = () => {
     refetch();
+    refetchDocuments();
     refetchFacts();
     refetchGaps();
     refetchUsage();
@@ -153,7 +177,23 @@ export const AIProcessingMonitor: React.FC = () => {
     return () => clearInterval(timer);
   }, [hasActiveJob]);
 
-  const completedCount = jobs.filter((j) => j.status === 'completed').length;
+  // The same five states as the server (apps/extraction/services/completeness.py) and the baseline gate.
+  const includedDocuments = documents.filter((doc) => doc.status !== 'rejected' && !doc.superseded_at);
+  const completedCount = includedDocuments.filter((doc) => {
+    const job = latestJobByDocument.get(doc.id);
+    return job?.status === 'completed' && !isPartial(job);
+  }).length;
+  const partialCount = includedDocuments.filter((doc) => isPartial(latestJobByDocument.get(doc.id))).length;
+  const notProcessedCount = includedDocuments.filter((doc) => !latestJobByDocument.get(doc.id)).length;
+  const processingCount = includedDocuments.filter((doc) => {
+    const status = latestJobByDocument.get(doc.id)?.status;
+    return !!status && ACTIVE_EXTRACTION_STATUSES.includes(status);
+  }).length;
+  const needsAttentionCount = documents.filter((doc) => {
+    const job = latestJobByDocument.get(doc.id);
+    return !doc.superseded_at && doc.status !== 'rejected' && !!job && ['failed', 'cancelled'].includes(job.status);
+  }).length;
+  const allComplete = includedDocuments.length > 0 && completedCount === includedDocuments.length;
 
   // Ticks every second while a run is active, so elapsed / time-left update
   // between the 3-second data polls.
@@ -205,11 +245,11 @@ export const AIProcessingMonitor: React.FC = () => {
         </div>
       )}
 
-      {loading ? (
+      {loading || documentsLoading ? (
         <LoadingState message="Loading extraction jobs..." />
-      ) : error ? (
-        <ErrorState message={error} onRetry={refetch} />
-      ) : jobs.length === 0 ? (
+      ) : error || documentsError ? (
+        <ErrorState message={getErrorMessage(error || documentsError, 'Could not load sprint processing status.')} onRetry={() => { refetch(); refetchDocuments(); }} />
+      ) : documents.length === 0 ? (
         <div className="panel-muted">
           <p className="text-sm text-ink-500">
             No extraction jobs yet. Upload documents and start an extraction run first.
@@ -227,9 +267,9 @@ export const AIProcessingMonitor: React.FC = () => {
                 <span className="text-sm font-medium">Documents Processed</span>
                 <CheckCircle2 className="w-4 h-4 text-success" />
               </div>
-              <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{completedCount} / {jobs.length}</p>
-              <span className="text-xs text-success mt-1 inline-block font-medium">
-                {hasActiveJob ? 'OCR & Table Parsing in progress' : 'OCR & Table Parsing 100%'}
+              <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{completedCount} / {includedDocuments.length}</p>
+              <span className={`text-xs mt-1 inline-block font-medium ${allComplete ? 'text-success' : 'text-warning'}`}>
+                {allComplete ? 'All included documents fully processed' : 'Not all documents are fully processed'}
               </span>
             </div>
 
@@ -263,73 +303,119 @@ export const AIProcessingMonitor: React.FC = () => {
             </div>
           </div>
 
-          {/* Extraction Pipeline Progress -- one row per job, in the fixed stage order */}
+          {/* One count per state; only "fully processed" counts as done (review, CRI, baseline and reports say so too). */}
+          <div className="glass-card p-4 flex flex-wrap gap-2 text-xs">
+            <span className="badge-success">Fully processed {completedCount}</span>
+            <span className={partialCount ? 'badge-warning' : 'badge-neutral'}>Partially processed {partialCount}</span>
+            <span className={needsAttentionCount ? 'badge-danger' : 'badge-neutral'}>Failed or stopped {needsAttentionCount}</span>
+            <span className={processingCount ? 'badge-info' : 'badge-neutral'}>Processing {processingCount}</span>
+            <span className={notProcessedCount ? 'badge-warning' : 'badge-neutral'}>Not processed yet {notProcessedCount}</span>
+            {!allComplete && !hasActiveJob && (
+              <span className="text-ink-600">
+                Partial and failed documents can be processed again; facts are updated in place, never duplicated.
+              </span>
+            )}
+          </div>
+
+          {/* Sprint coverage includes documents without a job, so an unqueued item is visible. */}
           <div className="glass-card p-5 sm:p-6 space-y-4">
-            <h2 className="eyebrow">AI Task Contract Pipeline Status</h2>
+            <h2 className="eyebrow">Sprint Document Processing ({completedCount}/{includedDocuments.length} fully processed)</h2>
             <div className="space-y-3">
-              {jobs.map((job) => {
-                const stepIndex = STEP_LABELS.indexOf(job.current_step);
-                const isActive = ACTIVE_EXTRACTION_STATUSES.includes(job.status);
-                const canProcess = job.status === 'failed' || job.status === 'cancelled';
-                const rowBusy = busyJobId === job.id;
+              {documents.map((document) => {
+                const job = latestJobByDocument.get(document.id);
+                const status = job?.status || 'not_started';
+                const documentFactCount = factCountsByDocument.get(document.id) || 0;
+                const partial = isPartial(job);
+                const completedWithoutFacts = status === 'completed' && !partial && documentFactCount === 0;
+                const stepIndex = job ? STEP_LABELS.indexOf(job.current_step) : -1;
+                const isActive = !!job && ACTIVE_EXTRACTION_STATUSES.includes(job.status);
+                const canProcess = document.status !== 'rejected' && !isActive && (!job || job.status !== 'completed' || partial);
+                const rowBusy = busyJobId === document.id;
                 const Icon =
-                  job.status === 'completed'
+                  completedWithoutFacts || partial
+                    ? AlertTriangle
+                    : status === 'completed'
                     ? CheckCircle2
-                    : job.status === 'failed'
+                    : status === 'failed'
                     ? XCircle
-                    : job.status === 'cancelled'
+                    : status === 'cancelled'
                     ? Square
                     : Loader2;
                 const iconClass =
-                  job.status === 'completed'
+                  completedWithoutFacts || partial
+                    ? 'text-warning bg-warning-bg border-warning-line'
+                    : status === 'completed'
                     ? 'text-success bg-success-bg border-success-line'
-                    : job.status === 'failed'
+                    : status === 'failed'
                     ? 'text-danger bg-danger-bg border-danger-line'
-                    : job.status === 'cancelled'
+                    : status === 'cancelled'
                     ? 'text-ink-500 bg-line-100 border-line-300'
                     : 'text-brand-800 bg-brand-500/10 border-brand-500/30';
                 const badgeClass =
-                  job.status === 'completed'
+                  completedWithoutFacts || partial
+                    ? 'badge-warning'
+                    : status === 'completed'
                     ? 'badge-success'
-                    : job.status === 'failed'
+                    : status === 'failed'
                     ? 'badge-danger'
-                    : job.status === 'cancelled'
+                    : status === 'cancelled'
                     ? 'badge-neutral'
+                    : status === 'not_started'
+                    ? 'badge-warning'
                     : 'badge-brand';
                 return (
                   <div
-                    key={job.id}
+                    key={document.id}
                     className="p-3.5 bg-surface rounded-xl border border-line-200 flex items-center justify-between gap-3 flex-wrap"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${iconClass}`}>
-                        <Icon className={`w-4 h-4 ${job.status === 'running' || job.status === 'retrying' ? 'animate-spin' : ''}`} />
+                        <Icon className={`w-4 h-4 ${job?.status === 'running' || job?.status === 'retrying' ? 'animate-spin' : ''}`} />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-bold text-ink-900 truncate">{job.document_filename}</p>
+                        <p className="text-sm font-bold text-ink-900 truncate">{document.original_filename}{document.version_number > 1 ? ` · v${document.version_number}` : ''}</p>
                         <p className="text-xs text-ink-500">
-                          {job.status === 'cancelled'
+                          {!job ? 'Not yet queued in this sprint'
+                            : job.status === 'cancelled'
                             ? job.current_step_label
                               ? `Stopped at: ${job.current_step_label}`
                               : 'Stopped before it started'
                             : job.current_step_label || 'Queued'}
                           {stepIndex >= 0 && ` (step ${stepIndex + 1} of ${STEP_LABELS.length})`}
-                          {job.ai_router && ` · ${job.ai_router}`}
+                          {job?.ai_router && ` · ${job.ai_router}`}
                         </p>
-                        {job.status === 'failed' && job.error_message && (
+                        {partial && job && (
+                          <div className="text-xs text-warning mt-0.5 space-y-0.5">
+                            <p className="font-semibold">
+                              Partially processed: {job.chunks_completed} of {job.chunks_total} text chunk{job.chunks_total === 1 ? '' : 's'} read
+                              {' '}· {documentFactCount} fact{documentFactCount === 1 ? '' : 's'} extracted. Some content was not read.
+                            </p>
+                            {job.extraction_warnings.map((w, i) => <p key={i}>• {w.detail}</p>)}
+                          </div>
+                        )}
+                        {status === 'completed' && !partial && (
+                          <p className={`text-xs mt-0.5 ${completedWithoutFacts ? 'text-warning' : 'text-ink-500'}`}>
+                            {completedWithoutFacts
+                              ? 'Processing completed, but no facts were extracted. Check the PDF text/pages and extraction logs.'
+                              : `${documentFactCount} fact${documentFactCount === 1 ? '' : 's'} extracted`}
+                          </p>
+                        )}
+                        {job?.status === 'failed' && job.error_message && (
                           <p className="text-xs text-danger mt-0.5">
                             {humanizeExtractionError(job.error_message, false)}
                           </p>
                         )}
-                        {job.status === 'retrying' && job.error_message && (
+                        {job?.status === 'retrying' && job.error_message && (
                           <p className="text-xs text-warning mt-0.5">
                             {humanizeExtractionError(job.error_message, true)}
                           </p>
                         )}
+                        {document.superseded_at && <p className="text-xs text-ink-500 mt-0.5">Earlier file version retained for sprint history</p>}
+                        {!job && document.status === 'failed' && <p className="text-xs text-danger mt-0.5">Document processing failed before a job was recorded.</p>}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      {job.ai_input_tokens + job.ai_output_tokens > 0 && (
+                      {job && job.ai_input_tokens + job.ai_output_tokens > 0 && (
                         <span
                           className="text-xs text-ink-500 tabular-nums"
                           title={`AI: ${job.ai_input_tokens.toLocaleString()} input + ${job.ai_output_tokens.toLocaleString()} output tokens`}
@@ -338,11 +424,13 @@ export const AIProcessingMonitor: React.FC = () => {
                           {job.ai_cost_usd !== null && ` · ${formatUsd(job.ai_cost_usd)}`}
                         </span>
                       )}
-                      <span className="text-sm font-mono text-ink-500 tabular-nums">{job.progress_percentage}%</span>
-                      <span className={badgeClass}>{job.status === 'cancelled' ? 'stopped' : job.status}</span>
+                      <span className="text-sm font-mono text-ink-500 tabular-nums">{job?.progress_percentage || 0}%</span>
+                      <span className={badgeClass}>
+                        {partial ? 'partial' : completedWithoutFacts ? 'completed · 0 facts' : status === 'not_started' ? 'not started' : status === 'cancelled' ? 'stopped' : status}
+                      </span>
                       {isActive && (
                         <button
-                          onClick={() => runRowAction(job, 'stop')}
+                          onClick={() => runRowAction(document, job, 'stop')}
                           disabled={rowBusy}
                           className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-danger/40 text-danger hover:bg-danger/10 transition-colors disabled:opacity-60"
                           title={job.status === 'pending' ? 'Remove from the queue' : 'Stop after the current step'}
@@ -353,16 +441,17 @@ export const AIProcessingMonitor: React.FC = () => {
                       )}
                       {canProcess && (
                         <button
-                          onClick={() => runRowAction(job, 'process')}
+                          onClick={() => runRowAction(document, job, 'process')}
                           disabled={rowBusy}
                           className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-brand-500 text-on-brand hover:brightness-95 transition-all disabled:opacity-60"
-                          title="Run AI extraction for this document again"
+                          title={partial ? 'Process again to read what was missed (facts are updated, never duplicated)'
+                            : job ? 'Retry extraction for this document in this sprint' : 'Start extraction for this document in this sprint'}
                         >
                           <Play className="w-3 h-3 fill-current" />
                           <span>{rowBusy ? 'Starting…' : 'Process'}</span>
                         </button>
                       )}
-                      {job.status === 'failed' && (
+                      {job?.status === 'failed' && (
                         <button
                           onClick={() => handleDeleteJob(job)}
                           className="btn-icon hover:text-danger hover:bg-danger-bg"

@@ -167,6 +167,19 @@ export const ReportPreviewExport: React.FC = () => {
               </div>
             )}
 
+            {data.processing && (!data.processing.complete || data.processing.baseline_override) && (
+              <div className="rounded-lg border border-warning-line bg-warning-bg p-3 text-sm text-ink-700 space-y-1">
+                {!data.processing.complete && (
+                  <p><strong className="text-warning">Incomplete document processing: </strong>{data.processing.description}
+                    {' '}Facts from those documents may be missing from this report.</p>
+                )}
+                {data.processing.baseline_override && (
+                  <p>The baseline was approved with incomplete processing ({data.processing.baseline_override.description}).
+                    {' '}Reason recorded: &ldquo;{data.processing.baseline_override.reason}&rdquo;</p>
+                )}
+              </div>
+            )}
+
             {/* Section 1: Executive Summary */}
             <div className="space-y-3">
               <h3 className="text-sm font-bold text-brand-800 uppercase tracking-wide">1. Executive Summary &amp; CRI Score</h3>

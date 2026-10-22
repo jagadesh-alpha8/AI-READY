@@ -30,7 +30,7 @@ from ..usage import record_anthropic_usage
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT_SECONDS = 60
+DEFAULT_TIMEOUT_SECONDS = settings.AI_REQUEST_TIMEOUT_SECONDS
 #: A document chunk's facts array can run to dozens of items (each with a
 #: field_name/value/source_snippet/confidence_reason), which routinely
 #: exceeds 4096 output tokens on data-dense pages -- hitting that cap

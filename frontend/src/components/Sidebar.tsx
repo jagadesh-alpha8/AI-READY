@@ -1,15 +1,18 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Gauge, Building2, ShieldCheck, Layers, Target, ListChecks, Bot, Bell,
   Network, ClipboardCheck, Settings, Award, BookOpen,
   FolderPlus, Upload, Activity, FileSearch, AlertCircle, CheckSquare,
-  BarChart3, Lock, Sparkles, FileText, X, ClipboardList,
+  BarChart3, Lock, Sparkles, FileText, X, ClipboardList, FileCheck2,
 } from 'lucide-react';
 
+import { getEvidenceRequestSummary } from '../api/evidenceRequests';
 import { useAuth } from '../context/AuthContext';
+import { useSelectedSprint } from '../context/SelectedSprintContext';
 import { canSeeMenu } from '../utils/access';
 import type { MenuKey } from '../utils/access';
+import { sprintStepPath } from '../utils/selectedSprint.ts';
 
 type LucideIcon = typeof Gauge;
 
@@ -32,7 +35,8 @@ type ModuleStatus = 'live' | 'demo' | 'admin' | 'next' | 'planned';
 interface NavChild {
   /** Who may see it: utils/access.ts MENU_ROLES. */
   key: MenuKey;
-  to: string;
+  /** Null for a sprint step while no sprint is selected (shown, but not a link). */
+  to: string | null;
   label: string;
   icon: LucideIcon;
 }
@@ -67,12 +71,15 @@ interface NavGroup {
  * Evidence Intelligence is the next module in the plan, so it is labelled
  * distinctly from the ones queued behind it.
  *
- * No notification badges are rendered here. The plan mock shows counts against
- * three modules, but nothing in this app produces them yet, and a hardcoded
- * number would read as real data — the same "never fabricate a value" stance
- * the extraction and scoring layers take.
+ * The only badge is Evidence Requests': a real count from the API of the
+ * requests waiting on the current user (assigned to them, or their own requests
+ * with evidence to review). Nothing else here has a count to show, and a
+ * hardcoded number would read as real data — the same "never fabricate a
+ * value" stance the extraction and scoring layers take.
  */
 function buildModules(sprintId: string): NavModule[] {
+  // Every sprint step links to the selected sprint -- or nowhere when none is selected.
+  const step = (path: string) => sprintStepPath(sprintId, path);
   return [
     {
       key: 'dashboard',
@@ -97,18 +104,19 @@ function buildModules(sprintId: string): NavModule[] {
       childrenCaption: 'Sprint steps',
       children: [
         { key: 'sprint-setup', to: '/sprint/setup', label: 'Sprint Setup', icon: FolderPlus },
-        { key: 'sprint-upload', to: `/sprint/${sprintId}/upload`, label: 'Upload Data Pack', icon: Upload },
-        { key: 'sprint-monitor', to: `/sprint/${sprintId}/monitor`, label: 'AI Processing Monitor', icon: Activity },
-        { key: 'sprint-facts', to: `/sprint/${sprintId}/facts`, label: 'Extracted Facts Review', icon: FileSearch },
-        { key: 'sprint-gaps', to: `/sprint/${sprintId}/gaps`, label: 'Gap Dashboard', icon: AlertCircle },
-        { key: 'sprint-confirmation', to: `/sprint/${sprintId}/confirmation`, label: 'Owner Workspace', icon: CheckSquare },
-        { key: 'sprint-score', to: `/sprint/${sprintId}/score`, label: 'Live CRI Preview', icon: BarChart3 },
-        { key: 'sprint-approval', to: `/sprint/${sprintId}/approval`, label: 'Baseline Approval', icon: Lock },
-        { key: 'sprint-recommendations', to: `/sprint/${sprintId}/recommendations`, label: 'Recommendations', icon: Sparkles },
-        { key: 'sprint-report', to: `/sprint/${sprintId}/report`, label: 'Report & Export', icon: FileText },
+        { key: 'sprint-upload', to: step('upload'), label: 'Upload Data Pack', icon: Upload },
+        { key: 'sprint-monitor', to: step('monitor'), label: 'AI Processing Monitor', icon: Activity },
+        { key: 'sprint-facts', to: step('facts'), label: 'Extracted Facts Review', icon: FileSearch },
+        { key: 'sprint-gaps', to: step('gaps'), label: 'Gap Dashboard', icon: AlertCircle },
+        { key: 'sprint-confirmation', to: step('confirmation'), label: 'Owner Workspace', icon: CheckSquare },
+        { key: 'sprint-score', to: step('score'), label: 'Live CRI Preview', icon: BarChart3 },
+        { key: 'sprint-approval', to: step('approval'), label: 'Baseline Approval', icon: Lock },
+        { key: 'sprint-recommendations', to: step('recommendations'), label: 'Recommendations', icon: Sparkles },
+        { key: 'sprint-report', to: step('report'), label: 'Report & Export', icon: FileText },
       ],
     },
     { key: 'evidence-intelligence', label: 'Evidence Intelligence', icon: Layers, status: 'live', to: '/evidence' },
+    { key: 'evidence-requests', label: 'Evidence Requests', icon: FileCheck2, status: 'live', to: '/evidence-requests' },
     {
       key: 'cri-benchmark-intelligence',
       label: 'CRI & Benchmark Intelligence',
@@ -130,7 +138,7 @@ function buildModules(sprintId: string): NavModule[] {
       status: 'live',
       to: '/benchmark-assessment',
     },
-    { key: 'transformation-plan', label: 'Transformation Plan', icon: Target, status: 'live', to: '/transformation-plan' },
+    { key: 'transformation-plan', label: 'Sprint Transformation Plan', icon: Target, status: 'live', to: '/transformation-plan' },
     { key: 'goals-tasks', label: 'Goals & Tasks', icon: ListChecks, status: 'live', to: '/goals-tasks' },
     { key: 'ai-copilot', label: 'AI Copilot', icon: Bot, status: 'live', to: '/ai-copilot' },
     { key: 'reminders', label: 'Reminders', icon: Bell, status: 'live', to: '/reminders' },
@@ -140,15 +148,30 @@ function buildModules(sprintId: string): NavModule[] {
   ];
 }
 
+/** Evidence requests waiting on the current user, refreshed on every navigation (0 when unknown). */
+function useEvidenceTaskCount(enabled: boolean, pathname: string) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    getEvidenceRequestSummary()
+      .then(({ data }) => { if (live) setCount(data.assigned_to_me + data.awaiting_my_review); })
+      .catch(() => { /* the badge is a convenience; the page itself shows the list */ });
+    return () => { live = false; };
+  }, [enabled, pathname]);
+  return count;
+}
+
 const ROW_BASE =
   'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors border-l-2 text-left';
 
 export const Sidebar: React.FC<{
-  activeSprintId?: string;
   open?: boolean;
   onClose?: () => void;
-}> = ({ activeSprintId, open = false, onClose }) => {
-  const sprintId = activeSprintId || 'demo-sprint-id';
+}> = ({ open = false, onClose }) => {
+  // The selected sprint (context/SelectedSprintContext.tsx): the same one on every page, until the user
+  // picks another.
+  const { sprintId } = useSelectedSprint();
   // One group. The Project Status Dashboard is deliberately NOT here: it
   // reports on how much of the product plan exists, which makes it a report
   // about the app rather than a part of it. It lives on its own route
@@ -163,6 +186,7 @@ export const Sidebar: React.FC<{
     { heading: 'Platform Modules', modules: visible },
   ];
   const { pathname } = useLocation();
+  const evidenceTasks = useEvidenceTaskCount(canSeeMenu(user?.role, 'evidence-requests'), pathname);
 
   // Only used to highlight the parent module while one of its steps is open.
   // Nothing collapses: every menu entry stays visible at all times.
@@ -301,6 +325,11 @@ export const Sidebar: React.FC<{
                     >
                       <Icon className="w-4 h-4 shrink-0" />
                       <span className="truncate">{module.label}</span>
+                      {module.key === 'evidence-requests' && evidenceTasks > 0 && (
+                        <span className="ml-auto shrink-0 badge-accent" title="Evidence requests waiting on you">
+                          {evidenceTasks}
+                        </span>
+                      )}
                     </NavLink>
                   );
                 }
@@ -327,11 +356,27 @@ export const Sidebar: React.FC<{
                           {module.childrenCaption}
                         </p>
                       )}
+                      {!sprintId && (
+                        <p className="text-[11px] text-ink-500 px-2 pb-1.5">Choose a sprint to open its steps.</p>
+                      )}
                       {module.children.map((child, index) => {
                         const ChildIcon = child.icon;
+                        if (!child.to) {
+                          return (
+                            <div
+                              key={child.key}
+                              aria-disabled="true"
+                              title="Choose a sprint first"
+                              className="flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium text-ink-500/50 cursor-not-allowed select-none"
+                            >
+                              <ChildIcon className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">{index + 1}. {child.label}</span>
+                            </div>
+                          );
+                        }
                         return (
                           <NavLink
-                            key={child.to}
+                            key={child.key}
                             to={child.to}
                             onClick={onClose}
                             className={({ isActive }) =>

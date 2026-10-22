@@ -107,7 +107,8 @@ class BaselineSerializer(serializers.ModelSerializer):
         model = Baseline
         fields = [
             'id', 'sprint_id', 'scoring_run_id', 'status', 'overall_cri', 'overall_confidence',
-            'calculation_version', 'pillar_snapshot', 'coverage_adjusted_cri', 'evidence_coverage', 'approved_by', 'approved_by_name', 'approved_at', 'comments',
+            'calculation_version', 'pillar_snapshot', 'coverage_adjusted_cri', 'evidence_coverage',
+            'processing_snapshot', 'processing_incomplete', 'processing_override_reason', 'approved_by', 'approved_by_name', 'approved_at', 'comments',
             'created_at', 'updated_at', 'history',
         ]
         read_only_fields = fields
@@ -123,6 +124,9 @@ class BaselineActionSerializer(serializers.Serializer):
     'required for return but not the others' business rule actually lives,
     rather than needing three near-identical serializer subclasses here)."""
     comments = serializers.CharField(required=False, allow_blank=True, default='')
+    #: Approve / approve provisionally only: why the baseline may be decided although included documents are
+    #: not fully processed. Required in that case; recorded and shown with the baseline and in reports.
+    processing_override_reason = serializers.CharField(required=False, allow_blank=True, default='')
 
 
 class PillarCriterionConfigSerializer(serializers.ModelSerializer):

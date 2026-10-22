@@ -28,3 +28,14 @@ export function deleteDocument(id: string) {
 export function confirmDocumentCategory(id: string, category: string | null) {
   return api.post<SprintDocument>(`/documents/${id}/confirm-category`, { category });
 }
+
+/** Save a sprint document (the endpoint needs the bearer token, so a plain link would not work). */
+export async function downloadDocument(id: string, filename: string) {
+  const response = await api.get(`/documents/${id}/download`, { responseType: 'blob' });
+  const url = URL.createObjectURL(response.data as Blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}

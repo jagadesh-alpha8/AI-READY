@@ -25,6 +25,11 @@
     "include": [
         "src"
     ],
+    /* Node test-runner files (npm test): they use node:* modules, which the app has no types for. */
+    "exclude": [
+        "src/**/*.test.ts",
+        "src/testing"
+    ],
     "references": [
         {
             "path": "./tsconfig.node.json"

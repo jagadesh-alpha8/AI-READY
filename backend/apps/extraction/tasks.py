@@ -155,6 +155,11 @@ def _fail(job, message):
     if job.document.status != Document.Status.PROCESSED:
         job.document.status = Document.Status.FAILED
         job.document.save(update_fields=['status', 'updated_at'])
+    try:
+        from apps.facts.evidence_analysis import fail_pending_document_submissions
+        fail_pending_document_submissions(job.document, message)
+    except Exception:
+        logger.exception('extraction.task.evidence_failure_audit_failed document_id=%s', job.document_id)
 
 
 def _advance_sprint_if_all_jobs_done(sprint):
@@ -195,6 +200,9 @@ def _claim(job):
     job.status = ExtractionJob.Status.RUNNING
     job.started_at = started_at
     job.error_message = ''
+    Document.objects.filter(id=job.document_id).exclude(status=Document.Status.REJECTED).update(
+        status=Document.Status.PROCESSING, updated_at=timezone.now(),
+    )
     return True
 
 

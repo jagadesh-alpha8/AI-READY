@@ -6,8 +6,9 @@ from apps.documents.views import (
     SprintDriveImportJobListCreateView,
     SprintDriveImportJobStopView,
 )
-from apps.extraction.views import SprintAIUsageView, SprintExtractionJobListCreateView
-from apps.facts.views import SprintFactListView
+from apps.extraction.views import SprintAIUsageView, SprintExtractionJobListCreateView, SprintProcessingSummaryView
+from apps.facts.evidence_views import SprintEvidenceAssigneesView, SprintEvidenceRequestListView
+from apps.facts.views import SprintFactListView, SprintWorkSummaryView
 from apps.gaps.views import SprintGapListView
 from apps.recommendations.views import SprintRecommendationGenerateView, SprintRecommendationListView
 from apps.reports.views import SprintReportGenerateView, SprintReportListView
@@ -55,6 +56,8 @@ urlpatterns = [
     path('/<uuid:sprint_id>/documents/', SprintDocumentListView.as_view(), name='sprint-documents-slash'),
     path('/<uuid:sprint_id>/upload-file', SprintDocumentUploadView.as_view(), name='sprint-upload-file'),
     path('/<uuid:sprint_id>/upload-file/', SprintDocumentUploadView.as_view(), name='sprint-upload-file-slash'),
+    path('/<uuid:sprint_id>/processing-summary', SprintProcessingSummaryView.as_view(),
+         name='sprint-processing-summary'),
     path('/<uuid:sprint_id>/ai-usage', SprintAIUsageView.as_view(), name='sprint-ai-usage'),
     path('/<uuid:sprint_id>/ai-usage/', SprintAIUsageView.as_view(), name='sprint-ai-usage-slash'),
     path(
@@ -88,6 +91,11 @@ urlpatterns = [
         name='sprint-drive-import-job-stop-slash',
     ),
     path('/<uuid:sprint_id>/facts', SprintFactListView.as_view(), name='sprint-facts'),
+    path('/<uuid:sprint_id>/work-summary', SprintWorkSummaryView.as_view(), name='sprint-work-summary'),
+    path('/<uuid:sprint_id>/evidence-requests', SprintEvidenceRequestListView.as_view(),
+         name='sprint-evidence-requests'),
+    path('/<uuid:sprint_id>/evidence-requests/assignees', SprintEvidenceAssigneesView.as_view(),
+         name='sprint-evidence-assignees'),
     path('/<uuid:sprint_id>/facts/', SprintFactListView.as_view(), name='sprint-facts-slash'),
     path('/<uuid:sprint_id>/gaps', SprintGapListView.as_view(), name='sprint-gaps'),
     path('/<uuid:sprint_id>/gaps/', SprintGapListView.as_view(), name='sprint-gaps-slash'),

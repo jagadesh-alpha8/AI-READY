@@ -15,6 +15,7 @@ from .views import (
     WatcherEventListView, WatcherEventReviewView,
     BenchmarkCandidateListView, BenchmarkCandidateDetailView, BenchmarkCandidateActionView,
     WatcherEventProposeView, BenchmarkConfirmView, BenchmarkUnconfirmView, BenchmarkApplicabilityValidationView,
+    StudioAIJobListView, StudioAIJobActionView, VersionCompareView,
 )
 
 _routes = [
@@ -71,6 +72,9 @@ _routes = [
     ('/benchmark-candidates', BenchmarkCandidateListView, 'benchmark-candidates'),
     ('/benchmark-candidates/<uuid:pk>', BenchmarkCandidateDetailView, 'benchmark-candidate'),
     ('/benchmark-candidates/<uuid:pk>/<str:action>', BenchmarkCandidateActionView, 'benchmark-candidate-action'),
+    ('/versions/<uuid:pk>/compare', VersionCompareView, 'benchmark-version-compare'),
+    ('/ai-jobs', StudioAIJobListView, 'studio-ai-jobs'),
+    ('/ai-jobs/<uuid:pk>/<str:action>', StudioAIJobActionView, 'studio-ai-job-action'),
 ]
 
 # With and without a trailing slash, like the other apps (APPEND_SLASH=False).

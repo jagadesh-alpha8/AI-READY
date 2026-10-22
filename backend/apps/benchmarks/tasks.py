@@ -34,7 +34,10 @@ def draft_source_requirements(self, version_id, actor='requirement_drafting'):
         with use_lease(lease):
             kept, dropped = draft_version(version, actor=actor)
         version.extraction_status = SourceVersion.Extraction.DONE
-        version.extraction_note = (f'{kept} draft requirement(s) ready for review'
+        pending = version.requirement_candidates.filter(status='pending').count()
+        version.extraction_note = (f'{pending} draft requirement(s) ready for review'
+                                   + (f' ({kept} new in this run, the rest kept from an earlier run)'
+                                      if pending != kept else '')
                                    + (f'; {dropped} AI suggestion(s) dropped because their quote was not in the source.'
                                       if dropped else '.'))
     except Exception as exc:
@@ -85,3 +88,10 @@ def ai_draft_benchmark(benchmark_id):
     except Exception:
         logger.exception('benchmarks.ai_draft.task_failed benchmark=%s', benchmark_id)
     return None
+
+
+@shared_task(acks_late=True, ignore_result=True)
+def run_studio_ai_job(job_id):
+    """One Benchmark Studio AI preparation step (services/studio_ai.py) on a leased router."""
+    from .services.studio_ai import run_job
+    run_job(job_id)

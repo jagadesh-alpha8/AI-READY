@@ -1,7 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { listSprintFacts, confirmFact, correctFact, rejectFact, requestFactEvidence, reviewFactMapping } from '../../api/facts';
+import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
+import { Link, useParams, useNavigate } from 'react-router-dom';
+import { listSprintFacts, confirmFact, correctFact, rejectFact, reviewFactMapping } from '../../api/facts';
 import { useApiResource } from '../../hooks/useApiResource';
+import { getScoringConfig } from '../../api/config';
+import type { PillarConfig } from '../../api/config';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { Fact } from '../../types';
@@ -9,6 +12,7 @@ import { FileSearch, ArrowRight } from 'lucide-react';
 import { ScrollableTable } from '../../components/ScrollableTable';
 import { TableFilters, matchesSearch, optionsFrom } from '../../components/TableFilters';
 import { useAccess } from '../../utils/access';
+import { RequestEvidenceModal } from './RequestEvidenceModal';
 
 export const FactsReview: React.FC = () => {
   const { step, can } = useAccess();
@@ -42,7 +46,7 @@ export const FactsReview: React.FC = () => {
   const filteredFacts = useMemo(
     () => facts.filter((fact) =>
       (!statusFilter || fact.status === statusFilter)
-      && (!pillarFilter || (fact.pillar_label || fact.pillar || '') === pillarFilter)
+      && (!pillarFilter || (fact.pillar || '') === pillarFilter)
       && (!criterionFilter || fact.aiqif_mappings.some((m) => m.criterion === criterionFilter))
       && (!mappingFilter || fact.aiqif_mapping_status === mappingFilter)
       && (!ownerFilter || (fact.owner_role || '') === ownerFilter)
@@ -56,6 +60,10 @@ export const FactsReview: React.FC = () => {
       confidenceFilter],
   );
   const criterionGroups = useMemo(() => aiqifCriterionGroups(facts), [facts]);
+  // The CRI pillars are the 9 AI-QIF criteria (live scoring config, in framework order). All 9 are offered,
+  // with their fact counts -- a criterion no fact is tagged to yet still shows, as (0).
+  const { data: pillarConfig } = useApiResource<PillarConfig[]>(() => getScoringConfig(), []);
+  const pillarOptions = useMemo(() => criPillarOptions(facts, pillarConfig), [facts, pillarConfig]);
 
   const handleConfirm = async (factId: string) => {
     setActingOnId(factId);
@@ -99,10 +107,13 @@ export const FactsReview: React.FC = () => {
   };
 
   const handleReject = async (factId: string) => {
+    // The reason is required: it stays with the fact's gap, which moves to "needs replacement".
+    const reason = window.prompt('Why is this value wrong? (kept with the fact and its gap)', '');
+    if (!reason || !reason.trim()) return;
     setActingOnId(factId);
     setActionError('');
     try {
-      await rejectFact(factId);
+      await rejectFact(factId, reason.trim());
       refetch();
     } catch (err) {
       setActionError(getErrorMessage(err, 'Failed to reject fact.'));
@@ -111,18 +122,8 @@ export const FactsReview: React.FC = () => {
     }
   };
 
-  const handleRequestEvidence = async (factId: string) => {
-    setActingOnId(factId);
-    setActionError('');
-    try {
-      await requestFactEvidence(factId);
-      refetch();
-    } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to request evidence.'));
-    } finally {
-      setActingOnId(null);
-    }
-  };
+  // "Request Evidence" opens a form (what, why, who, by when); see RequestEvidenceModal.
+  const [requestingFor, setRequestingFor] = useState<Fact | null>(null);
 
   const statusBadgeClass = (status: Fact['status']) => {
     switch (status) {
@@ -136,6 +137,13 @@ export const FactsReview: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {requestingFor && (
+        <RequestEvidenceModal
+          fact={requestingFor}
+          onClose={() => setRequestingFor(null)}
+          onCreated={() => { setRequestingFor(null); refetch(); }}
+        />
+      )}
       <div className="glass-card p-5 sm:p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -188,6 +196,11 @@ export const FactsReview: React.FC = () => {
             onCriterion={(value) => { setCriterionFilter(value); setMappingFilter(''); }}
             onMapping={(value) => { setMappingFilter(value); setCriterionFilter(''); }}
           />
+          {isRealSprint && (
+            <div className="mb-4">
+              <ProcessingStatusBanner sprintId={sprintId!} consequence="Facts from those documents may be missing below." />
+            </div>
+          )}
           <TableFilters
             search={search}
             onSearch={setSearch}
@@ -204,7 +217,7 @@ export const FactsReview: React.FC = () => {
               { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
                 options: optionsFrom(facts, (f) => f.status, (v: string) => v.replace(/_/g, ' ')) },
               { key: 'pillar', label: 'CRI pillar', value: pillarFilter, onChange: setPillarFilter,
-                options: optionsFrom(facts, (f) => f.pillar_label || f.pillar) },
+                options: pillarOptions },
               { key: 'confidence', label: 'Confidence', value: confidenceFilter, onChange: setConfidenceFilter,
                 options: optionsFrom(facts, (f) => confidenceBand(f.confidence)) },
               { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
@@ -288,8 +301,33 @@ export const FactsReview: React.FC = () => {
                     <td className="text-ink-700 font-medium">{fact.owner_role || 'IQAC'}</td>
                     <td>
                       <span className={statusBadgeClass(fact.status)}>{fact.status}</span>
+                      {fact.auto_confirmed && (
+                        <span className="block text-[11px] text-ink-500 mt-0.5"
+                          title="Confirmed by the system because the AI confidence was above 80%. Correct or reject it if it is wrong.">
+                          auto ({Math.round(fact.confidence * 100)}%)
+                        </span>
+                      )}
                     </td>
                     <td className="text-right space-x-1 whitespace-nowrap">
+                      {fact.can_act === false ? (
+                        // The server's ownership rule (apps/facts/ownership.py): say who may act instead.
+                        <span className="inline-block max-w-[16rem] whitespace-normal text-left text-xs text-ink-500" title={fact.act_blocked_reason}>
+                          {fact.act_blocked_reason}
+                        </span>
+                      ) : fact.open_evidence_request ? (
+                        // Decided on the request (accept / correct / reject evidence / withdraw), not here.
+                        <Link
+                          to={`/evidence-requests?view=all&id=${fact.open_evidence_request.id}`}
+                          className="inline-block text-left text-xs font-semibold text-accent hover:underline"
+                        >
+                          Evidence request: {fact.open_evidence_request.overdue ? 'overdue' : fact.open_evidence_request.status_label.toLowerCase()}
+                          <span className="block font-normal text-ink-500">
+                            {fact.open_evidence_request.assigned_to_name || 'not assigned yet'}
+                            {fact.open_evidence_request.due_date ? ` · due ${fact.open_evidence_request.due_date}` : ''}
+                          </span>
+                        </Link>
+                      ) : (
+                      <>
                       {fact.status !== 'confirmed' && (
                         <button
                           onClick={() => handleConfirm(fact.id)}
@@ -308,15 +346,13 @@ export const FactsReview: React.FC = () => {
                       >
                         Correct
                       </button>
-                      {fact.status !== 'evidence_requested' && (
-                        <button
-                          onClick={() => handleRequestEvidence(fact.id)}
-                          disabled={actingOnId === fact.id}
-                          className="px-2.5 py-1 bg-line-200 hover:bg-line-300 text-accent text-xs font-semibold rounded transition-colors disabled:opacity-60"
-                        >
-                          Request Evidence
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setRequestingFor(fact)}
+                        disabled={actingOnId === fact.id}
+                        className="px-2.5 py-1 bg-line-200 hover:bg-line-300 text-accent text-xs font-semibold rounded transition-colors disabled:opacity-60"
+                      >
+                        Request Evidence
+                      </button>
                       {fact.status !== 'rejected' && (
                         <button
                           onClick={() => handleReject(fact.id)}
@@ -325,6 +361,8 @@ export const FactsReview: React.FC = () => {
                         >
                           Reject
                         </button>
+                      )}
+                      </>
                       )}
                     </td>
                   </tr>
@@ -353,6 +391,26 @@ const MAPPING_STATUS_LABELS: Record<string, string> = {
   unmapped: 'Unmapped',
   pending: 'Not yet mapped',
 };
+
+/** 'aiqif_c4' -> 'C4'. */
+const pillarCode = (key: string) => key.replace(/^aiqif_c/i, 'C');
+
+/** CRI pillar filter options: every active pillar (the 9 AI-QIF criteria) in framework order, then any
+ * pillar a fact still carries that is no longer active (labelled retired). Falls back to the pillars the
+ * facts carry while the config loads. */
+function criPillarOptions(facts: Fact[], config: PillarConfig[] | null) {
+  const counts = new Map<string, number>();
+  for (const f of facts) counts.set(f.pillar || '', (counts.get(f.pillar || '') || 0) + 1);
+  const labels = new Map(facts.map((f) => [f.pillar || '', f.pillar_label || f.pillar || '(none)']));
+  const active = [...(config || [])].filter((p) => p.is_active).sort((a, b) => a.display_order - b.display_order);
+  const known = new Set(active.map((p) => p.key));
+  return [
+    ...active.map((p) => ({ value: p.key, label: `${pillarCode(p.key)} ${p.name}`, count: counts.get(p.key) || 0 })),
+    ...[...counts.keys()].filter((k) => !known.has(k)).map((k) => ({
+      value: k, label: k ? `${labels.get(k)}${config ? ' (retired pillar)' : ''}` : '(none)', count: counts.get(k) || 0,
+    })),
+  ];
+}
 
 /** 'AIQIF-C4.1' -> 'C4.1' for compact display. */
 const shortCode = (code: string) => code.replace(/^AIQIF-/, '');

@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 
 import { listSprints } from '../../api/sprints';
+import { SelectSprintPrompt } from '../../components/SprintContextBar';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { listSprintDocuments } from '../../api/documents';
 import { listSprintFacts } from '../../api/facts';
 import { listSprintGaps } from '../../api/gaps';
@@ -60,13 +62,14 @@ export const Reminders: React.FC = () => {
   const { canSee } = useAccess();
   const reviewStep = canSee('sprint-confirmation') ? 'confirmation' : 'facts';
   const navigate = useNavigate();
-  const [sprintId, setSprintId] = useState('');
+  // The selected sprint is shared by every page (context/SelectedSprintContext.tsx).
+  const { sprintId: selectedSprintId } = useSelectedSprint();
   const [filter, setFilter] = useState<Severity | 'all'>('all');
 
   const { data: sprints, loading, error, refetch } =
     useApiResource<Sprint[]>(() => listSprints(), []);
 
-  const activeSprintId = sprintId || sprints?.[0]?.id || '';
+  const activeSprintId = selectedSprintId;
   const enabled = !!activeSprintId;
   const sprint = sprints?.find((s) => s.id === activeSprintId);
 
@@ -170,6 +173,8 @@ export const Reminders: React.FC = () => {
     );
   }
 
+  if (!activeSprintId) return <SelectSprintPrompt />;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -178,21 +183,6 @@ export const Reminders: React.FC = () => {
         description="What is waiting on someone — computed from the sprint's real state."
       />
 
-      <div className="glass-card p-4">
-        <label className="label" htmlFor="reminders-sprint">Sprint</label>
-        <select
-          id="reminders-sprint"
-          value={activeSprintId}
-          onChange={(e) => { setSprintId(e.target.value); setFilter('all'); }}
-          className="input"
-        >
-          {sprints.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.institution_name || s.name || 'Institution'} · {s.sprint_code} ({s.status.replace(/_/g, ' ')})
-            </option>
-          ))}
-        </select>
-      </div>
 
       <div className="rounded-lg border border-info-line bg-info-bg p-4 flex items-start gap-3">
         <Info className="w-4 h-4 text-info shrink-0 mt-0.5" />

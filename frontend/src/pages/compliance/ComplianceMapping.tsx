@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, FileText, Network } from 'lucide-react';
 
 import { listSprints } from '../../api/sprints';
+import { SelectSprintPrompt } from '../../components/SprintContextBar';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { listSprintDocuments } from '../../api/documents';
 import { listSprintGaps } from '../../api/gaps';
 import { useApiResource } from '../../hooks/useApiResource';
@@ -40,12 +42,13 @@ const FRAMEWORKS = ['NAAC', 'AICTE', 'NIRF'] as const;
 
 export const ComplianceMapping: React.FC = () => {
   const navigate = useNavigate();
-  const [sprintId, setSprintId] = useState('');
+  // The selected sprint is shared by every page (context/SelectedSprintContext.tsx).
+  const { sprintId: selectedSprintId } = useSelectedSprint();
 
   const { data: sprints, loading, error, refetch } =
     useApiResource<Sprint[]>(() => listSprints(), []);
 
-  const activeSprintId = sprintId || sprints?.[0]?.id || '';
+  const activeSprintId = selectedSprintId;
   const enabled = !!activeSprintId;
 
   const { data: documents } = useApiResource<SprintDocument[]>(
@@ -93,6 +96,8 @@ export const ComplianceMapping: React.FC = () => {
     );
   }
 
+  if (!activeSprintId) return <SelectSprintPrompt />;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -101,21 +106,6 @@ export const ComplianceMapping: React.FC = () => {
         description="Which accreditation evidence this institution holds, and what is missing."
       />
 
-      <div className="glass-card p-4">
-        <label className="label" htmlFor="compliance-sprint">Sprint</label>
-        <select
-          id="compliance-sprint"
-          value={activeSprintId}
-          onChange={(e) => setSprintId(e.target.value)}
-          className="input"
-        >
-          {sprints.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.institution_name || s.name || 'Institution'} · {s.sprint_code} ({s.status.replace(/_/g, ' ')})
-            </option>
-          ))}
-        </select>
-      </div>
 
       {/* The limitation is the most important thing on this page. */}
       <div className="rounded-lg border-2 border-warning-line bg-warning-bg p-4 flex items-start gap-3">

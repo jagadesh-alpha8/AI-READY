@@ -245,6 +245,27 @@ def _build_chunks(pages, max_chars):
     return chunks
 
 
+def new_report(chunk_count):
+    """What one document's fact extraction actually read: chunks found, chunks read, and every chunk that
+    failed or was skipped. A document with any issue is a *partial* extraction (services/completeness.py)."""
+    return {'chunks_total': chunk_count, 'chunks_completed': 0, 'issues': []}
+
+
+def completeness_issue(kind, detail, **extra):
+    return {'kind': kind, 'detail': detail, **extra}
+
+
+def _pages_label(chunk_pages, last=False):
+    page = chunk_pages[-1 if last else 0]
+    return page.get('page_number', '?')
+
+
+def chunk_failed_issue(chunk_index, chunk_pages, exc):
+    return completeness_issue(
+        'chunk_failed', f'Text chunk {chunk_index} (pages {_pages_label(chunk_pages)}-{_pages_label(chunk_pages, last=True)}) '
+        f'could not be extracted: {exc}'[:500], chunk=chunk_index)
+
+
 class OpenAIFactExtractor(FactExtractor):
     def __init__(self, *, openai_service=None, max_chunk_chars=None, max_chunks=None):
         # Lazy, like OpenAIDocumentClassifier: no OpenAI client is built (no
@@ -258,8 +279,10 @@ class OpenAIFactExtractor(FactExtractor):
 
     def chunks_for(self, document, pages):
         """The page chunks this document is analysed in (empty when there is no text), capped at
-        max_chunks. Shared with services/document_analysis.py."""
+        max_chunks. Shared with services/document_analysis.py. Also starts `self.report`, the record of
+        what was actually read (see completeness_issue / services/completeness.py)."""
         chunks = _build_chunks(pages.get('pages', []), self.max_chunk_chars)
+        self.report = new_report(len(chunks))
         if not chunks:
             logger.info('fact_extractor.no_extractable_text document_id=%s', document.id)
             return []
@@ -268,6 +291,11 @@ class OpenAIFactExtractor(FactExtractor):
                 'fact_extractor.too_many_chunks document_id=%s chunk_count=%d max_chunks=%d',
                 document.id, len(chunks), self.max_chunks,
             )
+            skipped = chunks[self.max_chunks:]
+            self.report['issues'].append(completeness_issue(
+                'chunks_skipped', f'{len(skipped)} of {len(chunks)} text chunks were not read (over the '
+                f'{self.max_chunks}-chunk limit): pages {_pages_label(skipped[0])}-{_pages_label(skipped[-1], last=True)}.',
+                chunks=list(range(self.max_chunks + 1, len(chunks) + 1))))
             chunks = chunks[:self.max_chunks]
         return chunks
 
@@ -298,7 +326,9 @@ class OpenAIFactExtractor(FactExtractor):
                     'fact_extractor.chunk_failed document_id=%s chunk=%d/%d error=%s',
                     document.id, chunk_index, len(chunks), exc,
                 )
+                self.report['issues'].append(chunk_failed_issue(chunk_index, chunk_pages, exc))
                 continue
+            self.report['chunks_completed'] += 1
 
             valid_page_numbers = {str(page['page_number']) for page in chunk_pages}
             for raw_fact in raw_facts:

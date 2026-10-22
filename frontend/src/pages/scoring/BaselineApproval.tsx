@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
 import { EvidenceCoverageCard } from './EvidenceCoverageCard';
 import { useParams, useNavigate } from 'react-router-dom';
 import { approveBaseline, approveBaselineProvisional, getBaseline, returnBaseline } from '../../api/baseline';
@@ -40,6 +41,8 @@ export const BaselineApproval: React.FC = () => {
   const { data: sprint } = useApiResource(() => getSprint(sprintId!), [sprintId], isRealSprint);
 
   const [comments, setComments] = useState('');
+  // Required by the server to decide while included documents are not fully processed.
+  const [overrideReason, setOverrideReason] = useState('');
   const [returning, setReturning] = useState(false);
   const [acting, setActing] = useState<'approve' | 'provisional' | 'return' | null>(null);
   const [actionError, setActionError] = useState('');
@@ -54,7 +57,7 @@ export const BaselineApproval: React.FC = () => {
     setActing('approve');
     setActionError('');
     try {
-      const res = await approveBaseline(sprintId, comments);
+      const res = await approveBaseline(sprintId, comments, overrideReason);
       setData((prev) => (prev ? { ...prev, baseline: res.data } : prev));
       refetch();
     } catch (err) {
@@ -69,7 +72,7 @@ export const BaselineApproval: React.FC = () => {
     setActing('provisional');
     setActionError('');
     try {
-      const res = await approveBaselineProvisional(sprintId, comments);
+      const res = await approveBaselineProvisional(sprintId, comments, overrideReason);
       setData((prev) => (prev ? { ...prev, baseline: res.data } : prev));
       refetch();
     } catch (err) {
@@ -132,6 +135,16 @@ export const BaselineApproval: React.FC = () => {
         <LoadingState message="No score available for this sprint yet." />
       ) : (
         <>
+          {sprintId && !isDecided && (
+            <ProcessingStatusBanner sprintId={sprintId} summary={data?.processing}
+              consequence="Approving is refused until they are fully processed, unless you record a reason below." />
+          )}
+          {isDecided && baseline.processing_incomplete && (
+            <div className="rounded-lg border border-warning-line bg-warning-bg p-3 text-sm text-ink-700">
+              <strong className="text-warning">Decided with incomplete document processing: </strong>
+              {baseline.processing_snapshot?.description} Reason recorded: &ldquo;{baseline.processing_override_reason}&rdquo;
+            </div>
+          )}
           {isDecided && baseline.status !== 'returned' && Math.abs(scorecard.overall_cri - baseline.overall_cri) >= 0.01 && (
             <div className="rounded-lg border border-warning-line bg-warning-bg p-3 text-sm text-ink-700">
               <strong className="text-warning">The CRI has been recalculated since this decision: </strong>
@@ -205,6 +218,21 @@ export const BaselineApproval: React.FC = () => {
                       rows={2}
                       className="input"
                     />
+                  )}
+                  {!returning && data?.processing && !data.processing.complete && (
+                    <label className="block text-xs text-ink-700 space-y-1">
+                      <span className="font-semibold text-warning">
+                        Documents are not fully processed. To approve anyway, record why (it is kept with the baseline
+                        and printed in every report):
+                      </span>
+                      <textarea
+                        value={overrideReason}
+                        onChange={(e) => setOverrideReason(e.target.value)}
+                        placeholder="Reason for deciding with incomplete processing (required to approve now)..."
+                        rows={2}
+                        className="input input-error"
+                      />
+                    </label>
                   )}
                   <div className="flex flex-col sm:flex-row items-stretch gap-2">
                     <button

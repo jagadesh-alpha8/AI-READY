@@ -35,7 +35,7 @@ from ..usage import record_openai_usage
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT_SECONDS = 60
+DEFAULT_TIMEOUT_SECONDS = settings.AI_REQUEST_TIMEOUT_SECONDS
 
 #: Appended to the system prompt when talking to an OpenAI-*compatible*
 #: endpoint (AI_BASE_URL). Routers/proxies such as 9router often drop

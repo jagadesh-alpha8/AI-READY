@@ -60,7 +60,8 @@ def confirm(benchmark, user, note=''):
     if not (user and user.is_active and user.role in User.CROSS_INSTITUTION_ROLES):
         raise ConfirmationError('Only an active InGage reviewer (super admin or consultant) can confirm a benchmark.')
     missing = [c['label'] for c in authoring.readiness(benchmark)['checks']
-               if c['severity'] == 'required' and not c['ok'] and c['key'] != 'confirmed']
+               if c['severity'] == 'required' and not c['ok'] and c['key'] not in ('confirmed', 'scoring')]
+    # (Scoring weights are a release gate, approved separately; they are not part of the content confirmed.)
     if missing:
         raise ConfirmationError('Finish these before confirming: ' + '; '.join(missing) + '.')
     with transaction.atomic():

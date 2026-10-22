@@ -71,8 +71,7 @@ export const UploadDataPack: React.FC = () => {
   const [driveSubmitting, setDriveSubmitting] = useState(false);
   const [driveError, setDriveError] = useState('');
   const [driveStopping, setDriveStopping] = useState(false);
-  // Documents ticked in the records table for the next AI extraction run.
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Every eligible document in the selected sprint is processed together.
   // Records-table filters.
   const [docSearch, setDocSearch] = useState('');
   const [docTypeFilter, setDocTypeFilter] = useState('');
@@ -192,14 +191,15 @@ export const UploadDataPack: React.FC = () => {
     }
     setExtractionError('');
     try {
-      const ids = documents.filter((d) => selectedIds.has(d.id)).map((d) => d.id);
-      if (ids.length === 0) {
-        setExtractionError('Select at least one document in Uploaded Document Records to include in the AI extraction.');
+      if (documents.length === 0) {
+        setExtractionError('Add documents to this sprint before starting extraction.');
         return;
       }
-      const { data: jobs } = await startExtraction(sprintId!, ids);
+      // No document IDs: the API queues every eligible document in this sprint,
+      // including reused content that was processed in a different sprint.
+      const { data: jobs } = await startExtraction(sprintId!);
       if (jobs.length === 0) {
-        setExtractionError('The selected documents are already being extracted. Check the AI Processing Monitor.');
+        setExtractionError('Every eligible document is already processed or in progress. Check the AI Processing Monitor.');
         return;
       }
       navigate(`/sprint/${sprintId}/monitor`);
@@ -227,29 +227,6 @@ export const UploadDataPack: React.FC = () => {
     && matchesSearch(docSearch, d.original_filename, d.title, d.document_type, d.ai_document_type_label));
 
   // Only count ticks for documents that still exist (one may have been deleted).
-  const selectedCount = documents.filter((d) => selectedIds.has(d.id)).length;
-  // Select-all / header checkbox / "not extracted" act on the rows currently
-  // shown, so a filter can narrow down exactly what to extract; ticks on rows
-  // hidden by the filter are kept.
-  const visibleSelectedCount = filteredDocuments.filter((d) => selectedIds.has(d.id)).length;
-  const allSelected = filteredDocuments.length > 0 && visibleSelectedCount === filteredDocuments.length;
-  const notExtractedIds = filteredDocuments
-    .filter((d) => d.status === 'uploaded' || d.status === 'failed')
-    .map((d) => d.id);
-  const toggleSelected = (id: string) =>
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const setVisibleSelected = (checked: boolean, ids = filteredDocuments.map((d) => d.id)) =>
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      ids.forEach((id) => (checked ? next.add(id) : next.delete(id)));
-      return next;
-    });
-
   return (
     <div className="space-y-6">
       {/* Top Banner */}
@@ -263,13 +240,9 @@ export const UploadDataPack: React.FC = () => {
               Upload existing NAAC SSR, AQAR, faculty lists, lab inventory, placement reports, and syllabi for AI processing.
             </p>
           </div>
-          <button onClick={handleStartExtraction} disabled={selectedCount === 0} className="btn-primary shrink-0">
+          <button onClick={handleStartExtraction} disabled={!isRealSprint || documents.length === 0} className="btn-primary shrink-0">
             <Play className="w-4 h-4 fill-current" />
-            <span>
-              {selectedCount === 0
-                ? 'Select documents to extract'
-                : `Start AI Extraction (${selectedCount} selected)`}
-            </span>
+            <span>Analyze All Sprint Documents ({documents.length})</span>
           </button>
         </div>
       </div>
@@ -478,26 +451,8 @@ export const UploadDataPack: React.FC = () => {
           {documents.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="text-ink-600 font-semibold">
-                {selectedCount} of {documents.length} selected for AI extraction
+                {documents.length} document{documents.length === 1 ? '' : 's'} included in this sprint; extraction processes every eligible document.
               </span>
-              <button onClick={() => setVisibleSelected(true)} className="btn-secondary btn-sm">
-                {filteredDocuments.length === documents.length
-                  ? 'Select all'
-                  : `Select all shown (${filteredDocuments.length})`}
-              </button>
-              <button
-                onClick={() => setVisibleSelected(true, notExtractedIds)}
-                disabled={notExtractedIds.length === 0}
-                className="btn-secondary btn-sm"
-                title="Shown documents not yet extracted, or whose last extraction failed"
-              >
-                Select not extracted ({notExtractedIds.length})
-              </button>
-              {selectedCount > 0 && (
-                <button onClick={() => setSelectedIds(new Set())} className="btn-secondary btn-sm">
-                  Clear selection
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -539,18 +494,6 @@ export const UploadDataPack: React.FC = () => {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th className="w-10">
-                    <input
-                      type="checkbox"
-                      aria-label="Select all documents for AI extraction"
-                      checked={allSelected}
-                      ref={(el) => {
-                        if (el) el.indeterminate = visibleSelectedCount > 0 && !allSelected;
-                      }}
-                      onChange={(e) => setVisibleSelected(e.target.checked)}
-                      className="w-4 h-4 accent-brand-500 cursor-pointer align-middle"
-                    />
-                  </th>
                   <th>S.No</th>
                   <th>File Name</th>
                   <th>AI Category</th>
@@ -564,20 +507,7 @@ export const UploadDataPack: React.FC = () => {
               </thead>
               <tbody>
                 {filteredDocuments.map((doc, index) => (
-                  <tr
-                    key={doc.id}
-                    onClick={() => toggleSelected(doc.id)}
-                    className={`cursor-pointer ${selectedIds.has(doc.id) ? 'bg-brand-500/10' : ''}`}
-                  >
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        aria-label={`Include ${doc.original_filename} in AI extraction`}
-                        checked={selectedIds.has(doc.id)}
-                        onChange={() => toggleSelected(doc.id)}
-                        className="w-4 h-4 accent-brand-500 cursor-pointer align-middle"
-                      />
-                    </td>
+                  <tr key={doc.id}>
                     <td className="text-ink-500 tabular-nums">{index + 1}</td>
                     <td className="font-medium text-ink-900">
                       <div className="flex items-center gap-2">

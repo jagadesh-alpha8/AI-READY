@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { AIJobPanel } from './AIJobPanel';
 import { CheckCircle2, Lock, Plus, Send, Trash2, Undo2 } from 'lucide-react';
 
 import {
   addReleaseItem, createRelease, getRelease, getReleaseDiff, listCatalogue, listReleases, releaseAction,
-  removeReleaseItem, setReleaseRequiresComposite,
+  removeReleaseItem,
 } from '../../api/benchmarks';
 import type {
   BenchmarkReleaseInfo, CatalogueBenchmark, ReleaseDetail, ReleaseDiffRow, ReleaseEligibilityRow, ReleaseStatus,
@@ -32,14 +34,13 @@ export const ReleasesTab: React.FC = () => {
   const [label, setLabel] = useState('');
   const [notes, setNotes] = useState('');
   const [prefill, setPrefill] = useState(true);
-  const [needsComposite, setNeedsComposite] = useState(false);
   const [err, setErr] = useState('');
   const inProgress = (list.data || []).find((r) => !['published', 'retired'].includes(r.status));
 
   const create = async () => {
     setErr('');
     try {
-      const r = await createRelease({ release_label: label, release_notes: notes, prefill, requires_composite: needsComposite });
+      const r = await createRelease({ release_label: label, release_notes: notes, prefill });
       setLabel(''); setNotes(''); list.refetch(); setOpen(r.data.release_label);
     } catch (e) { setErr(getErrorMessage(e)); }
   };
@@ -50,6 +51,13 @@ export const ReleasesTab: React.FC = () => {
         A release is a complete, approved set of benchmarks. Only the current published release is used for new
         college scorecards; publishing freezes every benchmark in it, and older releases are kept unchanged.
       </p>
+      {(list.data || []).some((r) => r.status === 'published') && (
+        <p className="text-sm text-ink-700 rounded-lg border border-info-line bg-info-bg p-2">
+          Next, once a release is published: assess colleges against it in{' '}
+          <Link to="/benchmark-assessment" className="font-semibold text-brand-800 hover:underline">Benchmark Assessment</Link>
+          {' '}(a separate scorecard from a sprint's CRI). Existing assessments keep the release they started with.
+        </p>
+      )}
       {list.loading && <LoadingState message="Loading releases…" />}
       {list.error && <ErrorState message={list.error} onRetry={list.refetch} />}
 
@@ -79,15 +87,13 @@ export const ReleasesTab: React.FC = () => {
               <input type="checkbox" checked={prefill} onChange={(e) => setPrefill(e.target.checked)} />
               Include all ready draft benchmarks
             </label>
-            <label className="flex items-center gap-1.5 text-ink-700">
-              <input type="checkbox" checked={needsComposite} onChange={(e) => setNeedsComposite(e.target.checked)} />
-              Assessments need a composite score (every benchmark must have approved scoring weights)
-            </label>
           </div>
           <p className="text-ink-500">
             A later release starts with every benchmark of the current release, marked unchanged. "Include all ready"
             adds every draft benchmark whose required checks pass (including a reviewer's confirmation); the others are
-            listed with what they still need.
+            listed with what they still need. Every added or updated benchmark needs approved scoring weights, a clean
+            applicability check and a reviewer's confirmation before the release can be submitted; a different person
+            approves it, and people publish it.
           </p>
         </div>
       )}
@@ -144,7 +150,26 @@ const ReleasePanel: React.FC<{ label: string; onChanged: () => void }> = ({ labe
           {r.warnings.map((w) => <p key={w} className="text-ink-700">• {w}</p>)}
         </div>
       )}
-      {r.scoring && <ScoringPanel r={r} onChange={(v) => act('composite', () => setReleaseRequiresComposite(label, v))} busy={!!busy} />}
+      {r.scoring && <ScoringPanel r={r} />}
+      {r.status === 'draft' && (
+        <AIJobPanel kind="release_notes" targetId={label} title="Release notes (AI draft)" startLabel="Draft notes with AI"
+          onChanged={() => rel.refetch()}>
+          {(job, act) => (
+            <div className="space-y-1">
+              <p className="text-ink-900">{job.output.version_notes}</p>
+              <p><strong>Changes:</strong> {job.output.change_summary}</p>
+              <p><strong>Impact:</strong> {job.output.impact_summary}</p>
+              {job.output.readiness_notes && <p className="text-warning">Readiness: {job.output.readiness_notes}</p>}
+              {Object.entries(job.output.item_impacts || {}).map(([code, text]) => (
+                <p key={code} className="text-ink-600"><span className="font-mono">{code}</span>: {String(text)}</p>
+              ))}
+              {job.status === 'ready' && (
+                <button className="btn-primary btn-sm" onClick={() => act('apply')}>Use these notes (empty item summaries only)</button>
+              )}
+            </div>
+          )}
+        </AIJobPanel>
+      )}
       {r.eligibility && (
         <EligibilityTable rows={r.eligibility} busy={!!busy} onPrefill={() => act('prefill', () => releaseAction(label, 'prefill'))} />
       )}
@@ -229,8 +254,9 @@ const ReleasePanel: React.FC<{ label: string; onChanged: () => void }> = ({ labe
   );
 };
 
-/** Can every included benchmark produce a composite score? Weights are approved by people (per benchmark). */
-const ScoringPanel: React.FC<{ r: ReleaseDetail; onChange: (v: boolean) => void; busy: boolean }> = ({ r, onChange, busy }) => {
+/** Can every included benchmark produce a composite score? Weights are approved by people (per benchmark) and are
+ * required for every added / updated benchmark before the release can be submitted. */
+const ScoringPanel: React.FC<{ r: ReleaseDetail }> = ({ r }) => {
   const s = r.scoring!;
   return (
     <div className={`rounded-lg border p-2 space-y-1 ${s.fully_scoreable ? 'border-line-200 bg-surface' : 'border-warning-line bg-warning-bg'}`}>
@@ -239,15 +265,10 @@ const ScoringPanel: React.FC<{ r: ReleaseDetail; onChange: (v: boolean) => void;
           Scoring: {s.fully_scoreable ? 'every benchmark can produce a composite score' : `${s.missing.length} benchmark(s) cannot produce a composite score`}
           {s.scoring_model ? ` (model ${s.scoring_model})` : ' (no active scoring model)'}
         </p>
-        <label className="flex items-center gap-1.5 text-ink-700">
-          <input type="checkbox" checked={s.requires_composite} disabled={r.status !== 'draft' || busy}
-            onChange={(e) => onChange(e.target.checked)} />
-          Assessments need a composite score
-        </label>
       </div>
       {s.missing.length > 0 && (
         <p className="text-ink-700">
-          {s.requires_composite ? 'Blocks submission: ' : 'Shown, not blocking: '}
+          {'Blocks submission: '}
           {s.missing.map((m) => `${m.benchmark_code} (${m.detail})`).join('; ')}.
           {' '}Approve each benchmark's weights in Levels &rsaquo; Composite weights.
         </p>

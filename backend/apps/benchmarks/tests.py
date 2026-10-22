@@ -422,10 +422,133 @@ class DraftingTests(_VersionMixin, TestCase):
             build_sections(self.version, pages=PAGES)
 
 
+# -- rate limits and resuming an interrupted drafting run ---------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from apps.extraction.exceptions import RecoverableExtractionError  # noqa: E402
+
+from .services import requirement_drafting as _drafting  # noqa: E402
+
+PANEL = {'statement': 'The institution establishes an Academic Integrity Panel.', 'kind': 'mandatory', 'page': 1,
+         'source_quote': 'Every university shall establish an Academic Integrity Panel', 'confidence': 0.9,
+         'rationale': 'shall'}
+AWARENESS = {'statement': 'The institution runs yearly integrity awareness programmes.', 'kind': 'recommended',
+             'page': 2, 'source_quote': 'Institutions should conduct awareness programmes on academic integrity',
+             'confidence': 0.8, 'rationale': 'should'}
+
+
+class _Http429(Exception):
+    status_code = 429
+
+    def __init__(self, message, retry_after=None):
+        super().__init__(message)
+        self.response = SimpleNamespace(headers={'retry-after': retry_after} if retry_after else {})
+
+
+def _rate_limited(message="Quota exceeded ... Please retry in 4.549782715s. 'retryDelay': '4s'", retry_after=None):
+    """What the OpenAI-compatible client raises on a 429: a recoverable error caused by the SDK's."""
+    try:
+        raise _Http429(message, retry_after)
+    except _Http429 as cause:
+        try:
+            raise RecoverableExtractionError(f'OpenAI rate limit hit: {cause}') from cause
+        except RecoverableExtractionError as exc:
+            return exc
+
+
+class PagedAI:
+    """Answers per section (by its [Page N]); `fail` = errors to raise first, per page."""
+    model = 'fake-model'
+
+    def __init__(self, fail=None):
+        self.fail = {page: list(errors) for page, errors in (fail or {}).items()}
+        self.calls = []
+
+    def extract_structured_data(self, *, user_content, **kwargs):
+        page = 1 if '[Page 1]' in user_content else 2
+        self.calls.append(page)
+        if self.fail.get(page):
+            raise self.fail[page].pop(0)
+        return {'requirements': [PANEL if page == 1 else AWARENESS]}
+
+
+class DraftingResumeTests(_VersionMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.waits = []
+        for p in (patch.object(_drafting, '_sleep', self.waits.append),
+                  patch.object(_drafting, 'SECTION_MAX_CHARS', 10)):  # one section per page
+            p.start()
+            self.addCleanup(p.stop)
+        build_sections(self.version, pages=PAGES)
+        self.first, self.second = SourceSection.objects.filter(version=self.version).order_by('ordinal')
+
+    def _run(self, ai):
+        with patch('apps.extraction.services.ai_service.get_ai_service', return_value=ai):
+            return _drafting.draft_version(self.version)
+
+    def test_the_wait_follows_the_providers_hint(self):
+        self.assertEqual(_drafting.rate_limit_wait(_rate_limited()), 5.549782715)  # Gemini: "retry in 4.5s" + 1
+        self.assertEqual(_drafting.rate_limit_wait(_rate_limited("[{'retryDelay': '7s'}]")), 8)
+        self.assertEqual(_drafting.rate_limit_wait(_rate_limited('slow down', retry_after='12')), 13)
+        self.assertEqual(_drafting.rate_limit_wait(_rate_limited('no hint at all')), _drafting.RATE_LIMIT_DEFAULT_WAIT + 1)
+        self.assertEqual(_drafting.rate_limit_wait(_rate_limited('retry in 3600s')), _drafting.RATE_LIMIT_MAX_WAIT)
+        self.assertIsNone(_drafting.rate_limit_wait(RecoverableExtractionError('OpenAI request timed out')))
+
+    def test_a_rate_limited_section_waits_and_is_retried(self):
+        ai = PagedAI(fail={2: [_rate_limited(), _rate_limited()]})
+        self.assertEqual(self._run(ai), (2, 0))
+        self.assertEqual(ai.calls, [1, 2, 2, 2])
+        self.assertEqual(len(self.waits), 2)
+        self.assertEqual(RequirementCandidate.objects.filter(version=self.version).count(), 2)
+
+    def test_other_errors_are_not_retried(self):
+        ai = PagedAI(fail={1: [RecoverableExtractionError('OpenAI request timed out')]})
+        with self.assertRaisesMessage(RecoverableExtractionError, 'timed out'):
+            self._run(ai)
+        self.assertEqual((ai.calls, self.waits), ([1], []))
+
+    def test_a_rerun_keeps_finished_sections_and_drafts_only_the_rest(self):
+        ai = PagedAI(fail={2: [_rate_limited()] * (_drafting.RATE_LIMIT_RETRIES + 1)})
+        with self.assertRaisesMessage(RecoverableExtractionError, 'rate limit'):
+            self._run(ai)  # the limit outlasted every retry
+        self.assertEqual(len(self.waits), _drafting.RATE_LIMIT_RETRIES)
+        self.first.refresh_from_db()
+        self.second.refresh_from_db()
+        self.assertIsNotNone(self.first.drafted_at)
+        self.assertIsNone(self.second.drafted_at)
+        kept = list(RequirementCandidate.objects.filter(section=self.first).values_list('pk', flat=True))
+        self.assertEqual(len(kept), 1)
+
+        again = PagedAI()
+        self.assertEqual(self._run(again), (1, 0))
+        self.assertEqual(again.calls, [2])  # only the section that was left
+        self.assertEqual(list(RequirementCandidate.objects.filter(section=self.first).values_list('pk', flat=True)), kept)
+        self.assertEqual(RequirementCandidate.objects.filter(version=self.version, status='pending').count(), 2)
+        event = SourceAuditEvent.objects.filter(action='requirements.drafted').latest('created_at')
+        self.assertEqual((event.after['sections_drafted'], event.after['sections_kept']), (1, 1))
+
+    def test_a_finished_version_drafted_again_starts_over_and_keeps_reviewed_drafts(self):
+        self._run(PagedAI())
+        user = User.objects.create_user(email='r@ingage.ai', username='r', password=PASSWORD, role='consultant')
+        reviewed = RequirementCandidate.objects.get(section=self.first)
+        reject_candidate(reviewed, user, note='duplicate')
+        old_pending = RequirementCandidate.objects.get(section=self.second).pk
+        ai = PagedAI()
+        self.assertEqual(self._run(ai), (2, 0))
+        self.assertEqual(ai.calls, [1, 2])  # every section again, as before this change
+        self.assertTrue(RequirementCandidate.objects.filter(pk=reviewed.pk, status='rejected').exists())
+        self.assertFalse(RequirementCandidate.objects.filter(pk=old_pending).exists())
+
+
 @override_settings(AI_PROCESSING_MODE='single')
 class DraftingTaskTests(_VersionMixin, TestCase):
     def test_runs_only_when_queued(self):
         from .tasks import draft_source_requirements
+        for i in range(3):  # what the (mocked) run leaves behind: the note counts the version's pending drafts
+            RequirementCandidate.objects.create(version=self.version, statement=f'Draft {i}', kind='mandatory',
+                                                source_quote='quoted words')
         with patch('apps.benchmarks.services.requirement_drafting.draft_version', return_value=(3, 1)) as run:
             draft_source_requirements.apply(args=[str(self.version.pk)])
             run.assert_not_called()  # not queued -> skipped
@@ -474,6 +597,8 @@ class ActionApiTests(_VersionMixin, APITestCase):
         url = f'/api/v1/benchmarks/versions/{self.version.pk}'
         self.assertEqual(self.client.post(f'{url}/draft-requirements').status_code, 400)  # no stored file
         SourceVersion.objects.filter(pk=self.version.pk).update(file_uri='source_library/x.pdf')
+        self.assertEqual(self.client.post(f'{url}/draft-requirements').status_code, 400)  # not approved yet
+        SourceVersion.objects.filter(pk=self.version.pk).update(status='active')
         with patch('apps.benchmarks.tasks.draft_source_requirements.delay') as delay:
             self.assertEqual(self.client.post(f'{url}/draft-requirements').status_code, 202)
             self.assertEqual(self.client.post(f'{url}/draft-requirements').status_code, 409)  # already queued
@@ -806,7 +931,7 @@ class AuthoringTests(_CataloguePack, TestCase):
         checks = {c['key']: c for c in r['checks']}
         self.assertFalse(r['ready_for_review'])
         self.assertEqual(checks['levels']['detail'], '0/3 defined (others are placeholders)')
-        self.assertEqual((checks['scoring']['severity'], checks['scoring']['ok']), ('recommended', False))
+        self.assertEqual((checks['scoring']['severity'], checks['scoring']['ok']), ('required', False))
         self.assertIn('no approved weights', checks['scoring']['detail'])
         self.assertEqual((checks['confirmed']['severity'], checks['confirmed']['ok']), ('required', False))
         for lvl, text in (('L3', REAL_L3), ('L2', REAL_L2), ('L1', REAL_L1)):
@@ -1090,14 +1215,22 @@ def confirm_current(benchmark, user):
         confirmation.confirm(benchmark, user)
 
 
+def approve_weights(benchmark, user):
+    """A person approves the benchmark's composite scoring weights (required for release submission)."""
+    from apps.assessments.services import set_score_rule
+    set_score_rule(benchmark, user, {'compliance_weight': '0.25', 'maturity_weight': '0.25', 'evidence_weight': '0.25',
+                                     'outcome_weight': '0.25', 'note': 'Approved by the benchmark owner (test).'})
+
+
 def make_ready(benchmark, user, requirement):
     """Everything readiness requires: 3 levels, an evidence rule, an applicability rule, a primary
-    requirement, and a reviewer's confirmation of that content."""
+    requirement, approved scoring weights, and a reviewer's confirmation of that content."""
     for lvl, text in (('L3', REAL_L3), ('L2', REAL_L2), ('L1', REAL_L1)):
         authoring.save_level(benchmark, lvl, user, {'definition': text})
     evidence_rules.create_rule(user, RULE, benchmark=benchmark)
     applicability.create_rule(user, {'result': 'applies', 'institution_types': ['engineering']}, benchmark=benchmark)
     linking.link(benchmark, requirement, user, relationship='primary')
+    approve_weights(benchmark, user)
     confirm_current(benchmark, user)
 
 
@@ -1765,10 +1898,12 @@ class AiDraftingTests(TestCase):
         self.assertEqual(levels['L3'].non_examples, ['L3 non-example'])
         self.assertEqual(EvidenceRule.objects.filter(benchmark=self.b, ai_model='fake-model-1').count(), 4)
         self.assertEqual(ApplicabilityRule.objects.filter(benchmark=self.b, ai_model='fake-model-1').count(), 1)
-        self.assertEqual(self.b.expert_owner, 'AI (auto) - fake-model-1')
-        # Complete except for the reviewer's confirmation, which AI never gives.
+        # The owner is only suggested: a person names the expert owner.
+        self.assertEqual(self.b.expert_owner, '')
+        # Complete except for what people do: name the owner, approve the scoring weights, confirm.
         r = _authoring.readiness(self.b)
-        self.assertEqual([c['key'] for c in r['checks'] if c['severity'] == 'required' and not c['ok']], ['confirmed'])
+        self.assertEqual([c['key'] for c in r['checks'] if c['severity'] == 'required' and not c['ok']],
+                         ['owner', 'scoring', 'confirmed'])
         self.assertFalse(r['ready_for_review'])
         # The AI was given the real catalogues and the indicator.
         prompt = ai.calls[0]['user_content']
@@ -1985,7 +2120,8 @@ class BenchmarkConfirmationTests(APITestCase):
         apply_aiqif(read_aiqif(path), actor='test', commit=True)
         self.b = Benchmark.objects.get(benchmark_code='AIQIF-C1.1')
         self.staff = User.objects.create_user(email='s@ingage.ai', username='s', password='Str0ng!Pass', role='consultant')
-        ai_drafting.draft_benchmark(self.b, FakeDraftAI(_good_draft()))  # makes it complete
+        ai_drafting.draft_benchmark(self.b, FakeDraftAI(_good_draft()))  # makes the content complete
+        authoring.update_benchmark(self.b, self.staff, {'expert_owner': 'Dr. A. Expert'})  # a person names the owner
         self.b.refresh_from_db()
 
     def _events(self, action):
@@ -2136,28 +2272,28 @@ class ReleaseGateTests(_LinkFixture, TestCase):
             releases.submit(rel, self.user)
         self.assertIn('Content confirmed by an InGage reviewer', ctx.exception.problems[0])
         _conf.confirm(self.aca, self.user)
+        _approve_weights(self.aca, self.user)
         releases.submit(rel, self.user)
 
     # scoring weights
-    def test_composite_release_is_blocked_without_approved_weights(self):
+    def test_any_release_is_blocked_without_approved_weights(self):
+        from apps.assessments.models import BenchmarkScoreRule
         make_ready(self.aca, self.user, self.req)
-        rel = releases.create_release('Release 1.0', self.user, requires_composite=True)
-        releases.add_item(rel, self.aca, self.user)
-        with self.assertRaises(releases.ReleaseError) as ctx:
-            releases.submit(rel, self.user)
-        self.assertIn('ACA-05: no approved weights for BM-SCORE-1 - this release needs a composite score',
-                      ctx.exception.problems)
+        BenchmarkScoreRule.objects.filter(benchmark=self.aca).delete()  # weights not (or no longer) approved
+        for composite in (True, False):
+            rel = releases.create_release(f'Release 1.{int(composite)}', self.user, requires_composite=composite)
+            releases.add_item(rel, self.aca, self.user)
+            with self.assertRaises(releases.ReleaseError) as ctx:
+                releases.submit(rel, self.user)
+            self.assertTrue(any(p.startswith('ACA-05:') and 'Approved scoring weights' in p
+                                for p in ctx.exception.problems), ctx.exception.problems)
+            rel.delete()
         _approve_weights(self.aca, self.user)
         self.assertTrue(score_rule_status(self.aca)[0])
-        self.assertTrue(releases.scoring_summary(rel)['fully_scoreable'])
-        releases.submit(rel, self.user)
-
-    def test_without_composite_it_warns_not_fully_scoreable(self):
-        make_ready(self.aca, self.user, self.req)
         rel = releases.create_release('Release 1.0', self.user)
         releases.add_item(rel, self.aca, self.user)
+        self.assertTrue(releases.scoring_summary(rel)['fully_scoreable'])
         warnings = releases.submit(rel, self.user)
-        self.assertTrue(any(w.startswith('Not fully scoreable') and 'ACA-05' in w for w in warnings))
         self.assertTrue(any(w.startswith('Pilot size (guidance only, does not block submission)') for w in warnings))
 
     def test_weights_not_adding_up_to_one_are_not_valid(self):
@@ -2181,7 +2317,7 @@ class ReleaseGateTests(_LinkFixture, TestCase):
         self.assertIn('arts_science', v['unmatched']['by_institution_type'])  # matches no rule -> does not apply
         self.assertIsNone(v['requires_review'])
         check = {c['key']: c for c in authoring.readiness(self.aca)['checks']}['applicability_coverage']
-        self.assertEqual((check['severity'], check['ok']), ('recommended', False))
+        self.assertEqual((check['severity'], check['ok']), ('required', False))  # a dead rule blocks release
 
     def test_validation_reports_requires_review_profiles(self):
         applicability.create_rule(self.user, {'result': 'requires_review', 'priority': 10,
@@ -2212,10 +2348,436 @@ class ReleaseGateTests(_LinkFixture, TestCase):
                                                          'requires_composite': True}, format='json')
         self.assertEqual(r.status_code, 201, r.data)
         self.assertEqual((r.data['requires_composite'], r.data['item_count']), (True, 1))
-        self.assertEqual(r.data['scoring']['missing'][0]['benchmark_code'], 'ACA-05')
+        self.assertEqual((r.data['scoring']['missing'], r.data['scoring']['fully_scoreable']), ([], True))
         self.assertTrue(any(row['code'] == 'GOV-01' and not row['included'] for row in r.data['eligibility']))
         p = client.patch('/api/v1/benchmarks/releases/Release%201.0', {'requires_composite': False}, format='json')
         self.assertEqual((p.status_code, p.data['requires_composite']), (200, False))
         self.assertEqual(p.data['problems'], [])
         v = client.get('/api/v1/benchmarks/catalogue/ACA-05/applicability-validation')
         self.assertEqual((v.status_code, v.data['has_rules']), (200, True))
+
+
+# -- an approved "new benchmark" candidate -> a draft benchmark (candidate_svc.create_benchmark_draft) --------
+
+from .models import Capability, EvidenceType  # noqa: E402
+
+
+def _no_ai(*_args, **_kwargs):
+    raise AssertionError('This flow must never call the AI service.')
+
+
+@patch('apps.extraction.services.ai_service.get_ai_service', _no_ai)
+class NewBenchmarkDraftTests(APITestCase):
+    """Approve -> create draft (explicitly, once) -> complete by hand -> confirm -> release -> published.
+    The AI service is patched to fail, so every step here is proven to work without AI."""
+
+    URL = '/api/v1/benchmarks/benchmark-candidates'
+
+    def setUp(self):
+        path = _aiqif_workbook()
+        self.addCleanup(os.remove, path)
+        apply_aiqif(read_aiqif(path), actor='test', commit=True)
+        self.staff = User.objects.create_user(email='x@ingage.ai', username='x', password=PASSWORD, role='consultant')
+        self.second = User.objects.create_user(email='y@ingage.ai', username='y', password=PASSWORD, role='super_admin')
+        EvidenceType.objects.get_or_create(code='EV-01', defaults={'name': 'Policy', 'validation_method': 'Read it.'})
+        # A legacy pillar outside AI-QIF must never be offered.
+        legacy = Pillar.objects.create(code='P01', name='Institutional governance')
+        Benchmark.objects.create(benchmark_code='GOV-01', title='Old', pillar=legacy, benchmark_kind='mandatory',
+                                 version_label='v0.2', capability=Capability.objects.create(
+                                     code='CAP-GOV-01', name='Old', domain=legacy.name, definition='Old.'))
+        self._login(self.staff)
+        r = self.client.post(self.URL, {'candidate_type': 'new_benchmark', 'title': 'Generative-AI use policy for assessment',
+                                        'source_rationale': 'UNESCO 2023 guidance: institutions need a GenAI policy.'},
+                             format='json')
+        self.cid = r.data['id']
+        self.assertEqual(r.data['proposed_kind'], 'proposed')
+
+    def _login(self, user):
+        token = self.client.post('/api/v1/auth/login/', {'email': user.email, 'password': PASSWORD}).data['access_token']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+    def _candidate(self):
+        return BenchmarkCandidate.objects.get(pk=self.cid)
+
+    def _approve_all(self):
+        self.client.post(f'{self.URL}/{self.cid}/submit')
+        c = self._candidate()
+        for role, user in zip(c.required_roles, (self.staff, self.second)):
+            candidate_svc.review(c, user, role, 'approve')
+        self.assertEqual(self._candidate().status, 'approved')
+
+    def _create(self, **body):
+        payload = {'pillar_code': 'AIQIF-C1', 'capability_code': 'CAP-AIQIF-C1.1', **body}
+        return self.client.post(f'{self.URL}/{self.cid}/create-draft', payload, format='json')
+
+    def test_approval_alone_creates_nothing(self):
+        before = Benchmark.objects.count()
+        self._approve_all()
+        self.assertEqual((Benchmark.objects.count(), self._candidate().benchmark_id), (before, None))
+        options = self.client.get(f'{self.URL}/{self.cid}/draft-options').data
+        self.assertTrue(options['can_create'])
+        self.assertEqual([c['code'] for c in options['criteria']], ['AIQIF-C1', 'AIQIF-C2'])  # not P01
+        c1 = options['criteria'][0]
+        self.assertEqual(c1['next_code'], 'AIQIF-C1.3')
+        self.assertEqual([c['code'] for c in c1['capabilities']], ['CAP-AIQIF-C1.1', 'CAP-AIQIF-C1.2'])
+        self.assertEqual((options['benchmark_kind'], options['title']),
+                         ('proposed', 'Generative-AI use policy for assessment'))
+
+    def test_only_a_fully_approved_new_benchmark_candidate_can_create(self):
+        self.assertEqual(self._create().status_code, 400)  # still in research
+        self.client.post(f'{self.URL}/{self.cid}/submit')
+        c = self._candidate()
+        candidate_svc.review(c, self.staff, c.required_roles[0], 'approve')
+        r = self._create()
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('Every required expert role', r.data['detail'])
+        self.assertFalse(self.client.get(f'{self.URL}/{self.cid}/draft-options').data['can_create'])
+        update = candidate_svc.create(self.staff, {'candidate_type': 'update_benchmark', 'benchmark_code': 'AIQIF-C1.1',
+                                                   'title': 'Revise', 'source_rationale': 'x'})
+        self.assertEqual(self.client.post(f'{self.URL}/{update.pk}/create-draft', {}, format='json').status_code, 400)
+
+    def test_creates_one_traceable_empty_draft_and_repeats_return_it(self):
+        self._approve_all()
+        count = Benchmark.objects.count()
+        r = self._create(title='Generative-AI policy for assessment', target_guidance='Aim for L2 in year one.')
+        self.assertEqual((r.status_code, r.data['benchmark_code'], r.data['benchmark_status'], r.data['status']),
+                         (201, 'AIQIF-C1.3', 'draft', 'approved'))  # approved, not published
+        b = Benchmark.objects.get(benchmark_code='AIQIF-C1.3')
+        self.assertEqual((b.pillar.code, b.capability.code, b.framework.code, b.version_label, b.benchmark_kind),
+                         ('AIQIF-C1', 'CAP-AIQIF-C1.1', 'AIQIF-V1.0', 'AI-QIF v1.0', 'proposed'))
+        self.assertEqual((b.title, b.target_guidance), ('Generative-AI policy for assessment', 'Aim for L2 in year one.'))
+        self.assertIn(self.cid, b.source_basis)
+        self.assertIn('UNESCO 2023 guidance', b.source_basis)
+        # Empty for staff: placeholder levels only, no evidence, applicability, owner or weight.
+        self.assertEqual(sorted((m.level, m.definition, m.is_placeholder) for m in b.maturity_levels.all()),
+                         [(lv, '(not defined)', True) for lv in ('L1', 'L2', 'L3')])
+        self.assertEqual((b.evidence_types.count(), b.evidence_rules.count(), b.applicability_rules.count(),
+                          b.expert_owner, b.weight), (0, 0, 0, '', None))
+        self.assertEqual(SourceAuditEvent.objects.get(action='benchmark.created_from_candidate').after['candidate'],
+                         self.cid)
+        self.assertEqual(SourceAuditEvent.objects.get(action='candidate.draft_created').object_id, self.cid)
+        # Repeated clicks: the same draft, never a second one.
+        for _ in range(2):
+            again = self._create(pillar_code='AIQIF-C2', capability_code='CAP-AIQIF-C2.1')
+            self.assertEqual((again.status_code, again.data['benchmark_code']), (200, 'AIQIF-C1.3'))
+        self.assertEqual(Benchmark.objects.count(), count + 1)
+        self.assertEqual(SourceAuditEvent.objects.filter(action='candidate.draft_created').count(), 1)
+        self.assertEqual(self.client.get(f'{self.URL}/{self.cid}/draft-options').data['existing_benchmark'], 'AIQIF-C1.3')
+        self.assertEqual(self.client.post(f'{self.URL}/{self.cid}/open-revision').status_code, 400)
+
+    def test_criterion_and_capability_must_be_existing_and_match(self):
+        self._approve_all()
+        self.assertIn('AI-QIF criteria', self._create(pillar_code='P01', capability_code='CAP-GOV-01').data['detail'])
+        self.assertIn('under AIQIF-C1', self._create(capability_code='CAP-AIQIF-C2.1').data['detail'])
+        self.assertIn('AI-QIF criteria', self._create(pillar_code='AIQIF-C10').data['detail'])  # no new criterion
+        self.assertFalse(Benchmark.objects.filter(benchmark_code__startswith='AIQIF-C1.3').exists())
+
+    def test_codes_follow_the_criterion_and_are_never_reused(self):
+        Benchmark.objects.filter(benchmark_code='AIQIF-C1.2').update(status='withdrawn')
+        c11 = Benchmark.objects.get(benchmark_code='AIQIF-C1.1')
+        Benchmark.objects.create(benchmark_code='AIQIF-C1.7', title='Retired', pillar=c11.pillar, framework=c11.framework,
+                                 capability=c11.capability, benchmark_kind='proposed', version_label='AI-QIF v1.0',
+                                 status='withdrawn')
+        self.assertEqual(candidate_svc.next_code(c11.pillar), 'AIQIF-C1.8')
+        self._approve_all()
+        self.assertEqual(self._create().data['benchmark_code'], 'AIQIF-C1.8')
+
+    def test_staff_only(self):
+        self._approve_all()
+        inst = Institution.objects.create(name='C', city='X', state='TN')
+        outsider = User.objects.create_user(email='c@college.edu', username='c', password=PASSWORD,
+                                            role='institution_admin', institution=inst)
+        self._login(outsider)
+        self.assertEqual(self.client.get(f'{self.URL}/{self.cid}/draft-options').status_code, 403)
+        self.assertEqual(self._create().status_code, 403)
+        self.assertIsNone(self._candidate().benchmark_id)
+
+    def test_completed_by_hand_confirmed_and_released_then_the_candidate_is_published(self):
+        self._approve_all()
+        code = self._create().data['benchmark_code']
+        b = Benchmark.objects.get(benchmark_code=code)
+        ready = self.client.get(f'/api/v1/benchmarks/catalogue/{code}/readiness').data
+        self.assertFalse(ready['ready_for_review'])
+        checks = {c['key']: c for c in ready['checks']}
+        self.assertEqual((checks['levels']['ok'], checks['levels']['detail']), (False, '0/3 defined (others are placeholders)'))
+        self.assertEqual(checks['requirements']['severity'], 'recommended')  # optional for a proposed benchmark
+        self.assertEqual(checks['owner']['severity'], 'required')
+
+        rel = releases.create_release('Release 2.0', self.staff)
+        releases.add_item(rel, b, self.staff)
+        with self.assertRaises(releases.ReleaseError) as ctx:
+            releases.submit(rel, self.staff)  # empty draft: readiness blocks it
+        self.assertTrue(any(code in p for p in ctx.exception.problems))
+
+        # Staff complete it in the existing Studio flows -- written by people, no AI.
+        for lvl, text in (('L3', REAL_L3), ('L2', REAL_L2), ('L1', REAL_L1)):
+            authoring.save_level(b, lvl, self.staff, {'definition': text})
+        evidence_rules.create_rule(self.staff, RULE, benchmark=b)  # also chooses evidence type EV-01
+        applicability.create_rule(self.staff, {'result': 'applies', 'institution_types': ['engineering']}, benchmark=b)
+        authoring.update_benchmark(b, self.staff, {'expert_owner': 'Dr. A. Expert'})
+        approve_weights(b, self.staff)
+        with self.assertRaises(releases.ReleaseError) as ctx:
+            releases.submit(rel, self.staff)  # everything but the reviewer's confirmation
+        self.assertTrue(any('Content confirmed' in p for p in ctx.exception.problems))
+        self.assertFalse(b.requirement_links.exists())  # no requirement needed for a proposed benchmark
+        confirm_current(b, self.second)
+        self.assertTrue(authoring.readiness(b)['ready_for_review'])
+        releases.submit(rel, self.staff)
+        self.assertEqual(self._candidate().status, 'approved')  # submitted / approved release: not yet
+        releases.approve(rel, self.second)
+        self.assertEqual(self._candidate().status, 'approved')
+        releases.publish(rel, self.second)
+        b.refresh_from_db()
+        self.assertEqual((b.status, rel.items.get(benchmark=b).change_type), ('active', 'added'))
+        self.assertEqual(self._candidate().status, 'published')
+
+
+# -- AI preparation across the Studio (services/studio_ai.py) --------------------------------------------
+
+from unittest.mock import patch as _patch  # noqa: E402
+
+from .models import SourceChangeEvent, StudioAIJob  # noqa: E402
+from .services import studio_ai  # noqa: E402
+
+
+class ScriptedAI:
+    """Answers by schema name; an Exception value is raised (a provider / router failure)."""
+    model = 'fake-model-2'
+
+    def __init__(self, answers):
+        self.answers, self.calls = answers, []
+
+    def extract_structured_data(self, **kwargs):
+        self.calls.append(kwargs['schema_name'])
+        answer = self.answers[kwargs['schema_name']]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+class StudioAITests(_LinkFixture, APITestCase):
+    QUOTE = 'every thesis shall be checked for plagiarism'
+
+    def setUp(self):
+        super().setUp()
+        path = _aiqif_workbook()
+        self.addCleanup(os.remove, path)
+        apply_aiqif(read_aiqif(path), actor='test', commit=True)
+        EvidenceType.objects.get_or_create(code='EV-01', defaults={'name': 'Policy', 'validation_method': 'Read it.'})
+        EvidenceType.objects.get_or_create(code='EV-03', defaults={'name': 'Minutes', 'validation_method': 'Read it.'})
+        EvidenceType.objects.get_or_create(code='EV-12', defaults={'name': 'Outcomes', 'validation_method': 'Read it.'})
+        self.reviewers = [User.objects.create_user(email=f'r{i}@ingage.ai', username=f'r{i}', password=PASSWORD,
+                                                   role='super_admin') for i in range(4)]
+        self.ai = ScriptedAI({})
+        for target, value in (('apps.extraction.services.ai_service.get_ai_service', self.ai),
+                              ('apps.benchmarks.services.studio_ai._dispatch', None)):
+            p = _patch(target, return_value=value) if value is not None else _patch(target)
+            p.start()
+            self.addCleanup(p.stop)
+        self.client.force_authenticate(self.user)
+
+    def _run(self, kind, target_id, answer=None, name=None):
+        if answer is not None:
+            self.ai.answers[name] = answer
+        job = studio_ai.start(kind, target_id, self.user)
+        studio_ai.run_job(job.pk)
+        job.refresh_from_db()
+        return job
+
+    def _fit(self, **new):
+        return {'decision': 'new', 'rationale': 'Not covered by any indicator.', 'confidence': 0.7,
+                'matches': [{'benchmark_code': 'ACA-05', 'relationship': 'supporting', 'rationale': 'Integrity.',
+                             'confidence': 0.6},
+                            {'benchmark_code': 'NOT-REAL', 'relationship': 'primary', 'rationale': 'x', 'confidence': 1}],
+                'new_indicator': {'pillar_code': 'AIQIF-C1', 'capability_code': 'CAP-AIQIF-C1.1',
+                                  'title': 'Thesis similarity screening with AI-text detection',
+                                  'benchmark_kind': 'proposed', 'capability_statement': 'Screens theses.',
+                                  'how_measured': 'Share of theses screened.', 'rationale': 'Distinct capability.',
+                                  'source_quote': self.QUOTE, **new}}
+
+    # -- requirements -> indicators ------------------------------------------------------------------
+    def test_fit_keeps_only_verified_items_and_a_proposal_becomes_a_draft_after_expert_approval(self):
+        job = self._run('requirement_fit', 'UGC-005-R001', self._fit(), 'requirement_indicator_fit')
+        self.assertEqual(job.status, 'ready', job.error)
+        self.assertEqual([m['benchmark_code'] for m in job.output['matches']], ['ACA-05'])
+        self.assertEqual(job.output['rejected'][0]['why'], 'unknown indicator')
+        self.assertFalse(job.output['new_indicator']['blocked'])
+        self.assertEqual(job.model, 'fake-model-2')
+
+        r = self.client.post(f'/api/v1/benchmarks/ai-jobs/{job.pk}/propose', {'note': 'Worth a look'}, format='json')
+        self.assertEqual((r.status_code, r.data['status']), (200, 'applied'), r.data)
+        c = BenchmarkCandidate.objects.get(candidate_type='new_benchmark')
+        self.assertEqual((c.status, c.title, c.ai_proposal['requirement_code']),
+                         ('review', 'Thesis similarity screening with AI-text detection', 'UGC-005-R001'))
+        self.assertIn(self.QUOTE, c.source_rationale)
+        self.assertIsNone(c.benchmark)  # nothing exists before the experts approve
+
+        for role, person in zip(c.required_roles, self.reviewers):
+            candidate_svc.review(c, person, role, 'approve')
+            c.refresh_from_db()
+        bench = c.benchmark
+        self.assertEqual((c.status, bench.status, bench.pillar.code, bench.capability.code),
+                         ('approved', 'draft', 'AIQIF-C1', 'CAP-AIQIF-C1.1'))
+        self.assertEqual(bench.title, 'Thesis similarity screening with AI-text detection')
+        self.assertEqual(list(bench.requirement_links.values_list('requirement__code', 'relationship')),
+                         [('UGC-005-R001', 'primary')])
+        drafting = StudioAIJob.objects.get(kind='benchmark_content', target_id=bench.benchmark_code)
+        self.assertEqual(drafting.status, 'queued')  # AI prepares its levels next; never published by itself
+        self.assertFalse(bench.release_items.exists())
+
+    def test_a_duplicate_or_unquoted_proposal_is_not_offered(self):
+        dup = self._run('requirement_fit', 'UGC-005-R001',
+                        self._fit(title='Assessment, examination and academic integrity'), 'requirement_indicator_fit')
+        self.assertTrue(dup.output['new_indicator']['blocked'])
+        r = self.client.post(f'/api/v1/benchmarks/ai-jobs/{dup.pk}/propose', {}, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('ACA-05', r.data['detail'])
+        bad = self._run('requirement_fit', 'UGC-005-R001', self._fit(source_quote='words that are not in the source'),
+                        'requirement_indicator_fit')
+        self.assertIsNone(bad.output['new_indicator'])
+        self.assertIn('quote not found', bad.output['rejected'][-1]['why'])
+
+    # -- levels / evidence / applicability --------------------------------------------------------------
+    def _content(self):
+        return {**_good_draft(), 'owner_suggestion': 'Accreditation lead', 'confidence': 0.8,
+                'source_references': ['UGC-005-R001', 'MADE-UP-R9']}
+
+    def test_content_is_ai_labelled_keeps_human_work_and_still_needs_confirmation(self):
+        b = Benchmark.objects.get(benchmark_code='AIQIF-C1.1')
+        linking.link(b, self.req, self.user, relationship='primary')
+        authoring.save_level(b, 'L1', self.user, {'definition': REAL_L1})  # a person wrote L1
+        authoring.update_benchmark(b, self.user, {'target_guidance': 'Aim for L2 by 2027 (owner).'})
+        job = self._run('benchmark_content', 'AIQIF-C1.1', self._content(), 'benchmark_content')
+        self.assertEqual(job.status, 'ready', job.error)
+        b.refresh_from_db()
+        levels = {m.level: m for m in b.maturity_levels.all()}
+        self.assertEqual((levels['L3'].ai_model, levels['L1'].ai_model, levels['L1'].definition),
+                         ('fake-model-2', '', REAL_L1))
+        self.assertEqual(b.target_guidance, 'Aim for L2 by 2027 (owner).')
+        self.assertEqual(set(job.output['kept_human']), {'L1 level', 'target guidance'})
+        self.assertEqual((job.output['owner_suggestion'], job.confidence), ('Accreditation lead', 0.8))
+        self.assertEqual(job.citations, [{'requirement': 'UGC-005-R001'}])  # only codes really linked
+        self.assertEqual(b.expert_owner, '')
+        self.assertFalse(authoring.readiness(b)['ready_for_review'])  # a reviewer must still confirm
+        self.assertTrue(SourceAuditEvent.objects.filter(action='ai.ready', object_id=job.target_id).exists())
+
+    def test_only_drafts_are_prepared_and_failures_can_be_retried(self):
+        Benchmark.objects.filter(benchmark_code='AIQIF-C1.2').update(status='active')
+        r = self.client.post('/api/v1/benchmarks/ai-jobs', {'kind': 'benchmark_content', 'target_id': 'AIQIF-C1.2'},
+                             format='json')
+        self.assertEqual(r.status_code, 400)
+        job = self._run('benchmark_content', 'AIQIF-C1.1', RuntimeError('router down'), 'benchmark_content')
+        self.assertEqual(job.status, 'failed')
+        self.assertIn('router down', job.error)
+        self.assertTrue(all(m.is_placeholder for m in Benchmark.objects.get(benchmark_code='AIQIF-C1.1')
+                            .maturity_levels.all()))  # nothing applied
+        self.assertEqual(self.client.post(f'/api/v1/benchmarks/ai-jobs/{job.pk}/dismiss', {}).status_code, 400)
+        r = self.client.post(f'/api/v1/benchmarks/ai-jobs/{job.pk}/retry', {})
+        self.assertEqual((r.status_code, r.data['status']), (202, 'queued'))
+        self.ai.answers['benchmark_content'] = {**self._content(), 'levels': []}  # fails a check
+        studio_ai.run_job(r.data['id'])
+        again = StudioAIJob.objects.get(pk=r.data['id'])
+        self.assertEqual(again.status, 'failed')
+        self.assertIn('failed a check', again.error)
+
+    # -- sources ---------------------------------------------------------------------------------------
+    def test_source_details_need_a_quote_from_the_source_and_apply_only_what_is_chosen(self):
+        doc = self.version.document
+        text = ('UNIVERSITY GRANTS COMMISSION (Promotion of Academic Integrity and Prevention of Plagiarism in Higher '
+                'Educational Institutions) Regulations, 2018. Notified on 23rd July, 2018. ' * 4)
+        answer = {'title': {'value': 'UGC Plagiarism Regulations 2018',
+                            'quote': 'Prevention of Plagiarism in Higher Educational Institutions) Regulations, 2018'},
+                  'issued_on': {'value': '2018-07-23', 'quote': 'Notified on 23rd July, 2018'},
+                  'document_type': {'value': 'circular', 'quote': 'This circular is addressed to all'},
+                  **{f: {'value': None, 'quote': None} for f in ('authority_name', 'source_role', 'applies_to',
+                                                                 'programme_scope', 'version_label', 'effective_from')},
+                  'confidence': 0.9}
+        with _patch('apps.benchmarks.services.studio_ai._source_text', return_value=(text, {'version': 'v1'})):
+            SourceDocument.objects.filter(pk=doc.pk).update(official_url='https://www.ugc.gov.in/x')
+            job = self._run('source_metadata', doc.source_code, answer, 'source_details')
+        self.assertEqual(job.status, 'ready', job.error)
+        self.assertEqual(sorted(job.output['fields']), ['issued_on', 'title'])
+        self.assertEqual(job.output['rejected'][0]['field'], 'document_type')
+        r = self.client.post(f'/api/v1/benchmarks/ai-jobs/{job.pk}/apply', {'fields': ['title']}, format='json')
+        self.assertEqual(r.status_code, 200, r.data)
+        doc.refresh_from_db()
+        self.assertEqual(doc.title, 'UGC Plagiarism Regulations 2018')
+        self.assertTrue(SourceAuditEvent.objects.filter(action='source.ai_details_applied').exists())
+
+    def test_version_comparison_lists_added_and_removed_lines(self):
+        from .models import SourceSection
+        new = SourceVersion.objects.create(document=self.version.document, version_label='2026 amendment',
+                                           supersedes=self.version)
+        SourceSection.objects.create(version=self.version, ordinal=1, page_start=1, page_end=1,
+                                     text='Theses are checked.\nOld clause.')
+        SourceSection.objects.create(version=new, ordinal=1, page_start=1, page_end=1,
+                                     text='Theses are checked.\nAI-text detection is required.')
+        data = self.client.get(f'/api/v1/benchmarks/versions/{new.pk}/compare').data
+        self.assertEqual((data['added'], data['removed']), (['AI-text detection is required.'], ['Old clause.']))
+
+    def test_requirement_drafts_show_duplicates_of_approved_requirements(self):
+        from .models import RequirementCandidate
+        from .serializers import RequirementCandidateSerializer
+        draft = RequirementCandidate.objects.create(
+            version=self.version, statement=self.req.statement, kind='mandatory', page=3,
+            source_quote=self.req.source_quote, confidence=0.9)
+        data = RequirementCandidateSerializer(draft).data
+        self.assertEqual(data['duplicates'][0]['code'], 'UGC-005-R001')
+
+    # -- watcher -----------------------------------------------------------------------------------------
+    def _event(self):
+        return SourceChangeEvent.objects.create(
+            document=self.version.document, change_kind='content_change', materiality_score=80,
+            summary='2 lines added', details={'added_lines': ['Regulation 7: AI-detection reports are required for '
+                                                              'every thesis.']})
+
+    def test_change_analysis_quotes_the_change_and_prepares_a_candidate(self):
+        linking.link(Benchmark.objects.get(benchmark_code='ACA-05'), self.req, self.user, relationship='primary')
+        event = self._event()
+        answer = {'summary': 'Detection reports become mandatory.', 'impact_level': 'high',
+                  'changes': [{'description': 'New duty', 'quote': 'AI-detection reports are required'},
+                              {'description': 'Invented', 'quote': 'a sentence nobody wrote'}],
+                  'affected_requirements': ['UGC-005-R001'], 'affected_benchmarks': ['ACA-05', 'NOPE'],
+                  'impact_rationale': 'Changes the evidence for ACA-05.', 'recommendation': 'update_benchmark',
+                  'proposed_title': 'Add AI-detection evidence to ACA-05', 'confidence': 0.75}
+        job = self._run('change_analysis', event.pk, answer, 'source_change_analysis')
+        self.assertEqual(job.status, 'ready', job.error)
+        self.assertEqual((len(job.output['changes']), job.output['affected_benchmarks']), (1, ['ACA-05']))
+        r = self.client.post(f'/api/v1/benchmarks/ai-jobs/{job.pk}/candidate', {}, format='json')
+        self.assertEqual(r.status_code, 200, r.data)
+        c = BenchmarkCandidate.objects.get(change_event=event, created_by=self.user.email)
+        self.assertEqual((c.candidate_type, c.benchmark.benchmark_code, c.status), ('update_benchmark', 'ACA-05', 'review'))
+        self.assertIn('AI-detection reports are required', c.source_rationale)
+
+    def test_material_changes_are_queued_for_analysis(self):
+        event = self._event()
+        studio_ai.queue_change_analysis([event])
+        self.assertEqual(StudioAIJob.objects.get(kind='change_analysis').target_id, str(event.pk))
+
+    # -- releases ----------------------------------------------------------------------------------------
+    def test_release_notes_are_applied_to_a_draft_only(self):
+        aca = Benchmark.objects.get(benchmark_code='ACA-05')
+        make_ready(aca, self.user, self.req)
+        rel = releases.create_release('Release 1.0', self.user)
+        releases.add_item(rel, aca, self.user)
+        answer = {'version_notes': 'First pilot release.', 'change_summary': 'Adds ACA-05.',
+                  'impact_summary': 'Colleges evidence thesis screening.', 'readiness_notes': '',
+                  'item_impacts': [{'benchmark_code': 'ACA-05', 'impact_summary': 'New: thesis screening evidence.'}],
+                  'confidence': 0.6}
+        job = self._run('release_notes', 'Release 1.0', answer, 'release_notes')
+        self.assertEqual(job.status, 'ready', job.error)
+        self.client.post(f'/api/v1/benchmarks/ai-jobs/{job.pk}/apply', {}, format='json')
+        rel.refresh_from_db()
+        self.assertTrue(rel.release_notes.startswith('First pilot release.'))
+        self.assertEqual(rel.items.get().impact_summary, 'New: thesis screening evidence.')
+        self.assertEqual(rel.status, 'draft')  # approving / publishing stay human steps
+        releases.submit(rel, self.user)
+        with self.assertRaises(studio_ai.StudioAIError):
+            studio_ai.start('release_notes', 'Release 1.0', self.user)
+
+    def test_college_users_cannot_use_studio_ai(self):
+        college = User.objects.create_user(email='c@c.edu', username='cc', password=PASSWORD, role='institution_admin')
+        self.client.force_authenticate(college)
+        r = self.client.post('/api/v1/benchmarks/ai-jobs', {'kind': 'benchmark_content', 'target_id': 'AIQIF-C1.1'},
+                             format='json')
+        self.assertEqual(r.status_code, 403)

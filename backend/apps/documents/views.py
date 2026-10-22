@@ -157,6 +157,10 @@ class DocumentDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [CanManageDocument, IsInstitutionMember]
 
     def perform_destroy(self, instance):
+        # Evidence submitted for an evidence request stays (it is part of that request's audit trail).
+        if instance.evidence_links.exists():
+            raise DRFValidationError({'detail': 'This document was submitted as evidence for an evidence request '
+                                                'and cannot be deleted.'})
         if instance.file:
             instance.file.delete(save=False)
         instance.delete()
@@ -194,6 +198,10 @@ class DocumentConfirmCategoryView(APIView):
             'documents.category_confirmed document_id=%s category=%s user=%s',
             document.id, category, request.user.id,
         )
+        # A reviewed document is what settles a "missing document" gap for its type and a "stale data"
+        # gap on an older one (apps.gaps.services.after_document_review).
+        from apps.gaps.services import after_document_review
+        after_document_review(document, user=request.user)
         return Response(DocumentSerializer(document, context={'request': request}).data)
 
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle2, GitBranch, Plus, Send } from 'lucide-react';
+import { CheckCircle2, FilePlus2, GitBranch, Plus, Send } from 'lucide-react';
 
 import {
   benchmarkCandidateAction as candidateAction, createBenchmarkCandidate as createCandidate,
@@ -10,13 +10,15 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage } from '../../utils/errors';
 import { SourceUpdatesGuide } from './SourceUpdatesGuide';
+import { CreateBenchmarkDraft } from './CreateBenchmarkDraft';
 
 /**
  * Stage 4b: benchmark candidates. Proposed changes to the library, kept apart
  * from approved data until each required expert role approves (a different
  * person per role). Most come from the daily watcher; staff can add their own.
- * Approving never edits a benchmark -- it lets staff open a new draft version,
- * which then goes through readiness and a release like any other change.
+ * Approving never edits a benchmark -- it lets staff open a new draft version
+ * (update / retire) or create a new benchmark's draft (new benchmark), which then
+ * goes through readiness, confirmation and a release like any other change.
  */
 
 const STATUS_BADGE: Record<CandidateStatus, string> = {
@@ -29,7 +31,7 @@ const ROLE_LABEL: Record<CandidateRole, string> = {
 };
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '—');
 
-export const CandidatesTab: React.FC = () => {
+export const CandidatesTab: React.FC<{ onOpenBenchmark?: (code: string) => void }> = ({ onOpenBenchmark }) => {
   const [filter, setFilter] = useState<'open' | 'all'>('open');
   const list = useApiResource<BenchmarkCandidateInfo[]>(() => listCandidates(filter), [filter]);
   const [adding, setAdding] = useState(false);
@@ -53,7 +55,7 @@ export const CandidatesTab: React.FC = () => {
       {adding && <NewCandidate onDone={() => { setAdding(false); list.refetch(); }} onCancel={() => setAdding(false)} />}
       {list.loading && <LoadingState message="Loading candidates…" />}
       {list.error && <ErrorState message={list.error} onRetry={list.refetch} />}
-      {(list.data || []).map((c) => <CandidateCard key={c.id} c={c} onChanged={list.refetch} />)}
+      {(list.data || []).map((c) => <CandidateCard key={c.id} c={c} onChanged={list.refetch} onOpenBenchmark={onOpenBenchmark} />)}
       {list.data && list.data.length === 0 && (
         <p className="text-sm text-ink-500">{filter === 'open' ? 'No open candidates.' : 'No candidates yet.'}</p>
       )}
@@ -100,8 +102,12 @@ const NewCandidate: React.FC<{ onDone: () => void; onCancel: () => void }> = ({ 
   );
 };
 
-const CandidateCard: React.FC<{ c: BenchmarkCandidateInfo; onChanged: () => void }> = ({ c, onChanged }) => {
+const CandidateCard: React.FC<{
+  c: BenchmarkCandidateInfo; onChanged: () => void; onOpenBenchmark?: (code: string) => void;
+}> = ({ c, onChanged, onOpenBenchmark }) => {
   const [open, setOpen] = useState(false);
+  const [creatingDraft, setCreatingDraft] = useState(false);
+  const isNew = c.candidate_type === 'new_benchmark';
   const [role, setRole] = useState<CandidateRole>(c.required_roles[0]);
   const [notes, setNotes] = useState('');
   const [err, setErr] = useState('');
@@ -132,6 +138,25 @@ const CandidateCard: React.FC<{ c: BenchmarkCandidateInfo; onChanged: () => void
             importance {Math.round(Number(c.emergence_score))} · by {c.created_by} on {when(c.created_at)}
           </p>
           <pre className="whitespace-pre-wrap font-sans text-ink-700 bg-surface rounded-lg border border-line-200 p-2">{c.source_rationale}</pre>
+          {Object.keys(c.ai_proposal || {}).length > 0 && (
+            <div className="rounded-lg border border-brand-500/30 bg-brand-50/40 p-2 space-y-0.5">
+              <p className="font-bold text-ink-900">Prepared by AI{c.ai_proposal.model ? ` (${c.ai_proposal.model})` : ''}
+                {c.ai_proposal.confidence != null ? ` · confidence ${Math.round(Number(c.ai_proposal.confidence) * 100)}%` : ''}</p>
+              {c.ai_proposal.pillar_code && (
+                <p>Proposed under {c.ai_proposal.pillar_code} · capability {c.ai_proposal.capability_code}
+                  {c.ai_proposal.requirement_code ? ` · from requirement ${c.ai_proposal.requirement_code}` : ''}</p>
+              )}
+              {c.ai_proposal.duplicates && (
+                <p className="text-ink-600">Duplicate check: {c.ai_proposal.duplicates.length
+                  ? c.ai_proposal.duplicates.map((d) => `${d.code} ${Math.round(d.similarity * 100)}%`).join(', ') : 'nothing similar'}</p>
+              )}
+              {c.ai_proposal.impact_level && <p>Estimated impact: {c.ai_proposal.impact_level}</p>}
+              {isNew && c.ai_proposal.pillar_code && !c.benchmark_code && (
+                <p className="text-ink-600">When every required expert approves, the draft is created from this proposal and AI
+                  prepares its levels; it is never published automatically.</p>
+              )}
+            </div>
+          )}
           {c.reviews.length > 0 && (
             <div className="space-y-0.5">
               {c.reviews.map((r) => (
@@ -164,13 +189,35 @@ const CandidateCard: React.FC<{ c: BenchmarkCandidateInfo; onChanged: () => void
               </div>
             </div>
           )}
-          {c.status === 'approved' && c.benchmark_code && c.benchmark_status === 'active' && (
+          {c.status === 'approved' && !isNew && c.benchmark_code && c.benchmark_status === 'active' && (
             <button className="btn-primary btn-sm" onClick={() => run(() => candidateAction(c.id, 'open-revision'))}>
               <GitBranch className="w-3.5 h-3.5" /> Open a new draft of {c.benchmark_code}
             </button>
           )}
-          {c.status === 'approved' && c.benchmark_status === 'draft' && (
+          {c.status === 'approved' && !isNew && c.benchmark_status === 'draft' && (
             <p className="text-ink-500">{c.benchmark_code} is a draft — edit it in Levels, then add it to the next release.</p>
+          )}
+          {/* A new benchmark: staff create its draft explicitly -- approval alone creates nothing. */}
+          {c.status === 'approved' && isNew && !c.benchmark_code && !creatingDraft && (
+            <button className="btn-primary btn-sm" onClick={() => setCreatingDraft(true)}>
+              <FilePlus2 className="w-3.5 h-3.5" /> Create benchmark draft
+            </button>
+          )}
+          {c.status === 'approved' && isNew && !c.benchmark_code && creatingDraft && (
+            <CreateBenchmarkDraft candidate={c} onCancel={() => setCreatingDraft(false)}
+              onCreated={(code) => { setCreatingDraft(false); onChanged(); onOpenBenchmark?.(code); }} />
+          )}
+          {isNew && c.benchmark_code && (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-ink-600">
+                Draft <strong className="font-mono">{c.benchmark_code}</strong> ({c.benchmark_status})
+                {c.status === 'published' ? ' — published in a release.'
+                  : ' — complete it in Levels, get it confirmed, then add it to a release.'}
+              </p>
+              {onOpenBenchmark && (
+                <button className="btn-secondary btn-sm" onClick={() => onOpenBenchmark(c.benchmark_code!)}>Open the draft</button>
+              )}
+            </div>
           )}
           {err && <InlineError message={err} onDismiss={() => setErr('')} />}
         </div>

@@ -74,7 +74,35 @@ def _require_baseline(sprint):
     return baseline
 
 
-def approve_baseline(sprint, *, user, comments=''):
+def _processing_gate(sprint, baseline, override_reason):
+    """Refuse a decision while included documents are failed, active, unprocessed or partially processed --
+    unless the approver records why the baseline may still be decided (the override). Stores what the
+    processing looked like either way, so the baseline and every report can show it."""
+    from apps.extraction.services.completeness import describe, processing_summary, snapshot
+
+    summary = processing_summary(sprint)
+    reason = (override_reason or '').strip()
+    if not summary['complete'] and not reason:
+        raise ValidationError({
+            'detail': f'{describe(summary)} Finish processing them (AI Processing Monitor: retry the failed and '
+                      'partial ones), or give a reason to decide the baseline anyway.',
+            'processing': snapshot(summary),
+        })
+    baseline.processing_snapshot = snapshot(summary)
+    baseline.processing_incomplete = not summary['complete']
+    baseline.processing_override_reason = reason if not summary['complete'] else ''
+    return ['processing_snapshot', 'processing_incomplete', 'processing_override_reason']
+
+
+def _with_override(comments, baseline):
+    if not baseline.processing_incomplete:
+        return comments
+    note = (f'Decided with incomplete document processing: {baseline.processing_snapshot.get("description")} '
+            f'Reason: {baseline.processing_override_reason}')
+    return f'{comments}\n\n{note}'.strip()
+
+
+def approve_baseline(sprint, *, user, comments='', processing_override_reason=''):
     """Full approval -- refused while any blocking gap is still unresolved
     (server-side enforcement of the same rule the frontend's approve button
     disables on; "approve provisionally" is the documented way past this)."""
@@ -87,20 +115,21 @@ def approve_baseline(sprint, *, user, comments=''):
             f'{blocking_gaps.count()} blocking gap(s) are still unresolved -- resolve them first, '
             'or use "approve provisionally" instead.'
         )
+    processing_fields = _processing_gate(sprint, baseline, processing_override_reason)
 
     baseline.status = Baseline.Status.APPROVED
     baseline.approved_by = user if (user and user.is_authenticated) else None
     baseline.approved_at = timezone.now()
     baseline.comments = comments
-    baseline.save(update_fields=['status', 'approved_by', 'approved_at', 'comments', 'updated_at'])
-    _record(baseline, BaselineDecisionHistory.Action.APPROVED, user, comments)
+    baseline.save(update_fields=['status', 'approved_by', 'approved_at', 'comments', 'updated_at', *processing_fields])
+    _record(baseline, BaselineDecisionHistory.Action.APPROVED, user, _with_override(comments, baseline))
 
     sprint.status = Sprint.Status.BASELINE_APPROVED
     sprint.save(update_fields=['status', 'updated_at'])
     return baseline
 
 
-def approve_baseline_provisional(sprint, *, user, comments=''):
+def approve_baseline_provisional(sprint, *, user, comments='', processing_override_reason=''):
     """Provisional approval -- unlike approve_baseline, allowed even with
     unresolved blocking gaps still open; that's the whole point of
     'provisional'. Still advances the sprint the same way full approval
@@ -109,13 +138,15 @@ def approve_baseline_provisional(sprint, *, user, comments=''):
     the 'provisional' label rather than silently reporting it as approved."""
     baseline = _require_baseline(sprint)
     _require_pending(baseline)
+    # Provisional approval may pass unresolved gaps, but not incomplete processing without a reason.
+    processing_fields = _processing_gate(sprint, baseline, processing_override_reason)
 
     baseline.status = Baseline.Status.PROVISIONAL
     baseline.approved_by = user if (user and user.is_authenticated) else None
     baseline.approved_at = timezone.now()
     baseline.comments = comments
-    baseline.save(update_fields=['status', 'approved_by', 'approved_at', 'comments', 'updated_at'])
-    _record(baseline, BaselineDecisionHistory.Action.APPROVED_PROVISIONAL, user, comments)
+    baseline.save(update_fields=['status', 'approved_by', 'approved_at', 'comments', 'updated_at', *processing_fields])
+    _record(baseline, BaselineDecisionHistory.Action.APPROVED_PROVISIONAL, user, _with_override(comments, baseline))
 
     sprint.status = Sprint.Status.BASELINE_APPROVED
     sprint.save(update_fields=['status', 'updated_at'])

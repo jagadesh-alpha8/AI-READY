@@ -336,6 +336,9 @@ if WATCHER_ENABLED:
 AI_API_KEY = os.getenv('AI_API_KEY', '')
 AI_MODEL = os.getenv('AI_MODEL', '')
 AI_BASE_URL = os.getenv('AI_BASE_URL', '')
+# Large local-model extraction requests can take longer than hosted API calls.
+# Keep the timeout configurable for both OpenAI-compatible and Anthropic clients.
+AI_REQUEST_TIMEOUT_SECONDS = int(os.getenv('AI_REQUEST_TIMEOUT_SECONDS', '300'))
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 OPENAI_EXTRACTION_MODEL = os.getenv('OPENAI_EXTRACTION_MODEL', '')
 # Extra / overriding AI prices (USD per 1M tokens) as JSON -- see
@@ -385,6 +388,11 @@ AI_CLASSIFICATION_MIN_CONFIDENCE = float(os.getenv('AI_CLASSIFICATION_MIN_CONFID
 # confidence (0-1); below it the tag shows "Needs review". Category only --
 # it doesn't affect CRI scoring.
 AIQIF_MAPPING_MIN_CONFIDENCE = float(os.getenv('AIQIF_MAPPING_MIN_CONFIDENCE', 0.7))
+# Extracted facts with AI confidence strictly above this are confirmed automatically at the end of extraction
+# (apps/facts/auto_confirm.py) -- unless in an open conflict or their number is not in their quote. Recorded
+# as the system account, so they stay distinguishable from a person's confirmation. 'off' (or empty) disables.
+_auto_confirm = os.getenv('FACT_AUTO_CONFIRM_MIN_CONFIDENCE', '0.8').strip().lower()
+FACT_AUTO_CONFIRM_MIN_CONFIDENCE = None if _auto_confirm in ('', 'off', 'none', 'false') else float(_auto_confirm)
 
 # apps.extraction.services.pdf_reader: a page with fewer than this many
 # extractable characters (or mostly non-letter garbage) is sent to OCR; if
@@ -622,5 +630,3 @@ if not DEBUG:
     # The container healthcheck calls this over plain HTTP from inside the container.
     SECURE_REDIRECT_EXEMPT = [r'^api/v1/health$']
 
-
-    

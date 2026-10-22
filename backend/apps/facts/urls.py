@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     FactAIQIFMappingReviewView,
+    FactAssignView,
     FactConfirmView,
     FactCorrectView,
     FactDetailView,
@@ -10,6 +11,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path('/<uuid:pk>/assign', FactAssignView.as_view(), name='fact-assign'),
     path('/<uuid:pk>', FactDetailView.as_view(), name='fact-detail'),
     path('/<uuid:pk>/', FactDetailView.as_view(), name='fact-detail-slash'),
     path('/<uuid:pk>/confirm', FactConfirmView.as_view(), name='fact-confirm'),

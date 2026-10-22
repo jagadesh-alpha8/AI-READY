@@ -176,15 +176,8 @@ def check_release(release):
     if release.based_on is None and not PILOT_MIN <= live <= PILOT_MAX:
         warnings.append(f'Pilot size (guidance only, does not block submission): the first release is suggested to '
                         f'hold {PILOT_MIN}-{PILOT_MAX} pilot benchmarks; this one has {live}.')
-    scoring = scoring_summary(release)
-    if scoring['missing']:
-        codes = ', '.join(m['benchmark_code'] for m in scoring['missing'])
-        if release.requires_composite:
-            problems += [f'{m["benchmark_code"]}: {m["detail"]} - this release needs a composite score'
-                         for m in scoring['missing']]
-        else:
-            warnings.append(f'Not fully scoreable: {len(scoring["missing"])} benchmark(s) have no approved scoring '
-                            f'weights ({codes}); assessments will show their four scores but no composite.')
+    # Approved scoring weights are a required readiness check for every added/updated benchmark (above).
+    # Carried-forward items were scored when published; their weights are reported, never re-checked here.
     return problems, warnings
 
 

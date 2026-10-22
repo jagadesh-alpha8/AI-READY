@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardCheck, Circle, XCircle } from 'lucide-react';
 
 import { listSprints } from '../../api/sprints';
+import { SelectSprintPrompt } from '../../components/SprintContextBar';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { listSprintDocuments } from '../../api/documents';
 import { listSprintFacts } from '../../api/facts';
 import { listSprintGaps } from '../../api/gaps';
@@ -50,12 +52,13 @@ const STATE_TONE = {
 
 export const UatReadiness: React.FC = () => {
   const navigate = useNavigate();
-  const [sprintId, setSprintId] = useState('');
+  // The selected sprint is shared by every page (context/SelectedSprintContext.tsx).
+  const { sprintId: selectedSprintId } = useSelectedSprint();
 
   const { data: sprints, loading, error, refetch } =
     useApiResource<Sprint[]>(() => listSprints(), []);
 
-  const activeSprintId = sprintId || sprints?.[0]?.id || '';
+  const activeSprintId = selectedSprintId;
   const enabled = !!activeSprintId;
 
   const { data: documents } = useApiResource<SprintDocument[]>(
@@ -173,6 +176,8 @@ export const UatReadiness: React.FC = () => {
     );
   }
 
+  if (!activeSprintId) return <SelectSprintPrompt />;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -181,21 +186,6 @@ export const UatReadiness: React.FC = () => {
         description="Whether this engagement is ready to hand over — every check computed from the sprint's real state."
       />
 
-      <div className="glass-card p-4">
-        <label className="label" htmlFor="uat-sprint">Sprint</label>
-        <select
-          id="uat-sprint"
-          value={activeSprintId}
-          onChange={(e) => setSprintId(e.target.value)}
-          className="input"
-        >
-          {sprints.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.institution_name || s.name || 'Institution'} · {s.sprint_code} ({s.status.replace(/_/g, ' ')})
-            </option>
-          ))}
-        </select>
-      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Metric label="Checks passing" value={`${passed} / ${checks.length}`} tone={passed === checks.length ? 'success' : 'default'} />

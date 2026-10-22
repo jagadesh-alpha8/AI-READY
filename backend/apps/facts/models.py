@@ -64,6 +64,14 @@ class ExtractedFact(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    # Who is expected to review it and by when (apps/facts/ownership.py). `owner_role` is the role
+    # responsible; the assignee is one person of that role (or an Institution Admin). Assigning never
+    # widens who may act -- that stays the ownership rule.
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_facts',
+    )
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    due_date = models.DateField(null=True, blank=True)
     # The fact's AI-QIF category tags live in FactAIQIFMapping; this is their
     # summary: MAPPED (at least one confident indicator), NEEDS_REVIEW (only
     # low-confidence ones), UNMAPPED (the AI found no clear indicator),
@@ -141,6 +149,10 @@ class FactReviewHistory(models.Model):
         CORRECTED = 'corrected', 'Corrected'
         REJECTED = 'rejected', 'Rejected'
         EVIDENCE_REQUESTED = 'evidence_requested', 'Evidence Requested'
+        #: An evidence request was withdrawn and the fact's earlier status restored (EvidenceRequest).
+        REQUEST_WITHDRAWN = 'request_withdrawn', 'Evidence Request Withdrawn'
+        #: Assigned / reassigned / unassigned; new_value = {"from", "to", "due_date"} (ownership.assign).
+        ASSIGNED = 'assigned', 'Assigned'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     fact = models.ForeignKey(ExtractedFact, on_delete=models.CASCADE, related_name='review_history')
@@ -163,3 +175,157 @@ class FactReviewHistory(models.Model):
 
     def __str__(self):
         return f'{self.fact_id} — {self.action}'
+
+
+class EvidenceRequest(models.Model):
+    """A reviewer's request for evidence behind one fact, from request to an explicit resolution.
+
+    Lifecycle (apps/facts/evidence_requests.py; every step is an EvidenceRequestEvent):
+    open -> submitted (the assigned user linked a document) -> accepted / accepted_corrected
+    (the reviewer confirmed or corrected the fact with that citation) or returned / open (the
+    evidence was rejected); withdrawn at any point before resolution. Only a reviewer's decision
+    resolves a request -- never an upload, an extraction or the AI. Only the fact's own
+    confirmed/corrected status feeds the CRI, at the next recalculation."""
+
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Open'
+        SUBMITTED = 'submitted', 'Evidence submitted'
+        PROCESSING = 'processing', 'Evidence processing'
+        READY_FOR_REVIEW = 'ready_for_review', 'Ready for review'
+        RETURNED = 'returned', 'Returned for more evidence'
+        ACCEPTED = 'accepted', 'Accepted (fact confirmed)'
+        ACCEPTED_CORRECTED = 'accepted_corrected', 'Accepted with correction'
+        WITHDRAWN = 'withdrawn', 'Withdrawn'
+
+    UNRESOLVED = (Status.OPEN, Status.SUBMITTED, Status.PROCESSING, Status.READY_FOR_REVIEW, Status.RETURNED)
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.ForeignKey('sprints.Sprint', on_delete=models.CASCADE, related_name='evidence_requests')
+    fact = models.ForeignKey(ExtractedFact, on_delete=models.CASCADE, related_name='evidence_requests')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+                                     related_name='+')
+    #: The fact's owner role when requested -- a hint for choosing a person, never the assignee itself.
+    suggested_owner_role = models.CharField(max_length=50, blank=True)
+    assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='assigned_evidence_requests')
+    description = models.TextField(help_text='What evidence is needed and why.')
+    evidence_needed = models.TextField(blank=True)
+    reason = models.TextField(blank=True)
+    due_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    #: The fact's status before the request, restored if the request is withdrawn.
+    fact_status_before = models.CharField(max_length=20, choices=ExtractedFact.Status.choices)
+    resolution_note = models.TextField(blank=True)
+    resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+')
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['fact'], condition=models.Q(
+                status__in=['open', 'submitted', 'processing', 'ready_for_review', 'returned']),
+                                    name='one_unresolved_evidence_request_per_fact'),
+        ]
+
+    def __str__(self):
+        return f'Evidence for {self.fact_id} ({self.status})'
+
+    @property
+    def is_resolved(self):
+        return self.status not in self.UNRESOLVED
+
+
+class EvidenceRequestDocument(models.Model):
+    """One document or text submission for a request, its AI triage, and the reviewer's decision."""
+
+    class Status(models.TextChoices):
+        SUBMITTED = 'submitted', 'Awaiting review'
+        ACCEPTED = 'accepted', 'Accepted'
+        RETURNED = 'returned', 'Returned for more evidence'
+        REJECTED = 'rejected', 'Rejected'
+
+    class AnalysisStatus(models.TextChoices):
+        PENDING = 'pending', 'Submitted'
+        PROCESSING = 'processing', 'Processing'
+        READY = 'ready', 'Ready for review'
+        FAILED = 'failed', 'Processing failed'
+
+    class AnalysisOutcome(models.TextChoices):
+        SUPPORTS = 'supports', 'Supports the fact'
+        CONTRADICTS = 'contradicts', 'Contradicts the fact'
+        DOES_NOT_ADDRESS = 'does_not_address', 'Does not address the fact'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    request = models.ForeignKey(EvidenceRequest, on_delete=models.CASCADE, related_name='evidence')
+    document = models.ForeignKey('documents.Document', on_delete=models.PROTECT, null=True, blank=True,
+                                 related_name='evidence_links')
+    submitted_text = models.TextField(blank=True)
+    source_context = models.TextField(blank=True)
+    uploaded_for_request = models.BooleanField(default=False)
+    source_page = models.CharField(max_length=50, blank=True)
+    source_snippet = models.TextField(blank=True)
+    note = models.TextField(blank=True)
+    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+                                     related_name='+')
+    analysis_status = models.CharField(max_length=20, choices=AnalysisStatus.choices,
+                                       default=AnalysisStatus.PENDING)
+    analysis_outcome = models.CharField(max_length=24, choices=AnalysisOutcome.choices, blank=True)
+    analysis_summary = models.TextField(blank=True)
+    analysis_quote = models.TextField(blank=True)
+    analysis_page_number = models.PositiveIntegerField(null=True, blank=True)
+    analysis_document_reference = models.CharField(max_length=255, blank=True)
+    analysis_suggested_value = models.JSONField(null=True, blank=True)
+    analysis_confidence = models.FloatField(null=True, blank=True,
+                                            validators=[MinValueValidator(0), MaxValueValidator(1)])
+    analysis_error = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.SUBMITTED)
+    review_reason = models.TextField(blank=True)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=(models.Q(document__isnull=False, submitted_text='') |
+                           (models.Q(document__isnull=True) & ~models.Q(submitted_text=''))),
+                name='evidence_request_document_or_text',
+            ),
+        ]
+
+
+class EvidenceRequestEvent(models.Model):
+    """Append-only audit trail of one evidence request -- never edited or deleted."""
+
+    class Action(models.TextChoices):
+        CREATED = 'created', 'Requested'
+        ASSIGNED = 'assigned', 'Assigned'
+        COMMENTED = 'commented', 'Comment'
+        EVIDENCE_SUBMITTED = 'evidence_submitted', 'Evidence submitted'
+        ANALYSIS_STARTED = 'analysis_started', 'AI assessment started'
+        ANALYSIS_COMPLETED = 'analysis_completed', 'AI assessment completed'
+        ANALYSIS_FAILED = 'analysis_failed', 'AI assessment failed'
+        EVIDENCE_RETURNED = 'evidence_returned', 'Evidence returned for more'
+        EVIDENCE_REJECTED = 'evidence_rejected', 'Evidence rejected'
+        FACT_UPDATED = 'fact_updated', 'Fact updated from accepted evidence'
+        GAPS_RESOLVED = 'gaps_resolved', 'Related gaps resolved'
+        ACCEPTED = 'accepted', 'Accepted, fact confirmed'
+        ACCEPTED_CORRECTED = 'accepted_corrected', 'Accepted with correction'
+        WITHDRAWN = 'withdrawn', 'Withdrawn'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    request = models.ForeignKey(EvidenceRequest, on_delete=models.CASCADE, related_name='events')
+    action = models.CharField(max_length=24, choices=Action.choices)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    note = models.TextField(blank=True)
+    #: Action details, e.g. {"from": user, "to": user}, {"document_id": ...}, {"status": "returned"}.
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']

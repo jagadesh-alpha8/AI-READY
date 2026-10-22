@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.scoring.constants import AIQIF_CRITERION_CODES, AIQIF_INDICATORS, PILLAR_LABELS
 
-from .models import ExtractedFact, FactAIQIFMapping, FactReviewHistory
+from .models import EvidenceRequest, ExtractedFact, FactAIQIFMapping, FactReviewHistory
 
 
 class FactAIQIFMappingSerializer(serializers.ModelSerializer):
@@ -56,6 +56,16 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
     # The fact's AI-QIF category tags -- separate from `pillar`, which is what
     # the CRI scores the fact under.
     aiqif_mappings = FactAIQIFMappingSerializer(many=True, read_only=True)
+    #: True when the system confirmed it (confidence above FACT_AUTO_CONFIRM_MIN_CONFIDENCE), not a person.
+    auto_confirmed = serializers.SerializerMethodField()
+    # The fact's unresolved evidence request (apps/facts/evidence_requests.py), or null.
+    open_evidence_request = serializers.SerializerMethodField()
+    # Responsibility (apps/facts/ownership.py): the owner role, the person assigned and by when, and
+    # whether the requesting user may act -- with who may, when not. Only the server's check counts.
+    owner_role_label = serializers.SerializerMethodField()
+    assigned_to_name = serializers.SerializerMethodField()
+    can_act = serializers.SerializerMethodField()
+    act_blocked_reason = serializers.SerializerMethodField()
 
     class Meta:
         model = ExtractedFact
@@ -64,10 +74,55 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
             'value_json', 'normalized_value', 'data_type', 'pillar', 'pillar_label', 'owner_role',
             'source_document_id', 'source_document_filename', 'source_page', 'source_snippet',
             'confidence_score', 'confidence', 'confidence_reason', 'extraction_method', 'status',
-            'aiqif_mapping_status', 'aiqif_mappings',
+            'aiqif_mapping_status', 'aiqif_mappings', 'open_evidence_request', 'auto_confirmed',
+            'owner_role_label', 'assigned_to', 'assigned_to_name', 'assigned_at', 'due_date', 'can_act',
+            'act_blocked_reason',
             'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
+
+    def _check(self, obj):
+        request = self.context.get('request')
+        if request is None or not getattr(request, 'user', None) or not request.user.is_authenticated:
+            return None
+        from .ownership import check_fact
+        return check_fact(request.user, obj)
+
+    def get_owner_role_label(self, obj):
+        from .ownership import fact_owner_role, role_label
+        return role_label(fact_owner_role(obj)) or 'Coordinators (no owner role)'
+
+    def get_assigned_to_name(self, obj):
+        from .ownership import person_name
+        return person_name(obj.assigned_to) if obj.assigned_to_id else ''
+
+    def get_can_act(self, obj):
+        result = self._check(obj)
+        return None if result is None else result[0]
+
+    def get_act_blocked_reason(self, obj):
+        result = self._check(obj)
+        return '' if result is None else result[1]
+
+    def get_auto_confirmed(self, obj):
+        from .auto_confirm import is_auto_confirmed
+        return is_auto_confirmed(obj)
+
+    def get_open_evidence_request(self, obj):
+        from datetime import date
+        pending = getattr(obj, 'open_evidence_requests', None)
+        if pending is None:
+            pending = list(obj.evidence_requests.filter(status__in=EvidenceRequest.UNRESOLVED)
+                           .select_related('assigned_to'))
+        if not pending:
+            return None
+        r = pending[0]
+        return {
+            'id': str(r.id), 'status': r.status, 'status_label': r.get_status_display(),
+            'assigned_to': str(r.assigned_to_id) if r.assigned_to_id else None,
+            'assigned_to_name': (r.assigned_to.get_full_name() or r.assigned_to.email) if r.assigned_to else '',
+            'due_date': r.due_date, 'overdue': bool(r.due_date and r.due_date < date.today()),
+        }
 
     def get_pillar_label(self, obj):
         return PILLAR_LABELS.get(obj.pillar, '') if obj.pillar else ''
@@ -121,10 +176,6 @@ class FactRejectSerializer(_ReasonSerializer):
     pass
 
 
-class FactEvidenceRequestSerializer(_ReasonSerializer):
-    pass
-
-
 class FactCorrectSerializer(_ReasonSerializer):
     """`new_value` is the canonical field; `corrected_value` is accepted as
     an alias for the same reason as `comment` above (the existing frontend
@@ -146,4 +197,11 @@ class FactCorrectSerializer(_ReasonSerializer):
 class FactAIQIFMappingReviewSerializer(serializers.Serializer):
     """A reviewer's decision on one AI-QIF tag of a fact."""
     decision = serializers.ChoiceField(choices=['confirm', 'reject'])
+    note = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class AssignSerializer(serializers.Serializer):
+    """POST /facts/<id>/assign and /gaps/<id>/assign. assigned_to null = unassign."""
+    assigned_to = serializers.UUIDField(required=False, allow_null=True)
+    due_date = serializers.DateField(required=False, allow_null=True)
     note = serializers.CharField(required=False, allow_blank=True, default='')

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import type { SourceDocument, SourceVersion } from '../../api/benchmarks';
-import { SourceVersionPanel } from './SourceVersionPanel';
+import { SourceDetailsAI, SourceVersionPanel } from './SourceVersionPanel';
 
 /**
  * The Source Library as a table: one row per source (its latest version), every
@@ -139,6 +139,7 @@ const RowDetail: React.FC<{ d: SourceDocument; onChanged: () => void }> = ({ d, 
           {v.review_flags.map((f) => <li key={f}>{f}</li>)}
         </ul>
       )}
+      <SourceDetailsAI sourceCode={d.source_code} hasText={!!(d.official_url || v?.file_uri)} onChanged={onChanged} />
       {v ? <SourceVersionPanel version={v} onChanged={onChanged} /> : <p className="text-ink-500">No version recorded yet.</p>}
     </div>
   );

@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { CheckCircle2, FileCheck2, Sparkles, XCircle } from 'lucide-react';
 
 import {
-  approveVersion, draftRequirements, ingestVersionFile, listCandidates, reviewCandidate, withdrawVersion,
+  approveVersion, compareVersion, draftRequirements, ingestVersionFile, listCandidates, reviewCandidate, withdrawVersion,
 } from '../../api/benchmarks';
-import type { RequirementCandidate, SourceVersion } from '../../api/benchmarks';
+import type { RequirementCandidate, SourceVersion, VersionComparison } from '../../api/benchmarks';
+import { AIJobPanel } from './AIJobPanel';
 import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage } from '../../utils/errors';
@@ -33,6 +34,7 @@ export const SourceVersionPanel: React.FC<{ version: SourceVersion; onChanged: (
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
 
   const run = async (label: string, action: () => Promise<unknown>, done?: string) => {
     setBusy(label);
@@ -111,7 +113,7 @@ export const SourceVersionPanel: React.FC<{ version: SourceVersion; onChanged: (
             <XCircle className="w-3.5 h-3.5" /> Withdraw
           </button>
         )}
-        {version.file_uri && (
+        {version.file_uri && version.status === 'active' && (
           <button className="btn-secondary btn-sm" disabled={!!busy || drafting}
             onClick={() => run('draft', () => draftRequirements(version.id), 'Queued: the Celery worker drafts in the background.')}>
             <Sparkles className="w-3.5 h-3.5" /> {drafting ? 'Drafting…' : 'Draft requirements with AI'}
@@ -122,7 +124,14 @@ export const SourceVersionPanel: React.FC<{ version: SourceVersion; onChanged: (
             Review {version.pending_candidates} draft(s)
           </button>
         )}
+        <button className="btn-secondary btn-sm" onClick={() => setCompareOpen(!compareOpen)}>
+          {compareOpen ? 'Hide comparison' : 'Compare with previous version'}
+        </button>
       </div>
+      {compareOpen && <VersionCompare versionId={version.id} />}
+      {approvable && (
+        <p className="text-ink-500">Next: approve this version; AI then drafts its requirements for review.</p>
+      )}
 
       {version.intake_note && <p className="text-ink-500">{version.intake_note}</p>}
       {version.extraction_note && (
@@ -196,7 +205,101 @@ const CandidateRow: React.FC<{ candidate: RequirementCandidate; onDone: () => vo
         <button className="btn-secondary btn-sm" disabled={busy} onClick={() => decide('reject')}>Reject</button>
       </div>
       {candidate.rationale && <p className="text-ink-500">AI: {candidate.rationale}</p>}
+      {(candidate.duplicates || []).length > 0 && (
+        <p className="text-warning">
+          Possible duplicate of {candidate.duplicates!.map((d) => `${d.code} (${Math.round(d.similarity * 100)}% same words)`).join(', ')}
+          {' '}- reject it if it says the same thing.
+        </p>
+      )}
+      {(candidate.suggested_benchmarks || []).length > 0 && (
+        <p className="text-ink-500">
+          Looks related to {candidate.suggested_benchmarks!.map((b) => `${b.code} ${b.title}`).join('; ')}
+          {' '}- once accepted, check the indicator fit in Requirements.
+        </p>
+      )}
       {error && <InlineError message={error} onDismiss={() => setError('')} />}
     </div>
+  );
+};
+
+const VersionCompare: React.FC<{ versionId: string }> = ({ versionId }) => {
+  const { data, loading, error, refetch } = useApiResource<VersionComparison>(() => compareVersion(versionId), [versionId]);
+  if (loading) return <LoadingState message="Comparing…" />;
+  if (error) return <ErrorState message={error} onRetry={refetch} />;
+  if (!data) return null;
+  if (!data.base) return <p className="text-ink-500">{data.note}</p>;
+  return (
+    <div className="rounded-lg border border-line-200 bg-white/60 p-3 space-y-1">
+      <p className="text-ink-700">
+        Against <strong>{data.base.version_label}</strong> ({data.base.status}):{' '}
+        {data.same_file ? 'same file (checksum identical)' : data.file_changed ? 'a different file' : 'file not compared'}
+        {data.pages && ` · pages ${data.pages.before ?? '?'} → ${data.pages.after ?? '?'}`}
+        {data.requirements_on_base ? ` · ${data.requirements_on_base} requirement(s) were approved on the earlier version` : ''}
+      </p>
+      {data.note && <p className="text-ink-500">{data.note}</p>}
+      {(data.added || []).length > 0 && (
+        <details open><summary className="cursor-pointer text-success">{data.added!.length} line(s) added</summary>
+          <ul className="mt-1 space-y-0.5">{data.added!.map((l, i) => <li key={i} className="text-success">+ {l}</li>)}</ul>
+        </details>
+      )}
+      {(data.removed || []).length > 0 && (
+        <details><summary className="cursor-pointer text-danger">{data.removed!.length} line(s) removed</summary>
+          <ul className="mt-1 space-y-0.5">{data.removed!.map((l, i) => <li key={i} className="text-danger">- {l}</li>)}</ul>
+        </details>
+      )}
+    </div>
+  );
+};
+
+const FIELD_LABEL: Record<string, string> = {
+  title: 'Title', authority_name: 'Authority (shown only)', document_type: 'Document type', source_role: 'Source role',
+  applies_to: 'Applies to', programme_scope: 'Programme scope', version_label: 'Version (draft version)',
+  issued_on: 'Issued on (draft version)', effective_from: 'Effective from (draft version)',
+};
+
+/** AI reads the source's stored file (or official page) and suggests its details, each with the quote it came from. */
+export const SourceDetailsAI: React.FC<{ sourceCode: string; hasText: boolean; onChanged: () => void }> = ({
+  sourceCode, hasText, onChanged,
+}) => {
+  const [chosen, setChosen] = useState<string[]>([]);
+  return (
+    <AIJobPanel kind="source_metadata" targetId={sourceCode} title="Source details (AI)" startLabel="Suggest details from the source"
+      disabled={hasText ? undefined : 'Store a file or add the official URL first; AI needs the source text.'} onChanged={onChanged}>
+      {(job, act) => {
+        const fields = (job.output.fields || {}) as Record<string, { value: string; quote: string; current: string | null }>;
+        return (
+          <div className="space-y-1">
+            <table className="w-full">
+              <tbody>
+                {Object.entries(fields).map(([name, f]) => (
+                  <tr key={name} className="border-t border-line-200 align-top">
+                    <td className="py-1 pr-2">
+                      {job.status === 'ready' && name !== 'authority_name' && (
+                        <input type="checkbox" checked={chosen.includes(name)}
+                          onChange={(e) => setChosen(e.target.checked ? [...chosen, name] : chosen.filter((c) => c !== name))} />
+                      )}
+                    </td>
+                    <td className="py-1 pr-2 font-semibold">{FIELD_LABEL[name] || name}</td>
+                    <td className="py-1 pr-2">
+                      <span className="text-ink-900">{f.value}</span>
+                      {f.current ? <span className="text-ink-500"> (now: {f.current})</span> : null}
+                      <p className="text-ink-500 italic">“{f.quote}”</p>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {(job.output.rejected || []).length > 0 && (
+              <p className="text-ink-500">Dropped (not found in the source): {job.output.rejected.map((r: { field: string }) => r.field).join(', ')}</p>
+            )}
+            {job.status === 'ready' && (
+              <button className="btn-primary btn-sm" disabled={!chosen.length} onClick={() => act('apply', { fields: chosen })}>
+                Apply {chosen.length || ''} selected value{chosen.length === 1 ? '' : 's'}
+              </button>
+            )}
+          </div>
+        );
+      }}
+    </AIJobPanel>
   );
 };

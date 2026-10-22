@@ -6,6 +6,7 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage } from '../../utils/errors';
 import type { DashboardData, Sprint } from '../../types';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { Building, Plus, Play, CheckCircle2, ArrowRight, ShieldCheck, Trash2, Archive } from 'lucide-react';
 import { useAccess } from '../../utils/access';
 
@@ -20,6 +21,8 @@ function average(values: (number | null)[]): number | null {
 export const Dashboard: React.FC = () => {
   const { can, canSee } = useAccess();
   const navigate = useNavigate();
+  // The selected sprint (shown in the header above); Open selects a sprint and goes to it.
+  const { sprintId: selectedSprintId, selectSprint, refreshSprints } = useSelectedSprint();
 
   const {
     data: sprintsList,
@@ -36,6 +39,7 @@ export const Dashboard: React.FC = () => {
     try {
       await deleteSprint(sprint.id);
       refetchSprints();
+      refreshSprints(); // the header and sidebar forget a deleted sprint
       refetchDashboard();
     } catch (err) {
       console.error('Failed to delete sprint:', err);
@@ -55,6 +59,7 @@ export const Dashboard: React.FC = () => {
     try {
       await archiveSprint(sprint.id);
       refetchSprints();
+      refreshSprints(); // the header and sidebar forget a deleted sprint
       refetchDashboard();
     } catch (err) {
       console.error('Failed to archive sprint:', err);
@@ -196,7 +201,10 @@ export const Dashboard: React.FC = () => {
                       <p className="font-semibold text-ink-900">
                         {sprint.institution_name || sprint.name || 'Unnamed institution'}
                       </p>
-                      <p className="font-mono text-xs text-brand-800">{sprint.sprint_code}</p>
+                      <p className="font-mono text-xs text-brand-800">
+                        {sprint.sprint_code}
+                        {sprint.id === selectedSprintId && <span className="badge-brand ml-2 font-sans">Selected</span>}
+                      </p>
                       {sprint.name && sprint.name !== sprint.institution_name && (
                         <p className="text-xs text-ink-500">{sprint.name}</p>
                       )}
@@ -231,7 +239,10 @@ export const Dashboard: React.FC = () => {
                           </button>
                         )}
                         <button
-                          onClick={() => navigate(`/sprint/${sprint.id}/${canSee('sprint-upload') ? 'upload' : 'score'}`)}
+                          onClick={() => {
+                            selectSprint(sprint.id);
+                            navigate(`/sprint/${sprint.id}/${canSee('sprint-upload') ? 'upload' : 'score'}`);
+                          }}
                           className="btn-secondary btn-sm ml-1"
                         >
                           <span>Open</span>

@@ -8,6 +8,7 @@ import type {
   ApprovedRequirement, BenchmarkLink, BenchmarkSuggestion, LinkRelationship,
 } from '../../api/benchmarks';
 import { useApiResource } from '../../hooks/useApiResource';
+import { AIJobPanel } from './AIJobPanel';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage } from '../../utils/errors';
 
@@ -146,7 +147,68 @@ const RequirementCard: React.FC<{ requirement: ApprovedRequirement; onChanged: (
         </div>
       </div>
       {open && <Suggestions requirementCode={r.code} onLinked={onChanged} />}
+      <IndicatorFitAI requirementCode={r.code} linked={r.benchmarks.map((b) => b.benchmark_code)} onChanged={onChanged} />
     </div>
+  );
+};
+
+/** AI: does this requirement support an existing indicator, or a distinct new one? People decide: link, or send
+ * the proposal to expert review (its draft is then created from the proposal once every expert approves). */
+const IndicatorFitAI: React.FC<{ requirementCode: string; linked: string[]; onChanged: () => void }> = ({
+  requirementCode, linked, onChanged,
+}) => {
+  const [error, setError] = useState('');
+  const link = async (code: string, relationship: LinkRelationship) => {
+    setError('');
+    try {
+      await linkRequirement(code, { requirement_code: requirementCode, relationship, note: 'Recommended by AI indicator fit.' });
+      onChanged();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  };
+  return (
+    <AIJobPanel kind="requirement_fit" targetId={requirementCode} title="Indicator fit (AI)" startLabel="Check indicator fit"
+      onChanged={onChanged}>
+      {(job, act) => {
+        const out = job.output;
+        const prop = out.new_indicator;
+        return (
+          <div className="space-y-2">
+            <p className="text-ink-700">{out.rationale}</p>
+            {(out.matches || []).map((m: { benchmark_code: string; relationship: LinkRelationship; rationale: string; confidence: number | null }) => (
+              <div key={m.benchmark_code} className="rounded border border-line-200 bg-white/60 p-2 flex items-start gap-2">
+                <span className="badge badge-neutral">{m.relationship}</span>
+                <p className="flex-1"><span className="font-mono">{m.benchmark_code}</span> - {m.rationale}
+                  {m.confidence != null ? ` (${Math.round(m.confidence * 100)}%)` : ''}</p>
+                {linked.includes(m.benchmark_code) ? <span className="text-success">linked</span> : (
+                  <button className="btn-primary btn-sm" onClick={() => link(m.benchmark_code, m.relationship)}>
+                    <Link2 className="w-3.5 h-3.5" /> Link as {m.relationship}
+                  </button>
+                )}
+              </div>
+            ))}
+            {prop && (
+              <div className="rounded border border-brand-500/40 bg-white/60 p-2 space-y-1">
+                <p className="font-bold text-ink-900">Proposed new indicator: {prop.title}</p>
+                <p>{prop.pillar_code} · capability {prop.capability_code} · {prop.benchmark_kind}</p>
+                <p>{prop.capability_statement} <span className="text-ink-500">Measured by: {prop.how_measured}</span></p>
+                <p className="italic text-ink-600">“{prop.source_quote}”</p>
+                <p className="text-ink-600">Why: {prop.rationale}</p>
+                <p className="text-ink-500">Duplicate check: {(prop.duplicates || []).length
+                  ? prop.duplicates.map((d: { code: string; similarity: number }) => `${d.code} ${Math.round(d.similarity * 100)}%`).join(', ')
+                  : 'no similar indicator found'}</p>
+                {prop.blocked ? <p className="text-warning">{prop.blocked_reason}</p> : job.status === 'ready' && (
+                  <button className="btn-primary btn-sm" onClick={() => act('propose')}>Send to expert review</button>
+                )}
+              </div>
+            )}
+            {out.decision === 'none' && <p className="text-ink-500">The AI found this requirement is not about AI readiness.</p>}
+            {error && <InlineError message={error} onDismiss={() => setError('')} />}
+          </div>
+        );
+      }}
+    </AIJobPanel>
   );
 };
 

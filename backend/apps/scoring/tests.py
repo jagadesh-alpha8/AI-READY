@@ -122,6 +122,22 @@ class EngineDeterminismTests(ScoringTestBase):
         pillar_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='aiqif_c1')
         self.assertEqual(pillar_score.evidence_count, 0)
 
+    def test_facts_and_scores_are_isolated_between_sprints(self):
+        other_sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.QUICK_CRI)
+        self._make_fact(sprint=other_sprint, field_key='other_sprint_fact', pillar='aiqif_c1')
+
+        run_scoring_engine(self.sprint)
+        first_score = PillarScore.objects.get(sprint=self.sprint, pillar__key='aiqif_c1')
+        self.assertEqual((first_score.evidence_count, first_score.raw_score), (0, 0.0))
+
+        self._make_fact(field_key='this_sprint_fact', pillar='aiqif_c1', confidence_score=0.6)
+        run_scoring_engine(self.sprint)
+        first_score.refresh_from_db()
+        run_scoring_engine(other_sprint)
+        other_score = PillarScore.objects.get(sprint=other_sprint, pillar__key='aiqif_c1')
+        self.assertEqual((first_score.evidence_count, first_score.raw_score), (1, 60.0))
+        self.assertEqual((other_score.evidence_count, other_score.raw_score), (1, 80.0))
+
     def test_unresolved_gap_reduces_raw_score_by_fixed_priority_penalty(self):
         self._make_fact(confidence_score=0.95)
         self._make_gap(priority=GapItem.Priority.BLOCKING)

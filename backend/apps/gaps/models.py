@@ -27,12 +27,15 @@ class GapItem(models.Model):
         RESOLVED = 'resolved', 'Resolved'
         UNAVAILABLE = 'unavailable', 'Unavailable'
         SKIPPED = 'skipped', 'Skipped'
+        #: The fact behind it was rejected: still a gap (its penalty stays), now waiting for a
+        #: replacement value or evidence rather than a confirmation (apps.gaps.services).
+        NEEDS_REPLACEMENT = 'needs_replacement', 'Rejected - needs replacement'
 
     #: Statuses a gap can still meaningfully act on -- used both by the
     #: uniqueness constraints below (a resolved/skipped gap doesn't block a
     #: fresh one from being raised later if the same issue recurs) and by
     #: apps.gaps.services' own dedup checks.
-    ACTIVE_STATUSES = [Status.OPEN, Status.IN_PROGRESS]
+    ACTIVE_STATUSES = [Status.OPEN, Status.IN_PROGRESS, Status.NEEDS_REPLACEMENT]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     sprint = models.ForeignKey('sprints.Sprint', on_delete=models.CASCADE, related_name='gaps')
@@ -71,6 +74,13 @@ class GapItem(models.Model):
         null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(1)],
     )
 
+    # Who is expected to settle it and by when (apps/facts/ownership.py); never widens who may act.
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='assigned_gaps',
+    )
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    due_date = models.DateField(null=True, blank=True)
+
     resolution = models.TextField(blank=True)
     resolved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
@@ -86,7 +96,7 @@ class GapItem(models.Model):
             # conflict (fact-scoped by its lowest-confidence representative).
             models.UniqueConstraint(
                 fields=['gap_type', 'source_fact'],
-                condition=models.Q(source_fact__isnull=False, status__in=['open', 'in_progress']),
+                condition=models.Q(source_fact__isnull=False, status__in=['open', 'in_progress', 'needs_replacement']),
                 name='unique_active_gap_per_fact_and_type',
             ),
             # stale_data (document-scoped, no source_fact).
@@ -94,7 +104,7 @@ class GapItem(models.Model):
                 fields=['gap_type', 'related_document'],
                 condition=models.Q(
                     related_document__isnull=False, source_fact__isnull=True,
-                    status__in=['open', 'in_progress'],
+                    status__in=['open', 'in_progress', 'needs_replacement'],
                 ),
                 name='unique_active_gap_per_document_and_type',
             ),
@@ -104,7 +114,7 @@ class GapItem(models.Model):
                 fields=['sprint', 'gap_type', 'title'],
                 condition=models.Q(
                     source_fact__isnull=True, related_document__isnull=True,
-                    status__in=['open', 'in_progress'],
+                    status__in=['open', 'in_progress', 'needs_replacement'],
                 ),
                 name='unique_active_gap_per_sprint_type_title',
             ),
@@ -112,3 +122,28 @@ class GapItem(models.Model):
 
     def __str__(self):
         return f'{self.title} ({self.status})'
+
+
+class GapEvent(models.Model):
+    """Append-only history of one gap: assignments, closes (and why), automatic resolutions, and a
+    rejected fact moving it to "needs replacement"."""
+
+    class Action(models.TextChoices):
+        ASSIGNED = 'assigned', 'Assigned'
+        RESOLVED = 'resolved', 'Resolved'
+        MARKED_UNAVAILABLE = 'unavailable', 'Marked unavailable'
+        SKIPPED = 'skipped', 'Skipped'
+        AUTO_RESOLVED = 'auto_resolved', 'Resolved by the underlying fix'
+        NEEDS_REPLACEMENT = 'needs_replacement', 'Fact rejected - needs replacement'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    gap = models.ForeignKey(GapItem, on_delete=models.CASCADE, related_name='events')
+    action = models.CharField(max_length=24, choices=Action.choices)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name='+')
+    note = models.TextField(blank=True)
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']

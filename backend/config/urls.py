@@ -19,6 +19,7 @@ urlpatterns = [
     path('api/v1/documents', include('apps.documents.urls')),
     path('api/v1/extraction-jobs', include('apps.extraction.urls')),
     path('api/v1/facts', include('apps.facts.urls')),
+    path('api/v1/evidence-requests', include('apps.facts.evidence_urls')),
     path('api/v1/gaps', include('apps.gaps.urls')),
     path('api/v1/scoring', include('apps.scoring.urls')),
     path('api/v1/recommendations', include('apps.recommendations.urls')),

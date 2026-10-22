@@ -107,6 +107,11 @@ def make_pdf(name='doc.pdf', page_texts=('Sample document text for extraction pi
 
 class ExtractionJobTestBase(APITestCase):
     def setUp(self):
+        # These tests are about the review flow of unreviewed facts, and their fixture facts are 96% confident;
+        # auto-confirmation (apps/facts/auto_confirm.py) is switched off here and tested in AutoConfirmTests.
+        no_auto = override_settings(FACT_AUTO_CONFIRM_MIN_CONFIDENCE=None)
+        no_auto.enable()
+        self.addCleanup(no_auto.disable)
         self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
         self.other_institution = Institution.objects.create(name='Other', city='X', state='Y')
 
@@ -178,6 +183,78 @@ class JobCreationTests(ExtractionJobTestBase):
         response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data, [])
+        self.assertEqual(ExtractionJob.objects.filter(document=self.document).count(), 1)
+
+    def test_explicit_repeat_after_completion_does_not_create_another_job(self):
+        self._auth(self.iqac)
+        payload = {'document_ids': [str(self.document.id)]}
+        first = self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/', payload, format='json')
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.data)
+        self.assertEqual(first.data[0]['status'], ExtractionJob.Status.COMPLETED)
+
+        again = self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/', payload, format='json')
+        self.assertEqual(again.status_code, status.HTTP_201_CREATED, again.data)
+        self.assertEqual(again.data, [])
+        self.assertEqual(ExtractionJob.objects.filter(document=self.document).count(), 1)
+
+    def test_legacy_processed_document_without_a_sprint_job_is_still_queued(self):
+        self._auth(self.iqac)
+        self.document.status = Document.Status.PROCESSED
+        self.document.save(update_fields=['status', 'updated_at'])
+
+        response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(str(response.data[0]['document_id']), str(self.document.id))
+
+    def test_same_content_renamed_in_another_sprint_gets_its_own_job_and_facts(self):
+        self._auth(self.iqac)
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact()]}
+
+        first_response = self.client.post(
+            f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/', {'document_id': str(self.document.id)},
+        )
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED, first_response.data)
+        self.assertEqual(self.sprint.facts.filter(field_key='total_faculty').count(), 1)
+
+        second_sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.QUICK_CRI)
+        self.document.file.open('rb')
+        identical_bytes = self.document.file.read()
+        self.document.file.close()
+        upload = self.client.post(
+            f'/api/v1/sprints/{second_sprint.id}/upload-file/',
+            {'file': SimpleUploadedFile('renamed-ssr.pdf', identical_bytes, content_type='application/pdf'),
+             'document_type': 'naac_ssr'}, format='multipart',
+        )
+        self.assertEqual(upload.status_code, status.HTTP_201_CREATED, upload.data)
+        second_document = Document.objects.get(id=upload.data['id'])
+        self.assertEqual(second_document.checksum, self.document.checksum)
+
+        second_response = self.client.post(
+            f'/api/v1/sprints/{second_sprint.id}/extraction-jobs/', {'document_id': str(second_document.id)},
+        )
+        self.assertEqual(second_response.status_code, status.HTTP_201_CREATED, second_response.data)
+        second_job = ExtractionJob.objects.get(document=second_document)
+        self.assertNotEqual(second_job.id, first_response.data[0]['id'])
+        self.assertEqual(second_job.sprint_id, second_sprint.id)
+        self.assertEqual(second_sprint.facts.filter(field_key='total_faculty').count(), 1)
+        self.assertEqual(
+            list(ExtractedFact.objects.filter(field_key='total_faculty').values_list('sprint_id', flat=True)),
+            [second_sprint.id, self.sprint.id],
+        )
+
+    def test_retry_of_a_failed_document_reuses_its_processing_record(self):
+        self._auth(self.iqac)
+        initial = self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/')
+        self.assertEqual(initial.status_code, status.HTTP_201_CREATED, initial.data)
+        job = ExtractionJob.objects.get(document=self.document)
+        job.status = ExtractionJob.Status.FAILED
+        job.save(update_fields=['status', 'updated_at'])
+
+        retried = self.client.post(f'/api/v1/extraction-jobs/sprints/{self.sprint.id}/process-incomplete')
+        self.assertEqual(retried.status_code, status.HTTP_200_OK, retried.data)
+        self.assertEqual(len(retried.data), 1)
+        self.assertEqual(retried.data[0]['id'], str(job.id))
         self.assertEqual(ExtractionJob.objects.filter(document=self.document).count(), 1)
 
     def test_post_with_explicit_document_id_targets_only_that_document(self):
@@ -3296,3 +3373,244 @@ class CombinedAnalysisPipelineTests(ExtractionJobTestBase):
         self.assertEqual(self.document.ai_document_type, 'aqar_report')
         self.assertEqual(self.document.extracted_facts.count(), 1)
         self.assertEqual((fact.status, fact.value), (ExtractedFact.Status.CONFIRMED, 42))
+
+
+# -- extraction completeness: partial documents are visible, retried in place, and gate the baseline ----------
+
+PAGE_TEXTS = (
+    'Page one marker. The institution has 42 faculty members on its rolls.',
+    'Page two marker. Laboratories list twelve GPU workstations for students.',
+    'Page three marker. The placement cell records 310 offers this academic year.',
+)
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True,
+                   OPENAI_FACT_EXTRACTION_MAX_CHUNK_CHARS=90)
+class ExtractionCompletenessTests(ExtractionJobTestBase):
+    """A document whose chunks failed or were skipped is "partial", never shown as fully processed."""
+
+    def setUp(self):
+        super().setUp()
+        self.fail_page_two = True
+        self.analysis_service.extract_structured_data.side_effect = self._answer
+        self._auth(self.iqac)
+        upload = self.client.post(f'/api/v1/sprints/{self.sprint.id}/upload-file/',
+                                  {'file': make_pdf('three.pdf', PAGE_TEXTS), 'document_type': 'naac_ssr'},
+                                  format='multipart')
+        self.doc = Document.objects.get(id=upload.data['id'])
+        Document.objects.filter(id=self.document.id).update(status=Document.Status.REJECTED)  # only self.doc counts
+        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
+
+    def _answer(self, **kwargs):
+        content = kwargs.get('user_content', '')
+        if kwargs.get('schema_name') == 'document_analysis':
+            return {'classification': dict(FAKE_CLASSIFICATION_RESULT),
+                    'facts': [_valid_fact(source_page='1', source_snippet='The institution has 42 faculty members')]}
+        if self.fail_page_two and 'Page two marker' in content:
+            raise PermanentExtractionError('The AI answer was not valid JSON.')
+        return {'facts': []}
+
+    def _process(self):
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/', {'document_id': str(self.doc.id)})
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.data)
+        return ExtractionJob.objects.get(id=r.data[0]['id'])
+
+    def _summary(self):
+        return self.client.get(f'/api/v1/sprints/{self.sprint.id}/processing-summary').data
+
+    def test_a_failed_chunk_makes_the_document_partial_everywhere(self):
+        job = self._process()
+        self.assertEqual((job.status, job.completeness), (ExtractionJob.Status.COMPLETED, 'partial'))
+        self.assertEqual((job.chunks_total, job.chunks_completed), (3, 2))
+        self.assertEqual([w['kind'] for w in job.extraction_warnings], ['chunk_failed'])
+        self.assertIn('pages 2-2', job.extraction_warnings[0]['detail'])
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.processing_status, 'processed_partial')
+        listed = self.client.get(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs').data
+        rows = listed['results'] if isinstance(listed, dict) else listed
+        self.assertEqual(rows[0]['completeness'], 'partial')
+        summary = self._summary()
+        self.assertFalse(summary['complete'])
+        self.assertEqual((summary['counts']['partial'], summary['counts']['complete']), (1, 0))
+        self.assertIn('1 partial', summary['description'])
+
+    def test_chunks_over_the_limit_are_reported_as_skipped(self):
+        self.fail_page_two = False
+        with override_settings(OPENAI_FACT_EXTRACTION_MAX_CHUNKS=2):
+            job = self._process()
+        self.assertEqual(job.completeness, 'partial')
+        self.assertEqual(job.extraction_warnings[0]['kind'], 'chunks_skipped')
+        self.assertEqual(job.extraction_warnings[0]['chunks'], [3])
+
+    def test_retrying_a_partial_document_reuses_its_job_and_never_duplicates_facts(self):
+        job = self._process()
+        facts_before = sorted(self.doc.extracted_facts.values_list('field_key', flat=True))
+        self.fail_page_two = False
+        r = self.client.post(f'/api/v1/extraction-jobs/{job.id}/process')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        job.refresh_from_db()
+        self.assertEqual((r.data['id'], job.completeness, job.extraction_warnings), (str(job.id), 'complete', []))
+        self.assertEqual(ExtractionJob.objects.filter(document=self.doc).count(), 1)
+        self.assertEqual(sorted(self.doc.extracted_facts.values_list('field_key', flat=True)), facts_before)
+        self.assertTrue(self._summary()['complete'])
+        # A fully processed document is not queued again by "process unfinished" or a bulk selection.
+        again = self.client.post(f'/api/v1/extraction-jobs/sprints/{self.sprint.id}/process-incomplete')
+        self.assertEqual(again.data, [])
+        bulk = self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/',
+                                {'document_ids': [str(self.doc.id)]}, format='json')
+        self.assertEqual(bulk.data, [])
+
+    def test_process_unfinished_picks_up_partial_documents(self):
+        job = self._process()
+        self.fail_page_two = False
+        r = self.client.post(f'/api/v1/extraction-jobs/sprints/{self.sprint.id}/process-incomplete')
+        self.assertEqual([row['id'] for row in r.data], [str(job.id)])
+        job.refresh_from_db()
+        self.assertEqual(job.completeness, 'complete')
+
+    # -- the baseline gate ---------------------------------------------------------------------------
+    def _pending_baseline(self):
+        from apps.scoring.services import get_or_create_pending_baseline
+        return get_or_create_pending_baseline(self.sprint, triggered_by=self.admin)
+
+    def test_baseline_approval_is_refused_while_documents_are_partial_failed_or_unprocessed(self):
+        self._process()
+        upload = self.client.post(f'/api/v1/sprints/{self.sprint.id}/upload-file/',
+                                  {'file': make_pdf('new.pdf', ('A newly added document, never processed yet.',)),
+                                   'document_type': 'aqar_report'}, format='multipart')
+        self.assertEqual(upload.status_code, status.HTTP_201_CREATED, upload.data)
+        self._pending_baseline()
+        from apps.gaps.models import GapItem
+        GapItem.objects.filter(sprint=self.sprint, priority='blocking').update(status='resolved')  # gaps are another gate
+        self._auth(self.admin)
+        for path in ('approve', 'approve-provisional'):
+            r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/{path}', {'comments': 'ok'}, format='json')
+            self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, r.data)
+            self.assertIn('not fully processed', str(r.data['detail']))
+            counts = r.data['processing']['counts']
+            self.assertEqual((int(counts['partial']), int(counts['not_processed'])), (1, 1))
+        self.assertEqual(self.sprint.baselines.get().status, 'pending')
+        baseline_view = self.client.get(f'/api/v1/sprints/{self.sprint.id}/baseline').data
+        self.assertFalse(baseline_view['processing']['complete'])
+
+    def test_an_override_needs_a_reason_and_is_recorded_and_reported(self):
+        from apps.reports.services import build_report_data
+        from apps.scoring.models import BaselineDecisionHistory
+        self._process()
+        self._pending_baseline()
+        self._auth(self.admin)
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve-provisional',
+                             {'comments': 'ok', 'processing_override_reason': '   '}, format='json')
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)  # blank is not a reason
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve-provisional',
+                             {'comments': 'ok', 'processing_override_reason': 'Page 2 is a scanned annexure; '
+                              'its figures were confirmed by hand.'}, format='json')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertTrue(r.data['processing_incomplete'])
+        self.assertIn('scanned annexure', r.data['processing_override_reason'])
+        self.assertIn('1 partial', r.data['processing_snapshot']['description'])
+        history = BaselineDecisionHistory.objects.filter(action='approved_provisional').get()
+        self.assertIn('Decided with incomplete document processing', history.comments)
+        data = build_report_data(self.sprint)
+        self.assertFalse(data['processing']['complete'])
+        self.assertIn('scanned annexure', data['processing']['baseline_override']['reason'])
+        from apps.reports.rendering import _processing_lines
+        self.assertTrue(_processing_lines(data)[0].startswith('INCOMPLETE DOCUMENT PROCESSING'))
+
+    def test_fully_processed_documents_need_no_reason(self):
+        self.fail_page_two = False
+        self._process()
+        self._pending_baseline()
+        self._auth(self.admin)
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve-provisional', {'comments': 'ok'},
+                             format='json')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertFalse(r.data['processing_incomplete'])
+        self.assertTrue(r.data['processing_snapshot']['complete'])
+
+    def test_other_colleges_cannot_read_the_summary(self):
+        self._auth(self.outsider)
+        r = self.client.get(f'/api/v1/sprints/{self.sprint.id}/processing-summary')
+        self.assertIn(r.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
+class AutoConfirmTests(ExtractionJobTestBase):
+    """Facts above FACT_AUTO_CONFIRM_MIN_CONFIDENCE are confirmed by the system at the end of extraction
+    (apps/facts/auto_confirm.py) -- never ones in a conflict or whose number is not in their quote."""
+
+    def setUp(self):
+        super().setUp()
+        on = override_settings(FACT_AUTO_CONFIRM_MIN_CONFIDENCE=0.8)
+        on.enable()
+        self.addCleanup(on.disable)
+        self._auth(self.iqac)
+
+    def _run(self, *facts):
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': list(facts)}
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/', {'document_id': str(self.document.id)})
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.data)
+        return {f.field_key: f for f in self.document.extracted_facts.select_related('reviewed_by')}
+
+    def test_only_facts_strictly_above_the_threshold_are_confirmed_by_the_system(self):
+        from apps.facts.auto_confirm import AUTO_CONFIRM_EMAIL
+        facts = self._run(
+            _valid_fact(),  # 0.96, "42" is in its quote
+            _valid_fact(field_key='labs', field_name='Labs', value='7', source_snippet='There are 7 labs.',
+                        confidence_score=0.8),
+            _valid_fact(field_key='rooms', field_name='Rooms', value='9', source_snippet='There are 9 rooms.',
+                        confidence_score=0.5),
+        )
+        auto = facts['total_faculty']
+        self.assertEqual((auto.status, auto.reviewed_by.email), (ExtractedFact.Status.CONFIRMED, AUTO_CONFIRM_EMAIL))
+        self.assertEqual(auto.review_history.get().reason, 'Auto-confirmed: AI confidence 0.96 is above 0.80.')
+        self.assertEqual((facts['labs'].status, facts['rooms'].status), ('extracted', 'extracted'))
+        listed = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/').data
+        rows = {f['field_key']: f for f in (listed['results'] if isinstance(listed, dict) else listed)}
+        self.assertEqual((rows['total_faculty']['auto_confirmed'], rows['labs']['auto_confirmed']), (True, False))
+        from apps.scoring.services import run_scoring_engine
+        self.assertGreater(run_scoring_engine(self.sprint).evidence_count, 0)  # it counts in the CRI
+
+    def test_a_number_not_in_its_own_quote_is_left_for_a_person(self):
+        facts = self._run(
+            _valid_fact(field_key='pct_revised', field_name='Percent revised', value='37', data_type='percentage',
+                        source_snippet='Percentage of Programs where syllabus revision was carried out',
+                        confidence_score=0.99),
+            _valid_fact(field_key='doctors', field_name='Doctors', value='5',
+                        source_snippet='Qualified Doctor (Full time) 12', confidence_score=0.95),
+        )
+        self.assertEqual({f.status for f in facts.values()}, {'extracted'})
+
+    def test_a_fact_in_an_open_conflict_is_left_for_a_person(self):
+        from apps.facts.auto_confirm import auto_confirm
+        from apps.gaps.models import GapItem
+        fact = ExtractedFact.objects.create(
+            sprint=self.sprint, document=self.document, field_name='Faculty', field_key='faculty', value=42,
+            data_type='number', pillar='aiqif_c4', source_page='1', source_snippet='42 faculty members.',
+            confidence_score=0.95)
+        GapItem.objects.create(sprint=self.sprint, gap_type=GapItem.GapType.CONFLICT, title='Two values',
+                               source_fact=fact, pillar='aiqif_c4')
+        result = auto_confirm(ExtractedFact.objects.filter(pk=fact.pk))
+        self.assertEqual((result['confirmed'], result['skipped']), ([], {'open conflict': 1}))
+
+    def test_reprocessing_updates_an_auto_confirmed_fact_but_never_a_persons(self):
+        first = self._run(_valid_fact(), _valid_fact(field_key='labs', field_name='Labs', value='7',
+                                                     source_snippet='There are 7 labs.', confidence_score=0.5))
+        person = first['labs']
+        person.status, person.reviewed_by = ExtractedFact.Status.CONFIRMED, self.iqac  # a person confirmed it
+        person.save()
+        again = self._run(
+            _valid_fact(value='45', source_snippet='The institution has 45 faculty members.'),
+            _valid_fact(field_key='labs', field_name='Labs', value='8', source_snippet='There are 8 labs.',
+                        confidence_score=0.99),
+        )
+        auto = again['total_faculty']
+        self.assertEqual((auto.id, auto.value, auto.status), (first['total_faculty'].id, 45, 'confirmed'))
+        self.assertEqual(auto.review_history.count(), 2)  # confirmed automatically for 42, then again for 45
+        self.assertEqual((again['labs'].value, again['labs'].reviewed_by), (7, self.iqac))  # untouched
+        self.assertEqual(self.document.extracted_facts.count(), 2)
+
+    def test_it_can_be_switched_off(self):
+        with override_settings(FACT_AUTO_CONFIRM_MIN_CONFIDENCE=None):
+            facts = self._run(_valid_fact())
+        self.assertEqual(facts['total_faculty'].status, 'extracted')

@@ -128,6 +128,10 @@ export interface RequirementCandidate {
   reviewed_by: string | null;
   review_note: string;
   requirement_code: string | null;
+  /** Pending drafts: approved requirements saying nearly the same (deterministic word overlap). */
+  duplicates?: { code: string; statement: string; similarity: number }[];
+  /** Pending drafts: indicators the wording points to. */
+  suggested_benchmarks?: { code: string; title: string; reasons: string[] }[];
 }
 
 export function ingestVersionFile(versionId: string) {
@@ -165,7 +169,7 @@ export interface MaturityLevel {
   definition: string;
   measurement_rule: string;
   is_placeholder: boolean;
-  /** Model name when AI wrote it (fully automatic drafting); empty = a person. */
+  /** Model name when AI drafted it (needs a reviewer's confirmation); empty = a person. */
   ai_model?: string;
   observable_requirements?: string[];
 }
@@ -737,6 +741,12 @@ export interface BenchmarkCandidateInfo {
   created_at: string;
   decided_at: string | null;
   reviews: CandidateReviewInfo[];
+  /** The AI proposal behind the candidate ({} = proposed by a person). */
+  ai_proposal: Record<string, unknown> & {
+    pillar_code?: string; capability_code?: string; requirement_code?: string; model?: string;
+    confidence?: number | null; source_quote?: string; duplicates?: { code: string; title: string; similarity: number }[];
+    impact_level?: string;
+  };
 }
 
 export function listBenchmarkCandidates(status: 'open' | 'all' | CandidateStatus = 'open') {
@@ -751,6 +761,38 @@ export function createBenchmarkCandidate(body: {
 
 export function benchmarkCandidateAction(id: string, action: 'submit' | 'open-revision') {
   return api.post<BenchmarkCandidateInfo>(`/benchmarks/benchmark-candidates/${id}/${action}`);
+}
+
+/** What "Create benchmark draft" offers for an approved new-benchmark candidate (services/candidates.py draft_options). */
+export interface CandidateDraftOptions {
+  can_create: boolean;
+  /** The draft already created from this candidate, if any. */
+  existing_benchmark: string | null;
+  title: string;
+  source_rationale: string;
+  source_code: string | null;
+  /** Fixed: the experts approved the candidate as this kind. */
+  benchmark_kind: string;
+  benchmark_kind_label: string;
+  framework: string | null;
+  criteria: {
+    code: string;
+    name: string;
+    /** The code the new indicator gets under this criterion. */
+    next_code: string;
+    capabilities: { code: string; name: string; definition: string }[];
+  }[];
+}
+
+export function getCandidateDraftOptions(id: string) {
+  return api.get<CandidateDraftOptions>(`/benchmarks/benchmark-candidates/${id}/draft-options`);
+}
+
+/** Creates the draft benchmark (once: a repeat returns the same draft). */
+export function createCandidateBenchmarkDraft(id: string, body: {
+  pillar_code: string; capability_code: string; title: string; target_guidance?: string;
+}) {
+  return api.post<BenchmarkCandidateInfo>(`/benchmarks/benchmark-candidates/${id}/create-draft`, body);
 }
 
 export function reviewBenchmarkCandidate(id: string, body: { reviewer_role: CandidateRole; decision: string; notes: string }) {
@@ -776,4 +818,65 @@ export interface ApplicabilityValidation {
 
 export function getApplicabilityValidation(code: string) {
   return api.get<ApplicabilityValidation>(`/benchmarks/catalogue/${code}/applicability-validation`);
+}
+
+
+// -- AI preparation across the Studio (backend services/studio_ai.py) --------------------------------
+
+export type StudioAIKind = 'source_metadata' | 'requirement_fit' | 'benchmark_content' | 'change_analysis' | 'release_notes';
+export type StudioAIStatus = 'queued' | 'running' | 'ready' | 'applied' | 'dismissed' | 'failed';
+
+export interface StudioAIJob {
+  id: string;
+  kind: StudioAIKind;
+  kind_label: string;
+  target_type: string;
+  target_id: string;
+  target_label: string;
+  status: StudioAIStatus;
+  status_label: string;
+  model: string;
+  inputs: Record<string, unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  output: Record<string, any>;
+  citations: Record<string, unknown>[];
+  confidence: number | null;
+  error: string;
+  attempts: number;
+  requested_by: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export function listAIJobs(params: { kind?: StudioAIKind; target_id?: string; status?: string; latest?: boolean } = {}) {
+  return api.get<StudioAIJob[]>('/benchmarks/ai-jobs', { params: { ...params, latest: params.latest ? 1 : undefined } });
+}
+
+export function startAIJob(kind: StudioAIKind, targetId: string) {
+  return api.post<StudioAIJob>('/benchmarks/ai-jobs', { kind, target_id: targetId });
+}
+
+export function aiJobAction(
+  id: string, action: 'retry' | 'dismiss' | 'apply' | 'propose' | 'candidate', body: Record<string, unknown> = {},
+) {
+  return api.post<StudioAIJob>(`/benchmarks/ai-jobs/${id}/${action}`, body);
+}
+
+export interface VersionComparison {
+  base: { id: string; version_label: string; status: string; issued_on: string | null } | null;
+  note: string;
+  file_changed?: boolean;
+  same_file?: boolean;
+  pages?: { before: number | null; after: number | null };
+  added?: string[];
+  removed?: string[];
+  requirements_on_base?: number;
+}
+
+export function compareVersion(versionId: string) {
+  return api.get<VersionComparison>(`/benchmarks/versions/${versionId}/compare`);
 }

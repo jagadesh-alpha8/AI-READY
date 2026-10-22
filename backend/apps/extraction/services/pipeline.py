@@ -87,6 +87,14 @@ class ExtractionPipeline:
         self._advance(job, Step.CLASSIFYING_DOCUMENTS)
         # The document is read and parsed ONCE; classification and fact extraction both use these pages.
         pages = self.page_reader.read_pages(document)
+        # Evidence-request assessment reuses this exact OCR/text read instead of running a second OCR pass.
+        # The assessment is advisory; failure is recorded on the evidence submission and does not prevent
+        # the document's ordinary extraction pipeline from continuing.
+        try:
+            from apps.facts.evidence_analysis import analyze_pending_document_submissions
+            analyze_pending_document_submissions(document, pages, job=job)
+        except Exception:
+            logger.exception('extraction.pipeline.evidence_assessment_hook_failed document_id=%s', document.id)
         # Every AI call is recorded (tokens + cost) against this job and its stage -- see
         # apps.extraction.usage / AIUsage. With the analyzer, the first request classifies the document
         # AND extracts the first chunk's facts (stage document_analysis).
@@ -138,6 +146,8 @@ class ExtractionPipeline:
             with usage_scope(job=job, stage=AIUsage.Stage.FACT_EXTRACTION):
                 raw_facts = self.fact_extractor.extract_facts(document, pages)
 
+        self._record_completeness(job, document, pages)
+
         self._advance(job, Step.MAPPING_AUDIT_FIELDS)
         mapped_facts = self.field_mapper.map_fields(document, raw_facts)
         facts_created = self._persist_facts(job, mapped_facts)
@@ -150,11 +160,27 @@ class ExtractionPipeline:
         with usage_scope(job=job, stage=AIUsage.Stage.CONFLICT_CHECK):
             conflicts = self.conflict_checker.check_conflicts(document, mapped_facts)
         conflicts_created = self._persist_conflicts(job, conflicts)
+        # After conflicts are recorded, so a fact in an open conflict is left for a person.
+        from apps.facts.auto_confirm import auto_confirm
+        auto_confirmed = auto_confirm(document.extracted_facts.all())
+        if auto_confirmed['confirmed']:
+            logger.info('extraction.pipeline.auto_confirmed job_id=%s facts=%d skipped=%s', job.id,
+                        len(auto_confirmed['confirmed']), auto_confirmed['skipped'])
 
         self._advance(job, Step.PREPARING_REVIEW_WORKSPACE)
+        # Catch submissions made while this document was still extracting; the same pages are reused.
+        try:
+            from apps.facts.evidence_analysis import analyze_pending_document_submissions
+            analyze_pending_document_submissions(document, pages, job=job)
+        except Exception:
+            logger.exception('extraction.pipeline.final_evidence_assessment_hook_failed document_id=%s', document.id)
         document.status = Document.Status.PROCESSED
         document.processed_at = timezone.now()
-        document.save(update_fields=['status', 'processed_at', 'updated_at'])
+        update_fields = ['status', 'processed_at', 'updated_at']
+        if job.completeness == ExtractionJob.Completeness.PARTIAL and document.processing_status != 'unsupported_format':
+            document.processing_status = 'processed_partial'
+            update_fields.append('processing_status')
+        document.save(update_fields=update_fields)
 
         logger.info(
             'extraction.pipeline.complete job_id=%s facts=%d gaps=%d conflicts=%d',
@@ -227,6 +253,30 @@ class ExtractionPipeline:
         )
         return ['classification_status', 'ai_document_type', 'ai_confidence', 'ai_reasoning', 'classified_at']
 
+    def _record_completeness(self, job, document, pages):
+        """Store how complete this extraction was, so a document whose chunks failed or were skipped (or
+        whose pages could not be read) is never shown as fully processed (services/completeness.py)."""
+        report = getattr(self.fact_extractor, 'report', None) or {}
+        issues = list(report.get('issues', []))
+        if not pages.get('format_supported', True):
+            issues.append({'kind': 'unsupported_format',
+                           'detail': pages.get('format_note') or 'This file type cannot be read; nothing was extracted.'})
+        else:
+            unreadable = list(pages.get('ocr_warnings') or [])
+            if report and not report.get('chunks_total') and not unreadable:
+                issues.append({'kind': 'no_text', 'detail': 'No readable text was found in the document, so no facts '
+                                                            'could be extracted.'})
+            if unreadable:
+                issues.append({'kind': 'unreadable_pages',
+                               'detail': f'{len(unreadable)} page(s) had no readable text, so nothing was extracted '
+                                         f'from them.', 'pages': unreadable[:50]})
+        job.extraction_warnings = issues
+        job.chunks_total = report.get('chunks_total', 0)
+        job.chunks_completed = report.get('chunks_completed', 0)
+        job.completeness = ExtractionJob.Completeness.PARTIAL if issues else ExtractionJob.Completeness.COMPLETE
+        job.save(update_fields=['extraction_warnings', 'chunks_total', 'chunks_completed', 'completeness',
+                                'updated_at'])
+
     @staticmethod
     def _persist_facts(job, mapped_facts):
         """Save this run's facts for the document, one row per field_key.
@@ -238,20 +288,27 @@ class ExtractionPipeline:
           keeping its id so everything linked to it stays linked;
         - already reviewed (confirmed/corrected/rejected/evidence requested):
           left exactly as the reviewer left it -- the new run's value for
-          that field is dropped.
+          that field is dropped;
+        - auto-confirmed (apps/facts/auto_confirm.py, never a person's decision):
+          updated like an unreviewed fact and set back to EXTRACTED, so it is
+          checked for auto-confirmation again with the new value.
         Facts an earlier run found that this run didn't are kept.
         A fact's AI-QIF indicator tags (`aiqif_mappings`) follow the same
         rule: replaced along with an unreviewed fact, untouched on a
         reviewed one. Returns how many facts were created or updated."""
+        from apps.facts.auto_confirm import is_auto_confirmed
         from apps.facts.models import ExtractedFact
+
+        def updatable(fact):
+            return fact.status == ExtractedFact.Status.EXTRACTED or is_auto_confirmed(fact)
 
         existing = {}
         # Oldest first, so the newest unreviewed row wins a key -- unless a
         # reviewed row already holds it.
-        for fact in ExtractedFact.objects.filter(document=job.document).order_by('created_at'):
+        for fact in ExtractedFact.objects.filter(document=job.document).select_related('reviewed_by').order_by('created_at'):
             key = fact.field_key.strip().lower()
             held = existing.get(key)
-            if held is None or held.status == ExtractedFact.Status.EXTRACTED:
+            if held is None or updatable(held):
                 existing[key] = fact
 
         count = 0
@@ -264,10 +321,12 @@ class ExtractionPipeline:
                         sprint=job.sprint, document=job.document, source_document=job.document, **fields,
                     )
                     existing[fact.field_key.strip().lower()] = fact
-                elif fact.status == ExtractedFact.Status.EXTRACTED:
+                elif updatable(fact):
                     for name, value in fields.items():
                         setattr(fact, name, value)
                     fact.source_document = job.document
+                    if fact.status != ExtractedFact.Status.EXTRACTED:  # auto-confirmed: checked again below
+                        fact.status, fact.reviewed_by, fact.reviewed_at = ExtractedFact.Status.EXTRACTED, None, None
                     fact.save()
                 else:
                     continue

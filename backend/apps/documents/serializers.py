@@ -15,6 +15,7 @@ from .utils import compute_file_checksum, humanize_filename
 
 class DocumentSerializer(serializers.ModelSerializer):
     sprint_id = serializers.PrimaryKeyRelatedField(source='sprint', read_only=True)
+    previous_version_id = serializers.UUIDField(read_only=True, allow_null=True)
     uploaded_by = serializers.PrimaryKeyRelatedField(read_only=True)
     document_type_label = serializers.SerializerMethodField()
     ai_document_type_label = serializers.SerializerMethodField()
@@ -34,6 +35,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             'classification_status', 'ai_document_type', 'ai_document_type_label', 'ai_confidence',
             'ai_reasoning', 'classified_at',
             'category_confirmed_by', 'category_confirmed_by_name', 'category_confirmed_at',
+            'version_number', 'previous_version_id', 'superseded_at',
             'uploaded_at', 'processed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
@@ -44,6 +46,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             'classification_status', 'ai_document_type', 'ai_document_type_label', 'ai_confidence',
             'ai_reasoning', 'classified_at',
             'category_confirmed_by', 'category_confirmed_by_name', 'category_confirmed_at',
+            'version_number', 'previous_version_id', 'superseded_at',
             'uploaded_at', 'processed_at', 'created_at', 'updated_at',
         ]
 

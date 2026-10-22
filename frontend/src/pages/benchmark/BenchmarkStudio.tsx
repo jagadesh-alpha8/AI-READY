@@ -93,7 +93,7 @@ const BenchmarkStudioPage: React.FC = () => {
       {tab === 'sources' && <Sources />}
       {tab === 'versions' && <ReleasesTab />}
       {tab === 'watcher' && <WatcherTab />}
-      {tab === 'candidates' && <CandidatesTab />}
+      {tab === 'candidates' && <CandidatesTab onOpenBenchmark={(c) => { setLevelsCode(c); setTab('levels'); }} />}
     </div>
   );
 };

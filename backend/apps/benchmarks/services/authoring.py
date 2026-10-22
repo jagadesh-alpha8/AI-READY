@@ -165,11 +165,12 @@ def readiness(benchmark):
          ', '.join(f'{lv}: {n}' for lv, n in coverage.items())),
         ('requirement_evidence', 'Evidence rules on each primary requirement', 'recommended',
          primary_ids.issubset(reqs_with_rules), f'{len(primary_ids & reqs_with_rules)}/{len(primary_ids)} covered'),
-        ('applicability_coverage', 'Applicability rules checked against every supported profile', 'recommended',
+        # Required: the saved rules are run against every supported profile and none may be dead (matching no
+        # profile, or always overridden). The reviewer's confirmation below covers the rules themselves.
+        ('applicability_coverage', 'Applicability rules checked against every supported profile', 'required',
          applic_check['ok'], applicability_detail(applic_check)),
-        # Scoring weights are human-approved per benchmark; a release that needs a composite score
-        # turns this into a blocker (services/releases.py check_release).
-        ('scoring', 'Approved scoring weights (composite score)', 'recommended', scoring_ok, scoring_detail),
+        # Required: scoring weights approved by a person for the active scoring model.
+        ('scoring', 'Approved scoring weights (composite score)', 'required', scoring_ok, scoring_detail),
         # Required: an InGage reviewer confirms the content before the release can be submitted.
         ('confirmed', 'Content confirmed by an InGage reviewer', 'required', _confirmation_ok(benchmark),
          _confirmation_detail(benchmark)),

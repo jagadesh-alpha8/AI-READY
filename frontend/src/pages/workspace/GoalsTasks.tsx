@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 
 import { listSprints } from '../../api/sprints';
+import { SelectSprintPrompt } from '../../components/SprintContextBar';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { listSprintGaps } from '../../api/gaps';
 import { listSprintFacts } from '../../api/facts';
 import { listRecommendations } from '../../api/recommendations';
@@ -27,9 +29,10 @@ import { useAccess } from '../../utils/access';
  *   Goals — the recommendations the audit generated
  *
  * That makes every row real and actionable *somewhere* — each links to the
- * screen that actually resolves it. What it cannot do is create a task,
- * assign one to a named person, or set a due date: all three need storage
- * that does not exist. The page says so rather than implying otherwise.
+ * screen that actually resolves it. Gaps and facts now carry an assignee and
+ * a due date, set in the Owner Workspace / Gap dashboard; this page only
+ * shows them. It cannot create a task, assign a person or set a due date
+ * itself, and says so rather than implying otherwise.
  */
 
 type Tab = 'tasks' | 'goals';
@@ -44,6 +47,10 @@ interface WorkItem {
   source: 'gap' | 'fact';
   impact: number;
   inProgress: boolean;
+  assignee: string;
+  due: string | null;
+  /** Where this item is actually assigned / resolved. */
+  route: string;
 }
 
 const PRIORITY_BADGE: Record<RecommendationPriority, string> = {
@@ -71,13 +78,14 @@ export const GoalsTasks: React.FC = () => {
   const { can, canSee } = useAccess();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('tasks');
-  const [sprintId, setSprintId] = useState('');
+  // The selected sprint is shared by every page (context/SelectedSprintContext.tsx).
+  const { sprintId: selectedSprintId } = useSelectedSprint();
   const [role, setRole] = useState<string>('all');
 
   const { data: sprints, loading: sprintsLoading, error: sprintsError, refetch: refetchSprints } =
     useApiResource<Sprint[]>(() => listSprints(), []);
 
-  const activeSprintId = sprintId || sprints?.[0]?.id || '';
+  const activeSprintId = selectedSprintId;
 
   const { data: gaps, loading: gapsLoading, error: gapsError, refetch: refetchGaps } =
     useApiResource<Gap[]>(() => listSprintGaps(activeSprintId), [activeSprintId], !!activeSprintId);
@@ -104,6 +112,9 @@ export const GoalsTasks: React.FC = () => {
         source: 'gap',
         impact: g.score_impact || 0,
         inProgress: g.status === 'in_progress',
+        assignee: g.assigned_to_name || '',
+        due: g.due_date,
+        route: `/sprint/${activeSprintId}/gaps`,
       }));
 
     const fromFacts = (facts ?? [])
@@ -118,12 +129,15 @@ export const GoalsTasks: React.FC = () => {
         source: 'fact',
         impact: 0,
         inProgress: false,
+        assignee: f.assigned_to_name || '',
+        due: f.due_date,
+        route: `/sprint/${activeSprintId}/${canSee('sprint-confirmation') ? 'confirmation' : 'facts'}`,
       }));
 
     return [...fromGaps, ...fromFacts].sort(
       (a, b) => PRIORITY_RANK.indexOf(a.priority) - PRIORITY_RANK.indexOf(b.priority),
     );
-  }, [gaps, facts]);
+  }, [gaps, facts, activeSprintId, canSee]);
 
   const roles = useMemo(() => {
     const counts = new Map<string, number>();
@@ -162,6 +176,8 @@ export const GoalsTasks: React.FC = () => {
     );
   }
 
+  if (!activeSprintId) return <SelectSprintPrompt />;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -170,30 +186,15 @@ export const GoalsTasks: React.FC = () => {
         description="Who owes what — the outstanding work from the audit, by the role that owns it."
       />
 
-      <div className="glass-card p-4">
-        <label className="label" htmlFor="work-sprint">Sprint</label>
-        <select
-          id="work-sprint"
-          value={activeSprintId}
-          onChange={(e) => { setSprintId(e.target.value); setRole('all'); }}
-          className="input"
-        >
-          {sprints.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.institution_name || s.name || 'Institution'} · {s.sprint_code} ({s.status.replace(/_/g, ' ')})
-            </option>
-          ))}
-        </select>
-      </div>
 
       {/* The limitation, stated once and plainly. */}
       <div className="rounded-lg border border-info-line bg-info-bg p-4 flex items-start gap-3">
         <Info className="w-4 h-4 text-info shrink-0 mt-0.5" />
         <p className="text-sm text-ink-600 min-w-0">
-          <strong className="text-info">Read-only view. </strong>
-          These are the audit's real outstanding items, grouped by the role that owns them. Creating
-          a task, assigning one to a named person or setting a due date needs a tasks backend, which
-          does not exist yet — every row here links to the screen that actually resolves it.
+          <strong className="text-info">Read-only summary. </strong>
+          These are the audit's real outstanding items, grouped by the role that owns them, with the person and
+          due date they are assigned to. Nothing can be assigned, scheduled or edited on this page: each row
+          links to the Owner Workspace, Gap dashboard or Facts review, where that happens.
         </p>
       </div>
 
@@ -254,8 +255,15 @@ export const GoalsTasks: React.FC = () => {
                           <p className="text-xs text-ink-500 mt-1">
                             {[humanRole(item.ownerRole), item.pillar, item.source === 'gap' ? 'gap' : 'fact review']
                               .filter(Boolean).join(' · ')}
+                            {' · '}{item.assignee ? `assigned to ${item.assignee}` : 'not assigned to a person yet'}
+                            {item.due ? ` · due ${item.due}` : ''}
                           </p>
                         </div>
+                        <button type="button" onClick={() => navigate(item.route)} className="btn-ghost btn-sm shrink-0"
+                          title={item.source === 'gap' ? 'Assign or resolve in the Gap dashboard' : 'Assign or confirm in the Owner Workspace / Facts review'}>
+                          <span>{item.source === 'gap' ? 'Open in Gap dashboard' : 'Open to assign / confirm'}</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
 
                         <div className="flex items-center gap-2 shrink-0">
                           {item.impact > 0 && (

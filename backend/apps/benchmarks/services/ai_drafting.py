@@ -1,13 +1,13 @@
-"""AI writes a benchmark's content: L3/L2/L1, evidence rules per level,
-applicability rules, target guidance and owner -- for the draft AI-QIF key
-indicators, so they can be released without waiting on manual authoring.
+"""AI prepares a draft benchmark's content: L3/L2/L1, evidence rules per level,
+applicability rules and target guidance, plus an owner suggestion.
 
     service = get_ai_service()
-    result = draft_benchmark(benchmark, service)        # one benchmark, saved
+    result = draft_benchmark(benchmark, service)        # one benchmark, saved as an AI draft
 
-Decided with the user (2026-10-15): fully automatic -- what the AI writes
-counts as the benchmark's content without a person approving it first. So
-the safeguards are all mechanical, and everything is traceable:
+Run from Benchmark Studio (services/studio_ai.py, kind benchmark_content) or the
+`ai_draft_benchmarks` command. What the AI writes is DRAFT content, labelled as AI's:
+an InGage reviewer must confirm the benchmark (services/confirmation.py) before any
+release can take it, and any later edit asks for confirmation again. Safeguards:
 
 - Output is constrained to a JSON schema whose enums are the real catalogues
   (evidence types, institution / programme types, statuses, approval bodies).
@@ -18,8 +18,10 @@ the safeguards are all mechanical, and everything is traceable:
   whose draft fails any check is left exactly as it was (one transaction).
 - Everything written carries `ai_model` (the model name) and is saved as the
   "AI drafter" system account, which cannot sign in; every write is in the
-  audit log. A level or rule a person wrote is never overwritten.
-- Only DRAFT benchmarks are touched; publishing stays a separate step.
+  audit log with the model, confidence and the requirement codes it relied on.
+- A level or rule a person wrote is never overwritten; target guidance is written
+  only when empty; the owner is only suggested (a person names the expert owner).
+- Only DRAFT benchmarks are touched; confirming and publishing stay human steps.
 """
 import json
 import logging
@@ -66,6 +68,9 @@ students or staff, otherwise "internal" (or "public" for published disclosures).
 all). Add a narrower rule only when the indicator genuinely does not fit some institutions (e.g. research-heavy \
 indicators for ITIs: result "requires_review"). Lower priority numbers run first. Give a plain reason.
 4. target_guidance: 1-3 sentences on which level a typical institution should target and when to aim higher.
+5. owner_suggestion: the role that should own this indicator at InGage (e.g. "Accreditation lead"). It is only a suggestion for a person to confirm.
+6. source_references: the codes of the linked source requirements (listed below, if any) your content relies on; only codes from that list.
+7. confidence: 0-1, how well the sources given support the content you wrote.
 
 Principles (InGage AI-QIF): capability over activity -- a policy, lab, course, workshop or pilot alone does not \
 establish readiness; outcomes over activity counts; responsible AI (governance, privacy, security, ethics, \
@@ -128,9 +133,13 @@ def _schema(ev_codes, inst_codes, prog_codes):
             'evidence_rules': {'type': 'array', 'items': rule},
             'applicability_rules': {'type': 'array', 'items': applic},
             'target_guidance': s,
+            'owner_suggestion': s,
+            'source_references': {'type': 'array', 'items': s},
+            'confidence': {'type': 'number'},
             'rationale': s,
         },
-        'required': ['levels', 'evidence_rules', 'applicability_rules', 'target_guidance', 'rationale'],
+        'required': ['levels', 'evidence_rules', 'applicability_rules', 'target_guidance', 'owner_suggestion',
+                     'source_references', 'confidence', 'rationale'],
         'additionalProperties': False,
     }
 
@@ -151,6 +160,13 @@ def _context(benchmark):
             lines.append(f'- {lv}: {levels[lv].definition}')
             for o in levels[lv].observable_requirements or []:
                 lines.append(f'    dimension guide: {o}')
+    reqs = list(benchmark.requirement_links.select_related('requirement__version__document')
+                .order_by('relationship', 'requirement__code'))
+    if reqs:
+        lines += ['', 'Approved source requirements linked to this indicator (cite their codes in source_references):']
+        lines += [f'- {r.requirement.code} ({r.relationship}; {r.requirement.version.document.source_code}, page '
+                  f'{r.requirement.page or "?"}): {r.requirement.statement[:300]} -- "{r.requirement.source_quote[:300]}"'
+                  for r in reqs]
     links = benchmark.naac_crosswalk or []
     if links:
         lines += ['', 'NAAC metrics whose evidence can SUPPORT this indicator (supporting only):']
@@ -177,6 +193,11 @@ class DraftResult:
     evidence_rules: int = 0
     applicability_rules: int = 0
     kept_human: list = field(default_factory=list)
+    owner_suggestion: str = ''
+    rationale: str = ''
+    confidence: float = None
+    references: list = field(default_factory=list)
+    target_guidance_written: bool = False
 
 
 def ai_user():
@@ -304,17 +325,28 @@ def draft_benchmark(benchmark, service, *, user=None):
 
             tidy_applicability(benchmark, user, model)
 
-            owner = benchmark.expert_owner
-            values = {'target_guidance': (draft.get('target_guidance') or '').strip()}
-            if not owner or owner.startswith('AI '):
-                values['expert_owner'] = f'AI (auto) - {model}'[:150]
-            authoring.update_benchmark(benchmark, user, values)
+            guidance = (draft.get('target_guidance') or '').strip()
+            if guidance and not benchmark.target_guidance.strip():
+                authoring.update_benchmark(benchmark, user, {'target_guidance': guidance})
+                result.target_guidance_written = True
+            elif guidance:
+                result.kept_human.append('target guidance')
+            linked = set(benchmark.requirement_links.values_list('requirement__code', flat=True))
+            result.references = [{'requirement': c} for c in dict.fromkeys(draft.get('source_references') or [])
+                                 if c in linked]
+            result.owner_suggestion = (draft.get('owner_suggestion') or '').strip()[:150]
+            result.rationale = (draft.get('rationale') or '').strip()[:2000]
+            try:
+                result.confidence = max(0.0, min(1.0, float(draft.get('confidence'))))
+            except (TypeError, ValueError):
+                result.confidence = None
             SourceAuditEvent.objects.create(
                 actor=user.email, action='benchmark.ai_drafted', object_type='Benchmark', object_id=str(benchmark.pk),
                 after={'model': model, 'levels': result.levels, 'evidence_rules': result.evidence_rules,
                        'applicability_rules': result.applicability_rules, 'kept_human': result.kept_human,
-                       'rationale': (draft.get('rationale') or '')[:2000]},
-                reason='Fully automatic AI drafting (no expert review), as decided on 2026-10-15.')
+                       'confidence': result.confidence, 'references': [r['requirement'] for r in result.references],
+                       'owner_suggestion': result.owner_suggestion, 'rationale': result.rationale},
+                reason='AI draft; an InGage reviewer must confirm the benchmark before a release can take it.')
     except (DraftRejected, authoring.AuthoringError, evidence_rules.EvidenceRuleError,
             applicability.ApplicabilityError) as exc:
         logger.warning('benchmarks.ai_draft.rejected code=%s reason=%s', code, exc)

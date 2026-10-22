@@ -4,24 +4,27 @@ from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics
+from django.db.models import Prefetch
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.filters import OrderingFilter
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import CanReviewFacts, IsInstitutionMember, require_institution_access
-from apps.gaps.services import resolve_unconfirmed_fact_gap
+from apps.gaps.services import after_fact_review
 from apps.sprints.access import get_authorized_sprint
 from config.pagination import OptionalPageNumberPagination
 
 from .filters import ExtractedFactFilter
-from .models import ExtractedFact, FactAIQIFMapping, FactReviewHistory
+from . import evidence_requests, ownership
+from .evidence_serializers import EvidenceRequestCreateSerializer
+from .models import EvidenceRequest, ExtractedFact, FactAIQIFMapping, FactReviewHistory
 from .serializers import (
     ExtractedFactDetailSerializer,
     ExtractedFactSerializer,
     FactAIQIFMappingReviewSerializer,
     FactConfirmSerializer,
     FactCorrectSerializer,
-    FactEvidenceRequestSerializer,
     FactRejectSerializer,
 )
 
@@ -39,7 +42,12 @@ class SprintFactListView(generics.ListAPIView):
         get_authorized_sprint(self.request.user, self.kwargs['sprint_id'])
         return (
             ExtractedFact.objects.filter(sprint_id=self.kwargs['sprint_id'])
-            .select_related('source_document').prefetch_related('aiqif_mappings')
+            .select_related('source_document', 'sprint', 'assigned_to', 'reviewed_by').prefetch_related(
+                'aiqif_mappings',
+                Prefetch('evidence_requests', to_attr='open_evidence_requests',
+                         queryset=EvidenceRequest.objects.filter(status__in=EvidenceRequest.UNRESOLVED)
+                         .select_related('assigned_to')),
+            )
         )
 
 
@@ -48,7 +56,7 @@ class FactDetailView(generics.RetrieveAPIView):
     confirm/correct/reject/request-evidence actions below, so every change
     is captured in FactReviewHistory -- there's no generic PATCH here to
     bypass that."""
-    queryset = ExtractedFact.objects.select_related('source_document').prefetch_related('aiqif_mappings')
+    queryset = ExtractedFact.objects.select_related('source_document', 'sprint', 'assigned_to', 'reviewed_by').prefetch_related('aiqif_mappings')
     serializer_class = ExtractedFactDetailSerializer
     lookup_field = 'pk'
     permission_classes = [IsInstitutionMember]
@@ -69,12 +77,21 @@ class BaseFactActionView(APIView):
         raise NotImplementedError
 
     def post(self, request, pk):
-        fact = get_object_or_404(ExtractedFact, pk=pk)
+        fact = get_object_or_404(ExtractedFact.objects.select_related('sprint'), pk=pk)
         require_institution_access(request.user, fact)
+        allowed, why = ownership.check_fact(request.user, fact)
+        if not allowed:  # the owner role, an Institution Admin or InGage staff only (ownership.py)
+            raise PermissionDenied(why)
+        if evidence_requests.open_request_for(fact):
+            # Only the reviewer's decision on the request may confirm/correct the fact now (or withdraw it).
+            raise ValidationError({'detail': 'This fact has an open evidence request. Decide it on the request '
+                                             '(accept, accept with correction, reject or withdraw).'})
 
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         reason = serializer.resolved_reason()
+        if self.new_status == ExtractedFact.Status.REJECTED and not reason.strip():
+            raise ValidationError({'detail': 'Say why the fact is rejected; the reason is kept with its gap.'})
         new_value = self.get_new_value(serializer) if self.changes_value else None
 
         with transaction.atomic():
@@ -96,12 +113,12 @@ class BaseFactActionView(APIView):
             fact.reviewed_at = timezone.now()
             fact.save(update_fields=update_fields)
 
-            # Confirmed/Corrected closes this fact's own "unconfirmed fact" gap
-            # (and its -3 CRI penalty). A no-op for reject/request-evidence;
-            # genuine gaps (conflicts, missing documents, ...) are untouched.
-            resolve_unconfirmed_fact_gap(fact, user=request.user)
+            # The review settles the fact's gaps (apps.gaps.services.after_fact_review): confirm/correct
+            # closes its "needs confirmation" gap, reject turns it into "needs replacement" with the
+            # reason, and a conflict whose values now agree closes.
+            after_fact_review(fact, user=request.user, reason=reason)
 
-        return Response(ExtractedFactDetailSerializer(fact).data)
+        return Response(ExtractedFactDetailSerializer(fact, context={'request': request}).data)
 
 
 class FactConfirmView(BaseFactActionView):
@@ -124,14 +141,30 @@ class FactRejectView(BaseFactActionView):
         return super().post(request, pk)
 
 
-class FactRequestEvidenceView(BaseFactActionView):
-    serializer_class = FactEvidenceRequestSerializer
-    action_name = FactReviewHistory.Action.EVIDENCE_REQUESTED
-    new_status = ExtractedFact.Status.EVIDENCE_REQUESTED
+class FactRequestEvidenceView(APIView):
+    """Creates an EvidenceRequest (what is needed and why, optional assignee and due date); the fact's
+    status becomes evidence_requested with a FactReviewHistory row, as before. See evidence_requests.py."""
+    permission_classes = [CanReviewFacts]
 
-    @extend_schema(request=FactEvidenceRequestSerializer, responses=ExtractedFactDetailSerializer)
+    @extend_schema(request=EvidenceRequestCreateSerializer, responses=ExtractedFactDetailSerializer)
     def post(self, request, pk):
-        return super().post(request, pk)
+        fact = get_object_or_404(ExtractedFact.objects.select_related('sprint'), pk=pk)
+        require_institution_access(request.user, fact)
+        allowed, why = ownership.check_fact(request.user, fact)
+        if not (allowed or ownership.is_coordinator(request.user, fact.sprint.institution_id)):
+            raise PermissionDenied(why)  # the fact's owners, or a coordinator chasing it
+        body = EvidenceRequestCreateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        try:
+            evidence_requests.create_request(
+                fact, request.user, description=body.resolved_description(),
+                evidence_needed=body.validated_data.get('evidence_needed', ''),
+                reason=body.validated_data.get('reason', ''),
+                assigned_to=body.validated_data.get('assigned_to'), due_date=body.validated_data.get('due_date'))
+        except evidence_requests.EvidenceRequestError as exc:
+            raise ValidationError({'detail': str(exc)})
+        fact.refresh_from_db()
+        return Response(ExtractedFactDetailSerializer(fact, context={'request': request}).data)
 
 
 class FactCorrectView(BaseFactActionView):
@@ -171,4 +204,35 @@ class FactAIQIFMappingReviewView(APIView):
         mapping.review_note = serializer.validated_data['note'].strip()
         mapping.save(update_fields=['review_status', 'reviewed_by', 'reviewed_at', 'review_note'])
         fact = ExtractedFact.objects.prefetch_related('aiqif_mappings').get(pk=fact.pk)
-        return Response(ExtractedFactDetailSerializer(fact).data)
+        return Response(ExtractedFactDetailSerializer(fact, context={'request': request}).data)
+
+
+class FactAssignView(APIView):
+    """POST /facts/<id>/assign {assigned_to: <user id> | null, due_date?, note?} -- coordinators assign,
+    reassign or unassign a fact to someone who may act on it (ownership.py); kept in its review history."""
+    permission_classes = [CanReviewFacts]
+
+    def post(self, request, pk):
+        from .serializers import AssignSerializer
+        fact = get_object_or_404(ExtractedFact.objects.select_related('sprint'), pk=pk)
+        require_institution_access(request.user, fact)
+        body = AssignSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        try:
+            ownership.assign(fact, request.user, assigned_to=body.validated_data.get('assigned_to'),
+                             due_date=body.validated_data.get('due_date'), note=body.validated_data['note'])
+        except ownership.OwnershipError as exc:
+            raise ValidationError({'detail': str(exc)})
+        fact = ExtractedFact.objects.select_related('sprint', 'assigned_to').get(pk=pk)
+        return Response(ExtractedFactDetailSerializer(fact, context={'request': request}).data)
+
+
+class SprintWorkSummaryView(APIView):
+    """GET /sprints/<id>/work-summary -- outstanding confirmation work across the WHOLE sprint (every
+    owner role), by role and by assignee, and whether it is ready for baseline review. Readiness never
+    depends on who is looking."""
+
+    def get(self, request, sprint_id):
+        from .work_summary import work_summary
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        return Response(work_summary(sprint))

@@ -37,7 +37,13 @@ export const PlanPanel: React.FC<{ cycleId: string; staff: boolean; canEdit: boo
     <div className="rounded-lg border border-line-200 bg-surface p-3 space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
         <Target className="w-4 h-4 text-brand-800" />
-        <p className="font-bold text-ink-900 flex-1">Improvement plan</p>
+        <p className="font-bold text-ink-900 flex-1">
+          Benchmark Assessment improvement plan
+          <span className="block text-[11px] font-normal text-ink-500">
+            From this finalized assessment's benchmark-specific gaps. Separate from the sprint Transformation Plan,
+            which comes from a discovery sprint's findings and recommendations.
+          </span>
+        </p>
         {p.has_plan && (
           <span className="text-ink-500">
             {p.summary.open} of {p.summary.gaps} gaps open{p.summary.critical_open ? ` (${p.summary.critical_open} critical)` : ''}

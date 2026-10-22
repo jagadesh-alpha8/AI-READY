@@ -10,3 +10,4 @@ export * from './baseline';
 export * from './recommendations';
 export * from './reports';
 export * from './dashboard';
+export * from './evidenceRequests';

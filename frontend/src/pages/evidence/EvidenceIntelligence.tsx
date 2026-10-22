@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 
 import { listSprints } from '../../api/sprints';
+import { SelectSprintPrompt } from '../../components/SprintContextBar';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { listSprintDocuments } from '../../api/documents';
 import { listSprintFacts } from '../../api/facts';
 import { listSprintGaps } from '../../api/gaps';
@@ -66,7 +68,8 @@ function needsAttention(doc: SprintDocument, factCount: number): string | null {
 export const EvidenceIntelligence: React.FC = () => {
   const { can } = useAccess();
   const navigate = useNavigate();
-  const [sprintId, setSprintId] = useState<string>('');
+  // The selected sprint is shared by every page (context/SelectedSprintContext.tsx).
+  const { sprintId: selectedSprintId } = useSelectedSprint();
   const [filter, setFilter] = useState<Filter>('all');
 
   const { data: sprints, loading: sprintsLoading, error: sprintsError, refetch: refetchSprints } =
@@ -74,7 +77,7 @@ export const EvidenceIntelligence: React.FC = () => {
 
   // The first sprint is selected once the list arrives, rather than held in
   // state from the start: there is no valid default before it loads.
-  const activeSprintId = sprintId || sprints?.[0]?.id || '';
+  const activeSprintId = selectedSprintId;
 
   const { data: documents, loading: docsLoading, error: docsError, refetch: refetchDocs } =
     useApiResource<SprintDocument[]>(
@@ -156,6 +159,8 @@ export const EvidenceIntelligence: React.FC = () => {
     );
   }
 
+  if (!activeSprintId) return <SelectSprintPrompt />;
+
   const totalFacts = (facts ?? []).length;
   const processed = docs.filter((d) => d.status === 'processed').length;
 
@@ -186,21 +191,6 @@ export const EvidenceIntelligence: React.FC = () => {
         }
       />
 
-      <div className="glass-card p-4">
-        <label className="label" htmlFor="evidence-sprint">Sprint</label>
-        <select
-          id="evidence-sprint"
-          value={activeSprintId}
-          onChange={(e) => { setSprintId(e.target.value); setFilter('all'); }}
-          className="input"
-        >
-          {sprints.map((sprint) => (
-            <option key={sprint.id} value={sprint.id}>
-              {sprint.institution_name || sprint.name || 'Institution'} · {sprint.sprint_code} ({sprint.status.replace(/_/g, ' ')})
-            </option>
-          ))}
-        </select>
-      </div>
 
       {docsError && <InlineError message={docsError} onDismiss={refetchDocs} />}
       {docsLoading && <LoadingState message="Loading evidence…" />}

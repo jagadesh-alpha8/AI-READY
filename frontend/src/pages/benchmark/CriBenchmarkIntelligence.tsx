@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 
 import { listSprints } from '../../api/sprints';
+import { SelectSprintPrompt } from '../../components/SprintContextBar';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { getScore, recalculateScore } from '../../api/scoring';
 import { listSprintGaps } from '../../api/gaps';
 import { listRecommendations } from '../../api/recommendations';
@@ -57,14 +59,15 @@ export const CriBenchmarkIntelligence: React.FC = () => {
   const { can } = useAccess();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('score');
-  const [sprintId, setSprintId] = useState('');
+  // The selected sprint is shared by every page (context/SelectedSprintContext.tsx).
+  const { sprintId: selectedSprintId } = useSelectedSprint();
   const [recalculating, setRecalculating] = useState(false);
   const [actionError, setActionError] = useState('');
 
   const { data: sprints, loading: sprintsLoading, error: sprintsError, refetch: refetchSprints } =
     useApiResource<Sprint[]>(() => listSprints(), []);
 
-  const activeSprintId = sprintId || sprints?.[0]?.id || '';
+  const activeSprintId = selectedSprintId;
 
   const {
     data: scorecard, setData: setScorecard, loading: scoreLoading, error: scoreError, refetch: refetchScore,
@@ -123,6 +126,8 @@ export const CriBenchmarkIntelligence: React.FC = () => {
     );
   }
 
+  if (!activeSprintId) return <SelectSprintPrompt />;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -142,21 +147,6 @@ export const CriBenchmarkIntelligence: React.FC = () => {
         }
       />
 
-      <div className="glass-card p-4">
-        <label className="label" htmlFor="cri-sprint">Sprint</label>
-        <select
-          id="cri-sprint"
-          value={activeSprintId}
-          onChange={(e) => { setSprintId(e.target.value); setTab('score'); }}
-          className="input"
-        >
-          {sprints.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.institution_name || s.name || 'Institution'} · {s.sprint_code} ({s.status.replace(/_/g, ' ')})
-            </option>
-          ))}
-        </select>
-      </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
 
