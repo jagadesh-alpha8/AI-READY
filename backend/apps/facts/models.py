@@ -292,7 +292,7 @@ class EvidenceRequestDocument(models.Model):
         ordering = ['created_at']
         constraints = [
             models.CheckConstraint(
-                condition=(models.Q(document__isnull=False, submitted_text='') |
+                check=(models.Q(document__isnull=False, submitted_text='') |
                            (models.Q(document__isnull=True) & ~models.Q(submitted_text=''))),
                 name='evidence_request_document_or_text',
             ),

@@ -188,7 +188,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="evidencerequestdocument",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     models.Q(("document__isnull", False), ("submitted_text", "")),
                     models.Q(
                         ("document__isnull", True),
