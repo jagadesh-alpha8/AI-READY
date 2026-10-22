@@ -172,6 +172,18 @@ class FactConfirmSerializer(_ReasonSerializer):
     pass
 
 
+class BulkFactConfirmSerializer(serializers.Serializer):
+    """Bounded batch of sprint fact IDs to confirm through the normal review rules."""
+    fact_ids = serializers.ListField(
+        child=serializers.UUIDField(), min_length=1, max_length=100,
+    )
+    comment = serializers.CharField(required=False, allow_blank=True, default='')
+
+    def validate_fact_ids(self, value):
+        # A repeated ID should never create repeated review history entries.
+        return list(dict.fromkeys(value))
+
+
 class FactRejectSerializer(_ReasonSerializer):
     pass
 

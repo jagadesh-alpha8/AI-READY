@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import { listSprintFacts, confirmFact, correctFact, rejectFact, reviewFactMapping } from '../../api/facts';
+import {
+  listSprintFacts, confirmFact, bulkConfirmSprintFacts, correctFact, rejectFact, reviewFactMapping,
+} from '../../api/facts';
 import { useApiResource } from '../../hooks/useApiResource';
 import { getScoringConfig } from '../../api/config';
 import type { PillarConfig } from '../../api/config';
@@ -32,7 +34,10 @@ export const FactsReview: React.FC = () => {
   const [editingFactId, setEditingFactId] = useState<string | null>(null);
   const [correctionValue, setCorrectionValue] = useState('');
   const [actionError, setActionError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
   const [actingOnId, setActingOnId] = useState<string | null>(null);
+  const [bulkConfirming, setBulkConfirming] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState('');
 
   // Filters (client-side: the full fact list is already loaded).
   const [search, setSearch] = useState('');
@@ -59,6 +64,11 @@ export const FactsReview: React.FC = () => {
     [facts, search, statusFilter, pillarFilter, criterionFilter, mappingFilter, ownerFilter, sourceFilter,
       confidenceFilter],
   );
+  const bulkConfirmableFacts = useMemo(
+    () => filteredFacts.filter((fact) => fact.status === 'extracted'
+      && fact.can_act === true && !fact.open_evidence_request),
+    [filteredFacts],
+  );
   const criterionGroups = useMemo(() => aiqifCriterionGroups(facts), [facts]);
   // The CRI pillars are the 9 AI-QIF criteria (live scoring config, in framework order). All 9 are offered,
   // with their fact counts -- a criterion no fact is tagged to yet still shows, as (0).
@@ -75,6 +85,47 @@ export const FactsReview: React.FC = () => {
       setActionError(getErrorMessage(err, 'Failed to confirm fact.'));
     } finally {
       setActingOnId(null);
+    }
+  };
+
+  const handleBulkConfirm = async () => {
+    if (!sprintId || bulkConfirmableFacts.length === 0) return;
+    const factIds = bulkConfirmableFacts.map((fact) => fact.id);
+    const accepted = window.confirm(
+      `Confirm ${factIds.length} eligible fact(s) from the current filtered list? `
+      + 'Each confirmation will be recorded in the audit history.',
+    );
+    if (!accepted) return;
+
+    setBulkConfirming(true);
+    setActionError('');
+    setActionMessage('');
+    let confirmedCount = 0;
+    let skippedCount = 0;
+    const skippedReasons = new Map<string, number>();
+    try {
+      // The API accepts bounded batches; chunking lets a large sprint finish without an oversized request.
+      const batchSize = 100;
+      for (let offset = 0; offset < factIds.length; offset += batchSize) {
+        const batch = factIds.slice(offset, offset + batchSize);
+        setBulkProgress(`Confirming ${Math.min(offset + batch.length, factIds.length)} of ${factIds.length}…`);
+        const { data } = await bulkConfirmSprintFacts(sprintId, batch, 'Confirmed by reviewer using Confirm all.');
+        confirmedCount += data.confirmed_count;
+        skippedCount += data.skipped_count;
+        data.skipped.forEach(({ reason }) => skippedReasons.set(reason, (skippedReasons.get(reason) || 0) + 1));
+      }
+      const reasonSummary = [...skippedReasons.entries()].map(([reason, count]) => `${count} ${reason}`).join('; ');
+      setActionMessage(
+        `Bulk confirmation finished: ${confirmedCount} confirmed, ${skippedCount} skipped. `
+        + (reasonSummary ? `Skipped: ${reasonSummary}` : 'All selected facts were confirmed.'),
+      );
+    } catch (err) {
+      const partial = confirmedCount ? ` ${confirmedCount} fact(s) were confirmed before the request failed.` : '';
+      setActionError(`${getErrorMessage(err, 'Bulk confirmation failed.')}${partial}`);
+    } finally {
+      setBulkConfirming(false);
+      setBulkProgress('');
+      refetch();
     }
   };
 
@@ -162,13 +213,36 @@ export const FactsReview: React.FC = () => {
       </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
+      {actionMessage && (
+        <div role="status" className="rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+          {actionMessage}
+        </div>
+      )}
 
       {/* Facts Table */}
       <div className="glass-card p-5 sm:p-6">
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <h2 className="eyebrow">Candidate & Extracted Fact Records</h2>
-          <span className="text-xs text-ink-500">{facts.length} facts registered</span>
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            <span className="text-xs text-ink-500">{facts.length} facts registered</span>
+            {canReview && (
+              <button
+                type="button"
+                onClick={handleBulkConfirm}
+                disabled={bulkConfirming || bulkConfirmableFacts.length === 0}
+                className="btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Confirms eligible extracted facts in the current filtered list."
+              >
+                {bulkConfirming ? bulkProgress : `Confirm all eligible (${bulkConfirmableFacts.length})`}
+              </button>
+            )}
+          </div>
         </div>
+        {canReview && (
+          <p className="text-xs text-ink-500 -mt-2 mb-4">
+            Current filters apply. Low-confidence, conflicting, incomplete, restricted, or evidence-requested facts are skipped for individual review.
+          </p>
+        )}
 
         {loading ? (
           <LoadingState message="Loading extracted facts..." />

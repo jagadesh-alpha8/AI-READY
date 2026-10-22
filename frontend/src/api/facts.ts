@@ -13,6 +13,22 @@ export function confirmFact(id: string, comment = 'Confirmed by reviewer') {
   return api.post<Fact>(`/facts/${id}/confirm`, { comment });
 }
 
+export interface BulkFactConfirmResult {
+  requested_count: number;
+  confirmed: string[];
+  confirmed_count: number;
+  skipped: Array<{ id: string; reason: string }>;
+  skipped_count: number;
+}
+
+/** Confirm up to 100 facts in one sprint while preserving backend ownership checks and per-fact audit history. */
+export function bulkConfirmSprintFacts(sprintId: string, factIds: string[], comment = '') {
+  return api.post<BulkFactConfirmResult>(`/sprints/${sprintId}/facts/bulk-confirm`, {
+    fact_ids: factIds,
+    comment,
+  });
+}
+
 export function correctFact(id: string, correctedValue: unknown, comment = 'User correction') {
   return api.post<Fact>(`/facts/${id}/correct`, { corrected_value: correctedValue, comment });
 }

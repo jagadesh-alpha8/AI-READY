@@ -1,16 +1,18 @@
+from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.filters import OrderingFilter
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import CanReviewFacts, IsInstitutionMember, require_institution_access
+from apps.gaps.models import GapItem
 from apps.gaps.services import after_fact_review
 from apps.sprints.access import get_authorized_sprint
 from config.pagination import OptionalPageNumberPagination
@@ -20,6 +22,7 @@ from . import evidence_requests, ownership
 from .evidence_serializers import EvidenceRequestCreateSerializer
 from .models import EvidenceRequest, ExtractedFact, FactAIQIFMapping, FactReviewHistory
 from .serializers import (
+    BulkFactConfirmSerializer,
     ExtractedFactDetailSerializer,
     ExtractedFactSerializer,
     FactAIQIFMappingReviewSerializer,
@@ -49,6 +52,76 @@ class SprintFactListView(generics.ListAPIView):
                          .select_related('assigned_to')),
             )
         )
+
+
+class SprintBulkFactConfirmView(APIView):
+    """Confirm a bounded batch through the same ownership, request, and audit rules as one fact."""
+    permission_classes = [CanReviewFacts]
+
+    @extend_schema(request=BulkFactConfirmSerializer)
+    def post(self, request, sprint_id):
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        body = BulkFactConfirmSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        reason = body.validated_data.get('comment', '').strip() or 'Confirmed by reviewer via bulk action.'
+
+        confirmed = []
+        skipped = []
+        for fact_id in body.validated_data['fact_ids']:
+            skip_reason = ''
+            with transaction.atomic():
+                fact = (ExtractedFact.objects.select_for_update().select_related('sprint')
+                        .filter(pk=fact_id, sprint=sprint).first())
+                if fact is None:
+                    skip_reason = 'Fact was not found in this sprint.'
+                elif fact.status != ExtractedFact.Status.EXTRACTED:
+                    skip_reason = 'Fact is no longer awaiting review.'
+                elif evidence_requests.open_request_for(fact):
+                    skip_reason = 'Resolve the open evidence request first.'
+                elif fact.confidence_score < settings.GAP_LOW_CONFIDENCE_THRESHOLD:
+                    skip_reason = 'Low-confidence facts need individual review.'
+                elif not (fact.source_snippet or '').strip():
+                    skip_reason = 'The source quote is missing; review this fact individually.'
+                elif GapItem.objects.filter(
+                    sprint=sprint,
+                    gap_type=GapItem.GapType.CONFLICT,
+                    status__in=GapItem.ACTIVE_STATUSES,
+                ).filter(
+                    Q(source_fact_id=fact.id)
+                    | Q(conflict_fact_b_id=fact.id)
+                    | Q(conflict_fact_b__isnull=True, source_fact__field_key=fact.field_key)
+                ).exists():
+                    skip_reason = 'This fact has an unresolved conflict.'
+                else:
+                    allowed, why = ownership.check_fact(request.user, fact)
+                    if not allowed:
+                        skip_reason = why
+                    else:
+                        FactReviewHistory.objects.create(
+                            fact=fact,
+                            action=FactReviewHistory.Action.CONFIRMED,
+                            original_value=fact.value,
+                            user=request.user,
+                            reason=reason,
+                        )
+                        fact.status = ExtractedFact.Status.CONFIRMED
+                        fact.reviewed_by = request.user
+                        fact.reviewed_at = timezone.now()
+                        fact.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'updated_at'])
+                        after_fact_review(fact, user=request.user, reason=reason)
+
+            if skip_reason:
+                skipped.append({'id': str(fact_id), 'reason': skip_reason})
+            else:
+                confirmed.append(str(fact_id))
+
+        return Response({
+            'requested_count': len(body.validated_data['fact_ids']),
+            'confirmed': confirmed,
+            'confirmed_count': len(confirmed),
+            'skipped': skipped,
+            'skipped_count': len(skipped),
+        })
 
 
 class FactDetailView(generics.RetrieveAPIView):
