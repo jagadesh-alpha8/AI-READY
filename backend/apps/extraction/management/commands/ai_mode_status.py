@@ -12,7 +12,7 @@ from django.core.management.base import BaseCommand
 from config.ai_processing_mode import MULTI_ROUTER
 
 from ...services.processing_status import (
-    check_router, configuration_problems, describe, router_model, slot_usage, summary_line,
+    check_router, configuration_problems, describe, exhausted_routers, router_model, slot_usage, summary_line,
 )
 from ...services.router_pool import Router, configured_routers, get_router_pool
 
@@ -39,17 +39,23 @@ class Command(BaseCommand):
         if info['mode'] == MULTI_ROUTER:
             pool = get_router_pool()
             slots = slot_usage(pool)
+            exhausted = exhausted_routers(pool) or {}
             if slots is None:
-                self.stdout.write(self.style.WARNING('  Redis unreachable: slot usage unknown.'))
+                self.stdout.write(self.style.WARNING('  Redis unreachable: slot usage and out-of-credit marks unknown.'))
             for router in configured_routers():
                 h = check_router(router)
                 busy, cooling = slots.get(router.label, (0, False)) if slots else ('?', False)
                 model = {True: 'model listed', False: f'MODEL {router_model()!r} NOT LISTED', None: ''}[h['model_listed']]
+                out = exhausted.get(router.label)
+                credit = (f'OUT OF CREDIT since {out.get("since", "?")[:16]} ({out.get("reason", "")[:60]}) -- '
+                          f'no new jobs until reactivated' if out else 'credit not verified')
                 line = (f'  {router.label:<28} {h["detail"]:<22} {h["ms"]:>5} ms  slots {busy}/{pool.max_concurrent}'
-                        f'{"  cooling down" if cooling else ""}  {model}')
-                ok = h['ok'] and h['model_listed'] is not False
+                        f'{"  cooling down" if cooling else ""}  {model}  {credit}')
+                ok = h['ok'] and h['model_listed'] is not False and not out
                 self.stdout.write(self.style.SUCCESS(line) if ok else self.style.ERROR(line))
                 healthy &= ok
+            self.stdout.write('  "credit not verified": /models only shows the router is reachable; remaining '
+                              'quota/credit is known only when a request is refused for it.')
         elif settings.AI_BASE_URL:
             key = settings.AI_API_KEY or settings.OPENAI_API_KEY
             h = check_router(Router(index=0, base_url=settings.AI_BASE_URL, api_key=key))

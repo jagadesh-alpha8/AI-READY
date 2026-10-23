@@ -17,6 +17,9 @@ export interface ExtractionJob {
   retry_count: number;
   /** Router that ran the latest attempt, e.g. "router2 (localhost:20229)"; "" in single-router mode. */
   ai_router: string;
+  /** Every attempt at this job (backend tasks.py): which router, and why it ended -- e.g. out_of_credit when
+   * the router's provider ran out of quota and the document moved to the next router. */
+  attempts?: { at: string; router: string; outcome: string; detail: string; ended?: string }[];
   /** How much the latest completed attempt read: '' = not recorded (older run). */
   completeness: '' | 'complete' | 'partial';
   extraction_warnings: ExtractionWarning[];

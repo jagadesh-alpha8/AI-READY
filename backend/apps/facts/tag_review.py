@@ -62,7 +62,9 @@ def confirm_pending(sprint, user, mapping_ids=None, note=''):
         if updated:
             confirmed.append(str(mapping.id))
             by_fact.setdefault(mapping.fact, []).append(mapping.indicator_code)
+    from .aiqif_tagging import refresh_state
     for fact, codes in by_fact.items():
+        refresh_state(fact)  # its summary and expert-queue flag follow the confirmed tags
         FactReviewHistory.objects.create(
             fact=fact, action=FactReviewHistory.Action.AIQIF_TAGS_CONFIRMED, original_value=fact.value, user=user,
             reason=(f'AI-QIF tags confirmed in bulk ({", ".join(sorted(codes))}); one action confirming '

@@ -1,7 +1,11 @@
 from django.urls import path
 
 from .views import (
+    FactAIQIFMappingAddView,
+    FactAIQIFMappingEditView,
+    FactAIQIFMappingReopenView,
     FactAIQIFMappingReviewView,
+    FactKindView,
     FactAssignView,
     FactConfirmView,
     FactCorrectView,
@@ -28,4 +32,10 @@ urlpatterns = [
     ),
     path('/<uuid:pk>/aiqif-mappings/<str:indicator_code>/review', FactAIQIFMappingReviewView.as_view(),
          name='fact-aiqif-mapping-review'),
+    path('/<uuid:pk>/aiqif-mappings', FactAIQIFMappingAddView.as_view(), name='fact-aiqif-mapping-add'),
+    path('/<uuid:pk>/aiqif-mappings/<str:indicator_code>/edit', FactAIQIFMappingEditView.as_view(),
+         name='fact-aiqif-mapping-edit'),
+    path('/<uuid:pk>/aiqif-mappings/<str:indicator_code>/reopen', FactAIQIFMappingReopenView.as_view(),
+         name='fact-aiqif-mapping-reopen'),
+    path('/<uuid:pk>/fact-kind', FactKindView.as_view(), name='fact-kind'),
 ]

@@ -3,8 +3,11 @@ import type { BulkTagResult, BulkTagSummary } from '../../api/facts';
 import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import {
-  listSprintFacts, confirmFact, bulkConfirmSprintFacts, bulkConfirmSprintTags, correctFact, rejectFact, reviewFactMapping,
+  listSprintFacts, listSprintFactsPage, getSprintFactFacets, confirmFact, bulkConfirmSprintFacts, bulkConfirmSprintTags,
+  correctFact, rejectFact, type FactFacets,
 } from '../../api/facts';
+import { DEFAULT_PAGE_SIZE, type Page } from '../../api/pagination';
+import { Pagination, optionsFromCounts, useDebounced } from '../../components/Pagination';
 import { useApiResource } from '../../hooks/useApiResource';
 import { getScoringConfig } from '../../api/config';
 import type { PillarConfig } from '../../api/config';
@@ -13,25 +16,65 @@ import { ErrorState, InlineError, LoadingState } from '../../components/ApiState
 import type { Fact } from '../../types';
 import { FileSearch, ArrowRight } from 'lucide-react';
 import { ScrollableTable } from '../../components/ScrollableTable';
-import { TableFilters, matchesSearch, optionsFrom } from '../../components/TableFilters';
+import { TableFilters } from '../../components/TableFilters';
 import { useAccess } from '../../utils/access';
 import { CriConfidenceTile } from '../scoring/CriConfidenceTile';
 import { RequestEvidenceModal } from './RequestEvidenceModal';
+import { AIQIFSummaryBar, FactKindBadge } from './AIQIFSummaryBar';
+import { ProfileConfirmPanel } from './ProfileConfirmPanel';
+import { AIQIFTagRow, FactReviewState } from './AIQIFTagRow';
+
+const KIND_LABELS: Record<string, string> = {
+  ai_evidence: 'AI evidence', context: 'Context', profile: 'Institution profile', '': 'Not classified yet',
+};
 
 export const FactsReview: React.FC = () => {
   const { step, can } = useAccess();
   const canReview = can('facts.review');
+  // Indicator tags are the AI-QIF expert's (Super Admin); everyone else -- the sales flow -- sees only what
+  // each fact is for (AI evidence / context / profile), assigned automatically.
+  const isExpert = can('aiqif.expert');
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
 
+  // Filters (server-side, apps/facts/filters.py): only the current page of facts is loaded; filter options and
+  // totals come from aggregate counts over the whole sprint (facets).
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [pillarFilter, setPillarFilter] = useState('');
+  const [criterionFilter, setCriterionFilter] = useState('');
+  const [mappingFilter, setMappingFilter] = useState('');
+  const [ownerFilter, setOwnerFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [confidenceFilter, setConfidenceFilter] = useState('');
+  const [kindFilter, setKindFilter] = useState('');
+  const [tagReviewFilter, setTagReviewFilter] = useState('');
+  const q = useDebounced(search.trim());
+  const query = {
+    q, status: statusFilter, pillar: pillarFilter, aiqif_criterion: criterionFilter, aiqif_mapping_status: mappingFilter,
+    owner_role: ownerFilter, source_document: sourceFilter, confidence_band: confidenceFilter, fact_kind: kindFilter,
+    tag_review: tagReviewFilter,
+  };
+  const queryKey = JSON.stringify(query);
+  // The page belongs to its filters: a new filter starts at page 1 in the same render (never a request for
+  // page 2 of a filter that may have only one page).
+  const [pageState, setPageState] = useState({ key: queryKey, page: 1 });
+  const page = pageState.key === queryKey ? pageState.page : 1;
+  const setPage = (next: number) => setPageState({ key: queryKey, page: next });
   const {
-    data: factsData,
+    data: pageData,
     loading,
     error,
-    refetch,
-  } = useApiResource<Fact[]>(() => listSprintFacts(sprintId!), [sprintId], isRealSprint);
-  const facts = factsData || [];
+    refetch: refetchPage,
+  } = useApiResource<Page<Fact>>(() => listSprintFactsPage(sprintId!, { ...query, page, page_size: DEFAULT_PAGE_SIZE }),
+    [sprintId, queryKey, page], isRealSprint);
+  const { data: facets, refetch: refetchFacets } = useApiResource<FactFacets>(
+    () => getSprintFactFacets(sprintId!), [sprintId], isRealSprint);
+  const refetch = () => { refetchPage(); refetchFacets(); };
+  const facts = pageData?.results || [];
+  const totalFacts = facets?.total ?? 0;
+  const filtersActive = Object.values(query).some(Boolean);
 
   const [editingFactId, setEditingFactId] = useState<string | null>(null);
   const [correctionValue, setCorrectionValue] = useState('');
@@ -44,41 +87,12 @@ export const FactsReview: React.FC = () => {
   const [bulkConfirming, setBulkConfirming] = useState(false);
   const [bulkProgress, setBulkProgress] = useState('');
 
-  // Filters (client-side: the full fact list is already loaded).
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [pillarFilter, setPillarFilter] = useState('');
-  const [criterionFilter, setCriterionFilter] = useState('');
-  const [mappingFilter, setMappingFilter] = useState('');
-  const [ownerFilter, setOwnerFilter] = useState('');
-  const [sourceFilter, setSourceFilter] = useState('');
-  const [confidenceFilter, setConfidenceFilter] = useState('');
-  const filteredFacts = useMemo(
-    () => facts.filter((fact) =>
-      (!statusFilter || fact.status === statusFilter)
-      && (!pillarFilter || (fact.pillar || '') === pillarFilter)
-      && (!criterionFilter || fact.aiqif_mappings.some((m) => m.criterion === criterionFilter))
-      && (!mappingFilter || fact.aiqif_mapping_status === mappingFilter)
-      && (!ownerFilter || (fact.owner_role || '') === ownerFilter)
-      && (!sourceFilter || (fact.source_document_filename || '') === sourceFilter)
-      && (!confidenceFilter || confidenceBand(fact.confidence) === confidenceFilter)
-      && matchesSearch(
-        search, fact.audit_field_id, fact.field_name, fact.value, fact.source_snippet, fact.source_document_filename,
-        ...fact.aiqif_mappings.flatMap((m) => [m.indicator_code, m.indicator_name]),
-      )),
-    [facts, search, statusFilter, pillarFilter, criterionFilter, mappingFilter, ownerFilter, sourceFilter,
-      confidenceFilter],
-  );
-  const bulkConfirmableFacts = useMemo(
-    () => filteredFacts.filter((fact) => fact.status === 'extracted'
-      && fact.can_act === true && !fact.open_evidence_request),
-    [filteredFacts],
-  );
-  const criterionGroups = useMemo(() => aiqifCriterionGroups(facts), [facts]);
+  const filteredFacts = facts;  // the current page, already filtered by the server
+  const criterionGroups = facets?.aiqif_criterion || [];
   // The CRI pillars are the 9 AI-QIF criteria (live scoring config, in framework order). All 9 are offered,
   // with their fact counts -- a criterion no fact is tagged to yet still shows, as (0).
   const { data: pillarConfig } = useApiResource<PillarConfig[]>(() => getScoringConfig(), []);
-  const pillarOptions = useMemo(() => criPillarOptions(facts, pillarConfig), [facts, pillarConfig]);
+  const pillarOptions = useMemo(() => criPillarOptions(facets?.pillar || {}, pillarConfig), [facets, pillarConfig]);
 
   const handleConfirm = async (factId: string) => {
     setActingOnId(factId);
@@ -93,17 +107,20 @@ export const FactsReview: React.FC = () => {
     }
   };
 
-  // Pending AI-QIF tags in the current (filtered) list -- the tags of every fact shown.
-  const filtersActive = filteredFacts.length !== facts.length;
-  const pendingTagIds = useMemo(
-    () => filteredFacts.flatMap((f) => f.aiqif_mappings.filter((m) => m.review_status === 'unreviewed').map((m) => m.id)),
-    [filteredFacts],
-  );
+  // Pending AI-QIF tags of every fact matching the filters (the whole sprint when no filter is set).
+  const [pendingTagIds, setPendingTagIds] = useState<string[] | undefined>(undefined);
+  const collectPendingTagIds = async () => {
+    if (!filtersActive) return undefined;
+    const { data } = await listSprintFacts(sprintId!, query);
+    return data.flatMap((f) => f.aiqif_mappings.filter((m) => m.review_status === 'unreviewed').map((m) => m.id));
+  };
   const openTagPlan = async () => {
     if (!sprintId) return;
     setActionError(''); setActionMessage(''); setTagBusy(true);
     try {
-      const { data } = await bulkConfirmSprintTags(sprintId, filtersActive ? pendingTagIds : undefined, true);
+      const ids = await collectPendingTagIds();
+      setPendingTagIds(ids);
+      const { data } = await bulkConfirmSprintTags(sprintId, ids, true);
       setTagPlan(data as BulkTagSummary);
     } catch (err) {
       setActionError(getErrorMessage(err, 'Could not prepare the tag confirmation.'));
@@ -113,7 +130,7 @@ export const FactsReview: React.FC = () => {
     if (!sprintId) return;
     setTagBusy(true); setActionError('');
     try {
-      const { data } = await bulkConfirmSprintTags(sprintId, filtersActive ? pendingTagIds : undefined, false);
+      const { data } = await bulkConfirmSprintTags(sprintId, pendingTagIds, false);
       const r = data as BulkTagResult;
       const cov = r.coverage;
       setActionMessage(
@@ -133,8 +150,24 @@ export const FactsReview: React.FC = () => {
   };
 
   const handleBulkConfirm = async () => {
-    if (!sprintId || bulkConfirmableFacts.length === 0) return;
-    const factIds = bulkConfirmableFacts.map((fact) => fact.id);
+    if (!sprintId) return;
+    setBulkConfirming(true);
+    setBulkProgress('Finding eligible facts…');
+    let factIds: string[] = [];
+    try {
+      // Every page matching the current filters, still unreviewed; the server decides who may act on each.
+      const { data } = await listSprintFacts(sprintId, { ...query, status: 'extracted' });
+      factIds = data.filter((fact) => fact.can_act === true && !fact.open_evidence_request).map((fact) => fact.id);
+    } catch (err) {
+      setActionError(getErrorMessage(err, 'Could not list the eligible facts.'));
+      setBulkConfirming(false); setBulkProgress('');
+      return;
+    }
+    setBulkConfirming(false); setBulkProgress('');
+    if (factIds.length === 0) {
+      setActionMessage('No fact in the current filter is eligible for confirmation.');
+      return;
+    }
     const accepted = window.confirm(
       `Confirm ${factIds.length} eligible fact(s) from the current filtered list? `
       + 'Each confirmation will be recorded in the audit history.',
@@ -173,18 +206,6 @@ export const FactsReview: React.FC = () => {
     }
   };
 
-  const handleMappingReview = async (factId: string, code: string, decision: 'confirm' | 'reject') => {
-    setActingOnId(factId);
-    setActionError('');
-    try {
-      await reviewFactMapping(factId, code, decision);
-      refetch();
-    } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to save the AI-QIF tag decision.'));
-    } finally {
-      setActingOnId(null);
-    }
-  };
 
   const handleCorrectSubmit = async (factId: string) => {
     setActingOnId(factId);
@@ -302,23 +323,26 @@ export const FactsReview: React.FC = () => {
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <h2 className="eyebrow">Candidate & Extracted Fact Records</h2>
           <div className="flex items-center gap-3 flex-wrap justify-end">
-            <span className="text-xs text-ink-500">{facts.length} facts registered</span>
+            <span className="text-xs text-ink-500">{totalFacts} facts registered</span>
             {canReview && (
               <button
                 type="button"
                 onClick={handleBulkConfirm}
-                disabled={bulkConfirming || bulkConfirmableFacts.length === 0}
+                disabled={bulkConfirming || (pageData?.count ?? 0) === 0}
                 className="btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Confirms eligible extracted facts in the current filtered list."
+                title="Confirms every eligible extracted fact matching the current filters (all pages)."
               >
-                {bulkConfirming ? bulkProgress : `Confirm all eligible (${bulkConfirmableFacts.length})`}
+                {bulkConfirming ? bulkProgress : 'Confirm all eligible'}
               </button>
             )}
-            {canReview && (
-              <button type="button" onClick={openTagPlan} disabled={tagBusy || pendingTagIds.length === 0}
+            {isExpert && (
+              <Link to={`/sprint/${sprintId}/aiqif-review`} className="btn-secondary btn-sm">AI-QIF expert queue</Link>
+            )}
+            {isExpert && (
+              <button type="button" onClick={openTagPlan} disabled={tagBusy}
                 className="btn-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Confirms AI-QIF category tags only (not the facts). Current filters apply.">
-                {tagBusy && !tagPlan ? 'Checking tags…' : `Confirm all pending tags (${pendingTagIds.length})`}
+                {tagBusy && !tagPlan ? 'Checking tags…' : 'Confirm all pending tags'}
               </button>
             )}
           </div>
@@ -329,11 +353,11 @@ export const FactsReview: React.FC = () => {
           </p>
         )}
 
-        {loading ? (
+        {loading && !pageData ? (
           <LoadingState message="Loading extracted facts..." />
         ) : error ? (
           <ErrorState message={error} onRetry={refetch} />
-        ) : facts.length === 0 ? (
+        ) : totalFacts === 0 && facts.length === 0 ? (
           <div className="panel-muted">
             <p className="text-sm text-ink-500">No facts extracted yet. Seed facts or run extraction.</p>
             <button
@@ -347,14 +371,8 @@ export const FactsReview: React.FC = () => {
           </div>
         ) : (
           <>
-          <AIQIFCriterionStrip
-            groups={criterionGroups}
-            facts={facts}
-            criterion={criterionFilter}
-            mapping={mappingFilter}
-            onCriterion={(value) => { setCriterionFilter(value); setMappingFilter(''); }}
-            onMapping={(value) => { setMappingFilter(value); setCriterionFilter(''); }}
-          />
+          {isRealSprint && <ProfileConfirmPanel sprintId={sprintId!} canConfirm={can('profile.confirm')} />}
+          {isRealSprint && <AIQIFSummaryBar sprintId={sprintId!} reloadKey={facts} expert={isExpert} />}
           {isRealSprint && (
             <div className="mb-4">
               <ProcessingStatusBanner sprintId={sprintId!} consequence="Facts from those documents may be missing below." />
@@ -364,25 +382,31 @@ export const FactsReview: React.FC = () => {
             search={search}
             onSearch={setSearch}
             placeholder="Search field ID, value, snippet, document or AI-QIF indicator…"
-            shown={filteredFacts.length}
-            total={facts.length}
+            shown={pageData?.count ?? 0}
+            total={totalFacts}
             selects={[
-              { key: 'criterion', label: 'AI-QIF criterion', value: criterionFilter, onChange: setCriterionFilter,
-                options: criterionGroups.map((g) => ({
-                  value: g.criterion, label: `${shortCode(g.code)} ${g.name}`, count: g.count,
-                })) },
-              { key: 'mapping', label: 'AI-QIF mapping', value: mappingFilter, onChange: setMappingFilter,
-                options: optionsFrom(facts, (f) => f.aiqif_mapping_status, (v: string) => MAPPING_STATUS_LABELS[v] || v) },
+              { key: 'kind', label: 'Fact kind', value: kindFilter, onChange: setKindFilter,
+                options: optionsFromCounts(facets?.fact_kind, (v: string) => KIND_LABELS[v === 'none' ? '' : v] || v) },
+              ...(isExpert ? [
+                { key: 'criterion', label: 'AI-QIF criterion', value: criterionFilter, onChange: setCriterionFilter,
+                  options: criterionGroups.map((g) => ({
+                    value: g.criterion, label: `${shortCode(g.code)} ${g.name}`, count: g.count,
+                  })) },
+                { key: 'mapping', label: 'AI-QIF mapping', value: mappingFilter, onChange: setMappingFilter,
+                  options: optionsFromCounts(facets?.aiqif_mapping_status, (v: string) => MAPPING_STATUS_LABELS[v] || v) },
+                { key: 'tag_review', label: 'Tag review', value: tagReviewFilter, onChange: setTagReviewFilter,
+                  options: optionsFromCounts(facets?.tag_review, (v: string) => TAG_REVIEW_LABELS[v] || v) },
+              ] : []),
               { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
-                options: optionsFrom(facts, (f) => f.status, (v: string) => v.replace(/_/g, ' ')) },
+                options: optionsFromCounts(facets?.status, (v: string) => v.replace(/_/g, ' ')) },
               { key: 'pillar', label: 'CRI pillar', value: pillarFilter, onChange: setPillarFilter,
                 options: pillarOptions },
               { key: 'confidence', label: 'Confidence', value: confidenceFilter, onChange: setConfidenceFilter,
-                options: optionsFrom(facts, (f) => confidenceBand(f.confidence)) },
+                options: optionsFromCounts(facets?.confidence_band, (v: string) => CONFIDENCE_LABELS[v] || v) },
               { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
-                options: optionsFrom(facts, (f) => f.owner_role) },
+                options: optionsFromCounts(facets?.owner_role) },
               { key: 'source', label: 'Source document', value: sourceFilter, onChange: setSourceFilter,
-                options: optionsFrom(facts, (f) => f.source_document_filename) },
+                options: optionsFromCounts(facets?.source_document) },
             ]}
           />
           {filteredFacts.length === 0 ? (
@@ -412,7 +436,7 @@ export const FactsReview: React.FC = () => {
               <tbody>
                 {filteredFacts.map((fact, index) => (
                   <tr key={fact.id}>
-                    <td className="text-ink-500 tabular-nums">{index + 1}</td>
+                    <td className="text-ink-500 tabular-nums">{(page - 1) * DEFAULT_PAGE_SIZE + index + 1}</td>
                     <td className="font-mono text-xs font-bold text-brand-800">
                       {fact.audit_field_id}
                     </td>
@@ -437,7 +461,14 @@ export const FactsReview: React.FC = () => {
                         <span>{typeof fact.value_json === 'object' ? JSON.stringify(fact.value_json) : String(fact.value_json)}</span>
                       )}
                     </td>
-                    <td><AIQIFCategoryCell fact={fact} busy={actingOnId === fact.id} onReview={canReview ? (code, d) => handleMappingReview(fact.id, code, d) : undefined} /></td>
+                    <td>
+                      {isExpert ? (
+                        <div className="space-y-1">
+                          <FactKindBadge fact={fact} />
+                          <AIQIFCategoryCell fact={fact} sprintId={sprintId!} />
+                        </div>
+                      ) : <FactKindBadge fact={fact} />}
+                    </td>
                     <td>
                       <span className="badge-neutral">
                         {fact.pillar_label || fact.pillar || '—'}
@@ -536,6 +567,9 @@ export const FactsReview: React.FC = () => {
             </table>
           </ScrollableTable>
           )}
+          {pageData && (
+            <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} count={pageData.count} onPage={setPage} />
+          )}
           </>
         )}
       </div>
@@ -544,17 +578,22 @@ export const FactsReview: React.FC = () => {
 };
 
 /** Same bands a reviewer reads off the Confidence column. */
-function confidenceBand(confidence: number): string {
-  if (confidence >= 0.8) return 'High (80%+)';
-  if (confidence >= 0.5) return 'Medium (50-79%)';
-  return 'Low (<50%)';
-}
+/** The server's confidence bands (apps/facts/filters.py CONFIDENCE_BANDS). */
+const CONFIDENCE_LABELS: Record<string, string> = {
+  high: 'High (80%+)', medium: 'Medium (50-79%)', low: 'Low (<50%)',
+};
+
+const TAG_REVIEW_LABELS: Record<string, string> = {
+  confirmed: 'Tag confirmed', rejected: 'Tag rejected', pending: 'Pending expert review',
+};
 
 const MAPPING_STATUS_LABELS: Record<string, string> = {
   mapped: 'Mapped',
   needs_review: 'Needs review',
   unmapped: 'Unmapped',
-  pending: 'Not yet mapped',
+  pending: 'Not classified yet',
+  context: 'Context',
+  profile: 'Institution profile',
 };
 
 /** 'aiqif_c4' -> 'C4'. */
@@ -563,10 +602,9 @@ const pillarCode = (key: string) => key.replace(/^aiqif_c/i, 'C');
 /** CRI pillar filter options: every active pillar (the 9 AI-QIF criteria) in framework order, then any
  * pillar a fact still carries that is no longer active (labelled retired). Falls back to the pillars the
  * facts carry while the config loads. */
-function criPillarOptions(facts: Fact[], config: PillarConfig[] | null) {
-  const counts = new Map<string, number>();
-  for (const f of facts) counts.set(f.pillar || '', (counts.get(f.pillar || '') || 0) + 1);
-  const labels = new Map(facts.map((f) => [f.pillar || '', f.pillar_label || f.pillar || '(none)']));
+function criPillarOptions(pillarCounts: Record<string, number>, config: PillarConfig[] | null) {
+  const counts = new Map<string, number>(Object.entries(pillarCounts));
+  const labels = new Map([...counts.keys()].map((k) => [k, k || '(none)']));
   const active = [...(config || [])].filter((p) => p.is_active).sort((a, b) => a.display_order - b.display_order);
   const known = new Set(active.map((p) => p.key));
   return [
@@ -580,85 +618,16 @@ function criPillarOptions(facts: Fact[], config: PillarConfig[] | null) {
 /** 'AIQIF-C4.1' -> 'C4.1' for compact display. */
 const shortCode = (code: string) => code.replace(/^AIQIF-/, '');
 
-interface CriterionGroup { criterion: string; code: string; name: string; count: number }
-
-/** Each AI-QIF criterion the facts are tagged with, and how many facts it
- * has (a fact tagged under two criteria counts in both), in framework order. */
-function aiqifCriterionGroups(facts: Fact[]): CriterionGroup[] {
-  const groups = new Map<string, CriterionGroup>();
-  for (const fact of facts) {
-    for (const criterion of new Set(fact.aiqif_mappings.map((m) => m.criterion))) {
-      const m = fact.aiqif_mappings.find((x) => x.criterion === criterion)!;
-      const group = groups.get(criterion) || { criterion, code: m.criterion_code, name: m.criterion_name, count: 0 };
-      group.count += 1;
-      groups.set(criterion, group);
-    }
-  }
-  return [...groups.values()].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
-}
-
-/** Facts grouped by AI-QIF criterion, as one-click filters, plus the facts
- * that still need a person to look at their category. */
-const AIQIFCriterionStrip: React.FC<{
-  groups: CriterionGroup[];
-  facts: Fact[];
-  criterion: string;
-  mapping: string;
-  onCriterion: (value: string) => void;
-  onMapping: (value: string) => void;
-}> = ({ groups, facts, criterion, mapping, onCriterion, onMapping }) => {
-  const countOf = (status: Fact['aiqif_mapping_status']) => facts.filter((f) => f.aiqif_mapping_status === status).length;
-  const unclear = (['needs_review', 'unmapped', 'pending'] as const).filter((s) => countOf(s) > 0);
-  if (groups.length === 0 && unclear.length === 0) return null;
-  const chip = (active: boolean) =>
-    `px-2.5 py-1 rounded-full border text-xs font-semibold transition-colors ${
-      active ? 'bg-brand-50 border-brand-500 text-brand-800' : 'bg-surface border-line-200 text-ink-600 hover:border-line-300'
-    }`;
-
-  return (
-    <div className="mb-4 space-y-2">
-      <p className="text-xs text-ink-500">
-        Facts by AI-QIF criterion. The tags never change the Raw CRI. A tag counts toward AI-QIF evidence coverage
-        only after a reviewer confirms it (✓ on the tag) and the fact itself is confirmed or corrected.
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        <button onClick={() => { onCriterion(''); onMapping(''); }} className={chip(!criterion && !mapping)}>
-          All ({facts.length})
-        </button>
-        {groups.map((g) => (
-          <button
-            key={g.criterion}
-            onClick={() => onCriterion(criterion === g.criterion ? '' : g.criterion)}
-            className={chip(criterion === g.criterion)}
-            title={g.name}
-          >
-            {shortCode(g.code)} {g.name} ({g.count})
-          </button>
-        ))}
-        {unclear.map((status) => (
-          <button
-            key={status}
-            onClick={() => onMapping(mapping === status ? '' : status)}
-            className={`${chip(mapping === status)} ${status === 'needs_review' && mapping !== status ? 'text-warning' : ''}`}
-          >
-            {MAPPING_STATUS_LABELS[status]} ({countOf(status)})
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-};
-
 /** The fact's AI-QIF criterion and indicator(s), each with its confidence;
  * the AI's reason on hover. Unclear tags say so instead of guessing. */
-const AIQIFCategoryCell: React.FC<{
-  fact: Fact;
-  busy?: boolean;
-  /** Reviewers only: confirm or reject one tag. */
-  onReview?: (indicatorCode: string, decision: 'confirm' | 'reject') => void;
-}> = ({ fact, busy, onReview }) => {
-  if (fact.aiqif_mapping_status === 'pending') {
-    return <span className="text-xs text-ink-400" title="Extracted before AI-QIF tagging; re-run extraction to tag it.">Not yet mapped</span>;
+/** The fact's AI-QIF tags, read-only: decision, reviewer, relationship, whether each counts. Confirm / reject /
+ * edit / reopen happen in the AI-QIF expert queue (the link). */
+const AIQIFCategoryCell: React.FC<{ fact: Fact; sprintId: string }> = ({ fact, sprintId }) => {
+  if (fact.aiqif_mapping_status === 'pending' && fact.aiqif_mappings.length === 0) {
+    return <span className="text-xs text-ink-400" title="Not classified yet: run retag_aiqif_facts, or re-run extraction.">Not classified yet</span>;
+  }
+  if (fact.aiqif_mappings.length === 0 && (fact.fact_kind === 'context' || fact.fact_kind === 'profile')) {
+    return <span className="text-xs text-ink-500">No indicator (not AI evidence)</span>;
   }
   if (fact.aiqif_mappings.length === 0) {
     return (
@@ -668,45 +637,15 @@ const AIQIFCategoryCell: React.FC<{
     );
   }
   return (
-    <div className="min-w-[230px] max-w-[300px] space-y-1.5">
-      {fact.aiqif_mapping_status === 'needs_review' && <span className="badge-warning">Needs review</span>}
+    <div className="min-w-[250px] max-w-[320px] space-y-2">
+      <FactReviewState fact={fact} />
       {fact.aiqif_mappings.map((m) => (
-        <div key={m.indicator_code} title={`${m.criterion_code} ${m.criterion_name}\n${m.indicator_code} ${m.indicator_name}\n\nWhy: ${m.reason}`}>
-          <div className="flex items-start gap-1.5">
-            <span className="font-mono text-[11px] font-bold text-brand-800 shrink-0 mt-px">{shortCode(m.indicator_code)}</span>
-            <span className="text-xs font-semibold text-ink-800 leading-snug">{m.indicator_name}</span>
-            <span className={`ml-auto shrink-0 ${m.status === 'mapped' ? 'badge-success' : 'badge-warning'}`}>
-              {Math.round(m.confidence * 100)}%
-            </span>
-          </div>
-          <p className="text-[11px] text-ink-500 truncate">
-            {shortCode(m.criterion_code)} · {m.criterion_name}
-          </p>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            {m.review_status === 'confirmed' && (
-              <span className="text-[11px] font-semibold text-success" title={m.review_note || undefined}>
-                ✓ Confirmed{m.reviewed_by_name ? ` by ${m.reviewed_by_name}` : ''}
-              </span>
-            )}
-            {m.review_status === 'rejected' && (
-              <span className="text-[11px] font-semibold text-danger" title={m.review_note || undefined}>
-                ✕ Rejected{m.reviewed_by_name ? ` by ${m.reviewed_by_name}` : ''}
-              </span>
-            )}
-            {m.review_status === 'unreviewed' && <span className="text-[11px] text-ink-400">Not reviewed</span>}
-            {onReview && m.review_status !== 'confirmed' && (
-              <button disabled={busy} onClick={() => onReview(m.indicator_code, 'confirm')}
-                className="ml-auto text-[11px] font-semibold text-success hover:underline disabled:opacity-50"
-                title="This fact is evidence for this indicator">✓ Confirm tag</button>
-            )}
-            {onReview && m.review_status !== 'rejected' && (
-              <button disabled={busy} onClick={() => onReview(m.indicator_code, 'reject')}
-                className={`${m.review_status === 'confirmed' ? 'ml-auto ' : ''}text-[11px] font-semibold text-danger hover:underline disabled:opacity-50`}
-                title="This fact is not evidence for this indicator">✕ Reject</button>
-            )}
-          </div>
-        </div>
+        <AIQIFTagRow key={m.indicator_code} fact={fact} mapping={m} indicators={[]} readOnly />
       ))}
+      <Link to={`/sprint/${sprintId}/aiqif-review?${fact.aiqif_mappings.some((m) => m.pending) ? '' : 'tab=reviewed&'}q=${encodeURIComponent(fact.field_key)}`}
+        className="text-[11px] font-semibold text-brand-800 hover:underline">
+        Manage in AI-QIF expert queue
+      </Link>
     </div>
   );
 };

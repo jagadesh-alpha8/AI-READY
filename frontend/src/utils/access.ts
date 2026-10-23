@@ -53,6 +53,10 @@ export const ACTION_ROLES = {
   'ai.usage': STAFF,
   /** The benchmark library (IsInGageStaff). */
   'benchmarks.studio': STAFF,
+  /** The AI-QIF expert: indicator tags, fact kinds, the expert queue (IsSuperAdmin). Never the sales flow. */
+  'aiqif.expert': ['super_admin'],
+  /** Confirm the institution profile read from the documents (InGage staff; it decides which indicators apply). */
+  'profile.confirm': STAFF,
 } as const satisfies Record<string, Roles>;
 
 export type Action = keyof typeof ACTION_ROLES;
@@ -70,6 +74,8 @@ export const MENU_ROLES = {
   'sprint-upload': ALL_EXCEPT_VIEWER,
   'sprint-monitor': ALL_EXCEPT_VIEWER,
   'sprint-facts': ALL_EXCEPT_VIEWER,
+  // The AI-QIF expert queue (reached from Extracted Facts Review; not a numbered step).
+  'sprint-aiqif-review': ['super_admin'],
   'sprint-gaps': ALL_EXCEPT_VIEWER,
   // College staff confirm the facts assigned to their role; a super admin has none.
   'sprint-confirmation': ALL_EXCEPT_VIEWER.filter((r) => r !== 'super_admin'),

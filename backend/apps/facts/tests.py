@@ -69,14 +69,14 @@ class FactListingTests(FactTestBase):
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data['count'], 1)
 
     def test_list_without_trailing_slash_matches_frontend_client(self):
         self._make_fact()
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsInstance(response.data, list)
+        self.assertEqual(response.data['count'], 1)
 
     def test_list_forbidden_for_outsider(self):
         self._make_fact()
@@ -95,14 +95,13 @@ class FactListingTests(FactTestBase):
         })
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def test_pagination_is_opt_in(self):
+    def test_the_list_is_always_paginated(self):
         for i in range(3):
             self._make_fact(field_key=f'field_{i}')
         self._auth(self.iqac)
 
         plain = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/')
-        self.assertIsInstance(plain.data, list)
-        self.assertEqual(len(plain.data), 3)
+        self.assertEqual((plain.data['count'], len(plain.data['results'])), (3, 3))
 
         paginated = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/', {'page_size': 2, 'page': 1})
         self.assertIn('results', paginated.data)
@@ -116,8 +115,8 @@ class FactListingTests(FactTestBase):
         self._make_fact(field_key='f2', pillar='aiqif_c1')
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/', {'pillar': 'aiqif_c1'})
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['pillar'], 'aiqif_c1')
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['pillar'], 'aiqif_c1')
 
     def test_filter_by_status(self):
         f1 = self._make_fact()
@@ -127,15 +126,15 @@ class FactListingTests(FactTestBase):
 
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/', {'status': 'confirmed'})
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['id'], str(f1.id))
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], str(f1.id))
 
     def test_filter_by_owner_role(self):
         self._make_fact(owner_role='HOD')
         self._make_fact(field_key='f2', owner_role='REGISTRAR')
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/', {'owner_role': 'REGISTRAR'})
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data['count'], 1)
 
     def test_filter_by_document(self):
         from apps.documents.models import Document
@@ -145,7 +144,7 @@ class FactListingTests(FactTestBase):
 
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/', {'document': str(document.id)})
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data['count'], 1)
 
     def test_filter_by_confidence_range(self):
         self._make_fact(field_key='low', confidence_score=0.3)
@@ -153,19 +152,19 @@ class FactListingTests(FactTestBase):
         self._auth(self.iqac)
 
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/', {'confidence_min': 0.5})
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['field_key'], 'high')
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['field_key'], 'high')
 
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/', {'confidence_max': 0.5})
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['field_key'], 'low')
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['field_key'], 'low')
 
     def test_ordering_by_confidence_score(self):
         self._make_fact(field_key='low', confidence_score=0.3)
         self._make_fact(field_key='high', confidence_score=0.9)
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/', {'ordering': 'confidence_score'})
-        keys = [row['field_key'] for row in response.data]
+        keys = [row['field_key'] for row in response.data['results']]
         self.assertEqual(keys, ['low', 'high'])
 
 
@@ -1033,7 +1032,7 @@ class LowConfidenceGapEvidenceTests(FactTestBase):
 
     def _gap_row(self, user=None):
         self._auth(user or self.iqac)
-        rows = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps').data
+        rows = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps').data['results']
         return next(r for r in rows if r['id'] == str(self.gap.id))
 
     def _gap_action(self, action, user=None, **body):
@@ -1246,8 +1245,11 @@ class BulkTagConfirmTests(FactTestBase):
         super().setUp()
         from .models import FactAIQIFMapping as M
         self.M = M
-        self.fact = self._make_fact(status=ExtractedFact.Status.CONFIRMED)
-        self.other = self._make_fact(field_key='labs', field_name='Labs', value=7)  # still extracted
+        # The AI-QIF expert (Super Admin) decides tags; the facts are AI evidence.
+        self.expert = self._make_user('expert@ingage.test', User.Role.SUPER_ADMIN, None)
+        self.expert2 = self._make_user('expert2@ingage.test', User.Role.SUPER_ADMIN, None)
+        self.fact = self._make_fact(status=ExtractedFact.Status.CONFIRMED, fact_kind='ai_evidence')
+        self.other = self._make_fact(field_key='labs', field_name='Labs', value=7, fact_kind='ai_evidence')  # extracted
         self.ok1 = self._tag(self.fact, 'AIQIF-C4.1', 0.92)
         self.ok2 = self._tag(self.fact, 'AIQIF-C9.2', 0.81)
         self.ok3 = self._tag(self.other, 'AIQIF-C6.4', 0.75)
@@ -1266,7 +1268,7 @@ class BulkTagConfirmTests(FactTestBase):
         return self.client.post(self.url, body, format='json')
 
     def test_dry_run_summarises_without_changing_anything(self):
-        r = self._post(self.iqac, dry_run=True)
+        r = self._post(self.expert, dry_run=True)
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
         self.assertEqual((r.data['pending_count'], r.data['eligible_count'], r.data['low_confidence_count']), (4, 3, 1))
         self.assertEqual((r.data['confidence_min'], r.data['confidence_max']), (0.75, 0.92))
@@ -1274,12 +1276,12 @@ class BulkTagConfirmTests(FactTestBase):
 
     def test_confirms_pending_tags_only_and_never_the_facts(self):
         before = [(f.status, f.value, f.reviewed_by_id) for f in (self.fact, self.other)]
-        r = self._post(self.iqac, note='Checked the tag list.')
+        r = self._post(self.expert, note='Checked the tag list.')
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
         self.assertEqual(r.data['confirmed_count'], 3)
         for m in (self.ok1, self.ok2, self.ok3):
             m.refresh_from_db()
-            self.assertEqual((m.review_status, m.reviewed_by), ('confirmed', self.iqac))
+            self.assertEqual((m.review_status, m.reviewed_by), ('confirmed', self.expert))
         self.low.refresh_from_db()
         self.rejected.refresh_from_db()
         self.assertEqual((self.low.review_status, self.rejected.review_status), ('unreviewed', 'rejected'))
@@ -1290,25 +1292,25 @@ class BulkTagConfirmTests(FactTestBase):
         self.assertEqual([(f.status, f.value, f.reviewed_by_id) for f in (self.fact, self.other)], before)
 
     def test_it_is_audited_per_fact(self):
-        self._post(self.iqac)
+        self._post(self.expert)
         rows = FactReviewHistory.objects.filter(action='aiqif_tags_confirmed').order_by('fact__field_key')
         self.assertEqual(rows.count(), 2)  # one per fact whose tags were confirmed
         row = rows.get(fact=self.fact)
-        self.assertEqual(row.user, self.iqac)
+        self.assertEqual(row.user, self.expert)
         self.assertIn('AIQIF-C4.1, AIQIF-C9.2', row.reason)
         self.assertIn('3 tag(s)', row.reason)
         self.assertIn(self.sprint.sprint_code, row.reason)
 
     def test_repeating_it_changes_nothing(self):
-        self._post(self.iqac)
-        again = self._post(self.hod)
+        self._post(self.expert)
+        again = self._post(self.expert2)
         self.assertEqual(again.data['confirmed_count'], 0)
         self.ok1.refresh_from_db()
-        self.assertEqual(self.ok1.reviewed_by, self.iqac)  # not re-stamped by the second reviewer
+        self.assertEqual(self.ok1.reviewed_by, self.expert)  # not re-stamped by the second reviewer
         self.assertEqual(FactReviewHistory.objects.filter(action='aiqif_tags_confirmed').count(), 2)
 
     def test_only_the_given_tags_when_ids_are_sent(self):
-        r = self._post(self.iqac, mapping_ids=[str(self.ok3.id), str(self.low.id)])
+        r = self._post(self.expert, mapping_ids=[str(self.ok3.id), str(self.low.id)])
         self.assertEqual(r.data['confirmed_count'], 1)
         self.ok1.refresh_from_db()
         self.assertEqual(self.ok1.review_status, 'unreviewed')
@@ -1316,13 +1318,14 @@ class BulkTagConfirmTests(FactTestBase):
     def test_coverage_is_recalculated_and_the_raw_cri_is_not_moved_by_tags(self):
         from apps.scoring.services import run_scoring_engine
         raw_before = run_scoring_engine(self.sprint).overall_cri
-        r = self._post(self.iqac)
+        r = self._post(self.expert)
         cov = r.data['coverage']
         self.assertEqual(cov['raw_cri'], raw_before)
         self.assertEqual(cov['covered_count'], 2)  # C4.1 + C9.2 on the confirmed fact; C6.4's fact is unreviewed
         self.assertEqual(self.sprint.scoring_runs.count(), 2)
 
     def test_viewers_and_other_colleges_are_refused(self):
+        self.assertEqual(self._post(self.iqac).status_code, status.HTTP_403_FORBIDDEN)  # not the AI-QIF expert
         self.assertEqual(self._post(self.viewer).status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(self._post(self.outsider).status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(self.M.objects.filter(review_status='confirmed').count(), 0)
@@ -1330,7 +1333,586 @@ class BulkTagConfirmTests(FactTestBase):
     def test_another_sprints_tags_are_never_touched(self):
         sprint2 = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
         foreign = self._tag(self._make_fact(sprint=sprint2, field_key='x'), 'AIQIF-C2.1', 0.95)
-        r = self._post(self.iqac, mapping_ids=[str(foreign.id)])
+        r = self._post(self.expert, mapping_ids=[str(foreign.id)])
         self.assertEqual(r.data['confirmed_count'], 0)
         foreign.refresh_from_db()
         self.assertEqual(foreign.review_status, 'unreviewed')
+
+
+TEST_CROSSWALK = [
+    ('AIQIF-C5.1', [{'metric': '2.1.2', 'naac_key_indicator': '2.1', 'relationship': 'Contextual'}], 'AI-QIF v1.0'),
+    ('AIQIF-C3.1', [{'metric': '1.1.3', 'naac_key_indicator': '1.1', 'relationship': 'Direct/Supporting'}],
+     'AI-QIF v1.0'),
+]
+
+
+class AIQIFExpertQueueTests(FactTestBase):
+    """Rule 3 (what counts toward coverage), the Super Admin's expert queue and decisions, the sales summary,
+    and the baseline gate (apps/facts/aiqif_tagging.py)."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import FactAIQIFMapping
+        self.M = FactAIQIFMapping
+        self.expert = self._make_user('expert@ingage.test', User.Role.SUPER_ADMIN, None)
+        self.consultant = self._make_user('sales@ingage.test', User.Role.CONSULTANT, None)
+        patcher = patch('apps.facts.aiqif_tagging.crosswalk_rows', return_value=TEST_CROSSWALK)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _tag(self, fact, code, **fields):
+        from apps.scoring.constants import AIQIF_INDICATORS
+        defaults = {'reason': 'x', 'confidence': 0.9, 'status': self.M.Status.MAPPED}
+        defaults.update(fields)
+        return self.M.objects.create(fact=fact, criterion=AIQIF_INDICATORS[code][0], indicator_code=code, **defaults)
+
+    def _covered(self):
+        from apps.scoring.services import run_scoring_engine
+        cov = run_scoring_engine(self.sprint).evidence_coverage
+        return sorted(r['code'] for r in cov['indicators'] if r['covered']) if 'indicators' in cov else cov
+
+    def test_only_accepted_direct_or_supporting_tags_on_confirmed_ai_evidence_count(self):
+        from .aiqif_tagging import counting_q
+        ok = self._make_fact(field_key='a', fact_kind='ai_evidence', status='confirmed')
+        self._tag(ok, 'AIQIF-C4.1', auto_accepted=True)                                  # counts
+        self._tag(ok, 'AIQIF-C4.2', review_status='confirmed')                           # counts (expert)
+        self._tag(ok, 'AIQIF-C5.1', auto_accepted=True, relationship='contextual')       # contextual: no
+        self._tag(ok, 'AIQIF-C6.1', auto_accepted=True, review_status='rejected')        # rejected: no
+        self._tag(ok, 'AIQIF-C6.2')                                                      # waiting: no
+        unconfirmed = self._make_fact(field_key='b', fact_kind='ai_evidence')
+        self._tag(unconfirmed, 'AIQIF-C7.1', auto_accepted=True)                         # fact not confirmed: no
+        context = self._make_fact(field_key='c', fact_kind='context', status='confirmed')
+        self._tag(context, 'AIQIF-C7.2', auto_accepted=True)                             # not AI evidence: no
+        counted = sorted(self.M.objects.filter(counting_q()).values_list('indicator_code', flat=True))
+        self.assertEqual(counted, ['AIQIF-C4.1', 'AIQIF-C4.2'])
+
+    def test_coverage_is_provisional_while_the_expert_queue_is_not_empty(self):
+        from apps.scoring.services import run_scoring_engine
+        fact = self._make_fact(field_key='a', fact_kind='ai_evidence', status='confirmed')
+        tag = self._tag(fact, 'AIQIF-C4.1')
+        cov = run_scoring_engine(self.sprint).evidence_coverage
+        self.assertEqual((cov['provisional'], cov['expert_queue']['tags'], cov['covered_count']), (True, 1, 0))
+        self._auth(self.expert)
+        r = self.client.post(f'/api/v1/facts/{fact.id}/aiqif-mappings/AIQIF-C4.1/review', {'decision': 'confirm'},
+                             format='json')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        cov = self.sprint.scoring_runs.order_by('-created_at').first().evidence_coverage
+        self.assertEqual((cov['provisional'], cov['covered_count']), (False, 1))
+        self.assertTrue(FactReviewHistory.objects.filter(fact=fact, action='aiqif_tag_reviewed').exists())
+        tag.refresh_from_db()
+        self.assertEqual(tag.reviewed_by, self.expert)
+
+    def test_unclassified_facts_wait_for_the_expert(self):
+        from .aiqif_tagging import queue_counts
+        self._make_fact(field_key='legacy')  # extracted before kinds existed
+        self.assertEqual(queue_counts(self.sprint), {'tags': 0, 'facts': 1, 'total': 1})
+
+    def test_only_the_super_admin_sees_the_queue_and_decides(self):
+        fact = self._make_fact(field_key='seats', fact_kind='context', kind_needs_check=True,
+                               source_snippet='120 seats in the AI programme.')
+        url = f'/api/v1/sprints/{self.sprint.id}/aiqif-expert-queue'
+        for user in (self.iqac, self.consultant):
+            self._auth(user)
+            self.assertEqual(self.client.get(url).status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(self.client.post(f'/api/v1/facts/{fact.id}/fact-kind', {'fact_kind': 'ai_evidence'},
+                                              format='json').status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(self.client.post(f'/api/v1/facts/{fact.id}/aiqif-mappings',
+                                              {'indicator_code': 'C5.2'}, format='json').status_code,
+                             status.HTTP_403_FORBIDDEN)
+        self._auth(self.expert)
+        r = self.client.get(url)
+        self.assertEqual((r.data['count'], r.data['facts'][0]['id']), (1, str(fact.id)))
+        self.assertEqual(len(r.data['indicators']), 36)
+        # The expert decides it is AI evidence and adds the indicator: the queue is empty again.
+        r = self.client.post(f'/api/v1/facts/{fact.id}/fact-kind', {'fact_kind': 'ai_evidence', 'note': 'AI seats.'},
+                             format='json')
+        self.assertEqual((r.status_code, r.data['fact_kind'], r.data['kind_needs_check']), (200, 'ai_evidence', True))
+        r = self.client.post(f'/api/v1/facts/{fact.id}/aiqif-mappings',
+                             {'indicator_code': 'C5.2', 'relationship': 'supporting', 'note': 'Seats in AI.'},
+                             format='json')
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.data)
+        tag = r.data['aiqif_mappings'][0]
+        self.assertEqual((tag['indicator_code'], tag['source'], tag['review_status']),
+                         ('AIQIF-C5.2', 'expert', 'confirmed'))
+        self.assertEqual((r.data['kind_needs_check'], self.client.get(url).data['count']), (False, 0))
+        self.assertEqual(sorted(FactReviewHistory.objects.filter(fact=fact).values_list('action', flat=True)),
+                         ['aiqif_tag_added', 'fact_kind_changed'])
+        bad = self.client.post(f'/api/v1/facts/{fact.id}/aiqif-mappings', {'indicator_code': 'C99.9'}, format='json')
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_the_sales_summary_has_no_indicator_codes_and_flags_provisional(self):
+        self._make_fact(field_key='a', fact_kind='ai_evidence')
+        self._make_fact(field_key='b', fact_kind='context')
+        self._make_fact(field_key='c', fact_kind='profile')
+        self._make_fact(field_key='d', fact_kind='context', status='rejected')
+        self._auth(self.consultant)
+        r = self.client.get(f'/api/v1/sprints/{self.sprint.id}/aiqif-summary')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual({k: r.data[k] for k in ('facts', 'ai_evidence', 'context', 'profile', 'not_classified')},
+                         {'facts': 3, 'ai_evidence': 1, 'context': 1, 'profile': 1, 'not_classified': 0})
+        self.assertFalse(r.data['coverage_provisional'])
+        self._make_fact(field_key='e', fact_kind='context', kind_needs_check=True)
+        r = self.client.get(f'/api/v1/sprints/{self.sprint.id}/aiqif-summary')
+        self.assertEqual((r.data['coverage_provisional'], r.data['expert_queue']['total']), (True, 1))
+
+    def test_no_baseline_decision_while_items_wait_for_the_expert(self):
+        from rest_framework.exceptions import ValidationError
+        from apps.scoring.services.baseline import _expert_queue_gate
+        self._make_fact(field_key='a', fact_kind='context', kind_needs_check=True)
+        with self.assertRaises(ValidationError) as caught:
+            _expert_queue_gate(self.sprint)
+        self.assertIn('waiting for a Super Admin', str(caught.exception.detail['detail']))
+        ExtractedFact.objects.update(kind_needs_check=False)
+        _expert_queue_gate(self.sprint)  # empty queue: allowed
+
+    def test_bulk_tag_confirmation_is_the_experts(self):
+        self._auth(self.consultant)
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/aiqif-mappings/bulk-confirm', {'dry_run': True},
+                             format='json')
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class ProfileSuggestionTests(FactTestBase):
+    """The benchmark profile pre-filled from profile facts (apps/facts/profile_suggestion.py)."""
+
+    def setUp(self):
+        super().setUp()
+        self.consultant = self._make_user('sales@ingage.test', User.Role.CONSULTANT, None)
+        self.url = f'/api/v1/sprints/{self.sprint.id}/profile-suggestion'
+
+    def _profile_fact(self, key, field, value):
+        from .profile_suggestion import match_code
+        fact = self._make_fact(field_key=key, field_name=key.replace('_', ' '), value=value, fact_kind='profile',
+                               profile_field=field)
+        fact.profile_code = match_code(fact)
+        fact.save()
+        return fact
+
+    def test_values_are_matched_to_the_closed_lists_only(self):
+        self.assertEqual(self._profile_fact('itype', 'institution_type', 'Engineering College').profile_code, 'engineering')
+        self.assertEqual(self._profile_fact('status', 'autonomous_status', 'Affiliated to Anna University').profile_code,
+                         'affiliated')
+        self.assertEqual(self._profile_fact('body', 'approval_body', 'Approved by AICTE').profile_code, 'AICTE')
+        self.assertEqual(self._profile_fact('prog', 'programme', 'MBA').profile_code, 'mba_pgdm')
+        self.assertEqual(self._profile_fact('aicte_type', 'institution_type', 'Private-Self Financing').profile_code, '')
+
+    def test_suggestion_shows_conflicts_and_unmatched_values_and_staff_confirm_it(self):
+        self._profile_fact('itype', 'institution_type', 'Engineering College')
+        self._profile_fact('itype2', 'institution_type', 'Polytechnic')
+        self._profile_fact('body', 'approval_body', 'AICTE')
+        self._profile_fact('prog', 'programme', 'MBA')
+        self._profile_fact('aicte_type', 'institution_type', 'Private-Self Financing')
+        self._auth(self.iqac)
+        data = self.client.get(self.url).data
+        itype = data['suggested']['institution_type']
+        self.assertEqual((itype['value'], itype['conflict'], [c['code'] for c in itype['candidates']]),
+                         ('', True, ['engineering', 'polytechnic']))
+        self.assertEqual(data['suggested']['approval_bodies'], ['AICTE'])
+        self.assertEqual([p['programme_type'] for p in data['suggested']['programmes']], ['mba_pgdm'])
+        self.assertEqual([u['value'] for u in data['unmatched']], ['Private-Self Financing'])
+        values = {'institution_type': 'engineering', 'autonomous_status': 'affiliated', 'approval_bodies': ['AICTE'],
+                  'programmes': [{'name': 'MBA', 'programme_type': 'mba_pgdm', 'approval_body': 'AICTE'}]}
+        self.assertEqual(self.client.post(self.url, values, format='json').status_code, status.HTTP_403_FORBIDDEN)
+        self._auth(self.consultant)
+        r = self.client.post(self.url, values, format='json')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual(r.data['current']['institution_type'], 'engineering')
+        self.assertEqual(self.sprint.institution.benchmark_programmes.get().programme_type.code, 'mba_pgdm')
+        bad = self.client.post(self.url, {**values, 'institution_type': 'spaceport'}, format='json')
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class RetagCommandTests(FactTestBase):
+    """python manage.py retag_aiqif_facts (dry run unless --commit)."""
+
+    def _call(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        with patch('apps.facts.aiqif_tagging.crosswalk_rows', return_value=TEST_CROSSWALK):
+            call_command('retag_aiqif_facts', *args, stdout=out)
+        return out.getvalue()
+
+    def setUp(self):
+        super().setUp()
+        from .models import FactAIQIFMapping
+        self.ai = self._make_fact(field_key='ai_course', field_name='AI course', value='Yes',
+                                  source_snippet='1.1.3 The MBA has a course on Artificial Intelligence.')
+        self.intake = self._make_fact(field_key='mba_intake', field_name='MBA intake', value=120,
+                                      source_snippet='2.1.2 Approved intake 120.')
+        FactAIQIFMapping.objects.create(fact=self.intake, criterion='aiqif_c3', indicator_code='AIQIF-C3.1',
+                                        reason='Programme.', confidence=0.9, status='mapped',
+                                        review_status='confirmed')  # a person confirmed it: it counted before
+
+    def test_a_dry_run_changes_nothing(self):
+        out = self._call()
+        self.assertIn('Would re-tag 2 fact(s)', out)
+        self.assertIn('Dry run', out)
+        self.ai.refresh_from_db()
+        self.assertEqual(self.ai.fact_kind, '')
+
+    def test_commit_classifies_finds_metrics_and_sends_doubtful_facts_to_the_expert(self):
+        self._call('--commit')
+        self.ai.refresh_from_db()
+        self.intake.refresh_from_db()
+        self.assertEqual((self.ai.fact_kind, self.ai.naac_metric), ('ai_evidence', '1.1.3'))
+        self.assertEqual(list(self.ai.aiqif_mappings.values_list('indicator_code', 'source', 'relationship')),
+                         [('AIQIF-C3.1', 'crosswalk', 'direct')])
+        self.assertEqual((self.intake.fact_kind, self.intake.naac_metric), ('context', '2.1.2'))
+        # Its person-confirmed C3.1 tag is kept (a person's decision wins) but no longer counts on a context fact,
+        # so the expert decides the kind; the crosswalk adds C5.1 as Contextual.
+        self.assertEqual(sorted(self.intake.aiqif_mappings.values_list('indicator_code', 'relationship')),
+                         [('AIQIF-C3.1', 'supporting'), ('AIQIF-C5.1', 'contextual')])
+        self.assertTrue(self.intake.kind_needs_check)
+        self.assertEqual((self.ai.value, self.intake.value), ('Yes', 120))  # values never change
+
+    def test_old_unreviewed_ai_tags_on_context_facts_do_not_go_to_the_expert(self):
+        from .models import FactAIQIFMapping
+        FactAIQIFMapping.objects.filter(fact=self.intake).update(review_status='unreviewed')  # never counted
+        self._call('--commit')
+        self.intake.refresh_from_db()
+        self.assertEqual((self.intake.fact_kind, self.intake.kind_needs_check), ('context', False))
+        self.assertEqual(list(self.intake.aiqif_mappings.values_list('indicator_code', flat=True)), ['AIQIF-C5.1'])
+
+    def test_it_refuses_without_the_crosswalk(self):
+        from io import StringIO
+        from django.core.management import CommandError, call_command
+        with patch('apps.facts.aiqif_tagging.crosswalk_rows', return_value=[]):
+            with self.assertRaises(CommandError):
+                call_command('retag_aiqif_facts', '--commit', stdout=StringIO())
+        self.ai.refresh_from_db()
+        self.assertEqual(self.ai.fact_kind, '')
+
+
+class PaginatedFactsAndGapsTests(FactTestBase):
+    """Facts and gaps lists: always paginated (50 / max 100), filtered on the server, sprint- and
+    institution-scoped, facets from aggregates, and a fixed number of queries per page."""
+
+    def _gap(self, **fields):
+        defaults = {'sprint': self.sprint, 'gap_type': GapItem.GapType.UNCONFIRMED_FACT, 'title': 'Gap',
+                    'pillar': 'aiqif_c4'}
+        defaults.update(fields)
+        return GapItem.objects.create(**defaults)
+
+    def _doc(self, name):
+        return Document.objects.create(sprint=self.sprint, original_filename=name, document_type='naac_ssr',
+                                       status=Document.Status.PROCESSED, owner_role='HOD')
+
+    def test_facts_are_paginated_with_counts_and_server_side_filters(self):
+        doc = self._doc('ssr.pdf')
+        for i in range(60):
+            self._make_fact(field_key=f'f{i:02d}', confidence_score=0.9 if i < 10 else 0.4,
+                            fact_kind='ai_evidence' if i < 5 else '', source_document=doc if i < 3 else None,
+                            source_snippet='The AI lab has 40 GPUs.' if i == 7 else 'x')
+        self._auth(self.iqac)
+        url = f'/api/v1/sprints/{self.sprint.id}/facts'
+        first = self.client.get(url).data
+        self.assertEqual((first['count'], len(first['results']), first['previous']), (60, 50, None))
+        self.assertIsNotNone(first['next'])
+        second = self.client.get(url, {'page': 2}).data
+        self.assertEqual(len(second['results']), 10)
+        self.assertEqual(len({r['id'] for r in first['results']} | {r['id'] for r in second['results']}), 60)
+        self.assertEqual(len(self.client.get(url, {'page_size': 500}).data['results']), 60)  # capped at 100
+        self.assertEqual(self.client.get(url, {'confidence_band': 'high'}).data['count'], 10)
+        self.assertEqual(self.client.get(url, {'fact_kind': 'ai_evidence'}).data['count'], 5)
+        self.assertEqual(self.client.get(url, {'fact_kind': 'none'}).data['count'], 55)
+        self.assertEqual(self.client.get(url, {'source_document': 'ssr.pdf'}).data['count'], 3)
+        self.assertEqual([r['field_key'] for r in self.client.get(url, {'q': 'gpus'}).data['results']], ['f07'])
+        facets = self.client.get(f'{url}/facets').data
+        self.assertEqual((facets['total'], facets['confidence_band'], facets['fact_kind']),
+                         (60, {'high': 10, 'medium': 0, 'low': 50}, {'ai_evidence': 5, 'none': 55}))
+        self.assertEqual(facets['source_document'], {'ssr.pdf': 3})
+
+    def test_gaps_are_paginated_and_filtered_on_the_server(self):
+        doc = self._doc('register.pdf')
+        facts = [self._make_fact(field_key=f'src{i}', source_document=doc, owner_role='registrar') for i in range(2)]
+        for i in range(55):
+            self._gap(title=f'Gap {i}', priority=GapItem.Priority.HIGH if i < 5 else GapItem.Priority.MEDIUM,
+                      source_fact=facts[i] if i < 2 else None)
+        self._auth(self.iqac)
+        url = f'/api/v1/sprints/{self.sprint.id}/gaps'
+        page = self.client.get(url).data
+        self.assertEqual((page['count'], len(page['results'])), (55, 50))
+        self.assertEqual(self.client.get(url, {'priority': 'high'}).data['count'], 5)
+        self.assertEqual(self.client.get(url, {'source_document': 'register.pdf'}).data['count'], 2)
+        self.assertEqual(self.client.get(url, {'owner_role': 'registrar'}).data['count'], 2)
+        self.assertEqual(self.client.get(url, {'q': 'Gap 4'}).data['count'], 11)  # "Gap 4" and "Gap 40" to "Gap 49"
+        facets = self.client.get(f'{url}/facets').data
+        self.assertEqual((facets['total'], facets['open'], facets['priority']), (55, 55, {'high': 5, 'medium': 50}))
+        self.assertEqual(facets['source_document'], {'register.pdf': 2})
+
+    def test_pages_never_leak_another_sprint_or_institution(self):
+        other_sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.QUICK_CRI)
+        foreign_sprint = Sprint.objects.create(institution=self.other_institution, mode=Sprint.SprintMode.QUICK_CRI)
+        for i in range(55):
+            self._make_fact(field_key=f'mine{i}')
+            self._make_fact(sprint=other_sprint, field_key=f'other{i}')
+            self._gap(title=f'mine {i}')
+            self._gap(sprint=other_sprint, title=f'other {i}')
+        self._auth(self.iqac)
+        for kind, prefix in (('facts', 'field_key'), ('gaps', 'title')):
+            url = f'/api/v1/sprints/{self.sprint.id}/{kind}'
+            rows = self.client.get(url).data['results'] + self.client.get(url, {'page': 2}).data['results']
+            self.assertEqual(len(rows), 55)
+            self.assertTrue(all(str(r[prefix]).startswith('mine') for r in rows))
+            self.assertEqual(self.client.get(f'{url}/facets').data['total'], 55)
+        self._auth(self.outsider)  # another institution
+        for path in ('facts', 'facts/facets', 'gaps', 'gaps/facets'):
+            self.assertEqual(self.client.get(f'/api/v1/sprints/{self.sprint.id}/{path}').status_code,
+                             status.HTTP_403_FORBIDDEN, path)
+        self._auth(self.iqac)  # a sprint of another institution
+        self.assertEqual(self.client.get(f'/api/v1/sprints/{foreign_sprint.id}/facts').status_code,
+                         status.HTTP_403_FORBIDDEN)
+
+    def _queries(self, url):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return len(ctx.captured_queries)
+
+    def _add_rows(self, n, start):
+        """Facts whose documents are evidence for gaps, with tags and an open evidence request, plus gaps."""
+        from .models import FactAIQIFMapping
+        for i in range(start, start + n):
+            doc = self._doc(f'd{i}.pdf')
+            fact = self._make_fact(field_key=f'k{i}', document=doc, source_document=doc, fact_kind='ai_evidence',
+                                   assigned_to=self.hod)
+            FactAIQIFMapping.objects.create(fact=fact, criterion='aiqif_c4', indicator_code='AIQIF-C4.1',
+                                            reason='x', confidence=0.9, status='mapped')
+            gap = self._gap(title=f'g{i}', source_fact=fact, gap_type=GapItem.GapType.LOW_CONFIDENCE)
+            gap.evidence_documents.add(doc)
+            EvidenceRequest.objects.create(sprint=self.sprint, fact=fact, requested_by=self.iqac, description='x',
+                                           fact_status_before='extracted')
+
+    def test_facts_and_gaps_queries_do_not_grow_with_the_rows(self):
+        self._auth(self.iqac)  # a college user: per-row ownership checks included
+        for kind in ('facts', 'gaps'):
+            url = f'/api/v1/sprints/{self.sprint.id}/{kind}'
+            GapItem.objects.all().delete()
+            ExtractedFact.objects.all().delete()
+            self._add_rows(3, 0)
+            few = self._queries(url)
+            self._add_rows(12, 100)
+            many = self._queries(url)
+            self.assertEqual(many, few, f'{kind}: {few} queries for 3 rows but {many} for 15')
+
+
+class AIQIFTagLifecycleTests(FactTestBase):
+    """Reviewed AI-QIF tags stay visible after leaving the expert queue; a Super Admin can edit them (a new
+    indicator never inherits the old approval) and reopen them (the earlier decision stays in history); the fact
+    is never changed; coverage follows; the Raw CRI does not."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import FactAIQIFMapping
+        self.M = FactAIQIFMapping
+        self.expert = self._make_user('expert@ingage.test', User.Role.SUPER_ADMIN, None)
+        self.consultant = self._make_user('sales@ingage.test', User.Role.CONSULTANT, None)
+        patcher = patch('apps.facts.aiqif_tagging.crosswalk_rows', return_value=TEST_CROSSWALK)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.fact = self._make_fact(field_key='ai_fdp', fact_kind='ai_evidence', status='confirmed', value=120)
+        self.tag = self.M.objects.create(fact=self.fact, criterion='aiqif_c4', indicator_code='AIQIF-C4.1',
+                                         reason='AI.', confidence=0.5, status='needs_review')
+        self.base = f'/api/v1/facts/{self.fact.id}/aiqif-mappings/AIQIF-C4.1'
+
+    def _post(self, url, body=None, user=None):
+        self._auth(user or self.expert)
+        return self.client.post(url, body or {}, format='json')
+
+    def _queue(self):
+        from .aiqif_tagging import queue_counts
+        return queue_counts(self.sprint)['tags']
+
+    def _coverage(self):
+        run = self.sprint.scoring_runs.order_by('-created_at').first()
+        return run.evidence_coverage['covered_count'], run.overall_cri
+
+    def _fact_state(self):
+        self.fact.refresh_from_db()
+        return self.fact.value, self.fact.status, self.fact.fact_kind
+
+    def test_a_reviewed_tag_leaves_the_queue_but_stays_findable_with_its_decision(self):
+        self.assertEqual(self._queue(), 1)
+        r = self._post(f'{self.base}/review', {'decision': 'confirm', 'note': 'Checked.'})
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual(self._queue(), 0)
+        self._auth(self.expert)
+        listed = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts', {'tag_review': 'confirmed'}).data
+        self.assertEqual(listed['count'], 1)
+        reviewed = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts', {'tag_review': 'reviewed'}).data
+        self.assertEqual(reviewed['count'], 1)  # what the expert queue's "Reviewed" tab lists
+        tag = listed['results'][0]['aiqif_mappings'][0]
+        self.assertEqual((tag['review_status'], tag['reviewed_by_name'], tag['relationship'], tag['counts'],
+                          tag['counts_reason'], tag['pending']),
+                         ('confirmed', self.expert.get_full_name(), 'supporting', True, 'counts toward coverage', False))
+        self.assertIsNotNone(tag['reviewed_at'])
+        facets = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/facets').data
+        self.assertEqual(facets['tag_review'], {'confirmed': 1, 'rejected': 0, 'pending': 0})
+        self.assertEqual(len(facets['indicators']), 36)
+
+    def test_reopening_keeps_the_earlier_decision_and_returns_the_tag_to_the_queue(self):
+        self._post(f'{self.base}/review', {'decision': 'confirm', 'note': 'Checked.'})
+        covered_before, raw_before = self._coverage()
+        self.assertEqual(covered_before, 1)
+        state = self._fact_state()
+        self.assertEqual(self._post(f'{self.base}/reopen', {}).status_code, status.HTTP_400_BAD_REQUEST)  # needs a reason
+        r = self._post(f'{self.base}/reopen', {'reason': 'The FDP was not AI-specific.'})
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        tag = r.data['aiqif_mappings'][0]
+        self.assertEqual((tag['review_status'], tag['pending'], tag['counts'], tag['pending_reason']),
+                         ('unreviewed', True, False, 'The FDP was not AI-specific.'))
+        self.assertEqual(self._queue(), 1)  # back in this sprint's queue
+        reopened = FactReviewHistory.objects.get(fact=self.fact, action='aiqif_tag_reopened')
+        self.assertEqual((reopened.new_value['previous']['decision'], reopened.new_value['previous']['reviewer'],
+                          reopened.new_value['previous']['note']), ('confirmed', str(self.expert.id), 'Checked.'))
+        self.assertIsNotNone(reopened.new_value['previous']['reviewed_at'])
+        self.assertTrue(FactReviewHistory.objects.filter(fact=self.fact, action='aiqif_tag_reviewed').exists())
+        covered_after, raw_after = self._coverage()
+        self.assertEqual((covered_after, raw_after), (0, raw_before))  # coverage follows; the Raw CRI does not
+        self.assertEqual(self._fact_state(), state)  # the fact is untouched
+        self.assertEqual(self._post(f'{self.base}/reopen', {'reason': 'again'}).status_code,
+                         status.HTTP_400_BAD_REQUEST)  # already pending
+        # Re-extraction never drops a reopened tag.
+        from .aiqif_tagging import apply_tags
+        apply_tags(self.fact, [])
+        self.assertTrue(self.M.objects.filter(fact=self.fact, indicator_code='AIQIF-C4.1', pending_since__isnull=False).exists())
+
+    def test_editing_the_indicator_never_carries_the_approval_over(self):
+        self._post(f'{self.base}/review', {'decision': 'confirm'})
+        state = self._fact_state()
+        r = self._post(f'{self.base}/edit', {'indicator_code': 'C4.2', 'note': 'It is AI pedagogy training.'})
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        tag = r.data['aiqif_mappings'][0]
+        self.assertEqual((tag['indicator_code'], tag['review_status'], tag['source'], tag['pending'], tag['counts']),
+                         ('AIQIF-C4.2', 'unreviewed', 'expert', True, False))
+        self.assertEqual(self._queue(), 1)
+        self.assertEqual(self._coverage()[0], 0)
+        edited = FactReviewHistory.objects.get(fact=self.fact, action='aiqif_tag_edited')
+        self.assertEqual((edited.new_value['previous']['indicator_code'], edited.new_value['previous']['decision'],
+                          edited.new_value['indicator_code'], edited.new_value['decision_carried_over'], edited.user),
+                         ('AIQIF-C4.1', 'confirmed', 'AIQIF-C4.2', False, self.expert))
+        self.assertEqual(self._fact_state(), state)
+        # An explicit decision on the new mapping.
+        r = self._post(f'/api/v1/facts/{self.fact.id}/aiqif-mappings/AIQIF-C4.2/review', {'decision': 'confirm'})
+        self.assertEqual((r.data['aiqif_mappings'][0]['counts'], self._queue(), self._coverage()[0]), (True, 0, 1))
+
+    def test_editing_the_relationship_with_a_decision_in_the_same_request(self):
+        r = self._post(f'{self.base}/edit', {'relationship': 'direct', 'decision': 'confirm', 'note': 'Direct.'})
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        tag = r.data['aiqif_mappings'][0]
+        self.assertEqual((tag['relationship'], tag['review_status'], tag['pending'], tag['counts']),
+                         ('direct', 'confirmed', False, True))
+        actions = list(FactReviewHistory.objects.filter(fact=self.fact).order_by('created_at').values_list('action', flat=True))
+        self.assertEqual(actions, ['aiqif_tag_edited', 'aiqif_tag_reviewed'])
+        r = self._post(f'{self.base}/edit', {'relationship': 'contextual', 'decision': 'confirm'})
+        tag = r.data['aiqif_mappings'][0]
+        self.assertEqual((tag['counts'], tag['counts_reason']), (False, 'contextual link (never counts)'))
+
+    def test_duplicates_and_invalid_values_are_refused_and_change_nothing(self):
+        self.M.objects.create(fact=self.fact, criterion='aiqif_c4', indicator_code='AIQIF-C4.2', reason='x',
+                              confidence=0.9, status='mapped')
+        for body in ({'indicator_code': 'C4.2'}, {'indicator_code': 'C99.9'}, {'relationship': 'sideways'},
+                     {'decision': 'maybe', 'note': 'x'}, {}):
+            r = self._post(f'{self.base}/edit', body)
+            self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, body)
+        self.tag.refresh_from_db()
+        self.assertEqual((self.tag.indicator_code, self.tag.relationship, self.tag.review_status),
+                         ('AIQIF-C4.1', 'supporting', 'unreviewed'))
+        self.assertFalse(FactReviewHistory.objects.filter(fact=self.fact).exists())
+
+    def test_only_a_super_admin_may_edit_reopen_or_decide(self):
+        outsider_admin = self._make_user('admin@other.edu', User.Role.INSTITUTION_ADMIN, self.other_institution)
+        for user in (self.iqac, self.consultant, self.outsider, outsider_admin):
+            for action, body in (('edit', {'indicator_code': 'C4.2'}), ('reopen', {'reason': 'x'}),
+                                 ('review', {'decision': 'confirm'})):
+                self.assertEqual(self._post(f'{self.base}/{action}', body, user).status_code,
+                                 status.HTTP_403_FORBIDDEN, (user.email, action))
+        self.assertEqual(self._post(f'/api/v1/facts/{self.fact.id}/aiqif-mappings/AIQIF-C9.9/reopen',
+                                    {'reason': 'x'}).status_code, status.HTTP_404_NOT_FOUND)
+        self.tag.refresh_from_db()
+        self.assertEqual((self.tag.indicator_code, self.tag.review_status), ('AIQIF-C4.1', 'unreviewed'))
+
+
+class ConflictChoiceTests(FactTestBase):
+    """Gap Dashboard conflict comparison: the owner (or a Super Admin) chooses the correct value -- the chosen fact
+    is confirmed, competing values are rejected, the conflict closes (gaps/services.choose_conflict_value)."""
+
+    def setUp(self):
+        super().setUp()
+        self.expert = self._make_user('expert@ingage.test', User.Role.SUPER_ADMIN, None)
+        self.consultant = self._make_user('sales@ingage.test', User.Role.CONSULTANT, None)
+        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
+        docs = [Document.objects.create(sprint=self.sprint, original_filename=n, document_type='naac_ssr',
+                                        status=Document.Status.PROCESSED) for n in ('EOA 2026.pdf', 'SSR.pdf', 'AQAR.pdf')]
+        self.a = self._make_fact(field_key='ug_ai_ml_intake', value=120, document=docs[0], source_document=docs[0],
+                                 source_page='3')
+        self.b = self._make_fact(field_key='ug_ai_ml_intake', value=30, document=docs[1], source_document=docs[1])
+        self.c = self._make_fact(field_key='ug_ai_ml_intake', value=120, document=docs[2], source_document=docs[2],
+                                 status='confirmed')
+        # As the end-of-sprint detector records it: one representative fact, no side B.
+        self.gap = GapItem.objects.create(sprint=self.sprint, gap_type=GapItem.GapType.CONFLICT,
+                                          title='Conflicting values for UG intake', source_fact=self.a,
+                                          pillar='aiqif_c4', priority=GapItem.Priority.HIGH)
+        self.url = f'/api/v1/gaps/{self.gap.id}/choose-value'
+
+    def _choose(self, user, fact, reason='EOA is the AICTE approval.'):
+        self._auth(user)
+        return self.client.post(self.url, {'fact_id': str(fact.id), 'reason': reason}, format='json')
+
+    def test_the_detail_lists_every_competing_value_and_who_may_choose(self):
+        self._auth(self.hod)
+        data = self.client.get(f'/api/v1/gaps/{self.gap.id}').data
+        self.assertEqual(sorted(c['current_value'] for c in data['conflict_candidates']), [30, 120, 120])
+        self.assertEqual({c['document_name'] for c in data['conflict_candidates']}, {'EOA 2026.pdf', 'SSR.pdf', 'AQAR.pdf'})
+        self.assertTrue(data['can_choose_value'])
+        self._auth(self.iqac)
+        data = self.client.get(f'/api/v1/gaps/{self.gap.id}').data
+        self.assertFalse(data['can_choose_value'])
+        self.assertIn('Head of Department', data['choose_value_blocked_reason'])
+
+    def test_the_owner_chooses_a_value_the_rest_follows_and_the_conflict_closes(self):
+        from apps.gaps.models import GapEvent
+        r = self._choose(self.hod, self.a)
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        for f in (self.a, self.b, self.c):
+            f.refresh_from_db()
+        self.assertEqual((self.a.status, self.b.status, self.c.status), ('confirmed', 'rejected', 'confirmed'))
+        self.assertEqual((self.a.reviewed_by, self.b.reviewed_by), (self.hod, self.hod))
+        self.gap.refresh_from_db()
+        self.assertEqual(self.gap.status, 'resolved')
+        self.assertIn("120 from EOA 2026.pdf, page 3 is the correct value", self.gap.resolution)
+        self.assertIn('EOA is the AICTE approval.', self.gap.resolution)
+        self.assertTrue(GapEvent.objects.filter(gap=self.gap, action='resolved', user=self.hod).exists())
+        rejected = FactReviewHistory.objects.get(fact=self.b, action='rejected')
+        self.assertEqual((rejected.original_value, rejected.user), (30, self.hod))
+        self.assertTrue(FactReviewHistory.objects.filter(fact=self.a, action='confirmed').exists())
+        self.assertFalse(FactReviewHistory.objects.filter(fact=self.c).exists())  # same value: untouched
+        self.assertTrue(self.sprint.scoring_runs.exists())  # CRI recalculated
+        self.assertEqual(self._choose(self.hod, self.a).status_code, status.HTTP_400_BAD_REQUEST)  # already closed
+
+    def test_a_super_admin_may_choose_too(self):
+        self.assertEqual(self._choose(self.expert, self.b).status_code, status.HTTP_200_OK)
+        for f in (self.a, self.b, self.c):
+            f.refresh_from_db()
+        self.assertEqual((self.a.status, self.b.status, self.c.status), ('rejected', 'confirmed', 'rejected'))
+
+    def test_only_the_owner_or_a_super_admin(self):
+        for user in (self.iqac, self.admin, self.consultant, self.viewer, self.outsider):
+            self.assertEqual(self._choose(user, self.a).status_code, status.HTTP_403_FORBIDDEN, user.email)
+        self.a.refresh_from_db()
+        self.gap.refresh_from_db()
+        self.assertEqual((self.a.status, self.gap.status), ('extracted', 'open'))
+
+    def test_invalid_choices_change_nothing(self):
+        other = self._make_fact(field_key='something_else', value=5)
+        self.assertEqual(self._choose(self.hod, other).status_code, status.HTTP_400_BAD_REQUEST)
+        EvidenceRequest.objects.create(sprint=self.sprint, fact=self.b, requested_by=self.iqac, description='x',
+                                       fact_status_before='extracted')
+        r = self._choose(self.hod, self.a)
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('open evidence request', str(r.data))
+        self.a.refresh_from_db()
+        self.assertEqual(self.a.status, 'extracted')

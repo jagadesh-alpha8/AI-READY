@@ -62,7 +62,10 @@ describe('describeSide', () => {
 describe('ConflictComparison (rendered)', async () => {
   const React = (await import('react')).default;
   const { renderToStaticMarkup } = await import('react-dom/server');
-  const { mod, cleanup } = await bundleComponent(new URL('./ConflictComparison.tsx', import.meta.url));
+  const { mod, cleanup } = await bundleComponent(new URL('./ConflictComparison.tsx', import.meta.url), {
+    // The dialog's API calls; the comparison itself renders from the gap it is given.
+    'api/gaps': 'const f = () => Promise.resolve({ data: {} }); export const getGap = f, chooseConflictValue = f;',
+  });
   after(cleanup);
   const { ConflictComparison } = mod;
 
@@ -85,6 +88,15 @@ describe('ConflictComparison (rendered)', async () => {
       assert.ok(html.includes(text), text);
     }
     assert.equal((html.match(/Not available/g) || []).length, 3); // side B: document, page, confidence
+  });
+
+  it('offers "Use this value" only to someone who may choose, and lists every competing value', () => {
+    assert.ok(!html.includes('Use this value'));  // no onChoose: the read-only comparison
+    const three = { ...gap, conflict_candidates: [sideA, { ...sideA, side: 'B', fact_id: 'f2', current_value: 30 },
+      { ...sideA, side: 'C', fact_id: 'f3', current_value: 120 }] } as unknown as Gap;
+    const chooser = renderToStaticMarkup(React.createElement(ConflictComparison, { gap: three, onChoose() {} }));
+    assert.equal((chooser.match(/<section/g) || []).length, 3);
+    assert.equal((chooser.match(/Use this value/g) || []).length, 3);
   });
 
   it('renders source text as text, never as markup', () => {

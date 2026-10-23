@@ -157,13 +157,28 @@ class DocumentDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [CanManageDocument, IsInstitutionMember]
 
     def perform_destroy(self, instance):
-        # Evidence submitted for an evidence request stays (it is part of that request's audit trail).
+        from django.db import transaction
+        from django.db.models import ProtectedError
+
+        # Evidence submitted for an evidence request stays (it is part of that request's audit trail), and so
+        # does a document reused as benchmark-assessment evidence.
         if instance.evidence_links.exists():
             raise DRFValidationError({'detail': 'This document was submitted as evidence for an evidence request '
                                                 'and cannot be deleted.'})
-        if instance.file:
-            instance.file.delete(save=False)
-        instance.delete()
+        if instance.benchmark_evidence.exists():
+            raise DRFValidationError({'detail': 'This document is used as benchmark-assessment evidence and cannot '
+                                                'be deleted.'})
+        # The row first, the file only once that is committed: a delete the database refuses (a protected
+        # reference) must never leave a document whose file is gone.
+        file_field = instance.file
+        try:
+            with transaction.atomic():
+                instance.delete()
+                if file_field:
+                    storage, name = file_field.storage, file_field.name
+                    transaction.on_commit(lambda: storage.delete(name))
+        except ProtectedError:
+            raise DRFValidationError({'detail': 'This document is still referenced as evidence and cannot be deleted.'})
 
 
 class DocumentConfirmCategoryView(APIView):

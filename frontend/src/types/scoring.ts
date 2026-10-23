@@ -56,6 +56,9 @@ export interface EvidenceCoverage {
   release_hash: string | null;
   applicability_note: string;
   mappings_awaiting_review: number;
+  /** Items wait for the AI-QIF expert (Super Admin): the coverage may still change; no baseline until empty. */
+  provisional?: boolean;
+  expert_queue?: { tags: number; facts: number; total: number };
   indicators: CoverageIndicator[];
 }
 

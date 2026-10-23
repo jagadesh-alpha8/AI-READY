@@ -38,6 +38,11 @@ export interface Gap {
   conflict_confidence: number | null;
   /** Conflict gaps only: side A (source_fact) and side B (conflict_fact_b); null for other gap types. */
   conflict_sides: ConflictSide[] | null;
+  /** Gap detail only: every competing value of a conflict, and whether this user may choose the correct one
+   * (the gap's owner role of its college, or a Super Admin). */
+  conflict_candidates?: ConflictSide[] | null;
+  can_choose_value?: boolean;
+  choose_value_blocked_reason?: string;
   /** The linked fact's snippet and page as stored; null when there is no fact or none was recorded. */
   source_snippet: string | null;
   source_page: string | null;
@@ -68,7 +73,7 @@ export interface Gap {
 
 /** One side of a conflict, exactly as recorded: null means it was not recorded (never inferred). */
 export interface ConflictSide {
-  side: 'A' | 'B';
+  side: string;  // 'A', 'B', ... (a conflict detail lists every competing value)
   fact_id: string | null;
   field_name: string;
   /** The value stored when the conflict was found (conflict_value_a / _b). */

@@ -19,7 +19,7 @@ class ExtractionJobSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'sprint_id', 'document_id', 'document_filename', 'status',
             'current_step', 'current_step_label', 'progress_percentage',
-            'started_at', 'completed_at', 'error_message', 'retry_count', 'ai_router',
+            'started_at', 'completed_at', 'error_message', 'retry_count', 'ai_router', 'attempts',
             'completeness', 'extraction_warnings', 'chunks_total', 'chunks_completed',
             'created_at', 'updated_at', 'ai_input_tokens', 'ai_output_tokens', 'ai_cost_usd',
         ]

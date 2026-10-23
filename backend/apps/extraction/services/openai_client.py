@@ -30,7 +30,7 @@ from openai import (
     RateLimitError,
 )
 
-from ..exceptions import AIResponseError, PermanentExtractionError, RecoverableExtractionError
+from ..exceptions import AIResponseError, PermanentExtractionError, ProviderQuotaExhausted, RecoverableExtractionError
 from ..usage import record_openai_usage
 
 logger = logging.getLogger(__name__)
@@ -182,6 +182,10 @@ class OpenAIExtractionService:
             )
             return response
         except RateLimitError as exc:
+            quota = _quota(exc)
+            if quota:  # a 429 for an empty account, not a busy one
+                self._log_outcome(started, success=False, error='quota_exhausted')
+                raise ProviderQuotaExhausted(f'The AI provider is out of quota or credit: {quota}.', quota) from exc
             self._log_outcome(started, success=False, error='rate_limited')
             raise RecoverableExtractionError(f'OpenAI rate limit hit: {exc}') from exc
         except APITimeoutError as exc:
@@ -195,6 +199,12 @@ class OpenAIExtractionService:
                 logger.warning('openai.request base_url=%s response_format_unsupported resending_without_it', self.base_url)
                 _NO_RESPONSE_FORMAT.add(self.base_url)
                 return self._send(started, messages, None, timeout)
+            # Out of quota / credit (400 / 402 / 403 / 429, or a 5xx a router wraps it in): not the request's
+            # fault -- the router is taken out of rotation and the document moves on (tasks.py).
+            quota = _quota(exc)
+            if quota:
+                self._log_outcome(started, success=False, error='quota_exhausted')
+                raise ProviderQuotaExhausted(f'The AI provider is out of quota or credit: {quota}.', quota) from exc
             # 5xx is transient (OpenAI's side) and worth retrying; any other
             # 4xx means the request itself was bad and won't succeed on retry.
             if exc.status_code >= 500:
@@ -240,6 +250,12 @@ class OpenAIExtractionService:
             return _loads_lenient(content)
         except (TypeError, ValueError) as exc:
             raise OpenAIResponseError(f'OpenAI response was not valid JSON: {exc}') from exc
+
+
+def _quota(exc):
+    """The out-of-quota reason in an SDK error, or '' (services/provider_errors.py)."""
+    from .provider_errors import quota_exhaustion
+    return quota_exhaustion(getattr(exc, 'status_code', None), getattr(exc, 'body', None), getattr(exc, 'message', str(exc)))
 
 
 def _message_content(response):

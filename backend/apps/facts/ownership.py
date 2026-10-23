@@ -175,3 +175,16 @@ def assign(item, user, *, assigned_to, due_date=None, note=''):
 
 def person_name(user):
     return (user.get_full_name() or user.email) if user else ''
+
+
+def check_conflict_choice(user, gap):
+    """(allowed, reason): who may decide which value of a conflict is correct -- the gap's owner role of the
+    gap's own college, or a Super Admin. Stricter than check_gap: choosing a value confirms one fact and rejects
+    the others, so neither an Institution Admin nor an InGage consultant decides it for the owner."""
+    owner = gap_owner_role(gap)
+    if user.role == Role.SUPER_ADMIN:
+        return True, ''
+    if owner and user.role == owner and user.institution_id == gap.sprint.institution_id:
+        return True, ''
+    who = f'the {role_label(owner)} of this college' if owner else 'nobody at the college (no owner role)'
+    return False, f'Only {who} or a Super Admin can choose the correct value of this conflict.'

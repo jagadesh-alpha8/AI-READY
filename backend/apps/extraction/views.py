@@ -201,6 +201,10 @@ def _reset(job):
     job.completeness = ''
     job.extraction_warnings = []
     job.chunks_total = job.chunks_completed = 0
+    # A new run: earlier attempts stay for the record; waits / retries are counted from here.
+    from django.utils import timezone as tz
+    job.attempts = [*(job.attempts or []), {'at': tz.now().isoformat(), 'router': '', 'outcome': 'reset',
+                                            'detail': 'Processed again.'}][-50:]
 
 
 def _cancel_job(job):

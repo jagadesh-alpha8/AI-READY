@@ -81,6 +81,14 @@ def configuration_problems():
                 f'({len(routers)} x {settings.AI_ROUTER_MAX_CONCURRENT}); '
                 + ('some slots will stay unused.' if concurrency < slots else 'extra workers will wait for a free slot.')
             )
+        # Four endpoints are not four quotas when they bill the same account. Keys are compared, never shown.
+        keys = [r.api_key for r in routers if r.api_key]
+        if len(keys) > 1 and len(set(keys)) < len(keys):
+            shared = len(keys) - len(set(keys)) + 1
+            warnings.append(
+                f'{shared} routers use the same API key: they share one provider quota/credit, so when it runs '
+                'out they run out together and failover cannot help. Give each router its own account/key '
+                'for independent quotas.')
     else:
         # AI_ROUTER_URLS may stay filled in: single mode simply doesn't use it.
         if not (settings.AI_API_KEY or settings.OPENAI_API_KEY):
@@ -114,8 +122,19 @@ def check_router(router, timeout=5):
         # upstream, which spends quota and can trip provider cooldowns.
     except Exception as exc:
         ok, detail, model_listed = False, f'unreachable ({type(exc).__name__})', None
+    # Credit is never claimed: a /models answer says nothing about the account's remaining balance, and no
+    # supported balance-check API is called. Out-of-credit is known only from a real request's answer
+    # (router_pool.mark_exhausted), and shown as such.
     return {'label': router.label, 'ok': ok, 'detail': detail, 'model_listed': model_listed,
-            'ms': round((time.monotonic() - started) * 1000)}
+            'ms': round((time.monotonic() - started) * 1000), 'credit': 'not verified'}
+
+
+def exhausted_routers(pool):
+    """{router label: {reason, since}} for routers out of quota/credit, or None if Redis is unreachable."""
+    try:
+        return pool.exhausted()
+    except Exception:
+        return None
 
 
 def slot_usage(pool):

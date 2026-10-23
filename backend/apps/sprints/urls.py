@@ -8,8 +8,11 @@ from apps.documents.views import (
 )
 from apps.extraction.views import SprintAIUsageView, SprintExtractionJobListCreateView, SprintProcessingSummaryView
 from apps.facts.evidence_views import SprintEvidenceAssigneesView, SprintEvidenceRequestListView
-from apps.facts.views import SprintBulkFactConfirmView, SprintBulkTagConfirmView, SprintFactListView, SprintWorkSummaryView
-from apps.gaps.views import SprintGapListView
+from apps.facts.views import (
+    SprintAIQIFExpertQueueView, SprintAIQIFSummaryView, SprintBulkFactConfirmView, SprintBulkTagConfirmView,
+    SprintFactFacetsView, SprintFactListView, SprintProfileSuggestionView, SprintWorkSummaryView,
+)
+from apps.gaps.views import SprintGapFacetsView, SprintGapListView
 from apps.recommendations.views import SprintRecommendationGenerateView, SprintRecommendationListView
 from apps.reports.views import SprintReportGenerateView, SprintReportListView
 from apps.vector_store.views import (
@@ -91,8 +94,14 @@ urlpatterns = [
         name='sprint-drive-import-job-stop-slash',
     ),
     path('/<uuid:sprint_id>/facts', SprintFactListView.as_view(), name='sprint-facts'),
+    path('/<uuid:sprint_id>/facts/facets', SprintFactFacetsView.as_view(), name='sprint-facts-facets'),
     path('/<uuid:sprint_id>/aiqif-mappings/bulk-confirm', SprintBulkTagConfirmView.as_view(),
          name='sprint-aiqif-tags-bulk-confirm'),
+    path('/<uuid:sprint_id>/aiqif-summary', SprintAIQIFSummaryView.as_view(), name='sprint-aiqif-summary'),
+    path('/<uuid:sprint_id>/aiqif-expert-queue', SprintAIQIFExpertQueueView.as_view(),
+         name='sprint-aiqif-expert-queue'),
+    path('/<uuid:sprint_id>/profile-suggestion', SprintProfileSuggestionView.as_view(),
+         name='sprint-profile-suggestion'),
     path('/<uuid:sprint_id>/facts/bulk-confirm', SprintBulkFactConfirmView.as_view(),
          name='sprint-facts-bulk-confirm'),
     path('/<uuid:sprint_id>/facts/bulk-confirm/', SprintBulkFactConfirmView.as_view(),
@@ -104,6 +113,7 @@ urlpatterns = [
          name='sprint-evidence-assignees'),
     path('/<uuid:sprint_id>/facts/', SprintFactListView.as_view(), name='sprint-facts-slash'),
     path('/<uuid:sprint_id>/gaps', SprintGapListView.as_view(), name='sprint-gaps'),
+    path('/<uuid:sprint_id>/gaps/facets', SprintGapFacetsView.as_view(), name='sprint-gaps-facets'),
     path('/<uuid:sprint_id>/gaps/', SprintGapListView.as_view(), name='sprint-gaps-slash'),
     path('/<uuid:sprint_id>/score', SprintScoreView.as_view(), name='sprint-score'),
     path('/<uuid:sprint_id>/score/', SprintScoreView.as_view(), name='sprint-score-slash'),

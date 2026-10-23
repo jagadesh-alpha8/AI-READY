@@ -51,9 +51,9 @@ export function coverageReason(c: EvidenceCoverage | null): string {
   if (c.ratio == null) return 'No AI-QIF indicator is applicable, so coverage cannot be calculated.';
   if (c.covered_count > 0) return '';
   if (c.mappings_awaiting_review > 0) {
-    return `No indicator is covered yet: ${c.mappings_awaiting_review} AI-QIF tag(s) on confirmed facts are waiting for a reviewer to confirm them in Extracted Facts Review.`;
+    return `No indicator is covered yet: ${c.mappings_awaiting_review} AI-QIF tag(s) on confirmed facts are waiting for a reviewer (the AI-QIF expert) to decide them.`;
   }
-  return 'No indicator is covered: no confirmed or corrected fact carries a reviewer-confirmed AI-QIF tag. Facts extracted before AI-QIF tagging existed have no tags to confirm.';
+  return 'No indicator is covered: no confirmed or corrected AI-evidence fact carries an accepted AI-QIF tag. Context and profile facts never cover an indicator.';
 }
 
 /** Why the Coverage-Adjusted CRI is what it is (0, missing, or partly reduced). */

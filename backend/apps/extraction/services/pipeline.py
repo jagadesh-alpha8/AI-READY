@@ -293,11 +293,20 @@ class ExtractionPipeline:
           updated like an unreviewed fact and set back to EXTRACTED, so it is
           checked for auto-confirmation again with the new value.
         Facts an earlier run found that this run didn't are kept.
-        A fact's AI-QIF indicator tags (`aiqif_mappings`) follow the same
-        rule: replaced along with an unreviewed fact, untouched on a
-        reviewed one. Returns how many facts were created or updated."""
+        AI-QIF tagging (apps/facts/aiqif_tagging.py) runs for every fact,
+        reviewed ones included: a reviewed fact keeps its value and review,
+        but its kind / NAAC metric / automatic tags are refreshed. A kind a
+        Super Admin decided, and tags a person reviewed or added, are kept.
+        Returns how many facts were created or updated."""
+        from apps.facts.aiqif_tagging import Crosswalk
         from apps.facts.auto_confirm import is_auto_confirmed
         from apps.facts.models import ExtractedFact
+
+        crosswalk = Crosswalk()
+        if not crosswalk.loaded:
+            logger.error('extraction.pipeline.crosswalk_not_loaded job_id=%s: no AI-QIF tag is accepted '
+                         'automatically until the NAAC -> AI-QIF crosswalk is imported', job.id)
+        tagging_fields = ('fact_kind', 'naac_metric', 'profile_field', 'tagging_notes')
 
         def updatable(fact):
             return fact.status == ExtractedFact.Status.EXTRACTED or is_auto_confirmed(fact)
@@ -323,50 +332,45 @@ class ExtractionPipeline:
                     existing[fact.field_key.strip().lower()] = fact
                 elif updatable(fact):
                     for name, value in fields.items():
+                        if name == 'fact_kind' and fact.kind_reviewed_by_id:
+                            continue  # a Super Admin decided the kind
                         setattr(fact, name, value)
                     fact.source_document = job.document
                     if fact.status != ExtractedFact.Status.EXTRACTED:  # auto-confirmed: checked again below
                         fact.status, fact.reviewed_by, fact.reviewed_at = ExtractedFact.Status.EXTRACTED, None, None
                     fact.save()
                 else:
+                    # Reviewed: value and review untouched; only its tagging is refreshed.
+                    for name in tagging_fields:
+                        if name in fields and not (name == 'fact_kind' and fact.kind_reviewed_by_id):
+                            setattr(fact, name, fields[name])
+                    fact.save(update_fields=[*tagging_fields, 'updated_at'])
+                    if 'aiqif_mappings' in item:
+                        ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'], crosswalk)
                     continue
                 if 'aiqif_mappings' in item:
-                    ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'])
+                    ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'], crosswalk)
                 count += 1
         return count
 
     @staticmethod
-    def _save_aiqif_mappings(fact, mappings):
-        """Replace `fact`'s AI-QIF indicator tags with `mappings` (validated by
-        the fact extractor) and set its summary status. Each tag is MAPPED at
-        or above AIQIF_MAPPING_MIN_CONFIDENCE, else NEEDS_REVIEW; no tags at
-        all is UNMAPPED -- the AI found no clear indicator, and none is
-        guessed. A tag a reviewer already confirmed or rejected is kept as
-        they left it (and the new run's tag for that indicator dropped).
-        The Raw CRI never reads these; coverage counts only reviewer-confirmed ones."""
-        from apps.facts.models import ExtractedFact, FactAIQIFMapping
+    def _save_aiqif_mappings(fact, mappings, crosswalk=None):
+        """Tag `fact` (apps/facts/aiqif_tagging.py: kind, crosswalk, AI suggestions, what is accepted
+        automatically) and match a profile fact to the closed profile lists (apps/facts/profile_suggestion.py).
+        The Raw CRI never reads tags; coverage counts only the ones aiqif_tagging.counting_q accepts."""
+        from apps.facts.aiqif_tagging import apply_tags
+        from apps.facts.models import ExtractedFact
+        from apps.facts.profile_suggestion import match_code
 
-        fact.aiqif_mappings.filter(review_status=FactAIQIFMapping.ReviewStatus.UNREVIEWED).delete()
-        reviewed = list(fact.aiqif_mappings.all())
-        reviewed_codes = {row.indicator_code for row in reviewed}
-        threshold = settings.AIQIF_MAPPING_MIN_CONFIDENCE
-        rows = reviewed + FactAIQIFMapping.objects.bulk_create([
-            FactAIQIFMapping(
-                fact=fact, criterion=m['criterion'], indicator_code=m['indicator_code'], reason=m['reason'],
-                confidence=m['confidence'],
-                status=(FactAIQIFMapping.Status.MAPPED if m['confidence'] >= threshold
-                        else FactAIQIFMapping.Status.NEEDS_REVIEW),
-            )
-            for m in mappings if m['indicator_code'] not in reviewed_codes
-        ])
-        Status = ExtractedFact.AIQIFMappingStatus
-        if any(row.status == FactAIQIFMapping.Status.MAPPED for row in rows):
-            fact.aiqif_mapping_status = Status.MAPPED
-        elif rows:
-            fact.aiqif_mapping_status = Status.NEEDS_REVIEW
-        else:
-            fact.aiqif_mapping_status = Status.UNMAPPED
-        fact.save(update_fields=['aiqif_mapping_status', 'updated_at'])
+        if not fact.fact_kind:
+            from apps.facts.aiqif_tagging import guess_kind
+            fact.fact_kind = guess_kind(fact)
+            fact.save(update_fields=['fact_kind', 'updated_at'])
+        code = match_code(fact) if fact.fact_kind == ExtractedFact.FactKind.PROFILE else ''
+        if code != fact.profile_code:
+            fact.profile_code = code
+            fact.save(update_fields=['profile_code', 'updated_at'])
+        apply_tags(fact, mappings, crosswalk)
 
     @staticmethod
     def _persist_gaps(job, gaps):

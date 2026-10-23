@@ -19,7 +19,14 @@ can't hold one forever. A router whose call failed with a recoverable error
 is deprioritised for `AI_ROUTER_COOLDOWN_SECONDS`, so the Celery retry lands
 on another router. If Redis can't be reached the pool still works, just
 without the per-router limit (random router).
+
+A router whose provider said it is out of quota / credit (ProviderQuotaExhausted) is marked *exhausted*: it
+gets no new jobs at all -- not just deprioritised -- until an admin reactivates it
+(`python manage.py ai_router_reactivate`), because no timer can know when credit is topped up. The mark holds
+only the reason and the time, never a key. `acquire(exclude=...)` skips the routers a document already tried in
+its current failover cycle, and raises AllRoutersExhausted when no router is left to try.
 """
+import json
 import contextvars
 import logging
 import random
@@ -32,7 +39,7 @@ from urllib.parse import urlsplit
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
-from ..exceptions import RecoverableExtractionError
+from ..exceptions import AllRoutersExhausted, RecoverableExtractionError
 
 logger = logging.getLogger(__name__)
 
@@ -123,20 +130,61 @@ class RouterPool:
     def _cooldown_key(self, router):
         return f'{_KEY_PREFIX}:{router.index}:cooldown'
 
+    def _exhausted_key(self, router):
+        return f'{_KEY_PREFIX}:{router.index}:exhausted'
+
+    # -- quota / credit exhaustion (explicit reactivation only) --------------
+
+    def mark_exhausted(self, router, reason):
+        """Take `router` out of rotation: its provider is out of quota/credit. No expiry -- reactivate() ends it."""
+        from django.utils import timezone
+        value = json.dumps({'reason': str(reason)[:300], 'since': timezone.now().isoformat()})
+        try:
+            self._client().set(self._exhausted_key(router), value)
+        except Exception as exc:
+            logger.warning('extraction.router.exhausted_mark_failed router=%s error=%s', router.label, exc)
+        logger.error('extraction.router.exhausted router=%s reason=%s', router.label, str(reason)[:300])
+
+    def reactivate(self, router):
+        """Put `router` back into rotation (credit restored). Returns True if it was marked exhausted."""
+        removed = bool(self._client().delete(self._exhausted_key(router)))
+        logger.info('extraction.router.reactivated router=%s was_exhausted=%s', router.label, removed)
+        return removed
+
+    def exhausted(self):
+        """{router label: {'reason', 'since'}} for every router marked exhausted."""
+        values = self._client().mget([self._exhausted_key(r) for r in self.routers])
+        out = {}
+        for router, raw in zip(self.routers, values):
+            if raw:
+                try:
+                    out[router.label] = json.loads(raw)
+                except (TypeError, ValueError):
+                    out[router.label] = {'reason': 'out of quota/credit', 'since': ''}
+        return out
+
     # -- leasing -------------------------------------------------------------
 
-    def acquire(self, *, avoid=''):
+    def acquire(self, *, avoid='', exclude=()):
         """Lease a slot on the least busy router, waiting up to
         AI_ROUTER_WAIT_SECONDS for one to free up. `avoid` is the label of the
         router the previous attempt used -- picked only if nothing else is
-        free. Raises RecoverableExtractionError if every slot stays busy."""
+        free. `exclude`: labels never to pick (tried in this failover cycle).
+        Exhausted routers are never picked. Raises AllRoutersExhausted when no
+        router is left to try, RecoverableExtractionError if every slot stays busy."""
         deadline = time.monotonic() + settings.AI_ROUTER_WAIT_SECONDS
+        exclude = set(exclude)
         while True:
             try:
-                lease = self._try_acquire(avoid)
+                lease = self._try_acquire(avoid, exclude)
+            except AllRoutersExhausted:
+                raise
             except Exception as exc:  # Redis down: still spread the load, unlimited
                 logger.warning('extraction.router.redis_unavailable error=%s', exc)
-                return Lease(router=random.choice(self.routers))
+                left = [r for r in self.routers if r.label not in exclude]
+                if not left:
+                    raise AllRoutersExhausted(f'All {len(self.routers)} AI routers were tried for this document.')
+                return Lease(router=random.choice(left))
             if lease is not None:
                 return lease
             if time.monotonic() >= deadline:
@@ -146,14 +194,25 @@ class RouterPool:
                 )
             time.sleep(1 + random.random())
 
-    def _try_acquire(self, avoid):
+    def _try_acquire(self, avoid, exclude=()):
         client = self._client()
         slot_keys = [self._slot_key(r, s) for r in self.routers for s in range(self.max_concurrent)]
         taken = client.mget(slot_keys)
         cooling = client.mget([self._cooldown_key(r) for r in self.routers])
+        exhausted = client.mget([self._exhausted_key(r) for r in self.routers])
+
+        eligible = [r for i, r in enumerate(self.routers) if not exhausted[i] and r.label not in exclude]
+        if not eligible:
+            out = sum(1 for v in exhausted if v)
+            raise AllRoutersExhausted(
+                f'No AI router is available: {out} of {len(self.routers)} are out of quota/credit'
+                + (f' and {len(self.routers) - out} were already tried for this document' if out < len(self.routers)
+                   else '') + '. Reactivate a router once its credit is restored (manage.py ai_router_reactivate).')
 
         candidates = []
         for i, router in enumerate(self.routers):
+            if router not in eligible:
+                continue
             busy = sum(1 for v in taken[i * self.max_concurrent:(i + 1) * self.max_concurrent] if v)
             if busy >= self.max_concurrent:
                 continue

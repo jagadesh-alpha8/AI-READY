@@ -536,3 +536,56 @@ def after_document_review(document, *, user):
                    f'{user.get_full_name() or user.email}.', GapEvent.Action.AUTO_RESOLVED)
             changed += 1
     return changed
+
+
+class ConflictChoiceError(Exception):
+    pass
+
+
+def choose_conflict_value(gap, user, fact_id, reason=''):
+    """Settle a conflict by choosing the correct value: the chosen fact is confirmed (unless already confirmed
+    or corrected), every competing fact with a different value is rejected with the decision as its reason, and
+    the conflict closes. Facts with the same value as the chosen one are left as they are. Each change is a
+    FactReviewHistory row and the gaps follow the normal review rules (after_fact_review). The CRI is
+    recalculated. Permission: ownership.check_conflict_choice (checked by the caller)."""
+    from django.db import transaction
+
+    from apps.facts import evidence_requests
+    from apps.facts.models import FactReviewHistory
+
+    from .models import GapEvent
+    from .models import GapItem as G
+    if gap.gap_type != G.GapType.CONFLICT or gap.status not in G.ACTIVE_STATUSES:
+        raise ConflictChoiceError('Only an open conflict can be decided.')
+    candidates = [f for f in conflict_facts(gap) if f.status != ExtractedFact.Status.REJECTED]
+    chosen = next((f for f in candidates if str(f.id) == str(fact_id)), None)
+    if chosen is None:
+        raise ConflictChoiceError('Choose one of the values this conflict compares.')
+    losers = [f for f in candidates if _hashable_value(f.value) != _hashable_value(chosen.value)]
+    blocked = [f for f in [chosen, *losers] if evidence_requests.open_request_for(f)]
+    if blocked:
+        raise ConflictChoiceError(f'{blocked[0].field_name or blocked[0].field_key} has an open evidence request; '
+                                  'decide that request first.')
+    document = chosen.source_document or chosen.document
+    where = f'{document.original_filename if document else "its document"}' + (
+        f', page {chosen.source_page}' if chosen.source_page else '')
+    note = (reason or '').strip()
+    decision = f'Conflict decided: {chosen.value!r} from {where} is the correct value.' + (f' {note}' if note else '')
+    now = timezone.now()
+    with transaction.atomic():
+        for fact in losers:
+            FactReviewHistory.objects.create(fact=fact, action=FactReviewHistory.Action.REJECTED,
+                                             original_value=fact.value, user=user, reason=decision)
+            fact.status, fact.reviewed_by, fact.reviewed_at = ExtractedFact.Status.REJECTED, user, now
+            fact.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'updated_at'])
+        if chosen.status not in CONFIRMING_FACT_STATUSES:
+            FactReviewHistory.objects.create(fact=chosen, action=FactReviewHistory.Action.CONFIRMED,
+                                             original_value=chosen.value, user=user, reason=decision)
+            chosen.status, chosen.reviewed_by, chosen.reviewed_at = ExtractedFact.Status.CONFIRMED, user, now
+            chosen.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'updated_at'])
+        _close(gap, G.Status.RESOLVED, user, decision, GapEvent.Action.RESOLVED)
+        for fact in [*losers, chosen]:  # their own gaps follow (needs replacement, then replaced)
+            after_fact_review(fact, user=user, reason=decision)
+    from apps.scoring.services import run_scoring_engine
+    run_scoring_engine(gap.sprint, triggered_by=user)
+    return {'chosen': str(chosen.id), 'rejected': [str(f.id) for f in losers], 'resolution': decision}

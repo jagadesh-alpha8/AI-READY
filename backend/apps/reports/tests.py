@@ -42,7 +42,7 @@ class ReportsTestBase(APITestCase):
     def _make_fact(self, **overrides):
         defaults = {
             'sprint': self.sprint, 'field_name': 'Faculty Certified %', 'field_key': 'faculty_certified_pct',
-            'value': 62.5, 'pillar': 'aiqif_c1', 'owner_role': 'registrar',
+            'value': 62.5, 'pillar': 'aiqif_c1', 'owner_role': 'registrar', 'fact_kind': 'ai_evidence',
             'status': ExtractedFact.Status.CONFIRMED, 'confidence_score': 0.8,
         }
         defaults.update(overrides)

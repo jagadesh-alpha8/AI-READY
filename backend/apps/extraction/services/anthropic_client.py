@@ -25,7 +25,7 @@ from anthropic import (
     RateLimitError,
 )
 
-from ..exceptions import AIResponseError, PermanentExtractionError, RecoverableExtractionError
+from ..exceptions import AIResponseError, PermanentExtractionError, ProviderQuotaExhausted, RecoverableExtractionError
 from ..usage import record_anthropic_usage
 
 logger = logging.getLogger(__name__)
@@ -111,6 +111,10 @@ class AnthropicExtractionService:
                 timeout=timeout,
             )
         except RateLimitError as exc:
+            quota = _quota(exc)
+            if quota:
+                self._log_outcome(started, success=False, error='quota_exhausted')
+                raise ProviderQuotaExhausted(f'The AI provider is out of quota or credit: {quota}.', quota) from exc
             self._log_outcome(started, success=False, error='rate_limited')
             raise RecoverableExtractionError(f'Claude rate limit hit: {exc}') from exc
         except APITimeoutError as exc:
@@ -120,6 +124,11 @@ class AnthropicExtractionService:
             self._log_outcome(started, success=False, error='connection_error')
             raise RecoverableExtractionError(f'Could not reach Claude: {exc}') from exc
         except APIStatusError as exc:
+            # "Your credit balance is too low" arrives as a 400: out of credit, not a bad request.
+            quota = _quota(exc)
+            if quota:
+                self._log_outcome(started, success=False, error='quota_exhausted')
+                raise ProviderQuotaExhausted(f'The AI provider is out of quota or credit: {quota}.', quota) from exc
             # 5xx is transient (Anthropic's side) and worth retrying; any
             # other 4xx means the request itself was bad and won't succeed on retry.
             if exc.status_code >= 500:
@@ -169,3 +178,9 @@ class AnthropicExtractionService:
                 'anthropic.request model=%s duration_ms=%.1f success=false error=%s',
                 self.model, duration_ms, error,
             )
+
+
+def _quota(exc):
+    """The out-of-quota reason in an SDK error, or '' (services/provider_errors.py)."""
+    from .provider_errors import quota_exhaustion
+    return quota_exhaustion(getattr(exc, 'status_code', None), getattr(exc, 'body', None), getattr(exc, 'message', str(exc)))

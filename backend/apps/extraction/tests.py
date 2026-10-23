@@ -3063,12 +3063,18 @@ class FactAIQIFTaggingTests(TestCase):
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True,
                    AIQIF_MAPPING_MIN_CONFIDENCE=0.7)
 class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
-    """The pipeline saves each fact's AI-QIF tags, the facts API returns them,
-    and reprocessing replaces an unreviewed fact's tags without duplicating."""
+    """The pipeline saves each fact's AI-QIF tags by the automatic rules (apps/facts/aiqif_tagging.py), the facts
+    API returns them, and reprocessing replaces an unreviewed fact's tags without duplicating."""
 
     def setUp(self):
         super().setUp()
         self._auth(self.iqac)
+        # A loaded crosswalk (no NAAC metric in these facts): confident AI tags of the fact's own criterion are
+        # then accepted automatically.
+        patcher = patch('apps.facts.aiqif_tagging.crosswalk_rows', return_value=[
+            ('AIQIF-C5.1', [{'metric': '2.1.2', 'relationship': 'Contextual'}], 'AI-QIF v1.0')])
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _run(self, *facts):
         self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': list(facts)}
@@ -3078,31 +3084,37 @@ class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
 
     def _api_facts(self):
-        return {f['field_key']: f for f in self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/').data}
+        return {f['field_key']: f for f in self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/').data['results']}
 
     def test_tags_are_saved_and_shown_with_the_facts_evidence(self):
         self._run(
-            _valid_fact(aiqif_indicators=[_indicator('AIQIF-C4.1', 0.9, 'Faculty count.'),
-                                          _indicator('AIQIF-C9.2', 0.4, 'Cited figure.')]),
-            _valid_fact(field_key='ai_labs', field_name='AI Labs', aiqif_indicators=[_indicator('AIQIF-C6.4', 0.5)]),
-            _valid_fact(field_key='campus_area', field_name='Campus Area', aiqif_indicators=[]),
+            _valid_fact(fact_kind='ai_evidence', aiqif_indicators=[_indicator('AIQIF-C4.1', 0.9, 'Faculty count.'),
+                                                                   _indicator('AIQIF-C9.2', 0.4, 'Cited figure.')]),
+            _valid_fact(field_key='ai_labs', field_name='AI Labs', fact_kind='ai_evidence',
+                        aiqif_indicators=[_indicator('AIQIF-C6.4', 0.5)]),
+            _valid_fact(field_key='campus_area', field_name='Campus Area', fact_kind='context', aiqif_indicators=[]),
         )
         facts = self._api_facts()
 
         faculty = facts['total_faculty']
         UNREVIEWED = {'review_status': 'unreviewed', 'reviewed_by': None, 'reviewed_by_name': '', 'reviewed_at': None,
-                      'review_note': ''}  # no person has looked at the AI's tags yet
+                      'review_note': '', 'relationship': 'supporting', 'source': 'ai', 'framework_version': ''}
+        NOT_PENDING = {'pending_since': None, 'pending_by_name': '', 'pending_reason': ''}  # never reopened / edited
         self.assertEqual(faculty['aiqif_mapping_status'], 'mapped')
         self.assertTrue(all(m.pop('id') for m in faculty['aiqif_mappings']))  # each tag has its own id
         self.assertEqual(faculty['aiqif_mappings'], [
             {'criterion': 'aiqif_c4', 'criterion_code': 'AIQIF-C4',
              'criterion_name': 'Faculty & Institutional Workforce AI Capability',
              'indicator_code': 'AIQIF-C4.1', 'indicator_name': 'Faculty AI Literacy & Awareness',
-             'reason': 'Faculty count.', 'confidence': 0.9, 'status': 'mapped', **UNREVIEWED},
+             'reason': 'Faculty count.', 'confidence': 0.9, 'status': 'mapped', **UNREVIEWED,
+             'auto_accepted': True, 'counts': False, 'counts_reason': 'the fact is not confirmed yet',
+             'pending': False, **NOT_PENDING},  # accepted; counts once the fact is confirmed
             {'criterion': 'aiqif_c9', 'criterion_code': 'AIQIF-C9',
              'criterion_name': 'AI Assurance, Measurement & Continuous Improvement',
              'indicator_code': 'AIQIF-C9.2', 'indicator_name': 'Evidence, Traceability & Auditability',
-             'reason': 'Cited figure.', 'confidence': 0.4, 'status': 'needs_review', **UNREVIEWED},
+             'reason': 'Cited figure.', 'confidence': 0.4, 'status': 'needs_review', **UNREVIEWED,
+             'auto_accepted': False, 'counts': False, 'counts_reason': 'waiting for an expert decision',
+             'pending': True, **NOT_PENDING},  # low confidence: waits for the Super Admin
         ])
         # The evidence stays on the fact; the CRI pillar is untouched by the tags.
         self.assertEqual(
@@ -3111,27 +3123,33 @@ class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
         )
         self.assertEqual(facts['ai_labs']['aiqif_mapping_status'], 'needs_review')
         self.assertEqual((facts['campus_area']['aiqif_mapping_status'], facts['campus_area']['aiqif_mappings']),
-                         ('unmapped', []))
+                         ('context', []))
 
     def test_reprocessing_replaces_an_unreviewed_facts_tags_and_keeps_a_reviewed_facts(self):
         self._run(
-            _valid_fact(aiqif_indicators=[_indicator('AIQIF-C4.1')]),
-            _valid_fact(field_key='ai_labs', field_name='AI Labs', aiqif_indicators=[_indicator('AIQIF-C6.4')]),
+            _valid_fact(fact_kind='ai_evidence', aiqif_indicators=[_indicator('AIQIF-C4.1')]),
+            _valid_fact(field_key='ai_labs', field_name='AI Labs', fact_kind='ai_evidence',
+                        aiqif_indicators=[_indicator('AIQIF-C6.4')]),
         )
         reviewed = self.document.extracted_facts.get(field_key='ai_labs')
         reviewed.status = ExtractedFact.Status.CONFIRMED
         reviewed.save()
+        reviewed.aiqif_mappings.update(review_status='confirmed')  # a person confirmed its tag
 
         self._run(
-            _valid_fact(aiqif_indicators=[_indicator('AIQIF-C4.2'), _indicator('AIQIF-C4.1', 0.8)]),
-            _valid_fact(field_key='ai_labs', field_name='AI Labs', aiqif_indicators=[_indicator('AIQIF-C6.1')]),
+            _valid_fact(fact_kind='ai_evidence', aiqif_indicators=[_indicator('AIQIF-C4.2'), _indicator('AIQIF-C4.1', 0.8)]),
+            _valid_fact(field_key='ai_labs', field_name='AI Labs', fact_kind='ai_evidence',
+                        aiqif_indicators=[_indicator('AIQIF-C6.1')]),
         )
 
         facts = self._api_facts()
         self.assertEqual(len(facts), 2)
         self.assertEqual([m['indicator_code'] for m in facts['total_faculty']['aiqif_mappings']],
                          ['AIQIF-C4.2', 'AIQIF-C4.1'])
-        self.assertEqual([m['indicator_code'] for m in facts['ai_labs']['aiqif_mappings']], ['AIQIF-C6.4'])
+        # The reviewed fact's value stays; its confirmed tag is kept and the new AI tag is added beside it.
+        self.assertEqual(sorted(m['indicator_code'] for m in facts['ai_labs']['aiqif_mappings']),
+                         ['AIQIF-C6.1', 'AIQIF-C6.4'])
+        self.assertEqual(facts['ai_labs']['status'], 'confirmed')
 
     def test_a_fact_saved_without_any_tagging_stays_not_yet_mapped(self):
         """'Unmapped' means the AI looked and found no clear indicator; a fact
@@ -3150,16 +3168,17 @@ class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
 
     def test_facts_can_be_filtered_by_criterion_indicator_and_mapping_status(self):
         self._run(
-            _valid_fact(aiqif_indicators=[_indicator('AIQIF-C4.1'), _indicator('AIQIF-C9.2')]),
-            _valid_fact(field_key='ai_labs', field_name='AI Labs', aiqif_indicators=[_indicator('AIQIF-C6.4')]),
-            _valid_fact(field_key='campus_area', field_name='Campus Area', aiqif_indicators=[]),
+            _valid_fact(fact_kind='ai_evidence', aiqif_indicators=[_indicator('AIQIF-C4.1'), _indicator('AIQIF-C9.2')]),
+            _valid_fact(field_key='ai_labs', field_name='AI Labs', fact_kind='ai_evidence',
+                        aiqif_indicators=[_indicator('AIQIF-C6.4')]),
+            _valid_fact(field_key='campus_area', field_name='Campus Area', fact_kind='ai_evidence', aiqif_indicators=[]),
         )
         url = f'/api/v1/sprints/{self.sprint.id}/facts/'
 
         def keys(query):
             response = self.client.get(f'{url}?{query}')
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-            return sorted(f['field_key'] for f in response.data)
+            return sorted(f['field_key'] for f in response.data['results'])
 
         self.assertEqual(keys('aiqif_criterion=aiqif_c9'), ['total_faculty'])
         self.assertEqual(keys('aiqif_criterion=aiqif_c4'), ['total_faculty'])  # once, despite two tags
@@ -3878,3 +3897,477 @@ class ProcessingMonitorCountTests(ExtractionJobTestBase):
         call(None, n=3)           # e.g. an imported total with no document
         u = self.client.get(f'/api/v1/sprints/{self.sprint.id}/ai-usage').data
         self.assertEqual((u['calls'], u['documents'], u['current_documents']), (7, 3, 1))
+
+
+
+CROSSWALK_FOR_TESTS = [
+    ('AIQIF-C5.1', [{'metric': '2.1.2', 'naac_key_indicator': '2.1', 'relationship': 'Contextual'}], 'AI-QIF v1.0'),
+    ('AIQIF-C3.1', [{'metric': '1.1.3', 'naac_key_indicator': '1.1', 'relationship': 'Direct/Supporting'}],
+     'AI-QIF v1.0'),
+    ('AIQIF-C4.1', [{'metric': '2.4.1', 'naac_key_indicator': '2.4', 'relationship': 'Supporting'}], 'AI-QIF v1.0'),
+    ('AIQIF-C4.2', [{'metric': '2.4.1', 'naac_key_indicator': '2.4', 'relationship': 'Supporting'}], 'AI-QIF v1.0'),
+]
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
+class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
+    """Automatic AI-QIF tagging at extraction (apps/facts/aiqif_tagging.py): the fact's kind, the crosswalk for
+    NAAC metrics printed in the text, which AI tags are accepted automatically, and what goes to the expert."""
+
+    # One short line per page: a line wider than the page is cut off when the PDF is read.
+    PAGES = ('Metric 1.1.3: MBA course on Artificial Intelligence.', 'Metric 2.1.2: MBA intake is 120 seats.')
+
+    def setUp(self):
+        super().setUp()
+        self.rows = list(CROSSWALK_FOR_TESTS)
+        patcher = patch('apps.facts.aiqif_tagging.crosswalk_rows', side_effect=lambda: self.rows)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self._auth(self.iqac)
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/upload-file/',
+                             {'file': make_pdf('ssr.pdf', self.PAGES), 'document_type': 'naac_ssr'},
+                             format='multipart')
+        self.doc = Document.objects.get(id=r.data['id'])
+
+    def _run(self, *facts):
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': list(facts)}
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/', {'document_id': str(self.doc.id)})
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.data)
+        return {f.field_key: f for f in self.doc.extracted_facts.prefetch_related('aiqif_mappings')}
+
+    @staticmethod
+    def _tags(fact):
+        return {m.indicator_code: (m.source, m.relationship, m.auto_accepted) for m in fact.aiqif_mappings.all()}
+
+    def _ai_course(self, **overrides):
+        return _valid_fact(**{
+            'field_key': 'mba_ai_course', 'field_name': 'MBA AI course', 'value': 'Yes', 'data_type': 'boolean',
+            'pillar': 'aiqif_c3', 'fact_kind': 'ai_evidence', 'naac_metric': '1.1.3',
+            'source_snippet': 'The MBA programme includes a compulsory course on Artificial Intelligence for Managers.',
+            'aiqif_indicators': [_indicator('AIQIF-C3.1', 0.5), _indicator('AIQIF-C3.2', 0.9)], **overrides})
+
+    def _intake(self, **overrides):
+        return _valid_fact(**{
+            'field_key': 'mba_approved_intake', 'field_name': 'MBA approved intake', 'value': '120',
+            'pillar': 'aiqif_c5', 'fact_kind': 'context', 'naac_metric': '2.1.2',
+            'source_snippet': 'Approved intake for MBA is 120 seats.',
+            'aiqif_indicators': [_indicator('AIQIF-C3.1', 0.6)], **overrides})
+
+    def test_the_crosswalk_decides_the_naac_linked_indicators_of_ai_evidence(self):
+        fact = self._run(self._ai_course())['mba_ai_course']
+        self.assertEqual((fact.fact_kind, fact.naac_metric), ('ai_evidence', '1.1.3'))
+        # C3.1 from the crosswalk (the AI's unsure C3.1 is not used); C3.2 has no NAAC link, so the AI's
+        # confident same-criterion suggestion is accepted automatically.
+        self.assertEqual(self._tags(fact), {'AIQIF-C3.1': ('crosswalk', 'direct', True),
+                                            'AIQIF-C3.2': ('ai', 'supporting', True)})
+        self.assertEqual((fact.aiqif_mapping_status, fact.kind_needs_check), ('mapped', False))
+        self.assertEqual(fact.aiqif_mappings.get(indicator_code='AIQIF-C3.1').framework_version, 'AI-QIF v1.0')
+
+    def test_a_context_fact_gets_only_contextual_links_and_never_counts(self):
+        from apps.facts.aiqif_tagging import counting_q
+        from apps.facts.models import FactAIQIFMapping
+        fact = self._run(self._intake())['mba_approved_intake']
+        self.assertEqual(self._tags(fact), {'AIQIF-C5.1': ('crosswalk', 'contextual', True)})  # no C3.1
+        self.assertEqual((fact.aiqif_mapping_status, fact.kind_needs_check), ('context', False))
+        self.assertIn('ai_tags_not_used', [n['kind'] for n in fact.tagging_notes])
+        ExtractedFact.objects.filter(pk=fact.pk).update(status='confirmed')
+        self.assertFalse(FactAIQIFMapping.objects.filter(counting_q(), fact=fact).exists())
+
+    def test_a_naac_metric_not_printed_in_the_text_is_discarded(self):
+        fact = self._run(self._ai_course(naac_metric='3.4.5'))['mba_ai_course']
+        self.assertEqual(fact.naac_metric, '')
+        self.assertIn('naac_metric_discarded', [n['kind'] for n in fact.tagging_notes])
+        self.assertFalse(fact.aiqif_mappings.filter(source='crosswalk').exists())
+
+    def test_unsure_or_other_criterion_ai_tags_wait_for_the_expert(self):
+        from apps.facts.aiqif_tagging import queue_counts
+        fact = self._run(self._ai_course(naac_metric=None, aiqif_indicators=[
+            _indicator('AIQIF-C6.4', 0.95), _indicator('AIQIF-C3.3', 0.4)]))['mba_ai_course']
+        self.assertEqual(self._tags(fact), {'AIQIF-C6.4': ('ai', 'supporting', False),
+                                            'AIQIF-C3.3': ('ai', 'supporting', False)})
+        self.assertEqual(fact.aiqif_mapping_status, 'needs_review')
+        self.assertEqual(queue_counts(self.sprint)['tags'], 2)
+
+    def test_ai_words_in_a_context_fact_send_it_to_the_expert(self):
+        fact = self._run(self._intake(field_key='ai_seats',
+                                      source_snippet='120 seats in the AI and Data Science programme.'))['ai_seats']
+        self.assertEqual((fact.fact_kind, fact.kind_needs_check), ('context', True))
+
+    def test_ai_evidence_that_covers_nothing_goes_to_the_expert(self):
+        fact = self._run(self._ai_course(naac_metric=None, aiqif_indicators=[]))['mba_ai_course']
+        self.assertEqual((fact.aiqif_mapping_status, fact.kind_needs_check), ('unmapped', True))
+
+    def test_without_the_crosswalk_nothing_is_accepted_automatically(self):
+        self.rows = []
+        fact = self._run(self._ai_course())['mba_ai_course']
+        self.assertEqual(fact.naac_metric, '1.1.3')
+        self.assertEqual(self._tags(fact), {'AIQIF-C3.1': ('ai', 'supporting', False),
+                                            'AIQIF-C3.2': ('ai', 'supporting', False)})
+        self.assertIn('crosswalk_not_loaded', [n['kind'] for n in fact.tagging_notes])
+
+    def test_a_kind_the_expert_decided_survives_reextraction(self):
+        from apps.facts.aiqif_tagging import decide_kind
+        expert = self._make_user('expert@ingage.test', User.Role.SUPER_ADMIN, None)
+        fact = self._run(self._intake())['mba_approved_intake']
+        decide_kind(fact, expert, 'ai_evidence', 'It is an AI programme intake.')
+        again = self._run(self._intake(fact_kind='context'))['mba_approved_intake']
+        self.assertEqual((again.fact_kind, again.kind_reviewed_by), ('ai_evidence', expert))
+
+    def test_a_reviewed_fact_is_retagged_without_touching_its_value(self):
+        fact = self._run(self._ai_course(naac_metric=None, aiqif_indicators=[]))['mba_ai_course']
+        ExtractedFact.objects.filter(pk=fact.pk).update(status='confirmed', value='Yes (confirmed)')
+        fact = self._run(self._ai_course())['mba_ai_course']
+        self.assertEqual((fact.status, fact.value, fact.naac_metric), ('confirmed', 'Yes (confirmed)', '1.1.3'))
+        self.assertIn('AIQIF-C3.1', self._tags(fact))
+
+    def test_a_missing_kind_is_classified_without_the_ai(self):
+        fact = self._run(self._ai_course(fact_kind=None))['mba_ai_course']
+        self.assertEqual(fact.fact_kind, 'ai_evidence')  # its quote names Artificial Intelligence
+        self.assertIn('fact_kind_guessed', [n['kind'] for n in fact.tagging_notes])
+
+    def test_duplicate_facts_across_chunks_keep_both_copies_tags(self):
+        from .services.openai_fact_extractor import _merge_fact
+
+        def tag(code, confidence):
+            return {'indicator_code': code, 'criterion': 'aiqif_c3', 'reason': 'x', 'confidence': confidence}
+        merged = {}
+        _merge_fact(merged, {'field_key': 'k', 'confidence_score': 0.7, 'naac_metric': '1.1.3',
+                             'aiqif_mappings': [tag('AIQIF-C3.1', 0.8)]})
+        _merge_fact(merged, {'field_key': 'k', 'confidence_score': 0.9, 'naac_metric': '',
+                             'aiqif_mappings': [tag('AIQIF-C3.2', 0.9)]})
+        self.assertEqual(merged['k']['confidence_score'], 0.9)
+        self.assertEqual(sorted(m['indicator_code'] for m in merged['k']['aiqif_mappings']),
+                         ['AIQIF-C3.1', 'AIQIF-C3.2'])
+        self.assertEqual(merged['k']['naac_metric'], '1.1.3')
+
+
+class FailoverRedis(FakeRedis):
+    """FakeRedis plus get / delete (out-of-credit marks and their reactivation)."""
+
+    def get(self, key):
+        return self.data.get(key)
+
+    def delete(self, key):
+        return 1 if self.data.pop(key, None) is not None else 0
+
+
+class ProviderQuotaClassificationTests(SimpleTestCase):
+    """services/provider_errors.quota_exhaustion: only explicit out-of-quota / credit answers count."""
+
+    def _q(self, status_code, body=None, message=''):
+        from .services.provider_errors import quota_exhaustion
+        return quota_exhaustion(status_code, body, message)
+
+    def test_quota_and_credit_answers_are_recognised(self):
+        self.assertTrue(self._q(429, {'error': {'code': 'insufficient_quota',
+                                                'message': 'You exceeded your current quota, check your plan.'}}))
+        self.assertTrue(self._q(400, {'type': 'error', 'error': {
+            'type': 'invalid_request_error',
+            'message': 'Your credit balance is too low to access the Anthropic API.'}}))
+        self.assertTrue(self._q(402, None, 'Payment Required'))
+        self.assertTrue(self._q(402, {'error': {'message': 'Insufficient credits. Add more using /credits'}}))
+        self.assertTrue(self._q(400, '{"error":{"message":"billing hard limit reached"}}'))
+        self.assertTrue(self._q(500, None, 'upstream: Your credit balance is too low'))  # a router wrapping it
+
+    def test_other_errors_are_not_quota(self):
+        self.assertEqual(self._q(400, {'error': {'message': "This model's maximum context length is 128000 tokens."}}), '')
+        self.assertEqual(self._q(404, {'error': {'code': 'model_not_found', 'message': 'The model does not exist'}}), '')
+        self.assertEqual(self._q(400, {'error': {'message': "Invalid parameter: 'response_format'"}}), '')
+        self.assertEqual(self._q(401, {'error': {'message': 'Incorrect API key provided'}}), '')
+        self.assertEqual(self._q(429, {'error': {'message': 'Rate limit reached for requests'}}), '')
+        self.assertEqual(self._q(500, None, 'internal server error'), '')
+        self.assertEqual(self._q(400, None, ''), '')
+
+    def test_a_per_minute_quota_is_a_rate_limit(self):
+        self.assertEqual(self._q(429, {'error': {
+            'status': 'RESOURCE_EXHAUSTED',
+            'message': 'Quota exceeded for metric generate_content_requests per minute. Please retry in 21s.'}}), '')
+
+
+class ProviderQuotaClientTests(SimpleTestCase):
+    """Both clients raise ProviderQuotaExhausted for out-of-credit answers and keep every other mapping."""
+
+    def _openai(self, exc):
+        client = MagicMock()
+        client.chat.completions.create.side_effect = exc
+        service = OpenAIExtractionService(api_key='k', model='m', client=client)
+        return lambda: service.extract_structured_data(system_prompt='s', user_content='u',
+                                                       response_schema={'type': 'object'})
+
+    def test_openai_400_402_429_quota_answers(self):
+        from .exceptions import ProviderQuotaExhausted
+        for status_code, cls, body in (
+                (429, RateLimitError, {'error': {'code': 'insufficient_quota', 'message': 'quota'}}),
+                (402, APIStatusError, None),
+                (400, APIStatusError, {'error': {'message': 'Your credit balance is too low'}})):
+            call = self._openai(cls('x', response=_fake_openai_response(status_code), body=body))
+            with self.assertRaises(ProviderQuotaExhausted, msg=status_code):
+                call()
+
+    def test_openai_other_errors_keep_their_handling(self):
+        from .exceptions import ProviderQuotaExhausted
+        cases = [
+            (RateLimitError('slow down', response=_fake_openai_response(429), body=None), RecoverableExtractionError),
+            (APIStatusError('oops', response=_fake_openai_response(503), body=None), RecoverableExtractionError),
+            (APIConnectionError(request=_fake_openai_request()), RecoverableExtractionError),
+            (APITimeoutError(request=_fake_openai_request()), RecoverableExtractionError),
+            (APIStatusError('context', response=_fake_openai_response(400),
+                            body={'error': {'message': 'maximum context length exceeded'}}), PermanentExtractionError),
+            (APIStatusError('nope', response=_fake_openai_response(404),
+                            body={'error': {'code': 'model_not_found'}}), PermanentExtractionError),
+        ]
+        for exc, expected in cases:
+            with self.assertRaises(expected) as caught:
+                self._openai(exc)()
+            self.assertNotIsInstance(caught.exception, ProviderQuotaExhausted)
+
+    def test_anthropic_credit_balance_is_quota_and_a_bad_request_is_not(self):
+        from .exceptions import ProviderQuotaExhausted
+        from .services.anthropic_client import AnthropicExtractionService
+
+        def call(exc):
+            client = MagicMock()
+            client.messages.create.side_effect = exc
+            AnthropicExtractionService(api_key='k', model='m', client=client).extract_structured_data(
+                system_prompt='s', user_content='u', response_schema={'type': 'object'})
+        with self.assertRaises(ProviderQuotaExhausted):
+            call(anthropic_sdk.APIStatusError('x', response=_fake_anthropic_response(400), body={
+                'type': 'error', 'error': {'type': 'invalid_request_error',
+                                           'message': 'Your credit balance is too low to access the Anthropic API.'}}))
+        with self.assertRaises(PermanentExtractionError) as caught:
+            call(anthropic_sdk.APIStatusError('x', response=_fake_anthropic_response(400), body={
+                'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'messages: field required'}}))
+        self.assertNotIsInstance(caught.exception, ProviderQuotaExhausted)
+
+
+@override_settings(AI_PROCESSING_MODE='multi_router', AI_ROUTER_MODEL='', AI_ROUTER_URLS=FOUR_ROUTERS,
+                   AI_ROUTER_API_KEYS='k1,k2,k3,k4', AI_ROUTER_MAX_CONCURRENT=1, AI_ROUTER_WAIT_SECONDS=0,
+                   AI_MODEL='my-combo', CELERY_WORKER_CONCURRENCY=4)
+class RouterSlotAndExhaustionTests(SimpleTestCase):
+    def setUp(self):
+        from .services.router_pool import RouterPool, configured_routers
+        self.redis = FailoverRedis()
+        self.pool = RouterPool(configured_routers(), redis_client=self.redis)
+
+    def test_four_routers_one_slot_each_means_four_documents_at_once(self):
+        leases = [self.pool.acquire() for _ in range(4)]
+        self.assertEqual(sorted(l.router.index for l in leases), [1, 2, 3, 4])
+        with self.assertRaises(RecoverableExtractionError):  # a fifth waits for a free slot
+            self.pool.acquire()
+        from .services.processing_status import configuration_problems
+        self.assertEqual(configuration_problems(), ([], []))  # 4 workers = 4 x 1 slots
+
+    @override_settings(CELERY_WORKER_CONCURRENCY=8)
+    def test_a_worker_and_slot_mismatch_is_warned(self):
+        from .services.processing_status import configuration_problems
+        self.assertIn('CELERY_WORKER_CONCURRENCY=8 but the routers have 4 slots', configuration_problems()[1][0])
+
+    @override_settings(AI_ROUTER_API_KEYS='sk-shared-9f3')
+    def test_routers_sharing_a_key_are_warned_they_share_one_quota(self):
+        from .services.processing_status import configuration_problems
+        self.assertTrue(any('share one provider quota' in w for w in configuration_problems()[1]))
+        self.assertNotIn('sk-shared-9f3', ' '.join(configuration_problems()[1]))  # the key is never shown
+
+    def test_an_exhausted_router_is_skipped_until_reactivated(self):
+        r1 = self.pool.routers[0]
+        self.pool.mark_exhausted(r1, 'insufficient_quota (HTTP 429)')
+        picked = {self.pool.acquire().router.index for _ in range(3)}
+        self.assertNotIn(1, picked)
+        self.assertEqual(list(self.pool.exhausted()), [r1.label])
+        self.assertNotIn('k1', str(self.redis.data))  # no key in the mark
+        self.redis.data = {k: v for k, v in self.redis.data.items() if ':slot:' not in k}
+        self.assertTrue(self.pool.reactivate(r1))
+        self.assertEqual(self.pool.exhausted(), {})
+
+    def test_no_router_left_raises_all_exhausted(self):
+        from .exceptions import AllRoutersExhausted
+        for r in self.pool.routers[:3]:
+            self.pool.mark_exhausted(r, 'out of credit')
+        with self.assertRaises(AllRoutersExhausted):
+            self.pool.acquire(exclude={self.pool.routers[3].label})
+
+    def test_health_never_claims_credit_and_shows_the_mark(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from .services.processing_status import check_router
+        with patch('httpx.get') as get:
+            get.return_value = MagicMock(status_code=200, json=lambda: {'data': [{'id': 'my-combo'}]})
+            self.assertEqual(check_router(self.pool.routers[0])['credit'], 'not verified')
+            self.pool.mark_exhausted(self.pool.routers[1], 'credit balance is too low (HTTP 400)')
+            out = StringIO()
+            with patch('apps.extraction.services.router_pool.RouterPool._client', return_value=self.redis):
+                with self.assertRaises(SystemExit):  # an out-of-credit router is not healthy
+                    call_command('ai_mode_status', stdout=out)
+        text = out.getvalue()
+        self.assertIn('credit not verified', text)
+        self.assertIn('OUT OF CREDIT', text)
+        self.assertNotIn('k2', text)
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True,
+                   AI_PROCESSING_MODE='multi_router', AI_ROUTER_MODEL='', AI_ROUTER_URLS=FOUR_ROUTERS,
+                   AI_ROUTER_API_KEYS='k1,k2,k3,k4', AI_ROUTER_MAX_CONCURRENT=1, AI_ROUTER_WAIT_SECONDS=0)
+class RouterFailoverTaskTests(ExtractionJobTestBase):
+    """tasks.run_extraction_job: out-of-credit failover, bounded waiting, idempotent restarts."""
+
+    def setUp(self):
+        super().setUp()
+        self.redis = FailoverRedis()
+        patcher = patch('apps.extraction.services.router_pool.RouterPool._client', return_value=self.redis)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.broke = set()  # router numbers whose provider is out of credit
+        # Deterministic router order (router1 first, then 2, 3, 4) instead of the pool's random tie-break.
+        counter = iter(range(1, 10 ** 6))
+        order = patch('apps.extraction.services.router_pool.random.random', side_effect=lambda: next(counter) / 10 ** 6)
+        order.start()
+        self.addCleanup(order.stop)
+
+    def _job(self, **extra):
+        return ExtractionJob.objects.create(sprint=self.sprint, document=self.document, **extra)
+
+    def _quota_on_broke_routers(self, answer=None):
+        """Route every AI call: routers in self.broke answer 'out of credit', the rest answer normally."""
+        from .exceptions import ProviderQuotaExhausted
+        from .services.router_pool import current_lease
+        normal = self.analysis_service.extract_structured_data.side_effect
+
+        def call(**kwargs):
+            lease = current_lease()
+            if lease is not None and lease.router.index in self.broke:
+                raise ProviderQuotaExhausted('The AI provider is out of quota or credit: insufficient_quota.',
+                                             'insufficient_quota (HTTP 429)')
+            return normal(**kwargs)
+        self.analysis_service.extract_structured_data.side_effect = call
+
+    def test_out_of_credit_moves_the_document_to_the_next_router(self):
+        self.broke = {1, 2, 3}
+        self._quota_on_broke_routers()
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact()]}
+        job = self._job()
+        run_extraction_job.apply(args=[str(job.id)])
+        job.refresh_from_db()
+        self.assertEqual((job.status, job.ai_router), (ExtractionJob.Status.COMPLETED, 'router4 (localhost:20231)'))
+        outcomes = [(a['router'][:7], a['outcome']) for a in job.attempts]
+        self.assertEqual(outcomes, [('router1', 'out_of_credit'), ('router2', 'out_of_credit'),
+                                    ('router3', 'out_of_credit'), ('router4', 'completed')])
+        self.assertIn('Moving the document to the next router', job.attempts[0]['detail'])
+        from .services.router_pool import get_router_pool
+        self.assertEqual(len(get_router_pool().exhausted()), 3)
+        # Each router was tried once; the facts were saved once.
+        self.assertEqual(self.document.extracted_facts.count(), 1)
+
+    def test_an_exhausted_router_is_not_tried_again_by_the_next_document(self):
+        self.broke = {1}
+        self._quota_on_broke_routers()
+        first = self._job()
+        run_extraction_job.apply(args=[str(first.id)])
+        second = ExtractionJob.objects.create(sprint=self.sprint, document=Document.objects.create(
+            sprint=self.sprint, document_type='naac_ssr', original_filename='b.pdf', status=Document.Status.UPLOADED,
+            file=self.document.file.name))
+        calls_before = self.analysis_service.extract_structured_data.call_count
+        run_extraction_job.apply(args=[str(second.id)])
+        second.refresh_from_db()
+        self.assertEqual(second.status, ExtractionJob.Status.COMPLETED)
+        self.assertNotIn('router1', ' '.join(a['router'] for a in second.attempts))
+        self.assertGreater(self.analysis_service.extract_structured_data.call_count, calls_before)
+
+    def test_all_routers_out_of_credit_waits_with_a_reason_and_then_gives_up(self):
+        from celery.exceptions import Retry as CeleryRetry
+        self.broke = {1, 2, 3, 4}
+        self._quota_on_broke_routers()
+        job = self._job()
+        with override_settings(AI_ROUTER_EXHAUSTED_MAX_WAITS=2):
+            for _ in range(2):  # two waits...
+                with self.assertRaises(CeleryRetry):
+                    run_extraction_job.apply(args=[str(job.id)])
+                job.refresh_from_db()
+                self.assertEqual(job.status, ExtractionJob.Status.RETRYING)
+                self.assertIn('Waiting for an AI router', job.error_message)
+                self.assertIn('ai_router_reactivate', job.error_message)
+            run_extraction_job.apply(args=[str(job.id)])  # ...then it fails: never an endless loop
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.FAILED)
+        self.assertIn('Gave up after waiting 2 time(s)', job.error_message)
+        self.assertEqual(sum(1 for a in job.attempts if a['outcome'] == 'out_of_credit'), 4)  # each router once
+
+    def test_reactivating_a_router_lets_the_waiting_document_finish(self):
+        from io import StringIO
+        from celery.exceptions import Retry as CeleryRetry
+        from django.core.management import call_command
+        self.broke = {1, 2, 3, 4}
+        self._quota_on_broke_routers()
+        job = self._job()
+        with self.assertRaises(CeleryRetry):
+            run_extraction_job.apply(args=[str(job.id)])
+        self.broke = set()  # credit restored on router 2
+        out = StringIO()
+        call_command('ai_router_reactivate', '2', stdout=out)
+        self.assertIn('router2 (localhost:20229): reactivated', out.getvalue())
+        run_extraction_job.apply(args=[str(job.id)])
+        job.refresh_from_db()
+        self.assertEqual((job.status, job.ai_router), (ExtractionJob.Status.COMPLETED, 'router2 (localhost:20229)'))
+
+    def test_waiting_does_not_use_up_the_normal_retry_budget(self):
+        from .tasks import _end_attempt, _handle_recoverable
+        job = self._job()
+        for _ in range(5):
+            _end_attempt(job, 'waiting', 'no router')
+        task = MagicMock()
+        task.request.retries = 5  # five waits, no real failure yet
+        task.retry.side_effect = RuntimeError('rescheduled')
+        with self.assertRaises(RuntimeError):
+            _handle_recoverable(task, job, RecoverableExtractionError('flaky'))
+        job.refresh_from_db()
+        self.assertEqual((job.status, job.retry_count), (ExtractionJob.Status.RETRYING, 1))
+
+    def test_a_restart_on_another_router_does_not_duplicate_or_overwrite_reviewed_facts(self):
+        """Router 1 runs out of credit; router 2 runs the whole document again from the start."""
+        from .exceptions import ProviderQuotaExhausted
+        from .services.router_pool import current_lease
+        from apps.facts.models import FactReviewHistory
+        # A fact a person already confirmed in an earlier run.
+        reviewed = ExtractedFact.objects.create(sprint=self.sprint, document=self.document, field_name='Labs',
+                                                field_key='labs', value=7, status='confirmed', pillar='aiqif_c6')
+        normal = self.analysis_service.extract_structured_data.side_effect
+
+        def call(**kwargs):
+            if current_lease().router.index == 1:
+                raise ProviderQuotaExhausted('out of credit', 'credit balance is too low (HTTP 400)')
+            return normal(**kwargs)
+        self.analysis_service.extract_structured_data.side_effect = call
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [
+            _valid_fact(), _valid_fact(field_key='labs', field_name='Labs', value='9')]}
+        job = self._job()
+        run_extraction_job.apply(args=[str(job.id)])  # router1 first (setUp), then router2
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.COMPLETED)
+        self.assertEqual([a['outcome'] for a in job.attempts], ['out_of_credit', 'completed'])
+        self.assertEqual(self.document.extracted_facts.filter(field_key='total_faculty').count(), 1)
+        reviewed.refresh_from_db()
+        self.assertEqual((reviewed.value, reviewed.status), (7, 'confirmed'))  # a person's value is kept
+        self.assertEqual(self.document.extracted_facts.count(), 2)
+        self.assertFalse(FactReviewHistory.objects.filter(fact=reviewed).exists())
+
+    @override_settings(AI_PROCESSING_MODE='single')
+    def test_single_mode_out_of_credit_fails_with_a_clear_reason_without_retrying(self):
+        from .exceptions import ProviderQuotaExhausted
+        self.analysis_service.extract_structured_data.side_effect = ProviderQuotaExhausted(
+            'The AI provider is out of quota or credit: insufficient_quota (HTTP 429).', 'insufficient_quota')
+        job = self._job()
+        run_extraction_job.apply(args=[str(job.id)])
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.FAILED)
+        self.assertIn('Add credit to the AI account', job.error_message)
+
+    def test_a_temporary_error_cools_the_router_and_retries_normally(self):
+        from celery.exceptions import Retry as CeleryRetry
+        self.analysis_service.extract_structured_data.side_effect = RecoverableExtractionError('rate limited')
+        job = self._job()
+        with self.assertRaises(CeleryRetry):
+            run_extraction_job.apply(args=[str(job.id)])
+        job.refresh_from_db()
+        self.assertEqual((job.status, job.attempts[-1]['outcome']), (ExtractionJob.Status.RETRYING, 'retrying'))
+        from .services.router_pool import get_router_pool
+        self.assertEqual(get_router_pool().exhausted(), {})  # a rate limit never takes a router out
+        self.assertTrue(any(k.endswith(':cooldown') for k in self.redis.data))

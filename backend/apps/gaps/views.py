@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from apps.accounts.permissions import CanResolveGaps, IsInstitutionMember, require_institution_access
 from apps.facts import ownership
 from apps.sprints.access import get_authorized_sprint
-from config.pagination import OptionalPageNumberPagination
+from config.pagination import DefaultPageNumberPagination, OptionalPageNumberPagination
 
 from .filters import GapItemFilter
 from .models import GapEvent, GapItem
@@ -34,15 +34,65 @@ class SprintGapListView(generics.ListAPIView):
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_class = GapItemFilter
     ordering_fields = ['created_at', 'updated_at', 'priority', 'resolved_at']
-    ordering = ['-created_at']
-    pagination_class = OptionalPageNumberPagination
+    ordering = ['-created_at', 'id']
+    # Always paginated (50 per page, at most 100): a sprint has hundreds of gaps.
+    pagination_class = DefaultPageNumberPagination
 
     def get_queryset(self):
         get_authorized_sprint(self.request.user, self.kwargs['sprint_id'])
         return GapItem.objects.filter(sprint_id=self.kwargs['sprint_id']).select_related(
             'sprint', 'source_fact__source_document', 'source_fact__document', 'related_document',
             'conflict_fact_b__source_document', 'conflict_fact_b__document', 'assigned_to',
-        ).prefetch_related(GapItemSerializer.EVIDENCE_REQUESTS_PREFETCH)
+        ).prefetch_related(
+            GapItemSerializer.EVIDENCE_REQUESTS_PREFETCH,
+            # Upload Evidence state (gaps/evidence_upload.evidence_state): documents and their jobs, batched.
+            'evidence_documents__extraction_jobs',
+        )
+
+
+class SprintGapFacetsView(APIView):
+    """GET /sprints/<id>/gaps/facets -- how many gaps have each filter value over the whole sprint: the Gap
+    Dashboard's filter options and totals. Type / priority / status are database aggregates; owner and source
+    are derived per gap (GapItemSerializer), so they are counted from one narrow query, never from serialized rows."""
+    permission_classes = [IsInstitutionMember]
+
+    def get(self, request, sprint_id):
+        from collections import Counter
+
+        from django.db.models import Count
+
+        from apps.facts.ownership import checklist_owner_role
+
+        from .services import missing_document_type
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        gaps = GapItem.objects.filter(sprint=sprint)
+
+        def counts(field):
+            return {r[field]: r['n'] for r in gaps.values(field).annotate(n=Count('id')).order_by()}
+
+        owners, sources = Counter(), Counter()
+        for gap in gaps.select_related('source_fact__source_document', 'source_fact__document', 'related_document').only(
+                'id', 'gap_type', 'title', 'description', 'source_fact__owner_role',
+                'source_fact__source_document__original_filename', 'source_fact__document__original_filename',
+                'related_document__owner_role', 'related_document__original_filename', 'related_document__document_type'):
+            fact, doc = gap.source_fact, gap.related_document
+            owner = fact.owner_role if fact else (doc.owner_role if doc else (
+                checklist_owner_role(missing_document_type(gap)) if gap.gap_type == GapItem.GapType.MISSING_DOCUMENT else ''))
+            source_doc = (fact.source_document or fact.document) if fact else doc
+            if owner:
+                owners[owner] += 1
+            if source_doc is not None and source_doc.original_filename:
+                sources[source_doc.original_filename] += 1
+        status_counts = counts('status')
+        return Response({
+            'total': sum(status_counts.values()),
+            'open': sum(n for s, n in status_counts.items() if s in GapItem.ACTIVE_STATUSES),
+            'gap_type': counts('gap_type'),
+            'priority': counts('priority'),
+            'status': status_counts,
+            'owner_role': dict(owners),
+            'source_document': dict(sources),
+        })
 
 
 class GapDetailView(generics.RetrieveAPIView):
@@ -177,3 +227,28 @@ class GapUploadEvidenceView(APIView):
         gap.refresh_from_db()
         data = GapItemSerializer(gap, context={'request': request}).data
         return Response({'gap': data, 'document_id': str(document.id), 'reused': reused}, status=201)
+
+
+class GapChooseConflictValueView(APIView):
+    """POST /gaps/<id>/choose-value {fact_id, reason?} -- settle a conflict: confirm the chosen value, reject the
+    competing ones, close the conflict, recalculate the CRI (services.choose_conflict_value). Only the gap's owner
+    role of its own college, or a Super Admin (ownership.check_conflict_choice)."""
+    permission_classes = [CanResolveGaps]
+
+    def post(self, request, pk):
+        from .services import ConflictChoiceError, choose_conflict_value
+        gap = get_object_or_404(GapItem.objects.select_related('sprint', 'source_fact', 'conflict_fact_b',
+                                                               'related_document'), pk=pk)
+        require_institution_access(request.user, gap)
+        allowed, why = ownership.check_conflict_choice(request.user, gap)
+        if not allowed:
+            raise PermissionDenied(why)
+        fact_id = request.data.get('fact_id')
+        if not fact_id:
+            raise ValidationError({'fact_id': 'Choose the fact whose value is correct.'})
+        try:
+            choose_conflict_value(gap, request.user, fact_id, request.data.get('reason') or '')
+        except ConflictChoiceError as exc:
+            raise ValidationError({'detail': str(exc)})
+        gap.refresh_from_db()
+        return Response(GapItemDetailSerializer(gap, context={'request': request}).data)

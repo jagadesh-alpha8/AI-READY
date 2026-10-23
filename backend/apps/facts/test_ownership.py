@@ -78,11 +78,11 @@ class FactOwnershipTests(_Base):
     def test_the_list_says_who_may_act_for_the_requesting_user(self):
         self._fact()
         self._as(self.registrar)
-        row = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts').data[0]
+        row = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts').data['results'][0]
         self.assertEqual((row['can_act'], row['owner_role_label']), (False, 'Head of Department'))
         self.assertIn('Only the Head of Department', row['act_blocked_reason'])
         self._as(self.hod)
-        self.assertTrue(self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts').data[0]['can_act'])
+        self.assertTrue(self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts').data['results'][0]['can_act'])
 
     def test_a_rejection_needs_a_reason_and_turns_the_gap_into_needs_replacement(self):
         fact = self._fact()

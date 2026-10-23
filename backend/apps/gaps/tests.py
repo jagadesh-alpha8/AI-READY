@@ -215,14 +215,14 @@ class GapListEndpointTests(GapTestBase):
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data['count'], 1)
 
     def test_list_without_trailing_slash_matches_frontend_client(self):
         self._make_gap()
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsInstance(response.data, list)
+        self.assertIn('results', response.data)
 
     def test_list_forbidden_for_outsider(self):
         self._make_gap()
@@ -239,14 +239,13 @@ class GapListEndpointTests(GapTestBase):
         response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/gaps/', {'title': 'sneaky'})
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def test_pagination_is_opt_in(self):
+    def test_the_list_is_always_paginated(self):
         for i in range(3):
             self._make_gap(title=f'Missing doc {i}')
         self._auth(self.iqac)
 
         plain = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps/')
-        self.assertIsInstance(plain.data, list)
-        self.assertEqual(len(plain.data), 3)
+        self.assertEqual((plain.data['count'], len(plain.data['results'])), (3, 3))
 
         paginated = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps/', {'page_size': 2, 'page': 1})
         self.assertIn('results', paginated.data)
@@ -261,22 +260,22 @@ class GapListEndpointTests(GapTestBase):
 
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps/', {'status': 'resolved'})
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['id'], str(g1.id))
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], str(g1.id))
 
     def test_filter_by_gap_type(self):
         self._make_gap(title='a', gap_type=GapItem.GapType.MISSING_DOCUMENT)
         self._make_gap(title='b', gap_type=GapItem.GapType.STALE_DATA)
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps/', {'gap_type': 'stale_data'})
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data['count'], 1)
 
     def test_filter_by_priority(self):
         self._make_gap(title='a', priority=GapItem.Priority.BLOCKING)
         self._make_gap(title='b', priority=GapItem.Priority.OPTIONAL)
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps/', {'priority': 'optional'})
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data['count'], 1)
 
     def test_filter_by_pillar(self):
         self._make_gap(title='a', pillar='aiqif_c4')
@@ -285,14 +284,14 @@ class GapListEndpointTests(GapTestBase):
         response = self.client.get(
             f'/api/v1/sprints/{self.sprint.id}/gaps/', {'pillar': 'aiqif_c1'},
         )
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data['count'], 1)
 
     def test_owner_role_derived_from_source_fact(self):
         fact = self._make_fact(owner_role='REGISTRAR')
         self._make_gap(title='needs review', gap_type=GapItem.GapType.UNCONFIRMED_FACT, source_fact=fact)
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps/')
-        self.assertEqual(response.data[0]['owner_role'], 'REGISTRAR')
+        self.assertEqual(response.data['results'][0]['owner_role'], 'REGISTRAR')
 
     def test_owner_role_derived_from_related_document(self):
         document = self._make_document(owner_role='LAB_ADMIN')
@@ -301,7 +300,7 @@ class GapListEndpointTests(GapTestBase):
         )
         self._auth(self.iqac)
         response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps/')
-        self.assertEqual(response.data[0]['owner_role'], 'LAB_ADMIN')
+        self.assertEqual(response.data['results'][0]['owner_role'], 'LAB_ADMIN')
 
 
 class GapDetailEndpointTests(GapTestBase):
@@ -345,7 +344,7 @@ class GapDetailEndpointTests(GapTestBase):
         data = self.client.get(f'/api/v1/gaps/{gap.id}').data
         self.assertEqual((data['source_snippet'], data['source_page']),
                          ('120 out of 192 faculty completed AI foundation FDP.', '45'))
-        rows = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps').data
+        rows = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps').data['results']
         self.assertEqual([r['source_snippet'] for r in rows], [data['source_snippet']])
 
     def test_source_snippet_is_null_without_a_fact_or_a_recorded_snippet(self):
@@ -543,7 +542,7 @@ class ConflictGapSidesTests(GapTestBase):
     def test_listed_with_the_sprint_and_still_scoped_to_its_institution(self):
         gap = self._conflict(conflict_fact_b=self.fact_b, conflict_value_a=62.5, conflict_value_b=58.0)
         self._auth(self.hod)
-        rows = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps').data
+        rows = self.client.get(f'/api/v1/sprints/{self.sprint.id}/gaps').data['results']
         self.assertEqual([r['conflict_sides'][1]['document_name'] for r in rows if r['id'] == str(gap.id)],
                          ['HR register.pdf'])
         self._auth(self.outsider)

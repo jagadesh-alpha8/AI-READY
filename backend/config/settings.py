@@ -61,6 +61,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    # Logs API requests that are slow or run many queries (no contents): config/request_diagnostics.py.
+    'config.request_diagnostics.RequestDiagnosticsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -361,6 +363,11 @@ AI_ROUTER_WAIT_SECONDS = int(os.getenv('AI_ROUTER_WAIT_SECONDS', 300))
 AI_ROUTER_LEASE_SECONDS = int(os.getenv('AI_ROUTER_LEASE_SECONDS', 30 * 60))
 AI_ROUTER_COOLDOWN_SECONDS = int(os.getenv('AI_ROUTER_COOLDOWN_SECONDS', 60))
 AI_ROUTER_REDIS_URL = os.getenv('AI_ROUTER_REDIS_URL', '')  # empty = CELERY_BROKER_URL
+# A router whose provider is out of quota/credit gets no new jobs until `manage.py ai_router_reactivate`.
+# When no router is left, a job waits (status "retrying", with the reason) and checks again every
+# AI_ROUTER_EXHAUSTED_RETRY_SECONDS, at most AI_ROUTER_EXHAUSTED_MAX_WAITS times, then fails with the reason.
+AI_ROUTER_EXHAUSTED_RETRY_SECONDS = int(os.getenv('AI_ROUTER_EXHAUSTED_RETRY_SECONDS', 15 * 60))
+AI_ROUTER_EXHAUSTED_MAX_WAITS = int(os.getenv('AI_ROUTER_EXHAUSTED_MAX_WAITS', 8))
 # Model every router serves (e.g. a 9router combo); empty = AI_MODEL. Separate so
 # switching AI_PROCESSING_MODE needs no other edit when the two setups differ.
 AI_ROUTER_MODEL = os.getenv('AI_ROUTER_MODEL', '')
@@ -630,3 +637,8 @@ if not DEBUG:
     # The container healthcheck calls this over plain HTTP from inside the container.
     SECURE_REDIRECT_EXEMPT = [r'^api/v1/health$']
 
+
+# Slow-request diagnostics (config/request_diagnostics.py): log an API request slower than this, or running
+# more database queries than this.
+API_SLOW_REQUEST_MS = int(os.getenv('API_SLOW_REQUEST_MS', 1000))
+API_SLOW_REQUEST_QUERIES = int(os.getenv('API_SLOW_REQUEST_QUERIES', 100))

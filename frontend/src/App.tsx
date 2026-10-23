@@ -34,6 +34,7 @@ import { SprintSetup } from './pages/sprints/SprintSetup';
 import { UploadDataPack } from './pages/documents/UploadDataPack';
 import { AIProcessingMonitor } from './pages/documents/AIProcessingMonitor';
 import { FactsReview } from './pages/facts/FactsReview';
+import { AIQIFExpertQueue } from './pages/facts/AIQIFExpertQueue';
 import { ConfirmationWorkspace } from './pages/facts/ConfirmationWorkspace';
 import { GapDashboard } from './pages/gaps/GapDashboard';
 import { LiveCRIPreview } from './pages/scoring/LiveCRIPreview';
@@ -141,6 +142,7 @@ function AppRoutes() {
       <Route path="/sprint/:sprintId/upload" element={<ProtectedLayout menu="sprint-upload" sprint="show"><UploadDataPack /></ProtectedLayout>} />
       <Route path="/sprint/:sprintId/monitor" element={<ProtectedLayout menu="sprint-monitor" sprint="show"><AIProcessingMonitor /></ProtectedLayout>} />
       <Route path="/sprint/:sprintId/facts" element={<ProtectedLayout menu="sprint-facts" sprint="show"><FactsReview /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/aiqif-review" element={<ProtectedLayout menu="sprint-aiqif-review" sprint="show"><AIQIFExpertQueue /></ProtectedLayout>} />
       <Route path="/sprint/:sprintId/gaps" element={<ProtectedLayout menu="sprint-gaps" sprint="show"><GapDashboard /></ProtectedLayout>} />
       <Route
         path="/sprint/:sprintId/confirmation"

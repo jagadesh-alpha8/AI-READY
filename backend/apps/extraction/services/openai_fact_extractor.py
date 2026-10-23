@@ -92,8 +92,23 @@ institution_admin (policy/governance), iqac_coordinator (quality assurance, NAAC
 lab_admin (lab/compute infrastructure), placement_officer (placements, industry), faculty \
 (course-level AI engagement).
 
-`aiqif_indicators` tags the fact with the AI-QIF key indicators it is evidence for -- a category, \
-not a judgement of quality. Use only these codes:
+`fact_kind` says what the fact is for. Ask: "Does this fact tell us something about AI at this institution?"
+- ai_evidence: yes -- the fact itself is about AI (an AI course or programme, AI lab or compute, AI policy, \
+AI-trained faculty, AI projects, AI tools or licences, AI research).
+- context: no, but it is a number or detail that AI evidence is read against (intake, enrolment, student or \
+faculty counts, number of programmes, pass percentages, general infrastructure).
+- profile: no, it describes who the institution is (institution type, approval or accreditation bodies, \
+autonomous / affiliated status, affiliating university, programmes offered).
+
+`naac_metric`: the NAAC metric number this fact is reported under (for example "2.1.2" or "1.1.3"), copied \
+exactly as it is printed in the given text next to the fact -- or null if no metric number is printed there. \
+Never infer a metric number that is not in the text.
+
+`profile_field` (profile facts only, otherwise null): institution_type, autonomous_status, approval_body, \
+programme, or other.
+
+`aiqif_indicators` tags an ai_evidence fact with the AI-QIF key indicators it is evidence for -- a category, \
+not a judgement of quality. For context and profile facts return an empty list. Use only these codes:
 {_INDICATOR_GUIDE}
 - Decide from what this fact says and its quoted evidence -- not from the document's type or title.
 - List the indicator(s) the evidence directly supports: usually one, at most {MAX_AIQIF_MAPPINGS_PER_FACT}. \
@@ -125,6 +140,11 @@ FACT_ITEM_SCHEMA = {
         'source_snippet': {'type': 'string', 'description': 'A real snippet from the given text.'},
         'confidence_score': {'type': 'number', 'description': 'Between 0 and 1.'},
         'confidence_reason': {'type': 'string'},
+        'fact_kind': {'type': 'string', 'enum': ['ai_evidence', 'context', 'profile']},
+        'naac_metric': {'type': ['string', 'null'],
+                        'description': 'The NAAC metric number printed next to the fact, e.g. "2.1.2", or null.'},
+        'profile_field': {'type': ['string', 'null'],
+                          'enum': ['institution_type', 'autonomous_status', 'approval_body', 'programme', 'other', None]},
         'aiqif_indicators': {
             'type': 'array',
             'description': 'The AI-QIF key indicators this fact is evidence for; empty if none clearly fits.',
@@ -142,7 +162,8 @@ FACT_ITEM_SCHEMA = {
     },
     'required': [
         'field_name', 'field_key', 'value', 'data_type', 'pillar', 'owner_role',
-        'source_page', 'source_snippet', 'confidence_score', 'confidence_reason', 'aiqif_indicators',
+        'source_page', 'source_snippet', 'confidence_score', 'confidence_reason', 'fact_kind', 'naac_metric',
+        'profile_field', 'aiqif_indicators',
     ],
     'additionalProperties': False,
 }
@@ -333,9 +354,10 @@ class OpenAIFactExtractor(FactExtractor):
             self.report['chunks_completed'] += 1
 
             valid_page_numbers = {str(page['page_number']) for page in chunk_pages}
+            chunk_text = '\n'.join(page.get('text') or '' for page in chunk_pages)
             for raw_fact in raw_facts:
                 try:
-                    fact = self._validate_fact(raw_fact, valid_page_numbers)
+                    fact = self._validate_fact(raw_fact, valid_page_numbers, chunk_text)
                 except FactValidationError as exc:
                     logger.warning(
                         'fact_extractor.fact_rejected document_id=%s chunk=%d field_key=%r error=%s',
@@ -376,7 +398,8 @@ class OpenAIFactExtractor(FactExtractor):
         return facts
 
     @staticmethod
-    def _validate_fact(raw_fact, valid_page_numbers):
+    def _validate_fact(raw_fact, valid_page_numbers, chunk_text=None):
+        """`chunk_text`: the text the fact came from; a NAAC metric not printed in it is discarded."""
         if not isinstance(raw_fact, dict):
             raise FactValidationError(f'Expected a fact object, got {type(raw_fact).__name__}.')
 
@@ -419,6 +442,7 @@ class OpenAIFactExtractor(FactExtractor):
             raise FactValidationError(f'confidence_score must be between 0 and 1, got {confidence_score!r}.')
 
         confidence_reason = _require_nonblank_str(raw_fact.get('confidence_reason'), 'confidence_reason')
+        notes = []  # what tagging left out and why (ExtractedFact.tagging_notes)
 
         return {
             'field_name': field_name,
@@ -433,21 +457,47 @@ class OpenAIFactExtractor(FactExtractor):
             'confidence_score': float(confidence_score),
             'confidence_reason': confidence_reason,
             'extraction_method': 'openai',
+            **_validate_tagging(raw_fact, field_key, chunk_text, notes),
+            'tagging_notes': notes,
             # Not an ExtractedFact field: saved as FactAIQIFMapping rows by
-            # ExtractionPipeline._persist_facts.
-            'aiqif_mappings': _validate_aiqif_mappings(raw_fact.get('aiqif_indicators'), field_key),
+            # ExtractionPipeline._persist_facts (apps/facts/aiqif_tagging.py decides which are used).
+            'aiqif_mappings': _validate_aiqif_mappings(raw_fact.get('aiqif_indicators'), field_key, notes),
         }
 
 
-def _validate_aiqif_mappings(raw_mappings, field_key):
+def _validate_tagging(raw_fact, field_key, chunk_text, notes):
+    """fact_kind / naac_metric / profile_field, checked: a missing kind is guessed without the AI
+    (aiqif_tagging.guess_kind), and a metric is kept only when it is printed in the chunk the fact came from."""
+    from apps.facts.aiqif_tagging import guess_kind, metric_in_text, normalize_metric
+
+    kind = raw_fact.get('fact_kind')
+    if kind not in ExtractedFact.FactKind.values:
+        kind = guess_kind(raw_fact)
+        notes.append({'kind': 'fact_kind_guessed', 'detail': f'The AI gave no valid kind; classified as {kind}.'})
+    raw_metric = raw_fact.get('naac_metric')
+    metric = normalize_metric(raw_metric) if isinstance(raw_metric, str) else ''
+    if metric and chunk_text is not None and not metric_in_text(metric, chunk_text):
+        notes.append({'kind': 'naac_metric_discarded',
+                      'detail': f'NAAC metric {metric} is not printed in the text this fact came from.'})
+        metric = ''
+    profile_field = raw_fact.get('profile_field') if kind == ExtractedFact.FactKind.PROFILE else ''
+    if profile_field not in ExtractedFact.ProfileField.values:
+        profile_field = ExtractedFact.ProfileField.OTHER if kind == ExtractedFact.FactKind.PROFILE else ''
+    return {'fact_kind': kind, 'naac_metric': metric, 'profile_field': profile_field}
+
+
+def _validate_aiqif_mappings(raw_mappings, field_key, notes=None):
     """The AI's indicator tags for one fact, as [{indicator_code, criterion,
     reason, confidence}], strongest first. A tag that isn't one of the 36
     AI-QIF indicators, or lacks a reason or a 0-1 confidence, is dropped on
     its own -- a bad tag never costs the fact itself, it just leaves it
-    unmapped. Same indicator twice: the more confident one is kept."""
+    unmapped. Same indicator twice: the more confident one is kept. Each drop
+    is also noted in `notes` (kept on the fact as `tagging_notes`)."""
+    notes = notes if notes is not None else []
     if not isinstance(raw_mappings, list):
         if raw_mappings is not None:
             logger.warning('fact_extractor.aiqif_mappings_rejected field_key=%r value=%r', field_key, raw_mappings)
+            notes.append({'kind': 'tag_dropped', 'detail': 'The AI-QIF tags were not a list, so none was used.'})
         return []
 
     by_code = {}
@@ -467,6 +517,8 @@ def _validate_aiqif_mappings(raw_mappings, field_key):
             or not 0 <= confidence <= 1
         ):
             logger.warning('fact_extractor.aiqif_mapping_rejected field_key=%r mapping=%r', field_key, raw)
+            notes.append({'kind': 'tag_dropped', 'detail': f'AI-QIF tag {str(raw.get("indicator"))[:20]!r} dropped: '
+                                                           'unknown indicator, or no reason / confidence.'})
             continue
         if code not in by_code or confidence > by_code[code]['confidence']:
             by_code[code] = {
@@ -482,11 +534,24 @@ def _validate_aiqif_mappings(raw_mappings, field_key):
 def _merge_fact(facts_by_key, fact):
     """Duplicate facts across chunks are merged by field_key, keeping
     whichever has the strongest (highest-confidence) evidence rather than
-    creating more than one database row for the same fact."""
+    creating more than one database row for the same fact -- with the AI-QIF
+    tags of both copies, so a tag is never lost to the merge."""
     key = fact['field_key'].strip().lower()
     existing = facts_by_key.get(key)
-    if existing is None or fact['confidence_score'] > existing['confidence_score']:
+    if existing is None:
         facts_by_key[key] = fact
+        return
+    winner, other = (fact, existing) if fact['confidence_score'] > existing['confidence_score'] else (existing, fact)
+    # Keep both copies' AI-QIF tags (the more confident tag per indicator) and a NAAC metric either copy found.
+    tags = {m['indicator_code']: m for m in other.get('aiqif_mappings', [])}
+    for m in winner.get('aiqif_mappings', []):
+        if m['indicator_code'] not in tags or m['confidence'] >= tags[m['indicator_code']]['confidence']:
+            tags[m['indicator_code']] = m
+    winner['aiqif_mappings'] = sorted(tags.values(), key=lambda m: m['confidence'], reverse=True)[
+        :MAX_AIQIF_MAPPINGS_PER_FACT]
+    if not winner.get('naac_metric') and other.get('naac_metric'):
+        winner['naac_metric'] = other['naac_metric']
+    facts_by_key[key] = winner
 
 
 class IdentityAuditFieldMapper(AuditFieldMapper):

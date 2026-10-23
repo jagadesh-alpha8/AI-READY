@@ -114,13 +114,17 @@ def record_processing(job, ok, message=''):
 
 def _latest_job(document):
     from apps.extraction.models import ExtractionJob
+    jobs = getattr(document, '_prefetched_objects_cache', {}).get('extraction_jobs')
+    if jobs is not None:  # prefetched by the gaps list (SprintGapListView): no query per document
+        return max(jobs, key=lambda j: j.created_at, default=None)
     return ExtractionJob.objects.filter(document=document).order_by('-created_at').first()
 
 
 def evidence_state(gap, requests=None):
     """What has happened to the evidence for this gap, why, and what to do next (for the Gap Dashboard)."""
     from apps.extraction.models import ExtractionJob as J
-    docs = list(gap.evidence_documents.all().order_by('-created_at')) if gap.pk else []
+    # Newest first; sorted here so a prefetched list (the gaps list view) is used as is.
+    docs = sorted(gap.evidence_documents.all(), key=lambda d: d.created_at, reverse=True) if gap.pk else []
     if gap.status not in GapItem.ACTIVE_STATUSES:
         return {'state': 'resolved' if gap.status == GapItem.Status.RESOLVED else 'closed',
                 'label': gap.get_status_display(), 'reason': gap.resolution, 'next_action': '', 'documents': _docs(docs)}

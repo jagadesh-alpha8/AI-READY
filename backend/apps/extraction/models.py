@@ -55,6 +55,10 @@ class ExtractionJob(models.Model):
     extraction_warnings = models.JSONField(default=list, blank=True)
     chunks_total = models.PositiveIntegerField(default=0)
     chunks_completed = models.PositiveIntegerField(default=0)
+    #: Every attempt at this job, oldest first (tasks.py): [{at, router, outcome, detail}]. outcome: running,
+    #: completed, failed, retrying, out_of_credit (the router's provider is out of quota -> failover),
+    #: waiting (no router left), stopped, reset (processed again). Each attempt's AI calls are billed.
+    attempts = models.JSONField(default=list, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

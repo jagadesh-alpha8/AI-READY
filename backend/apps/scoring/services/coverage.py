@@ -14,10 +14,14 @@ Rules (all deterministic -- no AI decides anything here):
   "requires review" (no rules, no profile, no published release, indicator not in the release)
   stays applicable and is reported as unresolved -- it never shrinks the denominator.
   "optional" stays applicable too (it is not "not applicable").
-- Covered: at least one confirmed/corrected fact whose mapping to the indicator a reviewer
-  confirmed (FactAIQIFMapping.review_status). Unreviewed or rejected facts, and AI mappings no
-  reviewer has confirmed, do not count. Distinct indicators: two facts on one indicator count it
-  once; one fact may cover several indicators.
+- Covered: at least one tag that counts (apps/facts/aiqif_tagging.counting_q): the fact is AI
+  evidence and confirmed/corrected, the relationship is Direct or Supporting, and the tag was
+  accepted -- automatically (NAAC crosswalk, or a confident AI tag of the fact's own criterion) or
+  by a Super Admin -- and never rejected. Contextual links, context and profile facts, and tags
+  waiting in the expert queue do not count. Distinct indicators: two facts on one indicator count
+  it once; one fact may cover several indicators.
+- Provisional: while the sprint's expert queue is not empty the coverage is marked provisional
+  (`provisional`, `expert_queue`); a baseline cannot be decided until it is empty.
 - Weights: the published release's approved key-indicator weights, when the release carries one
   for every indicator considered; otherwise equal weights within each criterion times the
   approved CRI pillar weight (scoring.Pillar.weight). No weight is invented.
@@ -112,17 +116,18 @@ def compute_coverage(sprint, pillars):
     applicability, applicability_note = _applicability(codes, release, items, profile)
     weights, weights_source, weights_note = _weights(codes, items, pillar_weights)
 
-    verified = (FactAIQIFMapping.objects
-                .filter(fact__sprint=sprint, review_status=FactAIQIFMapping.ReviewStatus.CONFIRMED,
-                        fact__status__in=[ExtractedFact.Status.CONFIRMED, ExtractedFact.Status.CORRECTED])
+    from apps.facts.aiqif_tagging import counting_q, queue_counts, queued_tags_q
+
+    verified = (FactAIQIFMapping.objects.filter(counting_q(), fact__sprint=sprint)
                 .values_list('indicator_code', 'fact_id'))
     facts_by_code = {}
     for code, fact_id in verified:
         facts_by_code.setdefault(code, set()).add(str(fact_id))
     awaiting_review = (FactAIQIFMapping.objects
-                       .filter(fact__sprint=sprint, review_status=FactAIQIFMapping.ReviewStatus.UNREVIEWED,
+                       .filter(queued_tags_q(), fact__sprint=sprint,
                                fact__status__in=[ExtractedFact.Status.CONFIRMED, ExtractedFact.Status.CORRECTED])
                        .count())
+    queue = queue_counts(sprint)
 
     rows = []
     for code in codes:
@@ -157,6 +162,8 @@ def compute_coverage(sprint, pillars):
         'applicable_count': len(applicable_rows),
         'excluded_count': len(rows) - len(applicable_rows),
         'unresolved_applicability_count': unresolved,
+        'provisional': queue['total'] > 0,
+        'expert_queue': queue,
         'covered_weight': round(covered_weight, 6),
         'applicable_weight': round(applicable_weight, 6),
         'weights_source': weights_source,

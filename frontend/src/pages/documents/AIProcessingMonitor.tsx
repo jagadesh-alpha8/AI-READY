@@ -12,14 +12,14 @@ import {
   startExtraction,
 } from '../../api/extraction';
 import { listSprintDocuments } from '../../api/documents';
-import { listSprintFacts } from '../../api/facts';
-import { listSprintGaps } from '../../api/gaps';
+import { getSprintFactFacets, type FactFacets } from '../../api/facts';
+import { getSprintGapFacets, type GapFacets } from '../../api/gaps';
 import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage, humanizeExtractionError } from '../../utils/errors';
 import { formatDuration, formatEstimate, latestRunTiming, type RunTiming } from '../../utils/extractionTiming';
 import {
-  ACTIVE_EXTRACTION_STATUSES, type ExtractionJob, type Fact, type Gap, type ProcessingSummary, type SprintAIUsage,
+  ACTIVE_EXTRACTION_STATUSES, type ExtractionJob, type ProcessingSummary, type SprintAIUsage,
 } from '../../types';
 import type { SprintDocument } from '../../types/documents';
 import {
@@ -29,6 +29,8 @@ import {
 import { useAccess } from '../../utils/access';
 
 const POLL_INTERVAL_MS = 3000;
+/** The AI usage panel (cost, tokens, requests) is hidden for now; set to true to show it again. */
+const SHOW_AI_USAGE = false;
 
 const STEP_LABELS = [
   'classifying_documents',
@@ -75,33 +77,27 @@ export const AIProcessingMonitor: React.FC = () => {
     if (!latestJobByDocument.has(job.document_id)) latestJobByDocument.set(job.document_id, job);
   }
 
-  // Facts/gaps counts back the same four stat-card labels the original
-  // design used ("Facts Extracted", "Gaps Detected", "Conflicts Detected")
-  // -- ExtractionJob itself doesn't carry those counts, so they're fetched
-  // alongside the jobs rather than the cards being relabeled.
-  const { data: factsData, refetch: refetchFacts } = useApiResource<Fact[]>(
-    () => listSprintFacts(sprintId!),
+  // Fact / gap / conflict counts for the stat cards and each row: database aggregates (facets), never the
+  // whole fact and gap lists.
+  const { data: factFacets, refetch: refetchFacts } = useApiResource<FactFacets>(
+    () => getSprintFactFacets(sprintId!),
     [sprintId],
     isRealSprint,
   );
-  const { data: gapsData, refetch: refetchGaps } = useApiResource<Gap[]>(
-    () => listSprintGaps(sprintId!),
+  const { data: gapFacets, refetch: refetchGaps } = useApiResource<GapFacets>(
+    () => getSprintGapFacets(sprintId!),
     [sprintId],
     isRealSprint,
   );
   const { data: usage, refetch: refetchUsage } = useApiResource<SprintAIUsage>(
     () => getSprintAIUsage(sprintId!),
     [sprintId],
-    isRealSprint,
+    isRealSprint && SHOW_AI_USAGE,
   );
-  const facts = factsData || [];
-  const factCountsByDocument = new Map<string, number>();
-  for (const fact of facts) {
-    const documentId = fact.document_id || fact.source_document_id;
-    if (documentId) factCountsByDocument.set(documentId, (factCountsByDocument.get(documentId) || 0) + 1);
-  }
-  const gaps = gapsData || [];
-  const conflictCount = gaps.filter((g) => g.gap_type === 'conflict').length;
+  const factCountsByDocument = new Map<string, number>(Object.entries(factFacets?.by_document || {}));
+  const factTotal = factFacets?.total ?? 0;
+  const gapTotal = gapFacets?.total ?? 0;
+  const conflictCount = gapFacets?.gap_type?.conflict ?? 0;
 
   const hasActiveJob = jobs.some((j) => ACTIVE_EXTRACTION_STATUSES.includes(j.status));
   const isPartial = (job?: ExtractionJob) => job?.status === 'completed' && job.completeness === 'partial';
@@ -274,8 +270,10 @@ export const AIProcessingMonitor: React.FC = () => {
         </div>
       ) : (
         <>
-          {run && <RunTimingPanel run={run} />}
-          {usage && usage.calls > 0 && <AIUsagePanel usage={usage} currentTotal={currentTotal} />}
+          {/* Only while documents are processing: progress and time left. A finished run is summarised by the
+              sprint counts and document statuses below. */}
+          {run?.active && <RunTimingPanel run={run} />}
+          {SHOW_AI_USAGE && usage && usage.calls > 0 && <AIUsagePanel usage={usage} currentTotal={currentTotal} />}
 
           {/* Progress Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -296,7 +294,7 @@ export const AIProcessingMonitor: React.FC = () => {
                 <span className="text-sm font-medium">Facts Extracted</span>
                 <Cpu className="w-4 h-4 text-brand-800" />
               </div>
-              <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{facts.length} Facts</p>
+              <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{factTotal} Facts</p>
               <span className="text-xs text-brand-800 mt-1 inline-block font-medium">Mapped to Audit Fields</span>
             </div>
 
@@ -305,7 +303,7 @@ export const AIProcessingMonitor: React.FC = () => {
                 <span className="text-sm font-medium">Gaps Detected</span>
                 <AlertTriangle className="w-4 h-4 text-warning" />
               </div>
-              <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{gaps.length} Fields</p>
+              <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{gapTotal} Fields</p>
               <span className="text-xs text-warning mt-1 inline-block font-medium">Assigned to Owners</span>
             </div>
 
@@ -475,6 +473,23 @@ export const AIProcessingMonitor: React.FC = () => {
                             {humanizeExtractionError(job.error_message, true)}
                           </p>
                         )}
+                        {current && job && (job.attempts || []).filter((a) => a.outcome !== 'reset').length > 1 && (
+                          <details className="text-xs text-ink-500 mt-0.5">
+                            <summary className="cursor-pointer">
+                              {(job.attempts || []).filter((a) => a.outcome === 'out_of_credit').length > 0
+                                ? 'Moved to another AI router (a router ran out of credit)' : 'Processed in more than one attempt'}
+                              {' '}— each attempt's AI calls are billed
+                            </summary>
+                            <ul className="mt-0.5 space-y-0.5">
+                              {(job.attempts || []).filter((a) => a.outcome !== 'reset').slice(-8).map((a, i) => (
+                                <li key={i}>
+                                  {new Date(a.at).toLocaleString()} · {a.router || 'no router'} · {a.outcome.replace(/_/g, ' ')}
+                                  {a.detail && ` — ${a.detail}`}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
                         {!current && job && (
                           <p className="text-xs text-ink-500 mt-0.5">Its earlier processing ({job.status}) is kept for sprint history.</p>
                         )}
@@ -575,7 +590,7 @@ const ActivityDetails: React.FC<{ run: RunTiming }> = ({ run }) => (
   </details>
 );
 
-/** Elapsed time, rounded time-left estimate, and a summary of the most recent processing activity. */
+/** While documents are processing: elapsed time, progress and a rounded time-left estimate. */
 const RunTimingPanel: React.FC<{ run: RunTiming }> = ({ run }) => {
   const finished = run.completed + run.failed + run.stopped;
   const outcome = [
@@ -625,20 +640,7 @@ const RunTimingPanel: React.FC<{ run: RunTiming }> = ({ run }) => {
           </div>
           <div className="sm:col-span-3"><ActivityDetails run={run} /></div>
         </div>
-      ) : (
-        <div>
-          <p className="text-sm font-bold text-ink-900">
-            Most recent processing activity: {finished} document{finished === 1 ? '' : 's'} in {formatDuration(run.elapsedMs)}
-          </p>
-          <p className="text-xs text-ink-500 mt-0.5">
-            {run.startedAt !== null && `${clock(run.startedAt)} – ${clock(run.finishedAt ?? run.startedAt)}`}
-            {run.avgPerDocMs !== null && ` · about ${formatDuration(run.avgPerDocMs)} per document`}
-            {` · ${run.completed} completed`}
-            {outcome && ` · ${outcome}`}
-          </p>
-          <ActivityDetails run={run} />
-        </div>
-      )}
+      ) : null}
     </div>
   );
 };
@@ -664,15 +666,18 @@ const formatUsd = (value: string) => {
 
 /** Real AI tokens and cost recorded for this sprint -- the basis for billing. */
 const AIUsagePanel: React.FC<{ usage: SprintAIUsage; currentTotal: number }> = ({ usage, currentTotal }) => (
-  <div className="glass-card p-5 space-y-3">
-    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-      <div className="w-10 h-10 rounded-lg border border-brand-500/30 bg-brand-500/10 text-brand-800 flex items-center justify-center shrink-0">
-        <Coins className="w-5 h-5" />
+  <div className="glass-card px-5 py-4 space-y-2">
+    <div className="flex items-center gap-4">
+      <div className="w-9 h-9 rounded-lg border border-brand-500/30 bg-brand-500/10 text-brand-800 flex items-center justify-center shrink-0">
+        <Coins className="w-4 h-4" />
       </div>
-      <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <div className="flex-1 grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div>
-          <p className="text-xs text-ink-500">AI cost (this sprint)</p>
-          <p className="text-lg font-bold text-ink-900 tabular-nums">{formatUsd(usage.cost_usd)}</p>
+          <p className="text-xs text-ink-500">AI cost</p>
+          <p className="text-lg font-bold text-ink-900 tabular-nums">
+            {formatUsd(usage.cost_usd)}
+            {usage.unpriced_calls > 0 && <span className="text-xs font-normal text-warning" title="Some calls used a model with no configured price: see Usage details."> (incomplete)</span>}
+          </p>
         </div>
         <div>
           <p className="text-xs text-ink-500">Input tokens</p>
@@ -683,52 +688,48 @@ const AIUsagePanel: React.FC<{ usage: SprintAIUsage; currentTotal: number }> = (
           <p className="text-lg font-bold text-ink-900 tabular-nums">{formatTokens(usage.output_tokens)}</p>
         </div>
         <div>
-          <p className="text-xs text-ink-500">AI requests recorded</p>
+          <p className="text-xs text-ink-500">AI requests</p>
           <p className="text-lg font-bold text-ink-900 tabular-nums">{usage.calls}</p>
-          <p className="text-xs text-ink-500">all attempts, including retries and earlier versions</p>
         </div>
         <div>
-          <p className="text-xs text-ink-500">Documents with recorded AI usage</p>
+          <p className="text-xs text-ink-500">Documents with usage</p>
           <p className="text-lg font-bold text-ink-900 tabular-nums">{usage.documents || '—'}</p>
-          <p className="text-xs text-ink-500">includes earlier versions and rejected files</p>
         </div>
-        {usage.current_documents !== undefined && (
-          <div>
-            <p className="text-xs text-ink-500">Current documents with AI usage</p>
-            <p className="text-lg font-bold text-ink-900 tabular-nums">{usage.current_documents} / {currentTotal}</p>
-            <p className="text-xs text-ink-500">current documents only</p>
-          </div>
-        )}
       </div>
     </div>
-    <p className="text-xs text-ink-500">
-      These are AI usage totals for billing: every recorded AI request in this sprint, for every attempt and every file
-      version. They are not the number of current documents or of completed documents. Requests that failed without
-      a response are not recorded.
-    </p>
-    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-500">
-      {usage.by_stage.map((row) => (
-        <span key={row.stage}>
-          {STAGE_LABELS[row.stage] || row.stage}: {formatTokens(row.total_tokens)} tokens · {formatUsd(row.cost_usd)}
-        </span>
-      ))}
-      {usage.by_model.length > 0 && (
-        <span>Model{usage.by_model.length > 1 ? 's' : ''}: {usage.by_model.map((m) => m.model).join(', ')}</span>
-      )}
-    </div>
-    {usage.imported_calls + usage.estimated_calls > 0 && (
-      <p className="text-xs text-info" title={usage.notes.join(' | ')}>
-        Includes {usage.imported_calls > 0 && `${usage.imported_calls} request${usage.imported_calls === 1 ? '' : 's'} imported from a provider dashboard`}
-        {usage.imported_calls > 0 && usage.estimated_calls > 0 && ' and '}
-        {usage.estimated_calls > 0 && `${usage.estimated_calls} estimated`} (totals only, not per document).
-        {usage.notes.length > 0 && ` Source: ${usage.notes.join(' | ')}`}
-      </p>
-    )}
-    {usage.unpriced_calls > 0 && (
-      <p className="text-xs text-warning">
-        {usage.unpriced_calls} call{usage.unpriced_calls === 1 ? '' : 's'} used a model with no configured price
-        ({usage.unpriced_models.join(', ')}), so the cost above is incomplete. Tokens are still counted.
-      </p>
-    )}
+    <details className="text-xs text-ink-500">
+      <summary className="cursor-pointer text-brand-800">Usage details</summary>
+      <div className="mt-2 space-y-1.5">
+        <p>
+          Totals of every recorded AI request in this sprint, for every attempt (retries included) and every file
+          version; requests that failed without a response are not recorded.
+          {usage.current_documents !== undefined && ` Current documents with AI usage: ${usage.current_documents} of ${currentTotal}.`}
+        </p>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {usage.by_stage.map((row) => (
+            <span key={row.stage}>
+              {STAGE_LABELS[row.stage] || row.stage}: {formatTokens(row.total_tokens)} tokens · {formatUsd(row.cost_usd)}
+            </span>
+          ))}
+          {usage.by_model.length > 0 && (
+            <span>Model{usage.by_model.length > 1 ? 's' : ''}: {usage.by_model.map((m) => m.model).join(', ')}</span>
+          )}
+        </div>
+        {usage.imported_calls + usage.estimated_calls > 0 && (
+          <p className="text-info" title={usage.notes.join(' | ')}>
+            Includes {usage.imported_calls > 0 && `${usage.imported_calls} request${usage.imported_calls === 1 ? '' : 's'} imported from a provider dashboard`}
+            {usage.imported_calls > 0 && usage.estimated_calls > 0 && ' and '}
+            {usage.estimated_calls > 0 && `${usage.estimated_calls} estimated`} (totals only, not per document).
+            {usage.notes.length > 0 && ` Source: ${usage.notes.join(' | ')}`}
+          </p>
+        )}
+        {usage.unpriced_calls > 0 && (
+          <p className="text-warning">
+            {usage.unpriced_calls} call{usage.unpriced_calls === 1 ? '' : 's'} used a model with no configured price
+            ({usage.unpriced_models.join(', ')}), so the cost is incomplete. Tokens are still counted.
+          </p>
+        )}
+      </div>
+    </details>
   </div>
 );

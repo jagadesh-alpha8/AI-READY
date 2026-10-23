@@ -153,9 +153,10 @@ class DocumentAnalyzer:
 
     def _collect(self, document, raw_facts, chunk_pages, chunk_index, facts_by_key):
         valid_page_numbers = {str(page['page_number']) for page in chunk_pages}
+        chunk_text = '\n'.join(page.get('text') or '' for page in chunk_pages)
         for raw_fact in raw_facts:
             try:
-                fact = self.fact_extractor._validate_fact(raw_fact, valid_page_numbers)
+                fact = self.fact_extractor._validate_fact(raw_fact, valid_page_numbers, chunk_text)
             except FactValidationError as exc:
                 logger.warning('fact_extractor.fact_rejected document_id=%s chunk=%d field_key=%r error=%s',
                                document.id, chunk_index,

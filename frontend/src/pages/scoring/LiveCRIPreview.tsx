@@ -62,7 +62,7 @@ export const LiveCRIPreview: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-brand-800" /> Step {step('sprint-score')}: Live CRI Score Preview
+              <BarChart3 className="w-5 h-5 text-brand-800" /> Step {step('sprint-score')}: Live Campus Readiness Index Score Preview
             </h1>
             <p className="text-sm text-ink-500 mt-1">
               The sprint's CRI values from its own reviewed facts and open gaps, and the college's Benchmark Assessment
@@ -168,8 +168,8 @@ export const LiveCRIPreview: React.FC = () => {
               <h2 className="eyebrow">How coverage was counted</h2>
               <p className="text-xs text-ink-500">
                 {coverage.release_label ? `Applicability from published release ${coverage.release_label}. ` : ''}
-                {coverage.mappings_awaiting_review > 0
-                  ? `${coverage.mappings_awaiting_review} AI-QIF tag(s) on confirmed facts are waiting for reviewer confirmation. `
+                {coverage.provisional
+                  ? `Provisional: ${coverage.expert_queue?.total ?? 0} item(s) are with the AI-QIF expert, so coverage may still change; the baseline can be decided once they are cleared. `
                   : ''}
                 Each row's weight is the one used in the coverage-adjusted CRI.
               </p>

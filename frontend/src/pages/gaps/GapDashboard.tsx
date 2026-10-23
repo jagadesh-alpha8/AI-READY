@@ -1,6 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import { listSprintGaps, resolveGap, markGapUnavailable, skipGap } from '../../api/gaps';
+import {
+  getSprintGapFacets, listSprintGapsPage, resolveGap, markGapUnavailable, skipGap, type GapFacets,
+} from '../../api/gaps';
+import { DEFAULT_PAGE_SIZE, type Page } from '../../api/pagination';
+import { Pagination, optionsFromCounts, useDebounced } from '../../components/Pagination';
 import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
@@ -8,14 +12,13 @@ import type { Gap } from '../../types';
 import { ACTIVE_GAP_STATUSES } from '../../types/gaps';
 import { AlertCircle, ArrowRight } from 'lucide-react';
 import { ScrollableTable } from '../../components/ScrollableTable';
-import { TableFilters, matchesSearch, optionsFrom } from '../../components/TableFilters';
+import { TableFilters } from '../../components/TableFilters';
 import { useAccess } from '../../utils/access';
 import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { UploadEvidenceModal } from './UploadEvidenceModal';
 import { LowConfidenceGapPanel } from './LowConfidenceGapPanel';
 import { ConflictComparisonDialog } from './ConflictComparison';
 import { GapSnippetCell } from './GapSnippetCell';
-import { snippetSearchText } from './gapSnippets.ts';
 
 export const GapDashboard: React.FC = () => {
   const { canSee, step } = useAccess();
@@ -23,18 +26,39 @@ export const GapDashboard: React.FC = () => {
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
 
+  // Filters and paging run on the server (apps/gaps/filters.py): one page of gaps is loaded, never the whole
+  // sprint; the filter options and totals come from aggregate counts (facets).
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [ownerFilter, setOwnerFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const q = useDebounced(search.trim());
+  const query = { q, gap_type: typeFilter, priority: priorityFilter, status: statusFilter, owner_role: ownerFilter,
+    source_document: sourceFilter };
+  const queryKey = JSON.stringify(query);
+  // The page belongs to its filters: a new filter starts at page 1 in the same render (never a request for
+  // page 2 of a filter that may have only one page).
+  const [pageState, setPageState] = useState({ key: queryKey, page: 1 });
+  const page = pageState.key === queryKey ? pageState.page : 1;
+  const setPage = (next: number) => setPageState({ key: queryKey, page: next });
   const {
-    data: gapsData,
+    data: pageData,
     loading,
     error,
-    refetch,
-  } = useApiResource<Gap[]>(() => listSprintGaps(sprintId!), [sprintId], isRealSprint);
-  const gaps = gapsData || [];
+    refetch: refetchPage,
+  } = useApiResource<Page<Gap>>(() => listSprintGapsPage(sprintId!, { ...query, page, page_size: DEFAULT_PAGE_SIZE }),
+    [sprintId, queryKey, page], isRealSprint);
+  const { data: facets, refetch: refetchFacets } = useApiResource<GapFacets>(
+    () => getSprintGapFacets(sprintId!), [sprintId], isRealSprint);
+  const refetch = () => { refetchPage(); refetchFacets(); };
+  const gaps = pageData?.results || [];
+  const filteredGaps = gaps;
+  const totalGaps = facets?.total ?? 0;
   // `open` and `in_progress` are both live work; resolved, unavailable and
   // skipped are closed out.
-  const openGapCount = gaps.filter(
-    (gap) => ACTIVE_GAP_STATUSES.includes(gap.status),
-  ).length;
+  const openGapCount = facets?.open ?? 0;
 
   const [actionError, setActionError] = useState('');
   const [resolvingId, setResolvingId] = useState<string | null>(null);
@@ -55,24 +79,6 @@ export const GapDashboard: React.FC = () => {
   const [comparingId, setComparingId] = useState<string | null>(null);
   const comparingGap = gaps.find((g) => g.id === comparingId) || null;
 
-  // Filters (client-side: the full gap list is already loaded).
-  const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [ownerFilter, setOwnerFilter] = useState('');
-  const [sourceFilter, setSourceFilter] = useState('');
-  const filteredGaps = useMemo(
-    () => gaps.filter((gap) =>
-      (!typeFilter || gap.gap_type === typeFilter)
-      && (!priorityFilter || gap.priority === priorityFilter)
-      && (!statusFilter || gap.status === statusFilter)
-      && (!ownerFilter || (gap.owner_role || '') === ownerFilter)
-      && (!sourceFilter || (gap.source_document_filename || '') === sourceFilter)
-      && matchesSearch(search, gap.title, gap.description, gap.audit_field_id, gap.source_document_filename,
-        ...snippetSearchText(gap))),
-    [gaps, search, typeFilter, priorityFilter, statusFilter, ownerFilter, sourceFilter],
-  );
 
   const handleResolveGap = async (gapId: string) => {
     setResolvingId(gapId);
@@ -139,7 +145,7 @@ export const GapDashboard: React.FC = () => {
       {reviewingGap && (
         <LowConfidenceGapPanel gap={reviewingGap} onClose={() => setReviewingGapId(null)} onChanged={refetch} />
       )}
-      {comparingGap && <ConflictComparisonDialog gap={comparingGap} onClose={() => setComparingId(null)} />}
+      {comparingGap && <ConflictComparisonDialog gap={comparingGap} onClose={() => setComparingId(null)} onResolved={refetch} />}
       {uploadingGap && (
         <UploadEvidenceModal gap={uploadingGap} sprintLabel={sprintLabel} onClose={() => setUploadingGap(null)}
           onUploaded={(message) => { setUploadingGap(null); setUploadMessage(message); refetch(); }} />
@@ -181,15 +187,15 @@ export const GapDashboard: React.FC = () => {
               open" on a sprint with 306 open and 12 already resolved. */}
           <span className="text-xs text-ink-500">
             {openGapCount} open
-            {gaps.length > openGapCount && ` · ${gaps.length - openGapCount} closed`}
+            {totalGaps > openGapCount && ` · ${totalGaps - openGapCount} closed`}
           </span>
         </div>
 
-        {loading ? (
+        {loading && !pageData ? (
           <LoadingState message="Loading gaps..." />
         ) : error ? (
           <ErrorState message={error} onRetry={refetch} />
-        ) : gaps.length === 0 ? (
+        ) : totalGaps === 0 && gaps.length === 0 ? (
           <div className="panel-muted">
             <p className="text-sm text-ink-500">No gaps detected yet.</p>
             <button
@@ -207,19 +213,19 @@ export const GapDashboard: React.FC = () => {
             search={search}
             onSearch={setSearch}
             placeholder="Search title, field ID, source or snippet…"
-            shown={filteredGaps.length}
-            total={gaps.length}
+            shown={pageData?.count ?? 0}
+            total={totalGaps}
             selects={[
               { key: 'type', label: 'Gap type', value: typeFilter, onChange: setTypeFilter,
-                options: optionsFrom(gaps, (g) => g.gap_type, (v: string) => v.replace(/_/g, ' ')) },
+                options: optionsFromCounts(facets?.gap_type, (v: string) => v.replace(/_/g, ' ')) },
               { key: 'priority', label: 'Priority', value: priorityFilter, onChange: setPriorityFilter,
-                options: optionsFrom(gaps, (g) => g.priority) },
+                options: optionsFromCounts(facets?.priority) },
               { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
-                options: optionsFrom(gaps, (g) => g.status, (v: string) => v.replace(/_/g, ' ')) },
+                options: optionsFromCounts(facets?.status, (v: string) => v.replace(/_/g, ' ')) },
               { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
-                options: optionsFrom(gaps, (g) => g.owner_role) },
+                options: optionsFromCounts(facets?.owner_role) },
               { key: 'source', label: 'Source', value: sourceFilter, onChange: setSourceFilter,
-                options: optionsFrom(gaps, (g) => g.source_document_filename) },
+                options: optionsFromCounts(facets?.source_document) },
             ]}
           />
           {filteredGaps.length === 0 ? (
@@ -248,7 +254,7 @@ export const GapDashboard: React.FC = () => {
               <tbody>
                 {filteredGaps.map((gap, index) => (
                   <tr key={gap.id}>
-                    <td className="text-ink-500 tabular-nums">{index + 1}</td>
+                    <td className="text-ink-500 tabular-nums">{(page - 1) * DEFAULT_PAGE_SIZE + index + 1}</td>
                     <td className="font-mono text-xs font-bold text-brand-800">
                       {gap.audit_field_id || '—'}
                     </td>
@@ -383,6 +389,9 @@ export const GapDashboard: React.FC = () => {
               </tbody>
             </table>
           </ScrollableTable>
+          )}
+          {pageData && (
+            <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} count={pageData.count} onPage={setPage} />
           )}
           </>
         )}

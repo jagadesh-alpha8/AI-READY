@@ -18,9 +18,33 @@ class FactAIQIFMappingSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'criterion', 'criterion_code', 'criterion_name', 'indicator_code', 'indicator_name',
             'reason', 'confidence', 'status', 'review_status', 'reviewed_by', 'reviewed_by_name', 'reviewed_at',
-            'review_note',
+            'review_note', 'relationship', 'source', 'auto_accepted', 'framework_version', 'counts',
+            'counts_reason', 'pending', 'pending_since', 'pending_by_name', 'pending_reason',
         ]
         read_only_fields = fields
+
+    counts = serializers.SerializerMethodField()
+    #: Why it counts or not ("waiting for an expert decision", "the fact is not confirmed yet", ...).
+    counts_reason = serializers.SerializerMethodField()
+    #: Waiting for an expert decision (in the sprint's AI-QIF expert queue).
+    pending = serializers.SerializerMethodField()
+    pending_by_name = serializers.SerializerMethodField()
+
+    def get_counts(self, obj):
+        """Whether this tag counts toward AI-QIF coverage now (apps/facts/aiqif_tagging.counting_q)."""
+        from .aiqif_tagging import count_reason
+        return count_reason(obj, obj.fact)[0]
+
+    def get_counts_reason(self, obj):
+        from .aiqif_tagging import count_reason
+        return count_reason(obj, obj.fact)[1]
+
+    def get_pending(self, obj):
+        from .aiqif_tagging import _queued
+        return _queued(obj, obj.fact)
+
+    def get_pending_by_name(self, obj):
+        return (obj.pending_by.get_full_name() or obj.pending_by.email) if obj.pending_by_id else ''
 
     def get_reviewed_by_name(self, obj):
         return obj.reviewed_by.get_full_name() if obj.reviewed_by_id else ''
@@ -77,6 +101,8 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
             'source_document_id', 'source_document_filename', 'source_page', 'source_snippet',
             'confidence_score', 'confidence', 'confidence_reason', 'extraction_method', 'status',
             'aiqif_mapping_status', 'aiqif_mappings', 'open_evidence_request', 'auto_confirmed', 'evidence_for_gaps',
+            'fact_kind', 'naac_metric', 'profile_field', 'profile_code', 'kind_needs_check', 'kind_reviewed_at',
+            'tagging_notes',
             'owner_role_label', 'assigned_to', 'assigned_to_name', 'assigned_at', 'due_date', 'can_act',
             'act_blocked_reason',
             'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
@@ -109,9 +135,12 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
     def get_evidence_for_gaps(self, obj):
         if not obj.document_id:
             return []
-        from apps.gaps.models import GapItem
-        return [{'id': str(g.id), 'title': g.title, 'gap_type': g.gap_type, 'status': g.status}
-                for g in GapItem.objects.filter(evidence_documents=obj.document_id).only('id', 'title', 'gap_type', 'status')]
+        # The list view prefetches these for every row at once (SprintFactListView); one query otherwise.
+        gaps = getattr(obj.document, 'prefetched_evidence_gaps', None) if obj.document_id else None
+        if gaps is None:
+            from apps.gaps.models import GapItem
+            gaps = GapItem.objects.filter(evidence_documents=obj.document_id).only('id', 'title', 'gap_type', 'status')
+        return [{'id': str(g.id), 'title': g.title, 'gap_type': g.gap_type, 'status': g.status} for g in gaps]
 
     def get_auto_confirmed(self, obj):
         from .auto_confirm import is_auto_confirmed
@@ -218,6 +247,29 @@ class FactCorrectSerializer(_ReasonSerializer):
 class FactAIQIFMappingReviewSerializer(serializers.Serializer):
     """A reviewer's decision on one AI-QIF tag of a fact."""
     decision = serializers.ChoiceField(choices=['confirm', 'reject'])
+    note = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class FactAIQIFMappingAddSerializer(serializers.Serializer):
+    """A Super Admin adds an AI-QIF tag to a fact (aiqif_tagging.add_tag)."""
+    indicator_code = serializers.CharField()
+    relationship = serializers.ChoiceField(choices=FactAIQIFMapping.Relationship.choices,
+                                           default=FactAIQIFMapping.Relationship.SUPPORTING)
+    note = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class FactAIQIFMappingEditSerializer(serializers.Serializer):
+    """A Super Admin edits a tag (aiqif_tagging.edit_tag): a new indicator / relationship, a note, and optionally
+    the decision on the edited mapping."""
+    indicator_code = serializers.CharField(required=False, allow_blank=True, default='')
+    relationship = serializers.ChoiceField(choices=FactAIQIFMapping.Relationship.choices, required=False)
+    note = serializers.CharField(required=False, allow_blank=True, default='')
+    decision = serializers.ChoiceField(choices=['confirm', 'reject'], required=False)
+
+
+class FactKindSerializer(serializers.Serializer):
+    """A Super Admin decides what a fact is for (aiqif_tagging.decide_kind)."""
+    fact_kind = serializers.ChoiceField(choices=ExtractedFact.FactKind.choices)
     note = serializers.CharField(required=False, allow_blank=True, default='')
 
 

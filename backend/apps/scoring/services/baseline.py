@@ -94,6 +94,21 @@ def _processing_gate(sprint, baseline, override_reason):
     return ['processing_snapshot', 'processing_incomplete', 'processing_override_reason']
 
 
+def _expert_queue_gate(sprint):
+    """No baseline decision while AI-QIF items wait for a Super Admin (apps/facts/aiqif_tagging.py): until then
+    the coverage is provisional, and a provisional coverage must not become the official baseline."""
+    from apps.facts.aiqif_tagging import queue_counts
+
+    queue = queue_counts(sprint)
+    if queue['total']:
+        raise ValidationError({
+            'detail': f'{queue["total"]} AI-QIF item(s) are waiting for a Super Admin (AI-QIF expert queue: '
+                      f'{queue["tags"]} tag(s), {queue["facts"]} fact(s)). The AI-QIF coverage is provisional '
+                      'until they are decided; the baseline can be decided after that.',
+            'expert_queue': queue,
+        })
+
+
 def _with_override(comments, baseline):
     if not baseline.processing_incomplete:
         return comments
@@ -115,6 +130,7 @@ def approve_baseline(sprint, *, user, comments='', processing_override_reason=''
             f'{blocking_gaps.count()} blocking gap(s) are still unresolved -- resolve them first, '
             'or use "approve provisionally" instead.'
         )
+    _expert_queue_gate(sprint)
     processing_fields = _processing_gate(sprint, baseline, processing_override_reason)
 
     baseline.status = Baseline.Status.APPROVED
@@ -139,6 +155,7 @@ def approve_baseline_provisional(sprint, *, user, comments='', processing_overri
     baseline = _require_baseline(sprint)
     _require_pending(baseline)
     # Provisional approval may pass unresolved gaps, but not incomplete processing without a reason.
+    _expert_queue_gate(sprint)
     processing_fields = _processing_gate(sprint, baseline, processing_override_reason)
 
     baseline.status = Baseline.Status.PROVISIONAL

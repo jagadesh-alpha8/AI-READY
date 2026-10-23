@@ -30,6 +30,23 @@ class ExtractedFact(models.Model):
         MAPPED = 'mapped', 'Mapped'
         NEEDS_REVIEW = 'needs_review', 'Needs review'
         UNMAPPED = 'unmapped', 'Unmapped'
+        #: Not AI evidence (apps/facts/aiqif_tagging.py): no indicator to review.
+        CONTEXT = 'context', 'Context'
+        PROFILE = 'profile', 'Institution profile'
+
+    class FactKind(models.TextChoices):
+        """What the fact is for (apps/facts/aiqif_tagging.py). Only AI evidence can cover an AI-QIF indicator."""
+        AI_EVIDENCE = 'ai_evidence', 'AI evidence'
+        CONTEXT = 'context', 'Context'
+        PROFILE = 'profile', 'Institution profile'
+
+    class ProfileField(models.TextChoices):
+        """Which part of the benchmark profile a profile fact describes (assessments.BenchmarkProfile)."""
+        INSTITUTION_TYPE = 'institution_type', 'Institution type'
+        AUTONOMOUS_STATUS = 'autonomous_status', 'Autonomous status'
+        APPROVAL_BODY = 'approval_body', 'Approval body'
+        PROGRAMME = 'programme', 'Programme offered'
+        OTHER = 'other', 'Other'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     sprint = models.ForeignKey('sprints.Sprint', on_delete=models.CASCADE, related_name='facts')
@@ -80,6 +97,24 @@ class ExtractedFact(models.Model):
     aiqif_mapping_status = models.CharField(
         max_length=20, choices=AIQIFMappingStatus.choices, default=AIQIFMappingStatus.PENDING,
     )
+    # -- automatic AI-QIF tagging (apps/facts/aiqif_tagging.py) --------------------------------------
+    #: '' = not classified yet (extracted before kinds existed; `retag_aiqif_facts` classifies it).
+    fact_kind = models.CharField(max_length=20, choices=FactKind.choices, blank=True)
+    #: The NAAC metric the fact reports ("2.1.2"), only when it appears in the text it came from.
+    naac_metric = models.CharField(max_length=20, blank=True)
+    #: Profile facts: which profile field, and the matching code from the closed lists (blank if none fits).
+    profile_field = models.CharField(max_length=30, choices=ProfileField.choices, blank=True)
+    profile_code = models.CharField(max_length=60, blank=True)
+    #: True while the fact needs a Super Admin decision: possibly AI evidence filed as context/profile,
+    #: AI evidence with no indicator, or not classified yet. Part of the expert queue.
+    kind_needs_check = models.BooleanField(default=False)
+    #: Set when a Super Admin decided the kind; re-extraction then keeps it.
+    kind_reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    kind_reviewed_at = models.DateTimeField(null=True, blank=True)
+    #: What tagging left out and why ([{kind, detail}]) -- dropped tags, a discarded NAAC metric, ...
+    tagging_notes = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -110,6 +145,18 @@ class FactAIQIFMapping(models.Model):
         CONFIRMED = 'confirmed', 'Confirmed by a reviewer'
         REJECTED = 'rejected', 'Rejected by a reviewer'
 
+    class Relationship(models.TextChoices):
+        """How the fact supports the indicator (the NAAC -> AI-QIF crosswalk's vocabulary). Contextual never
+        counts toward coverage."""
+        DIRECT = 'direct', 'Direct'
+        SUPPORTING = 'supporting', 'Supporting'
+        CONTEXTUAL = 'contextual', 'Contextual'
+
+    class Source(models.TextChoices):
+        CROSSWALK = 'crosswalk', 'NAAC crosswalk'
+        AI = 'ai', 'AI suggestion'
+        EXPERT = 'expert', 'Added by an expert'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     fact = models.ForeignKey(ExtractedFact, on_delete=models.CASCADE, related_name='aiqif_mappings')
     # Always the criterion the indicator belongs to (AIQIF_INDICATORS).
@@ -125,6 +172,21 @@ class FactAIQIFMapping(models.Model):
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
     review_note = models.TextField(blank=True)
+    relationship = models.CharField(max_length=20, choices=Relationship.choices, default=Relationship.SUPPORTING)
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.AI)
+    #: Accepted by the rules without a person (aiqif_tagging.py): crosswalk tags, and confident AI tags of
+    #: the fact's own criterion. A person's rejection still wins.
+    auto_accepted = models.BooleanField(default=False)
+    #: The framework / release the crosswalk tag came from ("AI-QIF v1.0").
+    framework_version = models.CharField(max_length=60, blank=True)
+    #: Set when a Super Admin reopened the decision or edited the mapping without deciding it: the tag waits in
+    #: the expert queue until confirmed or rejected again (cleared then). Earlier decisions stay in the fact's
+    #: review history (aiqif_tagging.reopen_tag / edit_tag); re-extraction never removes a pending tag.
+    pending_since = models.DateTimeField(null=True, blank=True)
+    pending_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    pending_reason = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -153,6 +215,12 @@ class FactReviewHistory(models.Model):
         REQUEST_WITHDRAWN = 'request_withdrawn', 'Evidence Request Withdrawn'
         #: The fact's AI-QIF category tags were confirmed in bulk (apps/facts/tag_review.py); the fact is unchanged.
         AIQIF_TAGS_CONFIRMED = 'aiqif_tags_confirmed', 'AI-QIF Tags Confirmed'
+        #: Expert queue (apps/facts/aiqif_tagging.py): a tag confirmed / rejected, a tag added, the kind decided.
+        AIQIF_TAG_REVIEWED = 'aiqif_tag_reviewed', 'AI-QIF Tag Reviewed'
+        AIQIF_TAG_ADDED = 'aiqif_tag_added', 'AI-QIF Tag Added'
+        AIQIF_TAG_EDITED = 'aiqif_tag_edited', 'AI-QIF Tag Edited'
+        AIQIF_TAG_REOPENED = 'aiqif_tag_reopened', 'AI-QIF Tag Review Reopened'
+        FACT_KIND_CHANGED = 'fact_kind_changed', 'Fact Kind Decided'
         #: Assigned / reassigned / unassigned; new_value = {"from", "to", "due_date"} (ownership.assign).
         ASSIGNED = 'assigned', 'Assigned'
 

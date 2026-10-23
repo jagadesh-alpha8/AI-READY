@@ -321,7 +321,8 @@ class DocumentDetailTests(APITestCase):
         self._auth(self.uploader)
         file_field = self.document.file
         self.assertTrue(file_field.storage.exists(file_field.name))
-        self.client.delete(f'/api/v1/documents/{self.document.id}/')
+        with self.captureOnCommitCallbacks(execute=True):  # the file goes once the row delete is committed
+            self.client.delete(f'/api/v1/documents/{self.document.id}/')
         self.assertFalse(file_field.storage.exists(file_field.name))
 
     # -- secure download -----------------------------------------------------
@@ -1201,3 +1202,67 @@ class ViewerIsReadOnlyTests(APITestCase):
         self.assertEqual(start.status_code, status.HTTP_403_FORBIDDEN)
         cancel = self.client.post(f'/api/v1/extraction-jobs/sprints/{self.sprint.id}/cancel', {}, format='json')
         self.assertEqual(cancel.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class DocumentFileLifecycleTests(APITestCase):
+    """Uploaded files (MEDIA_ROOT, a shared volume in Docker) stay after processing; only an explicit delete
+    removes them, and never while the document is evidence."""
+
+    def setUp(self):
+        import tempfile
+        self.media = tempfile.mkdtemp(prefix='doc-lifecycle-')
+        override = override_settings(MEDIA_ROOT=self.media, CELERY_TASK_ALWAYS_EAGER=True,
+                                     CELERY_TASK_EAGER_PROPAGATES=True)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
+        self.admin = User.objects.create_user(email='admin@test.edu', username='admin', password=PASSWORD,
+                                              role=User.Role.INSTITUTION_ADMIN, institution=self.institution)
+        self.sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
+        login = self.client.post('/api/v1/auth/login/', {'email': self.admin.email, 'password': PASSWORD})
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {login.data["access_token"]}')
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/upload-file/',
+                             {'file': make_pdf(), 'document_type': 'naac_ssr'}, format='multipart')
+        self.document = Document.objects.get(id=r.data['id'])
+
+    def _exists(self):
+        f = self.document.file
+        return f.storage.exists(f.name)
+
+    def test_processing_completion_keeps_the_uploaded_file(self):
+        from apps.extraction.models import ExtractionJob
+        from apps.extraction.tasks import run_extraction_job
+        self.assertTrue(self._exists())
+        job = ExtractionJob.objects.create(sprint=self.sprint, document=self.document)
+        with patch('apps.extraction.tasks.ExtractionPipeline'):
+            run_extraction_job.apply(args=[str(job.id)])
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.COMPLETED)
+        self.assertTrue(self._exists())
+        self.assertTrue(self.document.file.name.startswith('documents/') or self.document.file.name)
+
+    def test_an_explicit_delete_removes_the_file(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.delete(f'/api/v1/documents/{self.document.id}/')
+        self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(self._exists())
+
+    def test_evidence_documents_cannot_be_deleted_and_keep_their_file(self):
+        from apps.facts.models import EvidenceRequest, EvidenceRequestDocument, ExtractedFact
+        fact = ExtractedFact.objects.create(sprint=self.sprint, field_name='F', field_key='f', value=1)
+        request = EvidenceRequest.objects.create(sprint=self.sprint, fact=fact, requested_by=self.admin,
+                                                 description='x', fact_status_before='extracted')
+        EvidenceRequestDocument.objects.create(request=request, document=self.document)
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.delete(f'/api/v1/documents/{self.document.id}/')
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Document.objects.filter(id=self.document.id).exists())
+        self.assertTrue(self._exists())
+
+    def test_a_delete_the_database_refuses_keeps_the_file(self):
+        from django.db.models import ProtectedError
+        with patch.object(Document, 'delete', side_effect=ProtectedError('protected', set())):
+            with self.captureOnCommitCallbacks(execute=True):
+                r = self.client.delete(f'/api/v1/documents/{self.document.id}/')
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(self._exists())  # the file is removed only after the row is really gone

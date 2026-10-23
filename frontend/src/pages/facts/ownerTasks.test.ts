@@ -91,7 +91,7 @@ describe('OwnerTaskCard (rendered)', async () => {
   const noop = 'export const __n = 0; const f = () => Promise.resolve({ data: {} });';
   const { mod, cleanup } = await bundleComponent(new URL('./OwnerTaskCard.tsx', import.meta.url), {
     'api/facts': `${noop} export const assignFact = f, confirmFact = f, correctFact = f, getFact = f, rejectFact = f;`,
-    'api/gaps': `${noop} export const assignGap = f, getGap = f, markGapUnavailable = f, resolveGap = f, skipGap = f;`,
+    'api/gaps': `${noop} export const assignGap = f, getGap = f, markGapUnavailable = f, resolveGap = f, skipGap = f, chooseConflictValue = f;`,
     'api/evidenceRequests': `${noop} export const listEvidenceAssignees = f, createEvidenceRequest = f;`,
     AuthContext: "export const useAuth = () => ({ user: { id: 'u', role: 'registrar' } });",
   });

@@ -45,6 +45,7 @@ class ScoringTestBase(APITestCase):
             'pillar': 'aiqif_c1',
             'status': ExtractedFact.Status.CONFIRMED,
             'confidence_score': 0.8,
+            'fact_kind': ExtractedFact.FactKind.AI_EVIDENCE,  # only AI evidence covers an indicator
         }
         defaults.update(overrides)
         return ExtractedFact.objects.create(**defaults)
@@ -938,12 +939,15 @@ class AIQIFMappingReviewTests(ScoringTestBase):
                                 {'decision': decision, 'note': 'Checked the source.'}, format='json')
 
     def test_a_reviewer_confirms_and_rejects(self):
+        expert = self._make_user('expert@ingage.test', User.Role.SUPER_ADMIN, None)
         self._auth(self.iqac)
+        self.assertEqual(self._review('confirm').status_code, status.HTTP_403_FORBIDDEN)  # the AI-QIF expert only
+        self._auth(expert)
         response = self._review('confirm')
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         tag = response.data['aiqif_mappings'][0]
         self.assertEqual((tag['review_status'], tag['reviewed_by'], tag['review_note']),
-                         ('confirmed', self.iqac.id, 'Checked the source.'))
+                         ('confirmed', expert.id, 'Checked the source.'))
         self.assertEqual(self._review('reject').data['aiqif_mappings'][0]['review_status'], 'rejected')
         self.assertEqual(self._review('confirm', code='AIQIF-C9.9').status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(self._review('maybe').status_code, status.HTTP_400_BAD_REQUEST)

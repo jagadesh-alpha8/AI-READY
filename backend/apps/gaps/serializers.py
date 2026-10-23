@@ -261,9 +261,36 @@ class GapEventSerializer(serializers.ModelSerializer):
 
 
 class GapItemDetailSerializer(GapItemSerializer):
-    """One gap with its history (GET /gaps/<id>)."""
+    """One gap with its history (GET /gaps/<id>). For a conflict: every competing value (all facts of the field
+    when the conflict recorded only one side) and whether the user may choose the correct one."""
     events = GapEventSerializer(many=True, read_only=True)
+    conflict_candidates = serializers.SerializerMethodField()
+    can_choose_value = serializers.SerializerMethodField()
+    choose_value_blocked_reason = serializers.SerializerMethodField()
 
     class Meta(GapItemSerializer.Meta):
-        fields = GapItemSerializer.Meta.fields + ['events']
+        fields = GapItemSerializer.Meta.fields + ['events', 'conflict_candidates', 'can_choose_value',
+                                                  'choose_value_blocked_reason']
         read_only_fields = fields
+
+    def get_conflict_candidates(self, obj):
+        if obj.gap_type != GapItem.GapType.CONFLICT:
+            return None
+        from .services import conflict_facts
+        facts = [f for f in conflict_facts(obj) if f.sprint_id == obj.sprint_id]
+        return [_conflict_side(chr(ord('A') + i), f, None) for i, f in enumerate(facts)]
+
+    def _choice(self, obj):
+        request = self.context.get('request')
+        if obj.gap_type != GapItem.GapType.CONFLICT or request is None or not request.user.is_authenticated:
+            return False, ''
+        if obj.status not in GapItem.ACTIVE_STATUSES:
+            return False, 'This conflict is already closed.'
+        from apps.facts.ownership import check_conflict_choice
+        return check_conflict_choice(request.user, obj)
+
+    def get_can_choose_value(self, obj):
+        return self._choice(obj)[0]
+
+    def get_choose_value_blocked_reason(self, obj):
+        return self._choice(obj)[1]

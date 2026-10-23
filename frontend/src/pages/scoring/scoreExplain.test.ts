@@ -55,7 +55,7 @@ describe('explanations', () => {
     assert.match(coverageReason(null), /Recalculate/);
     assert.match(coverageReason(coverage({ ratio: null })), /No AI-QIF indicator is applicable/);
     assert.match(coverageReason(coverage({ mappings_awaiting_review: 7 })), /7 AI-QIF tag\(s\).*waiting for a reviewer/);
-    assert.match(coverageReason(coverage({})), /no confirmed or corrected fact carries a reviewer-confirmed AI-QIF tag/);
+    assert.match(coverageReason(coverage({})), /no confirmed or corrected AI-evidence fact carries an accepted AI-QIF tag/);
     assert.equal(coverageReason(coverage({ ratio: 0.3, covered_count: 10 })), '');
   });
 
@@ -113,12 +113,15 @@ describe('rendered', async () => {
     }
   });
 
-  it('the Extracted Facts Review tile shows the score API confidence, its band and when it was calculated', () => {
+  it('the Extracted Facts Review tile is compact: confidence and band, recalculation left to Live CRI Preview', () => {
     g.__user = { id: 'u', role: 'consultant' };
     g.__resources = [ok(card({ calculated_at: '2026-10-22T10:00:00Z' }))];
     const html = render(React.createElement(tile.mod.CriConfidenceTile, { sprintId: 's' }));
-    for (const t of ['CRI Evidence Confidence', '88%', 'High (&gt;=80%)', 'until the CRI is recalculated', 'href="/sprint/s/score"']) {
+    for (const t of ['CRI Evidence Confidence', '88%', 'High (&gt;=80%)', 'href="/sprint/s/score"']) {
       assert.ok(html.includes(t), t);
+    }
+    for (const t of ['Recalculate', 'until the CRI is recalculated', 'Calculated ']) {
+      assert.ok(!html.includes(t), `no ${t}`);
     }
     g.__resources = [ok(null)];
     assert.ok(render(React.createElement(tile.mod.CriConfidenceTile, { sprintId: 's' })).includes('—'));

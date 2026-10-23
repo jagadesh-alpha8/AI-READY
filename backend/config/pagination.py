@@ -20,3 +20,12 @@ class OptionalPageNumberPagination(PageNumberPagination):
         if request.query_params.get(self.page_query_param) or request.query_params.get(self.page_size_query_param):
             return super().paginate_queryset(queryset, request, view=view)
         return None
+
+
+class DefaultPageNumberPagination(PageNumberPagination):
+    """Always paginated: 50 rows per page by default, `?page_size=` up to 100, `?page=` from 1.
+    For lists that grow with the sprint (facts, gaps): a client never downloads them whole by accident.
+    Response: {count, next, previous, results}."""
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 100

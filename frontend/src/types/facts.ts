@@ -11,8 +11,12 @@ export interface FactReviewHistoryEntry {
   created_at: string;
 }
 
-/** Where a fact's AI-QIF category tags stand. 'pending' = extracted before tagging existed. */
-export type AIQIFMappingStatus = 'pending' | 'mapped' | 'needs_review' | 'unmapped';
+/** Where a fact's AI-QIF category tags stand. 'pending' = not classified yet; 'context' / 'profile' = not AI
+ * evidence, so no indicator to review (backend apps/facts/aiqif_tagging.py). */
+export type AIQIFMappingStatus = 'pending' | 'mapped' | 'needs_review' | 'unmapped' | 'context' | 'profile';
+
+/** What a fact is for: only AI evidence can cover an AI-QIF indicator. '' = not classified yet. */
+export type FactKind = 'ai_evidence' | 'context' | 'profile' | '';
 
 /** One AI-QIF key indicator a fact is evidence for -- a category tag, not a
  * score or maturity level (the Raw CRI scores `Fact.pillar`, not these; reviewer-confirmed
@@ -33,6 +37,22 @@ export interface AIQIFMapping {
   reviewed_by_name: string;
   reviewed_at: string | null;
   review_note: string;
+  /** How the fact supports the indicator; Contextual never counts toward coverage. */
+  relationship: 'direct' | 'supporting' | 'contextual';
+  /** crosswalk = the approved NAAC -> AI-QIF crosswalk; ai = an AI suggestion; expert = added by a Super Admin. */
+  source: 'crosswalk' | 'ai' | 'expert';
+  /** Accepted by the rules without a person (a rejection still wins). */
+  auto_accepted: boolean;
+  framework_version: string;
+  /** Counts toward AI-QIF coverage right now (backend aiqif_tagging.counting_q), and why or why not. */
+  counts: boolean;
+  counts_reason: string;
+  /** Waiting for an expert decision (in the sprint's AI-QIF expert queue). */
+  pending: boolean;
+  /** Set when a Super Admin reopened the review or edited the mapping without deciding it. */
+  pending_since: string | null;
+  pending_by_name: string;
+  pending_reason: string;
 }
 
 export interface Fact {
@@ -60,6 +80,15 @@ export interface Fact {
   status: FactStatus;
   aiqif_mapping_status: AIQIFMappingStatus;
   aiqif_mappings: AIQIFMapping[];
+  fact_kind: FactKind;
+  /** The NAAC metric the fact reports ("2.1.2"), only when it is printed in the text it came from. */
+  naac_metric: string;
+  profile_field: string;
+  profile_code: string;
+  /** Waiting for a Super Admin decision (the AI-QIF expert queue). */
+  kind_needs_check: boolean;
+  kind_reviewed_at: string | null;
+  tagging_notes: { kind: string; detail: string }[];
   /** The fact's unresolved evidence request, or null. */
   open_evidence_request: import('./evidenceRequests').OpenEvidenceRequest | null;
   /** Confirmed by the system (AI confidence above the auto-confirm threshold), not by a person. */

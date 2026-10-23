@@ -11,11 +11,13 @@ from rest_framework.filters import OrderingFilter
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import CanReviewFacts, IsInstitutionMember, require_institution_access
+from apps.accounts.permissions import (
+    CanReviewFacts, IsInstitutionMember, IsSuperAdmin, require_institution_access,
+)
 from apps.gaps.models import GapItem
 from apps.gaps.services import after_fact_review
 from apps.sprints.access import get_authorized_sprint
-from config.pagination import OptionalPageNumberPagination
+from config.pagination import DefaultPageNumberPagination, OptionalPageNumberPagination
 
 from .filters import ExtractedFactFilter
 from . import evidence_requests, ownership
@@ -38,20 +40,74 @@ class SprintFactListView(generics.ListAPIView):
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_class = ExtractedFactFilter
     ordering_fields = ['created_at', 'updated_at', 'confidence_score', 'reviewed_at', 'field_key']
-    ordering = ['-created_at']
-    pagination_class = OptionalPageNumberPagination
+    ordering = ['-created_at', 'id']
+    # Always paginated (50 per page, at most 100): a sprint has hundreds of facts.
+    pagination_class = DefaultPageNumberPagination
 
     def get_queryset(self):
+        from apps.gaps.models import GapItem
         get_authorized_sprint(self.request.user, self.kwargs['sprint_id'])
+        # A fixed number of queries per page, however many rows: every relation the serializer reads is
+        # joined or prefetched (the gaps each fact's document is evidence for included).
         return (
             ExtractedFact.objects.filter(sprint_id=self.kwargs['sprint_id'])
-            .select_related('source_document', 'sprint', 'assigned_to', 'reviewed_by').prefetch_related(
-                'aiqif_mappings',
+            .select_related('source_document', 'document', 'sprint', 'assigned_to', 'reviewed_by').prefetch_related(
+                Prefetch('aiqif_mappings', queryset=FactAIQIFMapping.objects.select_related('reviewed_by', 'pending_by')),
                 Prefetch('evidence_requests', to_attr='open_evidence_requests',
                          queryset=EvidenceRequest.objects.filter(status__in=EvidenceRequest.UNRESOLVED)
                          .select_related('assigned_to')),
+                Prefetch('document__evidence_for_gaps', to_attr='prefetched_evidence_gaps',
+                         queryset=GapItem.objects.only('id', 'title', 'gap_type', 'status')),
             )
         )
+
+
+class SprintFactFacetsView(APIView):
+    """GET /sprints/<id>/facts/facets -- how many facts have each filter value, over the whole sprint (database
+    aggregates, no rows loaded): the options and totals of the Facts Review filters, and per-document counts."""
+    permission_classes = [IsInstitutionMember]
+
+    def get(self, request, sprint_id):
+        from django.db.models import Count
+
+        from apps.scoring.constants import AIQIF_CRITERION_CODES, AIQIF_INDICATORS, PILLAR_LABELS
+
+        from .aiqif_tagging import queued_tags_q
+        from .filters import CONFIDENCE_BANDS, confidence_band_q
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        facts = ExtractedFact.objects.filter(sprint=sprint)
+
+        def counts(field, rename=None):
+            rows = facts.values(field).annotate(n=Count('id')).order_by()
+            return {(rename(r[field]) if rename else r[field]) or '': r['n'] for r in rows}
+
+        bands = facts.aggregate(**{band: Count('id', filter=confidence_band_q(band)) for band in CONFIDENCE_BANDS})
+        criteria = (FactAIQIFMapping.objects.filter(fact__sprint=sprint).values('criterion')
+                    .annotate(n=Count('fact', distinct=True)).order_by())
+        return Response({
+            'total': facts.count(),
+            'status': counts('status'),
+            'pillar': counts('pillar'),
+            'fact_kind': counts('fact_kind', lambda v: v or 'none'),
+            'aiqif_mapping_status': counts('aiqif_mapping_status'),
+            'owner_role': {k: v for k, v in counts('owner_role').items() if k},
+            'source_document': {k: v for k, v in counts('source_document__original_filename').items() if k},
+            'confidence_band': bands,
+            'aiqif_criterion': sorted(
+                [{'criterion': r['criterion'], 'code': AIQIF_CRITERION_CODES.get(r['criterion'], ''),
+                  'name': PILLAR_LABELS.get(r['criterion'], ''), 'count': r['n']} for r in criteria],
+                key=lambda g: g['code']),
+            'by_document': {str(k): v for k, v in counts('document_id').items() if k},
+            # Facts with a tag in each review state (the "Tag review" filter).
+            'tag_review': {
+                'confirmed': facts.filter(aiqif_mappings__review_status='confirmed').distinct().count(),
+                'rejected': facts.filter(aiqif_mappings__review_status='rejected').distinct().count(),
+                'pending': facts.filter(id__in=FactAIQIFMapping.objects.filter(
+                    queued_tags_q(), fact__sprint=sprint).values('fact_id')).count(),
+            },
+            'indicators': [{'code': code, 'criterion': criterion, 'name': name}
+                           for code, (criterion, name) in AIQIF_INDICATORS.items()],
+        })
 
 
 class SprintBulkFactConfirmView(APIView):
@@ -257,27 +313,198 @@ class FactCorrectView(BaseFactActionView):
 class FactAIQIFMappingReviewView(APIView):
     """POST /facts/<id>/aiqif-mappings/<indicator_code>/review {decision: confirm|reject, note}.
 
-    A reviewer confirms or rejects one of the AI's AI-QIF tags on a fact. Only confirmed tags on
-    confirmed/corrected facts count toward AI-QIF evidence coverage (scoring/services/coverage.py);
-    the decision takes effect at the next CRI recalculation. Reprocessing keeps reviewed tags."""
-    permission_classes = [CanReviewFacts]
+    Super Admin only (the AI-QIF expert queue, apps/facts/aiqif_tagging.py). Confirms or rejects one AI-QIF tag
+    on a fact; the decision is kept in the fact's review history, kept by every later re-extraction, and the
+    CRI is recalculated so coverage follows it."""
+    permission_classes = [IsSuperAdmin]
 
     @extend_schema(request=FactAIQIFMappingReviewSerializer, responses=ExtractedFactDetailSerializer)
     def post(self, request, pk, indicator_code):
+        from apps.scoring.services import run_scoring_engine
+
+        from .aiqif_tagging import review_tag
         fact = get_object_or_404(ExtractedFact, pk=pk)
         require_institution_access(request.user, fact)
         mapping = get_object_or_404(FactAIQIFMapping, fact=fact, indicator_code=indicator_code)
         serializer = FactAIQIFMappingReviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        mapping.review_status = (FactAIQIFMapping.ReviewStatus.CONFIRMED
-                                 if serializer.validated_data['decision'] == 'confirm'
-                                 else FactAIQIFMapping.ReviewStatus.REJECTED)
-        mapping.reviewed_by = request.user
-        mapping.reviewed_at = timezone.now()
-        mapping.review_note = serializer.validated_data['note'].strip()
-        mapping.save(update_fields=['review_status', 'reviewed_by', 'reviewed_at', 'review_note'])
+        review_tag(mapping, request.user, serializer.validated_data['decision'], serializer.validated_data['note'])
+        run_scoring_engine(fact.sprint, triggered_by=request.user)
         fact = ExtractedFact.objects.prefetch_related('aiqif_mappings').get(pk=fact.pk)
         return Response(ExtractedFactDetailSerializer(fact, context={'request': request}).data)
+
+
+class FactAIQIFMappingAddView(APIView):
+    """POST /facts/<id>/aiqif-mappings {indicator_code, relationship, note} -- Super Admin only.
+    Adds (or replaces) an AI-QIF tag as an expert decision; recalculates the CRI."""
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, pk):
+        from apps.scoring.services import run_scoring_engine
+
+        from .aiqif_tagging import TaggingError, add_tag
+        from .serializers import FactAIQIFMappingAddSerializer
+        fact = get_object_or_404(ExtractedFact, pk=pk)
+        require_institution_access(request.user, fact)
+        body = FactAIQIFMappingAddSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        try:
+            add_tag(fact, request.user, body.validated_data['indicator_code'], body.validated_data['relationship'],
+                    body.validated_data['note'])
+        except TaggingError as exc:
+            raise ValidationError({'detail': str(exc)})
+        run_scoring_engine(fact.sprint, triggered_by=request.user)
+        fact = ExtractedFact.objects.prefetch_related('aiqif_mappings').get(pk=fact.pk)
+        return Response(ExtractedFactDetailSerializer(fact, context={'request': request}).data, status=201)
+
+
+def _expert_mapping(request, pk, indicator_code):
+    """The tag `indicator_code` of fact `pk`, for a Super Admin who may access the fact's institution."""
+    fact = get_object_or_404(ExtractedFact.objects.select_related('sprint'), pk=pk)
+    require_institution_access(request.user, fact)
+    mapping = get_object_or_404(FactAIQIFMapping, fact=fact, indicator_code=indicator_code)
+    return fact, mapping
+
+
+def _after_tag_change(request, fact):
+    """Recalculate the sprint's CRI (coverage and coverage-adjusted CRI follow the tags; the Raw CRI only reads
+    facts) and return the fact as the list shows it."""
+    from apps.scoring.services import run_scoring_engine
+    run_scoring_engine(fact.sprint, triggered_by=request.user)
+    fact = ExtractedFact.objects.prefetch_related(
+        Prefetch('aiqif_mappings', queryset=FactAIQIFMapping.objects.select_related('reviewed_by', 'pending_by')),
+        'review_history').get(pk=fact.pk)
+    return Response(ExtractedFactDetailSerializer(fact, context={'request': request}).data)
+
+
+class FactAIQIFMappingEditView(APIView):
+    """POST /facts/<id>/aiqif-mappings/<indicator_code>/edit {indicator_code?, relationship?, note, decision?}
+    -- Super Admin only. A new indicator or relationship never inherits the earlier approval: it waits for a
+    decision unless `decision` (confirm / reject) is given now. The fact itself is never changed."""
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, pk, indicator_code):
+        from .aiqif_tagging import TaggingError, edit_tag
+        from .serializers import FactAIQIFMappingEditSerializer
+        fact, mapping = _expert_mapping(request, pk, indicator_code)
+        body = FactAIQIFMappingEditSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = body.validated_data
+        try:
+            edit_tag(mapping, request.user, indicator_code=data.get('indicator_code') or None,
+                     relationship=data.get('relationship') or None, note=data['note'], decision=data.get('decision') or None)
+        except TaggingError as exc:
+            raise ValidationError({'detail': str(exc)})
+        return _after_tag_change(request, fact)
+
+
+class FactAIQIFMappingReopenView(APIView):
+    """POST /facts/<id>/aiqif-mappings/<indicator_code>/reopen {reason} -- Super Admin only. Sends a decided tag
+    back to the sprint's AI-QIF expert queue; the earlier decision stays in the fact's review history."""
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, pk, indicator_code):
+        from .aiqif_tagging import TaggingError, reopen_tag
+        fact, mapping = _expert_mapping(request, pk, indicator_code)
+        try:
+            reopen_tag(mapping, request.user, (request.data.get('reason') or '').strip())
+        except TaggingError as exc:
+            raise ValidationError({'detail': str(exc)})
+        return _after_tag_change(request, fact)
+
+
+class FactKindView(APIView):
+    """POST /facts/<id>/fact-kind {fact_kind, note} -- Super Admin only. Decides what the fact is for (AI
+    evidence / context / profile); re-extraction keeps the decision. Recalculates the CRI."""
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, pk):
+        from apps.scoring.services import run_scoring_engine
+
+        from .aiqif_tagging import decide_kind
+        from .serializers import FactKindSerializer
+        fact = get_object_or_404(ExtractedFact, pk=pk)
+        require_institution_access(request.user, fact)
+        body = FactKindSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        decide_kind(fact, request.user, body.validated_data['fact_kind'], body.validated_data['note'])
+        run_scoring_engine(fact.sprint, triggered_by=request.user)
+        fact = ExtractedFact.objects.prefetch_related('aiqif_mappings').get(pk=fact.pk)
+        return Response(ExtractedFactDetailSerializer(fact, context={'request': request}).data)
+
+
+class SprintAIQIFSummaryView(APIView):
+    """GET /sprints/<id>/aiqif-summary -- for everyone on the sprint (the sales view): how many facts are AI
+    evidence / context / profile / not classified, and how many items wait for a Super Admin. No indicator
+    codes; nothing to choose."""
+    permission_classes = [IsInstitutionMember]
+
+    def get(self, request, sprint_id):
+        from django.db.models import Count
+
+        from .aiqif_tagging import queue_counts
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        facts = ExtractedFact.objects.filter(sprint=sprint).exclude(status=ExtractedFact.Status.REJECTED)
+        kinds = dict(facts.values_list('fact_kind').annotate(n=Count('id')))
+        queue = queue_counts(sprint)
+        return Response({
+            'facts': facts.count(),
+            'ai_evidence': kinds.get(ExtractedFact.FactKind.AI_EVIDENCE, 0),
+            'context': kinds.get(ExtractedFact.FactKind.CONTEXT, 0),
+            'profile': kinds.get(ExtractedFact.FactKind.PROFILE, 0),
+            'not_classified': kinds.get('', 0),
+            'expert_queue': queue,
+            'coverage_provisional': queue['total'] > 0,
+        })
+
+
+class SprintAIQIFExpertQueueView(APIView):
+    """GET /sprints/<id>/aiqif-expert-queue -- Super Admin only: the AI-QIF items waiting for an expert --
+    AI tags not accepted automatically, and facts whose kind needs a decision (possibly AI evidence filed as
+    context/profile, AI evidence with no indicator, not classified)."""
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request, sprint_id):
+        from .aiqif_tagging import needs_expert_q, queued_tags_q
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        tag_fact_ids = (FactAIQIFMapping.objects.filter(queued_tags_q(), fact__sprint=sprint)
+                        .values_list('fact_id', flat=True))
+        facts = (ExtractedFact.objects.filter(sprint=sprint).exclude(status=ExtractedFact.Status.REJECTED)
+                 .filter(needs_expert_q() | Q(id__in=tag_fact_ids))
+                 .select_related('document', 'source_document').prefetch_related(
+                     Prefetch('aiqif_mappings', queryset=FactAIQIFMapping.objects.select_related('reviewed_by', 'pending_by')))
+                 .order_by('pillar', 'field_key'))
+        from apps.scoring.constants import AIQIF_INDICATORS
+        rows = ExtractedFactSerializer(facts, many=True, context={'request': request}).data
+        return Response({'count': len(rows), 'facts': rows,
+                         'indicators': [{'code': code, 'criterion': criterion, 'name': name}
+                                        for code, (criterion, name) in AIQIF_INDICATORS.items()]})
+
+
+class SprintProfileSuggestionView(APIView):
+    """GET /sprints/<id>/profile-suggestion -- the benchmark profile as read from the sprint's profile facts
+    (apps/facts/profile_suggestion.py), with conflicts and the closed option lists.
+    POST {institution_type, autonomous_status, approval_bodies, programmes} -- saves it as confirmed (InGage
+    staff, like the profile itself: it decides which indicators apply) and recalculates the CRI."""
+    permission_classes = [IsInstitutionMember]
+
+    def get(self, request, sprint_id):
+        from .profile_suggestion import suggestion
+        return Response(suggestion(get_authorized_sprint(request.user, sprint_id)))
+
+    def post(self, request, sprint_id):
+        from apps.accounts.models import User
+        from apps.assessments.services import AssessmentError
+
+        from .profile_suggestion import confirm, suggestion
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        if request.user.role not in (User.Role.SUPER_ADMIN, User.Role.CONSULTANT):
+            raise PermissionDenied('Only InGage staff can confirm the profile (it decides which indicators apply).')
+        try:
+            confirm(sprint, request.user, request.data)
+        except AssessmentError as exc:
+            raise ValidationError({'detail': str(exc)})
+        return Response(suggestion(sprint))
 
 
 class FactAssignView(APIView):
@@ -316,8 +543,8 @@ class SprintBulkTagConfirmView(APIView):
 
     Confirms the sprint's eligible pending AI-QIF tags (apps/facts/tag_review.py) -- tag mappings only, never
     the facts. dry_run returns the summary (count, confidence range, low-confidence tags left for individual
-    review) without changing anything. Reviewer roles only, within the user's institution."""
-    permission_classes = [CanReviewFacts]
+    review) without changing anything. Super Admin only (the AI-QIF expert), within the sprint's institution."""
+    permission_classes = [IsSuperAdmin]
 
     def post(self, request, sprint_id):
         from .serializers import BulkTagConfirmSerializer
