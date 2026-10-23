@@ -18,6 +18,7 @@ export type AIQIFMappingStatus = 'pending' | 'mapped' | 'needs_review' | 'unmapp
  * score or maturity level (the Raw CRI scores `Fact.pillar`, not these; reviewer-confirmed
  * tags count toward AI-QIF evidence coverage). */
 export interface AIQIFMapping {
+  id: string;
   criterion: string;          // 'aiqif_c4'
   criterion_code: string;     // 'AIQIF-C4'
   criterion_name: string;

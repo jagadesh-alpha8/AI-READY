@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
+import type { BulkTagResult, BulkTagSummary } from '../../api/facts';
 import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import {
-  listSprintFacts, confirmFact, bulkConfirmSprintFacts, correctFact, rejectFact, reviewFactMapping,
+  listSprintFacts, confirmFact, bulkConfirmSprintFacts, bulkConfirmSprintTags, correctFact, rejectFact, reviewFactMapping,
 } from '../../api/facts';
 import { useApiResource } from '../../hooks/useApiResource';
 import { getScoringConfig } from '../../api/config';
@@ -36,6 +37,9 @@ export const FactsReview: React.FC = () => {
   const [correctionValue, setCorrectionValue] = useState('');
   const [actionError, setActionError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
+  // "Confirm all pending tags": the summary shown before confirming, and the action's state.
+  const [tagPlan, setTagPlan] = useState<BulkTagSummary | null>(null);
+  const [tagBusy, setTagBusy] = useState(false);
   const [actingOnId, setActingOnId] = useState<string | null>(null);
   const [bulkConfirming, setBulkConfirming] = useState(false);
   const [bulkProgress, setBulkProgress] = useState('');
@@ -87,6 +91,45 @@ export const FactsReview: React.FC = () => {
     } finally {
       setActingOnId(null);
     }
+  };
+
+  // Pending AI-QIF tags in the current (filtered) list -- the tags of every fact shown.
+  const filtersActive = filteredFacts.length !== facts.length;
+  const pendingTagIds = useMemo(
+    () => filteredFacts.flatMap((f) => f.aiqif_mappings.filter((m) => m.review_status === 'unreviewed').map((m) => m.id)),
+    [filteredFacts],
+  );
+  const openTagPlan = async () => {
+    if (!sprintId) return;
+    setActionError(''); setActionMessage(''); setTagBusy(true);
+    try {
+      const { data } = await bulkConfirmSprintTags(sprintId, filtersActive ? pendingTagIds : undefined, true);
+      setTagPlan(data as BulkTagSummary);
+    } catch (err) {
+      setActionError(getErrorMessage(err, 'Could not prepare the tag confirmation.'));
+    } finally { setTagBusy(false); }
+  };
+  const confirmTags = async () => {
+    if (!sprintId) return;
+    setTagBusy(true); setActionError('');
+    try {
+      const { data } = await bulkConfirmSprintTags(sprintId, filtersActive ? pendingTagIds : undefined, false);
+      const r = data as BulkTagResult;
+      const cov = r.coverage;
+      setActionMessage(
+        `${r.confirmed_count} AI-QIF tag${r.confirmed_count === 1 ? '' : 's'} confirmed (facts unchanged).`
+        + (r.already_decided_count ? ` ${r.already_decided_count} had already been decided by someone else.` : '')
+        + (r.still_pending_count ? ` ${r.still_pending_count} still pending: `
+          + Array.from(new Set(r.still_pending.map((p) => p.reason))).join('; ') + '.' : '')
+        + (cov ? ` Coverage recalculated: ${cov.covered_count} of ${cov.applicable_count} indicators covered; `
+          + `coverage-adjusted CRI ${cov.coverage_adjusted_cri ?? '—'} (Raw CRI ${cov.raw_cri}).` : ''),
+      );
+      setTagPlan(null);
+      refetch();
+    } catch (err) {
+      setActionError(`${getErrorMessage(err, 'Confirming the tags failed.')} Refresh to see which tags are still pending.`);
+      refetch();
+    } finally { setTagBusy(false); }
   };
 
   const handleBulkConfirm = async () => {
@@ -216,6 +259,38 @@ export const FactsReview: React.FC = () => {
       {isRealSprint && <CriConfidenceTile sprintId={sprintId!} />}
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
+      {tagPlan && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4" role="dialog" aria-modal="true">
+          <div className="glass-card w-full max-w-md p-5 space-y-3 text-sm">
+            <h2 className="text-base font-bold text-ink-900">Confirm pending AI-QIF tags?</h2>
+            {tagPlan.eligible_count === 0 ? (
+              <p className="text-ink-700">No tag can be confirmed in bulk{filtersActive ? ' in the current filter' : ''}.</p>
+            ) : (
+              <p className="text-ink-700">
+                <strong>{tagPlan.eligible_count}</strong> tag{tagPlan.eligible_count === 1 ? '' : 's'} on {tagPlan.facts_count}
+                {' '}fact{tagPlan.facts_count === 1 ? '' : 's'}{filtersActive ? ' (current filter)' : ' (whole sprint)'} will be confirmed.
+                {tagPlan.confidence_min != null && ` AI confidence ${Math.round(tagPlan.confidence_min * 100)}%–${Math.round((tagPlan.confidence_max ?? 0) * 100)}%.`}
+              </p>
+            )}
+            {tagPlan.low_confidence_count > 0 && (
+              <p className="text-warning">
+                {tagPlan.low_confidence_count} low-confidence tag{tagPlan.low_confidence_count === 1 ? '' : 's'} (below{' '}
+                {Math.round(tagPlan.low_confidence_threshold * 100)}%, "Needs review") will stay pending for individual review.
+              </p>
+            )}
+            <p className="text-ink-600">
+              This confirms the AI-QIF category mappings only. The facts, their values and their review status do not
+              change. AI-QIF Evidence Coverage is recalculated afterwards; the Raw CRI is not changed by tags.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button className="btn-secondary btn-sm" disabled={tagBusy} onClick={() => setTagPlan(null)}>Cancel</button>
+              <button className="btn-primary btn-sm" disabled={tagBusy || tagPlan.eligible_count === 0} onClick={confirmTags}>
+                {tagBusy ? 'Confirming…' : `Confirm ${tagPlan.eligible_count} tag${tagPlan.eligible_count === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {actionMessage && (
         <div role="status" className="rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
           {actionMessage}
@@ -237,6 +312,13 @@ export const FactsReview: React.FC = () => {
                 title="Confirms eligible extracted facts in the current filtered list."
               >
                 {bulkConfirming ? bulkProgress : `Confirm all eligible (${bulkConfirmableFacts.length})`}
+              </button>
+            )}
+            {canReview && (
+              <button type="button" onClick={openTagPlan} disabled={tagBusy || pendingTagIds.length === 0}
+                className="btn-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Confirms AI-QIF category tags only (not the facts). Current filters apply.">
+                {tagBusy && !tagPlan ? 'Checking tags…' : `Confirm all pending tags (${pendingTagIds.length})`}
               </button>
             )}
           </div>

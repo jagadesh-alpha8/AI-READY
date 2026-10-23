@@ -3086,6 +3086,7 @@ class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
         UNREVIEWED = {'review_status': 'unreviewed', 'reviewed_by': None, 'reviewed_by_name': '', 'reviewed_at': None,
                       'review_note': ''}  # no person has looked at the AI's tags yet
         self.assertEqual(faculty['aiqif_mapping_status'], 'mapped')
+        self.assertTrue(all(m.pop('id') for m in faculty['aiqif_mappings']))  # each tag has its own id
         self.assertEqual(faculty['aiqif_mappings'], [
             {'criterion': 'aiqif_c4', 'criterion_code': 'AIQIF-C4',
              'criterion_name': 'Faculty & Institutional Workforce AI Capability',

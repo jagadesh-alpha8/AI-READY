@@ -1237,3 +1237,100 @@ class EvidenceRequestSprintScopeTests(FactTestBase):
         self.assertEqual(self._codes('?sprint=all')[0], [])  # other colleges see none of ours
         r = self.client.get(f'/api/v1/evidence-requests/summary?sprint={self.sprint.id}')
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class BulkTagConfirmTests(FactTestBase):
+    """POST /sprints/<id>/aiqif-mappings/bulk-confirm (apps/facts/tag_review.py): tag mappings only."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import FactAIQIFMapping as M
+        self.M = M
+        self.fact = self._make_fact(status=ExtractedFact.Status.CONFIRMED)
+        self.other = self._make_fact(field_key='labs', field_name='Labs', value=7)  # still extracted
+        self.ok1 = self._tag(self.fact, 'AIQIF-C4.1', 0.92)
+        self.ok2 = self._tag(self.fact, 'AIQIF-C9.2', 0.81)
+        self.ok3 = self._tag(self.other, 'AIQIF-C6.4', 0.75)
+        self.low = self._tag(self.other, 'AIQIF-C6.1', 0.4, status=M.Status.NEEDS_REVIEW)
+        self.rejected = self._tag(self.other, 'AIQIF-C1.1', 0.9, review=M.ReviewStatus.REJECTED)
+        self.url = f'/api/v1/sprints/{self.sprint.id}/aiqif-mappings/bulk-confirm'
+
+    def _tag(self, fact, code, confidence, status=None, review=None):
+        from apps.scoring.constants import AIQIF_INDICATORS
+        return self.M.objects.create(fact=fact, criterion=AIQIF_INDICATORS[code][0], indicator_code=code,
+                                     reason='AI.', confidence=confidence, status=status or self.M.Status.MAPPED,
+                                     review_status=review or self.M.ReviewStatus.UNREVIEWED)
+
+    def _post(self, user, **body):
+        self._auth(user)
+        return self.client.post(self.url, body, format='json')
+
+    def test_dry_run_summarises_without_changing_anything(self):
+        r = self._post(self.iqac, dry_run=True)
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual((r.data['pending_count'], r.data['eligible_count'], r.data['low_confidence_count']), (4, 3, 1))
+        self.assertEqual((r.data['confidence_min'], r.data['confidence_max']), (0.75, 0.92))
+        self.assertEqual(self.M.objects.filter(review_status='confirmed').count(), 0)
+
+    def test_confirms_pending_tags_only_and_never_the_facts(self):
+        before = [(f.status, f.value, f.reviewed_by_id) for f in (self.fact, self.other)]
+        r = self._post(self.iqac, note='Checked the tag list.')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual(r.data['confirmed_count'], 3)
+        for m in (self.ok1, self.ok2, self.ok3):
+            m.refresh_from_db()
+            self.assertEqual((m.review_status, m.reviewed_by), ('confirmed', self.iqac))
+        self.low.refresh_from_db()
+        self.rejected.refresh_from_db()
+        self.assertEqual((self.low.review_status, self.rejected.review_status), ('unreviewed', 'rejected'))
+        self.assertEqual(r.data['still_pending_count'], 1)
+        self.assertIn('low AI confidence', r.data['still_pending'][0]['reason'])
+        for f in (self.fact, self.other):
+            f.refresh_from_db()
+        self.assertEqual([(f.status, f.value, f.reviewed_by_id) for f in (self.fact, self.other)], before)
+
+    def test_it_is_audited_per_fact(self):
+        self._post(self.iqac)
+        rows = FactReviewHistory.objects.filter(action='aiqif_tags_confirmed').order_by('fact__field_key')
+        self.assertEqual(rows.count(), 2)  # one per fact whose tags were confirmed
+        row = rows.get(fact=self.fact)
+        self.assertEqual(row.user, self.iqac)
+        self.assertIn('AIQIF-C4.1, AIQIF-C9.2', row.reason)
+        self.assertIn('3 tag(s)', row.reason)
+        self.assertIn(self.sprint.sprint_code, row.reason)
+
+    def test_repeating_it_changes_nothing(self):
+        self._post(self.iqac)
+        again = self._post(self.hod)
+        self.assertEqual(again.data['confirmed_count'], 0)
+        self.ok1.refresh_from_db()
+        self.assertEqual(self.ok1.reviewed_by, self.iqac)  # not re-stamped by the second reviewer
+        self.assertEqual(FactReviewHistory.objects.filter(action='aiqif_tags_confirmed').count(), 2)
+
+    def test_only_the_given_tags_when_ids_are_sent(self):
+        r = self._post(self.iqac, mapping_ids=[str(self.ok3.id), str(self.low.id)])
+        self.assertEqual(r.data['confirmed_count'], 1)
+        self.ok1.refresh_from_db()
+        self.assertEqual(self.ok1.review_status, 'unreviewed')
+
+    def test_coverage_is_recalculated_and_the_raw_cri_is_not_moved_by_tags(self):
+        from apps.scoring.services import run_scoring_engine
+        raw_before = run_scoring_engine(self.sprint).overall_cri
+        r = self._post(self.iqac)
+        cov = r.data['coverage']
+        self.assertEqual(cov['raw_cri'], raw_before)
+        self.assertEqual(cov['covered_count'], 2)  # C4.1 + C9.2 on the confirmed fact; C6.4's fact is unreviewed
+        self.assertEqual(self.sprint.scoring_runs.count(), 2)
+
+    def test_viewers_and_other_colleges_are_refused(self):
+        self.assertEqual(self._post(self.viewer).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._post(self.outsider).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.M.objects.filter(review_status='confirmed').count(), 0)
+
+    def test_another_sprints_tags_are_never_touched(self):
+        sprint2 = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
+        foreign = self._tag(self._make_fact(sprint=sprint2, field_key='x'), 'AIQIF-C2.1', 0.95)
+        r = self._post(self.iqac, mapping_ids=[str(foreign.id)])
+        self.assertEqual(r.data['confirmed_count'], 0)
+        foreign.refresh_from_db()
+        self.assertEqual(foreign.review_status, 'unreviewed')

@@ -151,6 +151,8 @@ class FactReviewHistory(models.Model):
         EVIDENCE_REQUESTED = 'evidence_requested', 'Evidence Requested'
         #: An evidence request was withdrawn and the fact's earlier status restored (EvidenceRequest).
         REQUEST_WITHDRAWN = 'request_withdrawn', 'Evidence Request Withdrawn'
+        #: The fact's AI-QIF category tags were confirmed in bulk (apps/facts/tag_review.py); the fact is unchanged.
+        AIQIF_TAGS_CONFIRMED = 'aiqif_tags_confirmed', 'AI-QIF Tags Confirmed'
         #: Assigned / reassigned / unassigned; new_value = {"from", "to", "due_date"} (ownership.assign).
         ASSIGNED = 'assigned', 'Assigned'
 

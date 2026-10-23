@@ -8,7 +8,7 @@ from apps.documents.views import (
 )
 from apps.extraction.views import SprintAIUsageView, SprintExtractionJobListCreateView, SprintProcessingSummaryView
 from apps.facts.evidence_views import SprintEvidenceAssigneesView, SprintEvidenceRequestListView
-from apps.facts.views import SprintBulkFactConfirmView, SprintFactListView, SprintWorkSummaryView
+from apps.facts.views import SprintBulkFactConfirmView, SprintBulkTagConfirmView, SprintFactListView, SprintWorkSummaryView
 from apps.gaps.views import SprintGapListView
 from apps.recommendations.views import SprintRecommendationGenerateView, SprintRecommendationListView
 from apps.reports.views import SprintReportGenerateView, SprintReportListView
@@ -91,6 +91,8 @@ urlpatterns = [
         name='sprint-drive-import-job-stop-slash',
     ),
     path('/<uuid:sprint_id>/facts', SprintFactListView.as_view(), name='sprint-facts'),
+    path('/<uuid:sprint_id>/aiqif-mappings/bulk-confirm', SprintBulkTagConfirmView.as_view(),
+         name='sprint-aiqif-tags-bulk-confirm'),
     path('/<uuid:sprint_id>/facts/bulk-confirm', SprintBulkFactConfirmView.as_view(),
          name='sprint-facts-bulk-confirm'),
     path('/<uuid:sprint_id>/facts/bulk-confirm/', SprintBulkFactConfirmView.as_view(),

@@ -16,7 +16,7 @@ class FactAIQIFMappingSerializer(serializers.ModelSerializer):
     class Meta:
         model = FactAIQIFMapping
         fields = [
-            'criterion', 'criterion_code', 'criterion_name', 'indicator_code', 'indicator_name',
+            'id', 'criterion', 'criterion_code', 'criterion_name', 'indicator_code', 'indicator_name',
             'reason', 'confidence', 'status', 'review_status', 'reviewed_by', 'reviewed_by_name', 'reviewed_at',
             'review_note',
         ]
@@ -216,4 +216,12 @@ class AssignSerializer(serializers.Serializer):
     """POST /facts/<id>/assign and /gaps/<id>/assign. assigned_to null = unassign."""
     assigned_to = serializers.UUIDField(required=False, allow_null=True)
     due_date = serializers.DateField(required=False, allow_null=True)
+    note = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class BulkTagConfirmSerializer(serializers.Serializer):
+    """POST /sprints/<id>/aiqif-mappings/bulk-confirm: which pending tags (all of the sprint's when omitted),
+    and dry_run to get the summary shown before confirming."""
+    mapping_ids = serializers.ListField(child=serializers.UUIDField(), required=False, max_length=5000)
+    dry_run = serializers.BooleanField(required=False, default=False)
     note = serializers.CharField(required=False, allow_blank=True, default='')

@@ -309,3 +309,26 @@ class SprintWorkSummaryView(APIView):
         from .work_summary import work_summary
         sprint = get_authorized_sprint(request.user, sprint_id)
         return Response(work_summary(sprint))
+
+
+class SprintBulkTagConfirmView(APIView):
+    """POST /sprints/<id>/aiqif-mappings/bulk-confirm {mapping_ids?, dry_run?, note?}
+
+    Confirms the sprint's eligible pending AI-QIF tags (apps/facts/tag_review.py) -- tag mappings only, never
+    the facts. dry_run returns the summary (count, confidence range, low-confidence tags left for individual
+    review) without changing anything. Reviewer roles only, within the user's institution."""
+    permission_classes = [CanReviewFacts]
+
+    def post(self, request, sprint_id):
+        from .serializers import BulkTagConfirmSerializer
+        from .tag_review import confirm_pending, summary
+
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        body = BulkTagConfirmSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        ids = body.validated_data.get('mapping_ids')
+        if body.validated_data['dry_run']:
+            plan = summary(sprint, ids)
+            plan.pop('eligible_ids')
+            return Response(plan)
+        return Response(confirm_pending(sprint, request.user, ids, body.validated_data['note']))

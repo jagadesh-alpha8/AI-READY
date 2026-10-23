@@ -46,3 +46,29 @@ export function reviewFactMapping(id: string, indicatorCode: string, decision: '
 export function assignFact(id: string, body: { assigned_to: string | null; due_date?: string | null; note?: string }) {
   return api.post<Fact>(`/facts/${id}/assign`, body);
 }
+
+export interface BulkTagSummary {
+  pending_count: number;
+  eligible_count: number;
+  low_confidence_count: number;
+  low_confidence_threshold: number;
+  confidence_min: number | null;
+  confidence_max: number | null;
+  facts_count: number;
+}
+
+export interface BulkTagResult {
+  confirmed_count: number;
+  already_decided_count: number;
+  still_pending_count: number;
+  still_pending: { id: string; fact_id: string; indicator_code: string; reason: string }[];
+  coverage: { raw_cri: number; coverage_adjusted_cri: number | null; covered_count: number | null;
+    applicable_count: number | null; ratio: number | null } | null;
+}
+
+/** Confirm pending AI-QIF tag mappings (never the facts). dryRun returns the summary only. */
+export function bulkConfirmSprintTags(sprintId: string, mappingIds: string[] | undefined, dryRun: boolean, note = '') {
+  return api.post<BulkTagSummary | BulkTagResult>(`/sprints/${sprintId}/aiqif-mappings/bulk-confirm`, {
+    ...(mappingIds ? { mapping_ids: mappingIds } : {}), dry_run: dryRun, note,
+  });
+}
