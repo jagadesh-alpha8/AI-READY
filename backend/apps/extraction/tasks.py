@@ -92,6 +92,12 @@ def run_extraction_job(self, job_id):
         logger.info('extraction.task.stopped_after_finish job_id=%s', job.id)
         _advance_sprint_if_all_jobs_done(job.sprint)
         return None
+    try:
+        from apps.gaps.evidence_upload import record_processing
+        job.refresh_from_db()
+        record_processing(job, ok=True)
+    except Exception:
+        logger.exception('extraction.task.gap_evidence_audit_failed job_id=%s', job.id)
     logger.info(
         'extraction.task.completed job_id=%s mode=%s router=%s worker=%s duration_s=%.1f',
         job.id, settings.AI_PROCESSING_MODE, lease.router.label if lease else 'single', worker,
@@ -160,6 +166,11 @@ def _fail(job, message):
         fail_pending_document_submissions(job.document, message)
     except Exception:
         logger.exception('extraction.task.evidence_failure_audit_failed document_id=%s', job.document_id)
+    try:
+        from apps.gaps.evidence_upload import record_processing
+        record_processing(job, ok=False, message=message)
+    except Exception:
+        logger.exception('extraction.task.gap_evidence_audit_failed job_id=%s', job.id)
 
 
 def _advance_sprint_if_all_jobs_done(sprint):

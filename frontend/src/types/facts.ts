@@ -64,6 +64,8 @@ export interface Fact {
   open_evidence_request: import('./evidenceRequests').OpenEvidenceRequest | null;
   /** Confirmed by the system (AI confidence above the auto-confirm threshold), not by a person. */
   auto_confirmed?: boolean;
+  /** The gaps whose "Upload Evidence" supplied this fact's document (the original gap). */
+  evidence_for_gaps?: { id: string; title: string; gap_type: string; status: string }[];
   /** Responsibility (backend apps/facts/ownership.py): the owner role in words, the assigned person and by when. */
   owner_role_label: string;
   assigned_to: string | null;

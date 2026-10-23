@@ -6,6 +6,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import generics
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.filters import OrderingFilter
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -152,3 +153,27 @@ class GapAssignView(APIView):
         except ownership.OwnershipError as exc:
             raise ValidationError({'detail': str(exc)})
         return Response(GapItemDetailSerializer(GapItem.objects.get(pk=pk), context={'request': request}).data)
+
+
+class GapUploadEvidenceView(APIView):
+    """POST /gaps/<id>/upload-evidence (multipart: file, document_type?) -- Missing Document / Low Confidence gaps.
+    Stores the file in the gap's sprint, links it to the gap and queues its processing there. It never confirms a
+    fact or resolves the gap (gaps/evidence_upload.py). Only people who may act on the gap (ownership.py)."""
+    permission_classes = [CanResolveGaps]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, pk):
+        from .evidence_upload import EvidenceUploadError, upload_for_gap
+        gap = get_object_or_404(GapItem.objects.select_related('sprint', 'source_fact'), pk=pk)
+        require_institution_access(request.user, gap)
+        allowed, why = ownership.check_gap(request.user, gap)
+        if not allowed:
+            raise PermissionDenied(why)
+        try:
+            document, reused = upload_for_gap(gap, request.user, request.data.get('file'),
+                                              document_type=(request.data.get('document_type') or '').strip())
+        except EvidenceUploadError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        gap.refresh_from_db()
+        data = GapItemSerializer(gap, context={'request': request}).data
+        return Response({'gap': data, 'document_id': str(document.id), 'reused': reused}, status=201)

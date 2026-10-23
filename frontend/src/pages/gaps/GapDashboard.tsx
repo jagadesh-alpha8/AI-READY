@@ -10,6 +10,8 @@ import { AlertCircle, ArrowRight } from 'lucide-react';
 import { ScrollableTable } from '../../components/ScrollableTable';
 import { TableFilters, matchesSearch, optionsFrom } from '../../components/TableFilters';
 import { useAccess } from '../../utils/access';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
+import { UploadEvidenceModal } from './UploadEvidenceModal';
 import { LowConfidenceGapPanel } from './LowConfidenceGapPanel';
 import { ConflictComparisonDialog } from './ConflictComparison';
 import { GapSnippetCell } from './GapSnippetCell';
@@ -38,6 +40,14 @@ export const GapDashboard: React.FC = () => {
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   // The low-confidence gap whose fact panel is open (looked up in the fresh list after every refetch).
   const [reviewingGapId, setReviewingGapId] = useState<string | null>(null);
+  // The gap whose "Upload Evidence" dialog is open, and the last upload's message.
+  const [uploadingGap, setUploadingGap] = useState<Gap | null>(null);
+  const [uploadMessage, setUploadMessage] = useState('');
+  const { sprint } = useSelectedSprint();
+  const sprintLabel = sprint && sprint.id === sprintId
+    ? (sprint.academic_year && !sprint.name.includes(sprint.academic_year)
+      ? `${sprint.name} · ${sprint.academic_year}` : sprint.name)
+    : (sprintId || '');
   const reviewingGap = gaps.find((g) => g.id === reviewingGapId) || null;
   // Low-confidence gaps on a fact are settled by evidence (LowConfidenceGapPanel), not the row buttons.
   const settledByEvidence = (gap: Gap) => gap.gap_type === 'low_confidence' && !!gap.source_fact_id;
@@ -130,6 +140,10 @@ export const GapDashboard: React.FC = () => {
         <LowConfidenceGapPanel gap={reviewingGap} onClose={() => setReviewingGapId(null)} onChanged={refetch} />
       )}
       {comparingGap && <ConflictComparisonDialog gap={comparingGap} onClose={() => setComparingId(null)} />}
+      {uploadingGap && (
+        <UploadEvidenceModal gap={uploadingGap} sprintLabel={sprintLabel} onClose={() => setUploadingGap(null)}
+          onUploaded={(message) => { setUploadingGap(null); setUploadMessage(message); refetch(); }} />
+      )}
       <div className="glass-card p-5 sm:p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -151,6 +165,12 @@ export const GapDashboard: React.FC = () => {
       </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
+      {uploadMessage && (
+        <div className="rounded-lg border border-line-200 bg-surface-50 px-4 py-2 text-sm text-ink-700 flex justify-between gap-3" role="status">
+          <span>{uploadMessage}</span>
+          <button className="text-xs text-ink-500 hover:underline" onClick={() => setUploadMessage('')}>Dismiss</button>
+        </div>
+      )}
 
       {/* Gaps List Table */}
       <div className="glass-card p-5 sm:p-6">
@@ -262,6 +282,29 @@ export const GapDashboard: React.FC = () => {
                       <span className={statusBadgeClass(gap.status)}>{gap.status}</span>
                     </td>
                     <td className="text-xs">
+                      {gap.evidence_state && gap.evidence_state.state !== 'still_open' && gap.evidence_state.state !== 'evidence_requested' && (
+                        <div className="mb-1 max-w-[16rem] whitespace-normal">
+                          <span className={gap.evidence_state.state === 'processing_failed' ? 'badge-danger'
+                            : gap.evidence_state.state === 'resolved' ? 'badge-success'
+                              : gap.evidence_state.state === 'awaiting_review' ? 'badge-warning' : 'badge-info'}>
+                            {gap.evidence_state.label}
+                          </span>
+                          <span className="block text-ink-600 mt-0.5">{gap.evidence_state.reason}</span>
+                          {gap.evidence_state.next_action && (
+                            <span className="block text-ink-500">Next: {gap.evidence_state.next_action}{' '}
+                              {['processing', 'uploaded', 'processing_failed'].includes(gap.evidence_state.state) && (
+                                <Link to={`/sprint/${sprintId}/monitor`} className="text-brand-800 hover:underline">Monitor</Link>
+                              )}
+                              {gap.evidence_state.state === 'awaiting_review' && (
+                                <Link to={`/sprint/${sprintId}/${gap.gap_type === 'missing_document' ? 'upload' : 'facts'}`}
+                                  className="text-brand-800 hover:underline">
+                                  {gap.gap_type === 'missing_document' ? 'Upload Data Pack' : 'Facts Review'}
+                                </Link>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       {gap.evidence_request ? (
                         <Link to={`/evidence-requests?view=all&id=${gap.evidence_request.id}`}
                           className="font-semibold text-accent hover:underline">
@@ -273,6 +316,12 @@ export const GapDashboard: React.FC = () => {
                       ) : <span className="text-ink-500">—</span>}
                     </td>
                     <td className="text-right space-x-1 whitespace-nowrap">
+                      {gap.can_upload_evidence && gap.can_act !== false && (
+                        <button onClick={() => { setUploadMessage(''); setUploadingGap(gap); }} aria-haspopup="dialog"
+                          className="px-3 py-1 bg-line-200 hover:bg-line-300 text-accent font-semibold text-xs rounded transition-colors">
+                          Upload Evidence
+                        </button>
+                      )}
                       {gap.gap_type === 'conflict' && (
                         <button
                           onClick={() => setComparingId(gap.id)}

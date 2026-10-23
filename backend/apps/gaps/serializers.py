@@ -52,6 +52,10 @@ class GapItemSerializer(serializers.ModelSerializer):
     assigned_to_name = serializers.SerializerMethodField()
     can_act = serializers.SerializerMethodField()
     act_blocked_reason = serializers.SerializerMethodField()
+    # Upload Evidence (gaps/evidence_upload.py): eligibility, the requested document type, and where it stands.
+    can_upload_evidence = serializers.SerializerMethodField()
+    requested_document_type = serializers.SerializerMethodField()
+    evidence_state = serializers.SerializerMethodField()
 
     #: For list views: each fact's evidence requests, newest first, in one query.
     EVIDENCE_REQUESTS_PREFETCH = Prefetch(
@@ -69,7 +73,7 @@ class GapItemSerializer(serializers.ModelSerializer):
             'fact_status', 'evidence_request', 'resolve_blocked_reason', 'close_blocked_reason',
             'conflict_sides', 'source_snippet', 'source_page',
             'owner_role_label', 'assigned_to', 'assigned_to_name', 'assigned_at', 'due_date', 'can_act',
-            'act_blocked_reason',
+            'act_blocked_reason', 'can_upload_evidence', 'requested_document_type', 'evidence_state',
         ]
         read_only_fields = fields
 
@@ -84,6 +88,20 @@ class GapItemSerializer(serializers.ModelSerializer):
 
     def _has_open_request(self, obj):
         return any(r.status in EvidenceRequest.UNRESOLVED for r in self._requests(obj))
+
+    def get_can_upload_evidence(self, obj):
+        from .evidence_upload import ELIGIBLE_TYPES
+        return obj.gap_type in ELIGIBLE_TYPES and obj.status in GapItem.ACTIVE_STATUSES
+
+    def get_requested_document_type(self, obj):
+        from .evidence_upload import ELIGIBLE_TYPES, requested_document_type
+        return requested_document_type(obj) if obj.gap_type in ELIGIBLE_TYPES else ''
+
+    def get_evidence_state(self, obj):
+        from .evidence_upload import ELIGIBLE_TYPES, evidence_state
+        if obj.gap_type not in ELIGIBLE_TYPES:
+            return None
+        return evidence_state(obj, requests=self._requests(obj))
 
     def get_fact_status(self, obj):
         return obj.source_fact.status if obj.source_fact_id else ''

@@ -507,6 +507,9 @@ def after_fact_review(fact, *, user, reason=''):
                    f'Reconciled: the values of {fact.field_name or fact.field_key} now agree.',
                    GapEvent.Action.AUTO_RESOLVED)
             changed += 1
+    # Evidence uploaded from a low-confidence gap: the reviewed fact from that document settles it.
+    from .evidence_upload import close_low_confidence_from_evidence
+    changed += close_low_confidence_from_evidence(fact, user)
     return changed
 
 

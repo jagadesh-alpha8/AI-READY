@@ -3615,3 +3615,155 @@ class AutoConfirmTests(ExtractionJobTestBase):
         with override_settings(FACT_AUTO_CONFIRM_MIN_CONFIDENCE=None):
             facts = self._run(_valid_fact())
         self.assertEqual(facts['total_faculty'].status, 'extracted')
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
+class GapEvidenceUploadTests(ExtractionJobTestBase):
+    """Upload Evidence from a Missing Document / Low Confidence gap (apps/gaps/evidence_upload.py)."""
+
+    def setUp(self):
+        super().setUp()
+        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
+        self.viewer = self._make_user('viewer@test.edu', User.Role.VIEWER, self.institution)
+        self._auth(self.iqac)
+
+    def _facts(self, *facts):
+        self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': list(facts)}
+
+    #: One fixed PDF, so "the same file" really is byte-identical (generated PDFs carry a timestamp).
+    EVIDENCE_BYTES = None
+
+    def _evidence(self, name='evidence.pdf'):
+        if GapEvidenceUploadTests.EVIDENCE_BYTES is None:
+            GapEvidenceUploadTests.EVIDENCE_BYTES = make_pdf_bytes(
+                ('Signed evidence: the institution has 45 faculty members.',))
+        return SimpleUploadedFile(name, GapEvidenceUploadTests.EVIDENCE_BYTES, content_type='application/pdf')
+
+    def _upload(self, gap, name='evidence.pdf', user=None):
+        self._auth(user or self.admin)  # someone who may act on the gap (apps/facts/ownership.py)
+        return self.client.post(f'/api/v1/gaps/{gap.id}/upload-evidence', {'file': self._evidence(name)},
+                                format='multipart')
+
+    def _events(self, gap):
+        return list(gap.events.order_by('created_at').values_list('action', flat=True))
+
+    def _missing_gap(self):
+        from apps.gaps.models import GapItem
+        from apps.gaps.services import generate_gaps_for_sprint
+        generate_gaps_for_sprint(self.sprint)
+        return GapItem.objects.filter(sprint=self.sprint, gap_type='missing_document', title='Missing AQAR Report').first() \
+            or GapItem.objects.filter(sprint=self.sprint, gap_type='missing_document').first()
+
+    def _low_confidence_gap(self):
+        from apps.gaps.models import GapItem
+        self._facts(_valid_fact(confidence_score=0.3, value='42'))
+        self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/', {'document_id': str(self.document.id)})
+        return GapItem.objects.get(sprint=self.sprint, gap_type='low_confidence')
+
+    # -- missing document ------------------------------------------------------------------------------
+    def test_missing_document_upload_is_processed_in_this_sprint_but_resolves_nothing_by_itself(self):
+        gap = self._missing_gap()
+        self._facts(_valid_fact(value='45', source_snippet='Signed evidence: the institution has 45 faculty members.'))
+        r = self._upload(gap)
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.data)
+        doc = Document.objects.get(id=r.data['document_id'])
+        gap.refresh_from_db()
+        self.assertEqual((doc.sprint, list(gap.evidence_documents.all())), (self.sprint, [doc]))
+        self.assertEqual(ExtractionJob.objects.get(document=doc).status, ExtractionJob.Status.COMPLETED)
+        self.assertEqual(gap.status, 'in_progress')  # never resolved by an upload
+        self.assertEqual(self._events(gap)[-2:], ['evidence_uploaded', 'evidence_processed'])
+        self.assertEqual(set(doc.extracted_facts.values_list('status', flat=True)), {'extracted'})
+        state = self.client.get(f'/api/v1/gaps/{gap.id}').data['evidence_state']
+        self.assertEqual(state['state'], 'awaiting_review')
+        self.assertIn('Confirm its category', state['next_action'])
+        # The reviewer confirms the document's category -> the existing rule closes the gap.
+        t = gap.title.replace('Missing ', '')
+        from apps.gaps.services import missing_document_type
+        self._auth(self.admin)
+        r = self.client.post(f'/api/v1/documents/{doc.id}/confirm-category',
+                             {'category': missing_document_type(gap)}, format='json')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        gap.refresh_from_db()
+        self.assertEqual(gap.status, 'resolved', t)
+
+    def test_the_same_file_in_the_same_sprint_is_reused_not_duplicated(self):
+        gap = self._missing_gap()
+        first = self._upload(gap)
+        again = self._upload(gap)
+        self.assertEqual((again.status_code, again.data['reused']), (status.HTTP_201_CREATED, True))
+        self.assertEqual(again.data['document_id'], first.data['document_id'])
+        self.assertEqual(ExtractionJob.objects.filter(document_id=first.data['document_id']).count(), 1)
+
+    def test_a_file_processed_in_another_sprint_is_processed_again_here(self):
+        other = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
+        first = self.client.post(f'/api/v1/sprints/{other.id}/upload-file/',
+                                 {'file': self._evidence('renamed.pdf'), 'document_type': 'aqar_report'}, format='multipart')
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.data)
+        gap = self._missing_gap()
+        r = self._upload(gap)
+        doc = Document.objects.get(id=r.data['document_id'])
+        self.assertEqual((r.data['reused'], doc.sprint), (False, self.sprint))
+        self.assertTrue(ExtractionJob.objects.filter(document=doc, sprint=self.sprint).exists())
+
+    def test_a_failed_extraction_is_recorded_and_retried_on_the_same_job(self):
+        gap = self._missing_gap()
+        self.analysis_service.extract_structured_data.side_effect = PermanentExtractionError('bad file')
+        r = self._upload(gap)
+        job = ExtractionJob.objects.get(document_id=r.data['document_id'])
+        self.assertEqual(job.status, ExtractionJob.Status.FAILED)
+        self.assertIn('evidence_failed', self._events(gap))
+        self.assertEqual(self.client.get(f'/api/v1/gaps/{gap.id}').data['evidence_state']['state'], 'processing_failed')
+        route_combined_analysis(self)  # the AI answers again
+        self.client.post(f'/api/v1/extraction-jobs/{job.id}/process')
+        self.assertEqual(ExtractionJob.objects.filter(document_id=r.data['document_id']).count(), 1)
+        job.refresh_from_db()
+        self.assertEqual(job.status, ExtractionJob.Status.COMPLETED)
+
+    # -- low confidence -------------------------------------------------------------------------------
+    def test_low_confidence_closes_only_when_the_new_value_is_reviewed(self):
+        from apps.scoring.models import ScoringRun
+        gap = self._low_confidence_gap()
+        self._facts(_valid_fact(value='45', confidence_score=0.95,
+                                source_snippet='Signed evidence: the institution has 45 faculty members.'))
+        r = self._upload(gap)
+        new = ExtractedFact.objects.get(document_id=r.data['document_id'], field_key='total_faculty')
+        gap.refresh_from_db()
+        self.assertEqual((new.status, gap.status), ('extracted', 'in_progress'))  # a separate suggestion
+        listed = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/').data
+        row = next(f for f in (listed['results'] if isinstance(listed, dict) else listed) if f['id'] == str(new.id))
+        self.assertEqual(row['evidence_for_gaps'][0]['id'], str(gap.id))
+        runs = ScoringRun.objects.filter(sprint=self.sprint).count()
+        self._auth(self.admin)
+        r = self.client.post(f'/api/v1/facts/{new.id}/confirm', {'reason': 'Signed register.'})
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        gap.refresh_from_db()
+        self.assertEqual(gap.status, 'resolved')
+        self.assertIn('Verified from uploaded evidence', gap.resolution)
+        self.assertEqual(ScoringRun.objects.filter(sprint=self.sprint).count(), runs + 1)  # CRI recalculated
+
+    def test_a_conflict_keeps_the_low_confidence_gap_open(self):
+        from apps.gaps.models import GapItem
+        gap = self._low_confidence_gap()
+        self._facts(_valid_fact(value='45', confidence_score=0.95,
+                                source_snippet='Signed evidence: the institution has 45 faculty members.'))
+        r = self._upload(gap)
+        new = ExtractedFact.objects.get(document_id=r.data['document_id'], field_key='total_faculty')
+        GapItem.objects.create(sprint=self.sprint, gap_type='conflict', title='Two values', source_fact=gap.source_fact,
+                               conflict_fact_b=new, pillar='aiqif_c4')
+        self._auth(self.admin)
+        self.client.post(f'/api/v1/facts/{new.id}/confirm', {'reason': 'x'})
+        gap.refresh_from_db()
+        self.assertEqual(gap.status, 'in_progress')
+
+    # -- access --------------------------------------------------------------------------------------
+    def test_only_people_who_may_act_and_only_eligible_gaps(self):
+        from apps.gaps.models import GapItem
+        gap = self._missing_gap()
+        self.assertEqual(self._upload(gap, user=self.viewer).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._upload(gap, user=self.outsider).status_code, status.HTTP_403_FORBIDDEN)
+        from apps.facts.ownership import gap_owner_role
+        if gap_owner_role(gap) not in ('', None, 'iqac_coordinator'):
+            self.assertEqual(self._upload(gap, user=self.iqac).status_code, status.HTTP_403_FORBIDDEN)  # not its owner
+        conflict = GapItem.objects.create(sprint=self.sprint, gap_type='conflict', title='x', pillar='aiqif_c4')
+        self.assertEqual(self._upload(conflict).status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(gap.evidence_documents.exists())

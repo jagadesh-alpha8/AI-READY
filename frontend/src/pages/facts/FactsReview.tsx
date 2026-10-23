@@ -466,6 +466,12 @@ export const FactsReview: React.FC = () => {
                           auto ({Math.round(fact.confidence * 100)}%)
                         </span>
                       )}
+                      {fact.evidence_for_gaps?.map((g) => (
+                        <span key={g.id} className="block text-[11px] text-ink-500 mt-0.5 max-w-[14rem] whitespace-normal"
+                          title="This fact comes from a document uploaded as evidence for this gap. Confirming or correcting it (with its citation) settles a Low Confidence gap; it is not confirmed automatically.">
+                          Evidence for gap: {g.title} ({g.status.replace(/_/g, ' ')})
+                        </span>
+                      ))}
                     </td>
                     <td className="text-right space-x-1 whitespace-nowrap">
                       {fact.can_act === false ? (

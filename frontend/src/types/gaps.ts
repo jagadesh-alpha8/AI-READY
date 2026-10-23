@@ -50,6 +50,18 @@ export interface Gap {
   /** Whether the current user may resolve / close it; when not, who may. The server decides. */
   can_act: boolean | null;
   act_blocked_reason: string;
+  /** Missing Document / Low Confidence gaps that are still active can take an evidence upload. */
+  can_upload_evidence?: boolean;
+  requested_document_type: string;
+  /** Where the uploaded evidence stands (null for other gap types). */
+  evidence_state?: {
+    state: 'evidence_requested' | 'still_open' | 'uploaded' | 'processing' | 'processing_failed' | 'awaiting_review'
+      | 'resolved' | 'closed';
+    label: string;
+    reason: string;
+    next_action: string;
+    documents: { id: string; filename: string; document_type: string }[];
+  } | null;
   /** Only on GET /gaps/<id>: what happened to it. */
   events?: GapEvent[];
 }

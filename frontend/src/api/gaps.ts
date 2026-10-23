@@ -30,3 +30,12 @@ export function assignGap(id: string, body: { assigned_to: string | null; due_da
 export function getWorkSummary(sprintId: string) {
   return api.get<WorkSummary>(`/sprints/${sprintId}/work-summary`);
 }
+
+/** Upload evidence from a Missing Document / Low Confidence gap: stored and processed in the gap's sprint. */
+export function uploadGapEvidence(gapId: string, file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return api.post<{ gap: Gap; document_id: string; reused: boolean }>(`/gaps/${gapId}/upload-evidence`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+}

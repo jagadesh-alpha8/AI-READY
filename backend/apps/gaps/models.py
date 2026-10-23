@@ -54,6 +54,8 @@ class GapItem(models.Model):
         'documents.Document', on_delete=models.SET_NULL, null=True, blank=True, related_name='gaps',
     )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    #: Documents uploaded from this gap's "Upload Evidence" (gaps/evidence_upload.py). Linking never resolves it.
+    evidence_documents = models.ManyToManyField('documents.Document', blank=True, related_name='evidence_for_gaps')
 
     # -- conflict-type-specific fields ---------------------------------------
     # Populated only for gap_type=CONFLICT (apps.extraction.services.
@@ -135,6 +137,9 @@ class GapEvent(models.Model):
         SKIPPED = 'skipped', 'Skipped'
         AUTO_RESOLVED = 'auto_resolved', 'Resolved by the underlying fix'
         NEEDS_REPLACEMENT = 'needs_replacement', 'Fact rejected - needs replacement'
+        EVIDENCE_UPLOADED = 'evidence_uploaded', 'Evidence uploaded'
+        EVIDENCE_PROCESSED = 'evidence_processed', 'Evidence processed'
+        EVIDENCE_FAILED = 'evidence_failed', 'Evidence processing failed'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     gap = models.ForeignKey(GapItem, on_delete=models.CASCADE, related_name='events')

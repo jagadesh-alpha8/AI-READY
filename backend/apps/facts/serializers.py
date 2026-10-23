@@ -58,6 +58,8 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
     aiqif_mappings = FactAIQIFMappingSerializer(many=True, read_only=True)
     #: True when the system confirmed it (confidence above FACT_AUTO_CONFIRM_MIN_CONFIDENCE), not a person.
     auto_confirmed = serializers.SerializerMethodField()
+    #: The gaps whose "Upload Evidence" supplied this fact's document (the original gap).
+    evidence_for_gaps = serializers.SerializerMethodField()
     # The fact's unresolved evidence request (apps/facts/evidence_requests.py), or null.
     open_evidence_request = serializers.SerializerMethodField()
     # Responsibility (apps/facts/ownership.py): the owner role, the person assigned and by when, and
@@ -74,7 +76,7 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
             'value_json', 'normalized_value', 'data_type', 'pillar', 'pillar_label', 'owner_role',
             'source_document_id', 'source_document_filename', 'source_page', 'source_snippet',
             'confidence_score', 'confidence', 'confidence_reason', 'extraction_method', 'status',
-            'aiqif_mapping_status', 'aiqif_mappings', 'open_evidence_request', 'auto_confirmed',
+            'aiqif_mapping_status', 'aiqif_mappings', 'open_evidence_request', 'auto_confirmed', 'evidence_for_gaps',
             'owner_role_label', 'assigned_to', 'assigned_to_name', 'assigned_at', 'due_date', 'can_act',
             'act_blocked_reason',
             'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
@@ -103,6 +105,13 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
     def get_act_blocked_reason(self, obj):
         result = self._check(obj)
         return '' if result is None else result[1]
+
+    def get_evidence_for_gaps(self, obj):
+        if not obj.document_id:
+            return []
+        from apps.gaps.models import GapItem
+        return [{'id': str(g.id), 'title': g.title, 'gap_type': g.gap_type, 'status': g.status}
+                for g in GapItem.objects.filter(evidence_documents=obj.document_id).only('id', 'title', 'gap_type', 'status')]
 
     def get_auto_confirmed(self, obj):
         from .auto_confirm import is_auto_confirmed
