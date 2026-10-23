@@ -53,7 +53,10 @@ export interface SprintAIUsage extends AIUsageTotals {
   estimated_calls: number;
   /** Where imported/estimated figures came from. */
   notes: string[];
+  /** Distinct documents with recorded usage, including earlier versions and rejected files. */
   documents: number;
+  /** Of those, the current documents (not rejected, not superseded) -- the processing summary's rule. */
+  current_documents?: number;
   by_stage: (AIUsageTotals & { stage: string })[];
   by_model: (AIUsageTotals & { model: string })[];
   top_documents: (AIUsageTotals & { document_id: string; filename: string })[];
@@ -124,4 +127,17 @@ export interface ProcessingSummary {
   counts: Record<DocumentProcessingState, number> & { total: number };
   documents: DocumentProcessingRow[];
   incomplete: DocumentProcessingRow[];
+  /** The sprint's documents that are not current, never part of `counts`. */
+  excluded?: { earlier_version: number; rejected: number; total: number };
+  excluded_documents?: ExcludedDocumentRow[];
+}
+
+export interface ExcludedDocumentRow {
+  document_id: string;
+  filename: string;
+  state: 'earlier_version' | 'rejected';
+  /** "Earlier version — replaced by version 2; excluded from current-document counts." */
+  label: string;
+  version_number: number;
+  replaced_by_version: number | null;
 }

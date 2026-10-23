@@ -12,7 +12,14 @@ the sprint:
   active         queued, running or retrying
   not_processed  no extraction job yet
 
-Only "complete" counts as processed. Nothing here changes data.
+Only "complete" counts as processed. The five counts always add up to `counts.total` (the current documents).
+
+Documents that are not current are listed separately in `excluded` / `excluded_documents`, never in the counts:
+
+  earlier_version  replaced by a newer version of the same file in this sprint (kept, with its facts, as history)
+  rejected         rejected by a reviewer
+
+Nothing here changes data.
 """
 from collections import Counter
 
@@ -30,11 +37,35 @@ LABELS = {
     NOT_PROCESSED: 'Not processed yet',
 }
 _ACTIVE = (ExtractionJob.Status.PENDING, ExtractionJob.Status.RUNNING, ExtractionJob.Status.RETRYING)
+EARLIER_VERSION, REJECTED = 'earlier_version', 'rejected'
+EXCLUDED_NOTE = 'excluded from current-document counts'
 
 
 def included_documents(sprint):
     return (sprint.documents.exclude(status=Document.Status.REJECTED).filter(superseded_at__isnull=True)
             .order_by('original_filename', 'created_at'))
+
+
+def excluded_documents(sprint):
+    """The sprint's documents that are not current: rejected, or superseded by a newer version."""
+    from django.db.models import Q
+    return (sprint.documents.filter(Q(status=Document.Status.REJECTED) | Q(superseded_at__isnull=False))
+            .prefetch_related('newer_versions').order_by('original_filename', 'version_number', 'created_at'))
+
+
+def _excluded_row(doc):
+    """Why a non-current document is left out. A rejected file is "rejected" even if a later version exists."""
+    if doc.status == Document.Status.REJECTED:
+        state, label = REJECTED, f'Rejected \u2014 {EXCLUDED_NOTE}.'
+        replaced_by = None
+    else:
+        newer = sorted(doc.newer_versions.all(), key=lambda d: d.version_number)
+        replaced_by = newer[0].version_number if newer else None
+        state = EARLIER_VERSION
+        label = (f'Earlier version \u2014 replaced by version {replaced_by}; {EXCLUDED_NOTE}.' if replaced_by
+                 else f'Earlier version \u2014 replaced by a newer version; {EXCLUDED_NOTE}.')
+    return {'document_id': str(doc.id), 'filename': doc.original_filename or doc.title, 'state': state,
+            'label': label, 'version_number': doc.version_number, 'replaced_by_version': replaced_by}
 
 
 def _state(job):
@@ -48,7 +79,8 @@ def _state(job):
 
 
 def processing_summary(sprint):
-    """{complete: bool, counts: {state: n, total}, documents: [...], incomplete: [...]}"""
+    """{complete, counts: {state: n, total}, documents, incomplete, excluded: {earlier_version, rejected, total},
+    excluded_documents}. `counts` covers current documents only; `excluded*` the rest of the sprint's documents."""
     docs = list(included_documents(sprint))
     latest = {}
     for job in ExtractionJob.objects.filter(sprint=sprint, document__in=docs).order_by('created_at'):
@@ -68,11 +100,16 @@ def processing_summary(sprint):
         })
     counts = Counter(r['state'] for r in rows)
     incomplete = [r for r in rows if r['state'] != COMPLETE]
+    excluded = [_excluded_row(d) for d in excluded_documents(sprint)]
+    excluded_counts = Counter(r['state'] for r in excluded)
     return {
         'complete': not incomplete,
         'counts': {**{s: counts.get(s, 0) for s in STATES}, 'total': len(rows)},
         'documents': rows,
         'incomplete': incomplete,
+        'excluded': {EARLIER_VERSION: excluded_counts.get(EARLIER_VERSION, 0),
+                     REJECTED: excluded_counts.get(REJECTED, 0), 'total': len(excluded)},
+        'excluded_documents': excluded,
     }
 
 

@@ -196,8 +196,10 @@ def _parse_and_normalize(raw_value, data_type):
         return number, number
 
     if data_type == ExtractedFact.DataType.CURRENCY:
-        digits = re.sub(r'[^0-9.\-]', '', text)
-        number = _parse_number(digits, 'value') if digits else None
+        # The first amount in the text: "Rs. 20,000" -> 20000, not ".20000" (the prefix's dot) -> 0.2;
+        # "Rs 20,000 / month" -> 20000; Indian grouping "Rs. 50,00,000" -> 5000000.
+        match = re.search(r'-?\d[\d,]*(?:\.\d+)?', text)
+        number = _parse_number(match.group(), 'value') if match else None
         if number is None:
             raise FactValidationError(f'value {raw_value!r} has no numeric amount.')
         return text, number

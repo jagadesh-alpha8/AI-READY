@@ -1,14 +1,16 @@
 import { ACTIVE_EXTRACTION_STATUSES, type ExtractionJob } from '../types';
 
 /**
- * Timing for the latest extraction "run" of a sprint: elapsed time, a rounded
+ * The sprint's most recent processing activity: elapsed time, a rounded
  * estimate of time left, and a summary once it finishes.
  *
- * A sprint can be extracted several times (first run, later re-processing), so
- * the run is found from the jobs' own timestamps: jobs whose work periods
- * overlap or follow each other with less than RUN_GAP_MS between them belong to
- * one run; the latest such group is "the run". Queued jobs that haven't
- * started yet belong to the current run too.
+ * There is no batch / run id: the activity is found from the jobs' own
+ * timestamps. Jobs whose work periods overlap or follow each other with no
+ * more than RUN_GAP_MS between them form one activity; the latest such group
+ * is "the activity". Queued jobs that haven't started yet belong to it while
+ * it is going. A re-processed job is the same row with its times reset, so it
+ * counts only in the activity of its latest attempt. Duration = the group's
+ * first start to its last finish (or now, while active).
  */
 const RUN_GAP_MS = 5 * 60 * 1000;
 /** No estimate until this many documents of the run have finished. */
@@ -30,6 +32,26 @@ export interface RunTiming {
   etaRangeMs: [number, number] | null;
   /** Wall-clock time per finished document (includes parallel workers). */
   avgPerDocMs: number | null;
+  /** The jobs (one per document) in this activity, earliest start first, with their outcome. */
+  jobs: ActivityJob[];
+}
+
+export type ActivityOutcome = 'fully processed' | 'partially processed' | 'failed' | 'stopped' | 'processing' | 'queued';
+
+export interface ActivityJob {
+  jobId: string;
+  documentId: string;
+  filename: string;
+  outcome: ActivityOutcome;
+  startedAt: number | null;
+  finishedAt: number | null;
+}
+
+export function activityOutcome(job: ExtractionJob): ActivityOutcome {
+  if (job.status === 'completed') return job.completeness === 'partial' ? 'partially processed' : 'fully processed';
+  if (job.status === 'failed') return 'failed';
+  if (job.status === 'cancelled') return 'stopped';
+  return job.started_at ? 'processing' : 'queued';
 }
 
 const time = (iso: string | null) => (iso ? new Date(iso).getTime() : null);
@@ -100,6 +122,10 @@ export function latestRunTiming(jobs: ExtractionJob[], now: number): RunTiming |
     remaining,
     etaRangeMs,
     avgPerDocMs: finished > 0 && elapsedMs > 0 ? elapsedMs / finished : null,
+    jobs: runJobs.map((j) => ({
+      jobId: j.id, documentId: j.document_id, filename: j.document_filename, outcome: activityOutcome(j),
+      startedAt: time(j.started_at), finishedAt: time(j.completed_at),
+    })),
   };
 }
 

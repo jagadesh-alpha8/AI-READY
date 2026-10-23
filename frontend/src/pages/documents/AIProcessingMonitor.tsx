@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
+  getProcessingSummary,
   getSprintAIUsage,
   listExtractionJobs,
   cancelSprintExtraction,
@@ -18,7 +19,7 @@ import { ErrorState, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage, humanizeExtractionError } from '../../utils/errors';
 import { formatDuration, formatEstimate, latestRunTiming, type RunTiming } from '../../utils/extractionTiming';
 import {
-  ACTIVE_EXTRACTION_STATUSES, type ExtractionJob, type Fact, type Gap, type SprintAIUsage,
+  ACTIVE_EXTRACTION_STATUSES, type ExtractionJob, type Fact, type Gap, type ProcessingSummary, type SprintAIUsage,
 } from '../../types';
 import type { SprintDocument } from '../../types/documents';
 import {
@@ -39,7 +40,9 @@ const STEP_LABELS = [
   'preparing_review_workspace',
 ];
 
-type DocState = 'complete' | 'partial' | 'failed' | 'active' | 'not_processed' | 'excluded';
+// Current documents: the five server states (apps/extraction/services/completeness.py), which add up to the
+// current-document total. Not current: earlier versions and rejected documents, never in those counts.
+type DocState = 'complete' | 'partial' | 'failed' | 'active' | 'not_processed' | 'earlier_version' | 'rejected';
 
 export const AIProcessingMonitor: React.FC = () => {
   const { step } = useAccess();
@@ -56,6 +59,17 @@ export const AIProcessingMonitor: React.FC = () => {
   const { data: documentsData, loading: documentsLoading, error: documentsError, refetch: refetchDocuments } =
     useApiResource<SprintDocument[]>(() => listSprintDocuments(sprintId!), [sprintId], isRealSprint);
   const documents = documentsData || [];
+  // Every count, chip and row state comes from the server's processing summary, so this page, the review
+  // screens and the baseline gate use one definition; the jobs list only adds per-row detail.
+  const { data: summary, loading: summaryLoading, error: summaryError, refetch: refetchSummary } =
+    useApiResource<ProcessingSummary>(() => getProcessingSummary(sprintId!), [sprintId], isRealSprint);
+  const stateByDocument = new Map<string, DocState>();
+  const excludedLabel = new Map<string, string>();
+  for (const row of summary?.documents || []) stateByDocument.set(row.document_id, row.state);
+  for (const row of summary?.excluded_documents || []) {
+    stateByDocument.set(row.document_id, row.state);
+    excludedLabel.set(row.document_id, row.label);
+  }
   const latestJobByDocument = new Map<string, ExtractionJob>();
   for (const job of [...jobs].sort((a, b) => b.created_at.localeCompare(a.created_at))) {
     if (!latestJobByDocument.has(job.document_id)) latestJobByDocument.set(job.document_id, job);
@@ -90,14 +104,10 @@ export const AIProcessingMonitor: React.FC = () => {
   const conflictCount = gaps.filter((g) => g.gap_type === 'conflict').length;
 
   const hasActiveJob = jobs.some((j) => ACTIVE_EXTRACTION_STATUSES.includes(j.status));
-  // Rows the user can run again: not processed, failed, stopped, or partially extracted.
   const isPartial = (job?: ExtractionJob) => job?.status === 'completed' && job.completeness === 'partial';
-  const incompleteDocuments = documents.filter((doc) => {
-    if (doc.status === 'rejected' || doc.superseded_at) return false;
-    const job = latestJobByDocument.get(doc.id);
-    return !job || isPartial(job) || (job.status !== 'completed' && !ACTIVE_EXTRACTION_STATUSES.includes(job.status));
-  });
-  const incompleteCount = incompleteDocuments.length;
+  // Current documents the user can run again: not processed, failed, stopped, or partially extracted.
+  const counts = summary?.counts;
+  const incompleteCount = counts ? counts.partial + counts.failed + counts.not_processed : 0;
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [actionError, setActionError] = useState('');
@@ -164,6 +174,7 @@ export const AIProcessingMonitor: React.FC = () => {
   const refetchAllRef = useRef(() => {
     refetch();
     refetchDocuments();
+    refetchSummary();
     refetchFacts();
     refetchGaps();
     refetchUsage();
@@ -171,6 +182,7 @@ export const AIProcessingMonitor: React.FC = () => {
   refetchAllRef.current = () => {
     refetch();
     refetchDocuments();
+    refetchSummary();
     refetchFacts();
     refetchGaps();
     refetchUsage();
@@ -182,33 +194,18 @@ export const AIProcessingMonitor: React.FC = () => {
     return () => clearInterval(timer);
   }, [hasActiveJob]);
 
-  // The same five states as the server (apps/extraction/services/completeness.py) and the baseline gate.
-  const includedDocuments = documents.filter((doc) => doc.status !== 'rejected' && !doc.superseded_at);
-  const completedCount = includedDocuments.filter((doc) => {
-    const job = latestJobByDocument.get(doc.id);
-    return job?.status === 'completed' && !isPartial(job);
-  }).length;
-  const partialCount = includedDocuments.filter((doc) => isPartial(latestJobByDocument.get(doc.id))).length;
-  const notProcessedCount = includedDocuments.filter((doc) => !latestJobByDocument.get(doc.id)).length;
-  const processingCount = includedDocuments.filter((doc) => {
-    const status = latestJobByDocument.get(doc.id)?.status;
-    return !!status && ACTIVE_EXTRACTION_STATUSES.includes(status);
-  }).length;
-  const needsAttentionCount = documents.filter((doc) => {
-    const job = latestJobByDocument.get(doc.id);
-    return !doc.superseded_at && doc.status !== 'rejected' && !!job && ['failed', 'cancelled'].includes(job.status);
-  }).length;
-  const allComplete = includedDocuments.length > 0 && completedCount === includedDocuments.length;
-  const excludedCount = documents.length - includedDocuments.length;
-  // The same states as the counts above, per document, for the list filter.
-  const docState = (doc: SprintDocument): DocState => {
-    if (doc.status === 'rejected' || doc.superseded_at) return 'excluded';
-    const job = latestJobByDocument.get(doc.id);
-    if (!job) return 'not_processed';
-    if (ACTIVE_EXTRACTION_STATUSES.includes(job.status)) return 'active';
-    if (job.status === 'completed') return isPartial(job) ? 'partial' : 'complete';
-    return 'failed';
-  };
+  const currentTotal = counts?.total ?? 0;
+  const completedCount = counts?.complete ?? 0;
+  const partialCount = counts?.partial ?? 0;
+  const failedCount = counts?.failed ?? 0;
+  const processingCount = counts?.active ?? 0;
+  const notProcessedCount = counts?.not_processed ?? 0;
+  const earlierVersionCount = summary?.excluded?.earlier_version ?? 0;
+  const rejectedCount = summary?.excluded?.rejected ?? 0;
+  const allComplete = currentTotal > 0 && completedCount === currentTotal;
+  // A document uploaded after the summary was fetched has no state yet: shown as not started until the next poll.
+  const docState = (doc: SprintDocument): DocState => stateByDocument.get(doc.id) || 'not_processed';
+  const isCurrent = (doc: SprintDocument) => !['earlier_version', 'rejected'].includes(docState(doc));
   const needle = search.trim().toLowerCase();
   const shownDocuments = documents.filter((doc) =>
     (stateFilter === 'all' || docState(doc) === stateFilter)
@@ -264,10 +261,11 @@ export const AIProcessingMonitor: React.FC = () => {
         </div>
       )}
 
-      {loading || documentsLoading ? (
+      {loading || documentsLoading || (summaryLoading && !summary) ? (
         <LoadingState message="Loading extraction jobs..." />
-      ) : error || documentsError ? (
-        <ErrorState message={getErrorMessage(error || documentsError, 'Could not load sprint processing status.')} onRetry={() => { refetch(); refetchDocuments(); }} />
+      ) : error || documentsError || summaryError ? (
+        <ErrorState message={getErrorMessage(error || documentsError || summaryError, 'Could not load sprint processing status.')}
+          onRetry={() => { refetch(); refetchDocuments(); refetchSummary(); }} />
       ) : documents.length === 0 ? (
         <div className="panel-muted">
           <p className="text-sm text-ink-500">
@@ -277,18 +275,19 @@ export const AIProcessingMonitor: React.FC = () => {
       ) : (
         <>
           {run && <RunTimingPanel run={run} />}
-          {usage && usage.calls > 0 && <AIUsagePanel usage={usage} />}
+          {usage && usage.calls > 0 && <AIUsagePanel usage={usage} currentTotal={currentTotal} />}
 
           {/* Progress Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="glass-card p-5">
               <div className="flex items-center justify-between text-ink-500">
-                <span className="text-sm font-medium">Documents Processed</span>
+                <span className="text-sm font-medium">Fully processed current documents</span>
                 <CheckCircle2 className="w-4 h-4 text-success" />
               </div>
-              <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{completedCount} / {includedDocuments.length}</p>
+              <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{completedCount} / {currentTotal}</p>
               <span className={`text-xs mt-1 inline-block font-medium ${allComplete ? 'text-success' : 'text-warning'}`}>
-                {allComplete ? 'All included documents fully processed' : 'Not all documents are fully processed'}
+                {allComplete ? 'All current documents fully processed'
+                  : `${currentTotal - completedCount} current document${currentTotal - completedCount === 1 ? '' : 's'} not fully processed`}
               </span>
             </div>
 
@@ -323,34 +322,58 @@ export const AIProcessingMonitor: React.FC = () => {
           </div>
 
           {/* One count per state; only "fully processed" counts as done (review, CRI, baseline and reports say so too). */}
-          <div className="glass-card p-4 flex flex-wrap items-center gap-2 text-xs">
-            {([
-              ['all', 'All', includedDocuments.length + excludedCount, 'badge-neutral'],
-              ['complete', 'Fully processed', completedCount, 'badge-success'],
-              ['partial', 'Partially processed', partialCount, partialCount ? 'badge-warning' : 'badge-neutral'],
-              ['failed', 'Failed or stopped', needsAttentionCount, needsAttentionCount ? 'badge-danger' : 'badge-neutral'],
-              ['active', 'Processing', processingCount, processingCount ? 'badge-info' : 'badge-neutral'],
-              ['not_processed', 'Not processed yet', notProcessedCount, notProcessedCount ? 'badge-warning' : 'badge-neutral'],
-              ['excluded', 'Rejected / earlier versions', excludedCount, 'badge-neutral'],
-            ] as [DocState | 'all', string, number, string][]).map(([key, label, count, cls]) => (
-              <button key={key} type="button" onClick={() => setStateFilter(key)} aria-pressed={stateFilter === key}
-                className={`${cls} cursor-pointer ${stateFilter === key ? 'ring-2 ring-brand-500' : 'opacity-80 hover:opacity-100'}`}
-                title={`Show ${label.toLowerCase()} documents`}>
-                {label} {count}
-              </button>
-            ))}
-            <input className="input text-xs ml-auto w-56" placeholder="Search file name…" value={search}
-              onChange={(e) => setSearch(e.target.value)} />
+          <div className="glass-card p-4 space-y-3 text-xs">
+            <div>
+              <p className="text-sm font-semibold text-ink-900">Current documents: {currentTotal}</p>
+              <p className="text-ink-600 tabular-nums" data-testid="current-reconciliation">
+                {completedCount} fully processed + {partialCount} partially processed + {failedCount} failed or stopped
+                {' '}+ {processingCount} processing + {notProcessedCount} not started = {currentTotal} current documents
+              </p>
+              {partialCount > 0 && (
+                <p className="text-ink-500">
+                  Partially processed documents were processed, but some of their content could not be read, so they are
+                  not counted as fully processed. Process them again to read what was missed.
+                </p>
+              )}
+              <p className="text-ink-500">
+                Not counted above: {earlierVersionCount} earlier version{earlierVersionCount === 1 ? '' : 's'} and
+                {' '}{rejectedCount} rejected document{rejectedCount === 1 ? '' : 's'}, kept for sprint history
+                ({documents.length} files in the sprint in all).
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {([
+                ['all', 'All files', documents.length, 'badge-neutral'],
+                ['complete', 'Fully processed', completedCount, 'badge-success'],
+                ['partial', 'Partially processed', partialCount, partialCount ? 'badge-warning' : 'badge-neutral'],
+                ['failed', 'Failed or stopped', failedCount, failedCount ? 'badge-danger' : 'badge-neutral'],
+                ['active', 'Processing', processingCount, processingCount ? 'badge-info' : 'badge-neutral'],
+                ['not_processed', 'Not started', notProcessedCount, notProcessedCount ? 'badge-warning' : 'badge-neutral'],
+                ['earlier_version', 'Earlier versions', earlierVersionCount, 'badge-neutral'],
+                ['rejected', 'Rejected documents', rejectedCount, 'badge-neutral'],
+              ] as [DocState | 'all', string, number, string][]).map(([key, label, count, cls]) => (
+                <React.Fragment key={key}>
+                  {key === 'earlier_version' && <span className="text-ink-500 ml-2">Not current:</span>}
+                  <button type="button" onClick={() => setStateFilter(key)} aria-pressed={stateFilter === key}
+                    className={`${cls} cursor-pointer ${stateFilter === key ? 'ring-2 ring-brand-500' : 'opacity-80 hover:opacity-100'}`}
+                    title={`Show ${label.toLowerCase()}`}>
+                    {label} {count}
+                  </button>
+                </React.Fragment>
+              ))}
+              <input className="input text-xs ml-auto w-56" placeholder="Search file name…" value={search}
+                onChange={(e) => setSearch(e.target.value)} />
+            </div>
             {!allComplete && !hasActiveJob && (
-              <span className="text-ink-600">
+              <p className="text-ink-600">
                 Partial and failed documents can be processed again; facts are updated in place, never duplicated.
-              </span>
+              </p>
             )}
           </div>
 
           {/* Sprint coverage includes documents without a job, so an unqueued item is visible. */}
           <div className="glass-card p-5 sm:p-6 space-y-4">
-            <h2 className="eyebrow">Sprint Document Processing ({completedCount}/{includedDocuments.length} fully processed)</h2>
+            <h2 className="eyebrow">Sprint Document Processing ({completedCount}/{currentTotal} current documents fully processed)</h2>
             {(stateFilter !== 'all' || search.trim()) && (
               <p className="text-xs text-ink-500">
                 Showing {shownDocuments.length} of {documents.length} documents.{' '}
@@ -369,7 +392,8 @@ export const AIProcessingMonitor: React.FC = () => {
                 const completedWithoutFacts = status === 'completed' && !partial && documentFactCount === 0;
                 const stepIndex = job ? STEP_LABELS.indexOf(job.current_step) : -1;
                 const isActive = !!job && ACTIVE_EXTRACTION_STATUSES.includes(job.status);
-                const canProcess = document.status !== 'rejected' && !isActive && (!job || job.status !== 'completed' || partial);
+                const current = isCurrent(document);
+                const canProcess = current && !isActive && (!job || job.status !== 'completed' || partial);
                 const rowBusy = busyJobId === document.id;
                 const Icon =
                   completedWithoutFacts || partial
@@ -415,14 +439,15 @@ export const AIProcessingMonitor: React.FC = () => {
                       <div className="min-w-0">
                         <p className="text-sm font-bold text-ink-900 truncate">{document.original_filename}{document.version_number > 1 ? ` · v${document.version_number}` : ''}</p>
                         <p className="text-xs text-ink-500">
-                          {!job ? 'Not yet queued in this sprint'
+                          {!current ? excludedLabel.get(document.id)
+                            : !job ? 'Not yet queued in this sprint'
                             : job.status === 'cancelled'
                             ? job.current_step_label
                               ? `Stopped at: ${job.current_step_label}`
                               : 'Stopped before it started'
                             : job.current_step_label || 'Queued'}
-                          {stepIndex >= 0 && ` (step ${stepIndex + 1} of ${STEP_LABELS.length})`}
-                          {job?.ai_router && ` · ${job.ai_router}`}
+                          {current && stepIndex >= 0 && ` (step ${stepIndex + 1} of ${STEP_LABELS.length})`}
+                          {current && job?.ai_router && ` · ${job.ai_router}`}
                         </p>
                         {partial && job && (
                           <div className="text-xs text-warning mt-0.5 space-y-0.5">
@@ -450,7 +475,9 @@ export const AIProcessingMonitor: React.FC = () => {
                             {humanizeExtractionError(job.error_message, true)}
                           </p>
                         )}
-                        {document.superseded_at && <p className="text-xs text-ink-500 mt-0.5">Earlier file version retained for sprint history</p>}
+                        {!current && job && (
+                          <p className="text-xs text-ink-500 mt-0.5">Its earlier processing ({job.status}) is kept for sprint history.</p>
+                        )}
                         {!job && document.status === 'failed' && <p className="text-xs text-danger mt-0.5">Document processing failed before a job was recorded.</p>}
                       </div>
                     </div>
@@ -466,7 +493,8 @@ export const AIProcessingMonitor: React.FC = () => {
                       )}
                       <span className="text-sm font-mono text-ink-500 tabular-nums">{job?.progress_percentage || 0}%</span>
                       <span className={badgeClass}>
-                        {partial ? 'partial' : completedWithoutFacts ? 'completed · 0 facts' : status === 'not_started' ? 'not started' : status === 'cancelled' ? 'stopped' : status}
+                        {!current ? (docState(document) === 'rejected' ? 'rejected' : 'earlier version')
+                          : partial ? 'partial' : completedWithoutFacts ? 'completed · 0 facts' : status === 'not_started' ? 'not started' : status === 'cancelled' ? 'stopped' : status}
                       </span>
                       {isActive && (
                         <button
@@ -514,7 +542,40 @@ export const AIProcessingMonitor: React.FC = () => {
 
 const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-/** Elapsed time, rounded time-left estimate, and a finished-run summary. */
+const OUTCOME_CLASS: Record<string, string> = {
+  'fully processed': 'text-success', 'partially processed': 'text-warning', failed: 'text-danger',
+  stopped: 'text-ink-500', processing: 'text-brand-800', queued: 'text-ink-500',
+};
+
+/** Which jobs the activity groups, how its time is measured, and each document in it with its outcome. */
+const ActivityDetails: React.FC<{ run: RunTiming }> = ({ run }) => (
+  <details className="text-xs text-ink-600 mt-2">
+    <summary className="cursor-pointer text-brand-800">
+      Which documents? ({run.jobs.length} document{run.jobs.length === 1 ? '' : 's'} in this activity)
+    </summary>
+    <p className="mt-1 text-ink-500">
+      This is the latest group of extraction jobs whose processing overlapped or started within 5 minutes of each
+      other (there is no separate batch id). A document processed again counts only in the activity of its latest
+      attempt. Duration is from the first job's start to the last job's finish. It is recent activity, not the
+      sprint total: see the current-document counts below.
+    </p>
+    <ul className="mt-1 space-y-0.5">
+      {run.jobs.map((j) => (
+        <li key={j.jobId} className="flex flex-wrap gap-x-2">
+          <span className="text-ink-900 font-medium">{j.filename}</span>
+          <span className={OUTCOME_CLASS[j.outcome] || ''}>{j.outcome}</span>
+          {j.startedAt !== null && (
+            <span className="text-ink-500 tabular-nums">
+              {clock(j.startedAt)}{j.finishedAt !== null && ` – ${clock(j.finishedAt)}`}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  </details>
+);
+
+/** Elapsed time, rounded time-left estimate, and a summary of the most recent processing activity. */
 const RunTimingPanel: React.FC<{ run: RunTiming }> = ({ run }) => {
   const finished = run.completed + run.failed + run.stopped;
   const outcome = [
@@ -544,7 +605,7 @@ const RunTimingPanel: React.FC<{ run: RunTiming }> = ({ run }) => {
             {run.startedAt !== null && <p className="text-xs text-ink-500">started {clock(run.startedAt)}</p>}
           </div>
           <div>
-            <p className="text-xs text-ink-500">Progress this run</p>
+            <p className="text-xs text-ink-500">Progress of this activity</p>
             <p className="text-lg font-bold text-ink-900 tabular-nums">{finished} / {run.total}</p>
             <p className="text-xs text-ink-500">{run.remaining} remaining{outcome && ` · ${outcome}`}</p>
           </div>
@@ -562,11 +623,12 @@ const RunTimingPanel: React.FC<{ run: RunTiming }> = ({ run }) => {
               </>
             )}
           </div>
+          <div className="sm:col-span-3"><ActivityDetails run={run} /></div>
         </div>
       ) : (
         <div>
           <p className="text-sm font-bold text-ink-900">
-            Last run: {finished} document{finished === 1 ? '' : 's'} in {formatDuration(run.elapsedMs)}
+            Most recent processing activity: {finished} document{finished === 1 ? '' : 's'} in {formatDuration(run.elapsedMs)}
           </p>
           <p className="text-xs text-ink-500 mt-0.5">
             {run.startedAt !== null && `${clock(run.startedAt)} – ${clock(run.finishedAt ?? run.startedAt)}`}
@@ -574,6 +636,7 @@ const RunTimingPanel: React.FC<{ run: RunTiming }> = ({ run }) => {
             {` · ${run.completed} completed`}
             {outcome && ` · ${outcome}`}
           </p>
+          <ActivityDetails run={run} />
         </div>
       )}
     </div>
@@ -600,13 +663,13 @@ const formatUsd = (value: string) => {
 };
 
 /** Real AI tokens and cost recorded for this sprint -- the basis for billing. */
-const AIUsagePanel: React.FC<{ usage: SprintAIUsage }> = ({ usage }) => (
+const AIUsagePanel: React.FC<{ usage: SprintAIUsage; currentTotal: number }> = ({ usage, currentTotal }) => (
   <div className="glass-card p-5 space-y-3">
     <div className="flex flex-col sm:flex-row sm:items-center gap-4">
       <div className="w-10 h-10 rounded-lg border border-brand-500/30 bg-brand-500/10 text-brand-800 flex items-center justify-center shrink-0">
         <Coins className="w-5 h-5" />
       </div>
-      <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div>
           <p className="text-xs text-ink-500">AI cost (this sprint)</p>
           <p className="text-lg font-bold text-ink-900 tabular-nums">{formatUsd(usage.cost_usd)}</p>
@@ -620,11 +683,29 @@ const AIUsagePanel: React.FC<{ usage: SprintAIUsage }> = ({ usage }) => (
           <p className="text-lg font-bold text-ink-900 tabular-nums">{formatTokens(usage.output_tokens)}</p>
         </div>
         <div>
-          <p className="text-xs text-ink-500">AI calls · documents</p>
-          <p className="text-lg font-bold text-ink-900 tabular-nums">{usage.calls} · {usage.documents || '—'}</p>
+          <p className="text-xs text-ink-500">AI requests recorded</p>
+          <p className="text-lg font-bold text-ink-900 tabular-nums">{usage.calls}</p>
+          <p className="text-xs text-ink-500">all attempts, including retries and earlier versions</p>
         </div>
+        <div>
+          <p className="text-xs text-ink-500">Documents with recorded AI usage</p>
+          <p className="text-lg font-bold text-ink-900 tabular-nums">{usage.documents || '—'}</p>
+          <p className="text-xs text-ink-500">includes earlier versions and rejected files</p>
+        </div>
+        {usage.current_documents !== undefined && (
+          <div>
+            <p className="text-xs text-ink-500">Current documents with AI usage</p>
+            <p className="text-lg font-bold text-ink-900 tabular-nums">{usage.current_documents} / {currentTotal}</p>
+            <p className="text-xs text-ink-500">current documents only</p>
+          </div>
+        )}
       </div>
     </div>
+    <p className="text-xs text-ink-500">
+      These are AI usage totals for billing: every recorded AI request in this sprint, for every attempt and every file
+      version. They are not the number of current documents or of completed documents. Requests that failed without
+      a response are not recorded.
+    </p>
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-500">
       {usage.by_stage.map((row) => (
         <span key={row.stage}>

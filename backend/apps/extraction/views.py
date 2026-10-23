@@ -341,7 +341,11 @@ class SprintAIUsageView(APIView):
                     queryset = queryset.filter(**{lookup: datetime.date.fromisoformat(value)})
                 except ValueError:
                     raise ValidationError({param: 'Use a date like 2026-10-31.'})
-        return Response({'sprint_id': str(sprint.id), **summarize_usage(queryset)})
+        from apps.documents.models import Document
+        # Of the documents with usage, those that are current (the same rule as services/completeness.py).
+        current = (queryset.exclude(document=None).filter(document__superseded_at__isnull=True)
+                   .exclude(document__status=Document.Status.REJECTED).values('document').distinct().count())
+        return Response({'sprint_id': str(sprint.id), **summarize_usage(queryset), 'current_documents': current})
 
 
 class PlatformAIUsageView(APIView):

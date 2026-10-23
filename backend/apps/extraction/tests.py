@@ -1533,6 +1533,13 @@ class OpenAIFactExtractorTests(TestCase):
         self.assertEqual(fact['source_page'], '1')
         self.assertEqual(fact['extraction_method'], 'openai')
 
+    def test_currency_amounts_are_parsed_after_their_prefix(self):
+        from .services.openai_fact_extractor import _parse_and_normalize
+        for text, amount in (('Rs 20,000', 20000), ('Rs. 20,000', 20000), ('₹20,000', 20000),
+                             ('INR 20,000', 20000), ('Rs. 50,00,000', 5000000), ('Rs 20,000 / month', 20000),
+                             ('Rs. 1,250.50', 1250.5)):
+            self.assertEqual(_parse_and_normalize(text, 'currency'), (text, amount), text)
+
     def test_empty_document_never_calls_openai(self):
         """A document with no extractable text on any page shouldn't waste
         an API call -- there's nothing to extract facts from."""
@@ -3582,6 +3589,38 @@ class AutoConfirmTests(ExtractionJobTestBase):
         )
         self.assertEqual({f.status for f in facts.values()}, {'extracted'})
 
+    def test_an_amount_with_a_currency_prefix_is_matched_against_its_quote(self):
+        amounts = {
+            'fee_rs': ('Rs 20,000', 'a stipend of Rs 20,000 / month'),
+            'fee_rs_dot': ('Rs. 20,000', 'Rs. 20,000 per student'),
+            'fee_rupee': ('₹20,000', 'Fee: ₹20,000'),
+            'fee_inr': ('INR 20,000', 'INR 20,000 was sanctioned'),
+            'grant_lakhs': ('Rs. 50,00,000', 'a grant of Rs. 50,00,000'),  # Indian digit grouping
+            'fee_wrong': ('Rs 30,000', 'a stipend of Rs 20,000 / month'),  # the amount is not in its quote
+        }
+        facts = self._run(*[
+            _valid_fact(field_key=key, field_name=key, value=value, data_type='currency', source_snippet=quote,
+                        confidence_score=0.95)
+            for key, (value, quote) in amounts.items()])
+        self.assertEqual({k: f.status for k, f in facts.items()}, {
+            'fee_rs': 'confirmed', 'fee_rs_dot': 'confirmed', 'fee_rupee': 'confirmed', 'fee_inr': 'confirmed',
+            'grant_lakhs': 'confirmed', 'fee_wrong': 'extracted'})
+
+    def test_a_currency_amount_at_the_threshold_or_in_a_conflict_is_left_for_a_person(self):
+        from apps.facts.auto_confirm import auto_confirm
+        from apps.gaps.models import GapItem
+
+        def amount(key, confidence):
+            return ExtractedFact.objects.create(
+                sprint=self.sprint, document=self.document, field_name=key, field_key=key, value='Rs 20,000',
+                normalized_value=20000, data_type='currency', pillar='aiqif_c4', source_page='1',
+                source_snippet='a stipend of Rs 20,000 / month', confidence_score=confidence)
+        at_threshold, conflicted = amount('stipend', 0.8), amount('fee', 0.95)
+        GapItem.objects.create(sprint=self.sprint, gap_type=GapItem.GapType.CONFLICT, title='Two values',
+                               source_fact=conflicted, pillar='aiqif_c4')
+        result = auto_confirm(ExtractedFact.objects.filter(pk__in=[at_threshold.pk, conflicted.pk]))
+        self.assertEqual((result['confirmed'], result['skipped']), ([], {'open conflict': 1}))
+
     def test_a_fact_in_an_open_conflict_is_left_for_a_person(self):
         from apps.facts.auto_confirm import auto_confirm
         from apps.gaps.models import GapItem
@@ -3767,3 +3806,75 @@ class GapEvidenceUploadTests(ExtractionJobTestBase):
         conflict = GapItem.objects.create(sprint=self.sprint, gap_type='conflict', title='x', pillar='aiqif_c4')
         self.assertEqual(self._upload(conflict).status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(gap.evidence_documents.exists())
+
+
+class ProcessingMonitorCountTests(ExtractionJobTestBase):
+    """The AI Processing Monitor's counts (services/completeness.py, SprintAIUsageView): current documents vs
+    earlier versions and rejected files, and AI usage across retries and versions."""
+
+    def setUp(self):
+        super().setUp()
+        self._auth(self.iqac)
+        # self.document is doc.pdf v1; a changed doc.pdf makes it an earlier version (never processed).
+        self.v2 = self._upload('doc.pdf', 'The revised document text.')
+        self.document.refresh_from_db()
+        self.rejected = self._upload('rejected.pdf', 'A rejected file.')
+        Document.objects.filter(id=self.rejected.id).update(status=Document.Status.REJECTED)
+        self.unqueued = self._upload('unqueued.pdf', 'Uploaded, never queued.')
+        self.partial = self._upload('partial.pdf', 'Partly read.')
+        self.failed = self._upload('failed.pdf', 'Could not be read.')
+        J = ExtractionJob
+        J.objects.create(sprint=self.sprint, document=self.v2, status=J.Status.COMPLETED, completeness='complete')
+        J.objects.create(sprint=self.sprint, document=self.partial, status=J.Status.COMPLETED, completeness='partial')
+        J.objects.create(sprint=self.sprint, document=self.failed, status=J.Status.FAILED)
+        J.objects.create(sprint=self.sprint, document=self.rejected, status=J.Status.COMPLETED, completeness='complete')
+
+    def _upload(self, name, text):
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/upload-file/',
+                             {'file': make_pdf(name, (text,)), 'document_type': 'naac_ssr'}, format='multipart')
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.data)
+        return Document.objects.get(id=r.data['id'])
+
+    def _summary(self):
+        return self.client.get(f'/api/v1/sprints/{self.sprint.id}/processing-summary').data
+
+    def test_current_documents_exclude_earlier_versions_and_rejected_files(self):
+        s = self._summary()
+        self.assertEqual({r['document_id'] for r in s['documents']},
+                         {str(d.id) for d in (self.v2, self.unqueued, self.partial, self.failed)})
+        self.assertEqual(s['excluded'], {'earlier_version': 1, 'rejected': 1, 'total': 2})
+        rows = {r['document_id']: r for r in s['excluded_documents']}
+        self.assertEqual(rows[str(self.document.id)]['label'],
+                         'Earlier version — replaced by version 2; excluded from current-document counts.')
+        self.assertEqual(rows[str(self.rejected.id)]['label'], 'Rejected — excluded from current-document counts.')
+
+    def test_a_current_unqueued_document_is_not_started_but_an_unqueued_earlier_version_is_not_counted(self):
+        s = self._summary()
+        states = {r['document_id']: r['state'] for r in s['documents']}
+        self.assertEqual(states[str(self.unqueued.id)], 'not_processed')
+        self.assertNotIn(str(self.document.id), states)  # no job either, but an earlier version
+        self.assertFalse(ExtractionJob.objects.filter(document=self.document).exists())
+        self.assertEqual(s['counts']['not_processed'], 1)
+
+    def test_current_document_counts_reconcile(self):
+        c = self._summary()['counts']
+        self.assertEqual((c['complete'], c['partial'], c['failed'], c['active'], c['not_processed'], c['total']),
+                         (1, 1, 1, 0, 1, 4))
+        self.assertEqual(sum(c[k] for k in ('complete', 'partial', 'failed', 'active', 'not_processed')), c['total'])
+        self.assertEqual(c['total'] + self._summary()['excluded']['total'],
+                         Document.objects.filter(sprint=self.sprint).count())
+
+    def test_ai_usage_counts_every_attempt_and_earlier_versions(self):
+        from .models import AIUsage
+        job = ExtractionJob.objects.get(document=self.v2)
+
+        def call(document, job=None, n=1):
+            AIUsage.objects.create(sprint=self.sprint, institution=self.institution, document=document,
+                                   extraction_job=job, input_tokens=10, output_tokens=5, request_count=n)
+        call(self.v2, job)
+        call(self.v2, job)        # a retry of the same job row: both attempts stay recorded
+        call(self.document)       # the earlier version, processed before it was replaced
+        call(self.rejected)
+        call(None, n=3)           # e.g. an imported total with no document
+        u = self.client.get(f'/api/v1/sprints/{self.sprint.id}/ai-usage').data
+        self.assertEqual((u['calls'], u['documents'], u['current_documents']), (7, 3, 1))

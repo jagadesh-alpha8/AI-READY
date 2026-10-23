@@ -64,6 +64,24 @@ def _number_forms(value):
     return forms
 
 
+_NUMBER_IN_TEXT = re.compile(r'\d[\d,]*(?:\.\d+)?')
+
+
+def _amount_forms(fact):
+    """The ways the fact's number may be written. A currency value keeps the page's text ("Rs 20,000",
+    "₹20,000", "INR 20,000") and normalized_value its amount (20000); both count, as facts extracted before
+    the currency parsing fix hold a wrong normalized_value for "Rs." amounts ("Rs. 20,000" -> 0.2)."""
+    forms = set()
+    for candidate in (fact.normalized_value, fact.value):
+        if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
+            forms |= _number_forms(candidate)
+        else:
+            match = _NUMBER_IN_TEXT.search(str(candidate or ''))
+            if match:
+                forms |= _number_forms(match.group())
+    return forms
+
+
 def value_in_snippet(fact):
     """True when the fact's value is backed by its own quote (numbers must appear in it)."""
     snippet = fact.source_snippet or ''
@@ -72,9 +90,9 @@ def value_in_snippet(fact):
     if fact.data_type not in NUMERIC_TYPES:
         return True
     numbers_in_quote = set()
-    for token in re.findall(r'\d[\d,]*(?:\.\d+)?', snippet):
+    for token in _NUMBER_IN_TEXT.findall(snippet):
         numbers_in_quote |= _number_forms(token)
-    return bool(_number_forms(fact.value) & numbers_in_quote)
+    return bool(_amount_forms(fact) & numbers_in_quote)
 
 
 
