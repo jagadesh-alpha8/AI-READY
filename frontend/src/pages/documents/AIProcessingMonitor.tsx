@@ -39,6 +39,8 @@ const STEP_LABELS = [
   'preparing_review_workspace',
 ];
 
+type DocState = 'complete' | 'partial' | 'failed' | 'active' | 'not_processed' | 'excluded';
+
 export const AIProcessingMonitor: React.FC = () => {
   const { step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
@@ -99,6 +101,9 @@ export const AIProcessingMonitor: React.FC = () => {
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [actionError, setActionError] = useState('');
+  // Document list filter: a processing state (the count chips) and a filename search.
+  const [stateFilter, setStateFilter] = useState<DocState | 'all'>('all');
+  const [search, setSearch] = useState('');
 
   const runRowAction = async (document: SprintDocument, job: ExtractionJob | undefined, action: 'stop' | 'process') => {
     setBusyJobId(document.id);
@@ -194,6 +199,20 @@ export const AIProcessingMonitor: React.FC = () => {
     return !doc.superseded_at && doc.status !== 'rejected' && !!job && ['failed', 'cancelled'].includes(job.status);
   }).length;
   const allComplete = includedDocuments.length > 0 && completedCount === includedDocuments.length;
+  const excludedCount = documents.length - includedDocuments.length;
+  // The same states as the counts above, per document, for the list filter.
+  const docState = (doc: SprintDocument): DocState => {
+    if (doc.status === 'rejected' || doc.superseded_at) return 'excluded';
+    const job = latestJobByDocument.get(doc.id);
+    if (!job) return 'not_processed';
+    if (ACTIVE_EXTRACTION_STATUSES.includes(job.status)) return 'active';
+    if (job.status === 'completed') return isPartial(job) ? 'partial' : 'complete';
+    return 'failed';
+  };
+  const needle = search.trim().toLowerCase();
+  const shownDocuments = documents.filter((doc) =>
+    (stateFilter === 'all' || docState(doc) === stateFilter)
+    && (!needle || (doc.original_filename || '').toLowerCase().includes(needle)));
 
   // Ticks every second while a run is active, so elapsed / time-left update
   // between the 3-second data polls.
@@ -304,12 +323,24 @@ export const AIProcessingMonitor: React.FC = () => {
           </div>
 
           {/* One count per state; only "fully processed" counts as done (review, CRI, baseline and reports say so too). */}
-          <div className="glass-card p-4 flex flex-wrap gap-2 text-xs">
-            <span className="badge-success">Fully processed {completedCount}</span>
-            <span className={partialCount ? 'badge-warning' : 'badge-neutral'}>Partially processed {partialCount}</span>
-            <span className={needsAttentionCount ? 'badge-danger' : 'badge-neutral'}>Failed or stopped {needsAttentionCount}</span>
-            <span className={processingCount ? 'badge-info' : 'badge-neutral'}>Processing {processingCount}</span>
-            <span className={notProcessedCount ? 'badge-warning' : 'badge-neutral'}>Not processed yet {notProcessedCount}</span>
+          <div className="glass-card p-4 flex flex-wrap items-center gap-2 text-xs">
+            {([
+              ['all', 'All', includedDocuments.length + excludedCount, 'badge-neutral'],
+              ['complete', 'Fully processed', completedCount, 'badge-success'],
+              ['partial', 'Partially processed', partialCount, partialCount ? 'badge-warning' : 'badge-neutral'],
+              ['failed', 'Failed or stopped', needsAttentionCount, needsAttentionCount ? 'badge-danger' : 'badge-neutral'],
+              ['active', 'Processing', processingCount, processingCount ? 'badge-info' : 'badge-neutral'],
+              ['not_processed', 'Not processed yet', notProcessedCount, notProcessedCount ? 'badge-warning' : 'badge-neutral'],
+              ['excluded', 'Rejected / earlier versions', excludedCount, 'badge-neutral'],
+            ] as [DocState | 'all', string, number, string][]).map(([key, label, count, cls]) => (
+              <button key={key} type="button" onClick={() => setStateFilter(key)} aria-pressed={stateFilter === key}
+                className={`${cls} cursor-pointer ${stateFilter === key ? 'ring-2 ring-brand-500' : 'opacity-80 hover:opacity-100'}`}
+                title={`Show ${label.toLowerCase()} documents`}>
+                {label} {count}
+              </button>
+            ))}
+            <input className="input text-xs ml-auto w-56" placeholder="Search file name…" value={search}
+              onChange={(e) => setSearch(e.target.value)} />
             {!allComplete && !hasActiveJob && (
               <span className="text-ink-600">
                 Partial and failed documents can be processed again; facts are updated in place, never duplicated.
@@ -320,8 +351,17 @@ export const AIProcessingMonitor: React.FC = () => {
           {/* Sprint coverage includes documents without a job, so an unqueued item is visible. */}
           <div className="glass-card p-5 sm:p-6 space-y-4">
             <h2 className="eyebrow">Sprint Document Processing ({completedCount}/{includedDocuments.length} fully processed)</h2>
+            {(stateFilter !== 'all' || search.trim()) && (
+              <p className="text-xs text-ink-500">
+                Showing {shownDocuments.length} of {documents.length} documents.{' '}
+                <button type="button" className="text-brand-800 hover:underline" onClick={() => { setStateFilter('all'); setSearch(''); }}>
+                  Clear filter
+                </button>
+              </p>
+            )}
+            {shownDocuments.length === 0 && <p className="text-sm text-ink-500">No documents match this filter.</p>}
             <div className="space-y-3">
-              {documents.map((document) => {
+              {shownDocuments.map((document) => {
                 const job = latestJobByDocument.get(document.id);
                 const status = job?.status || 'not_started';
                 const documentFactCount = factCountsByDocument.get(document.id) || 0;
