@@ -1,0 +1,76 @@
+# Load the Benchmark Studio catalogue on the live server from the manager-provided workbooks.
+#
+# Benchmark Studio is read-only in the portal; the catalogue changes only through these controlled imports
+# (backend/apps/benchmarks). Run it by hand: Actions -> "Benchmark catalogue sync" -> Run workflow.
+#   mode = dry-run (default): every step reports what it WOULD change; nothing is saved.
+#   mode = commit:           the same steps, saved.
+# Steps, in order:
+#   1. Source Library  <- source_library_work/InGage_Source_Register_BenchMarking_Structure.xlsx (the register the local library was imported from)
+#   2. AI-QIF catalogue <- source_library_work/InGage_AI_QIF_Benchmark_Master_v1_0_AI_Criteria.xlsx
+#      (--withdraw-others: other DRAFT benchmarks, e.g. the older Source Pack set, are withdrawn -- never deleted)
+#   3. Source files: fetched from their Drive links and checksum-verified (optional)
+# Re-running with the same workbooks changes nothing. No workbook baseline / release is published here.
+name: Benchmark catalogue sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dry-run (report only) or commit (save)'
+        required: true
+        default: dry-run
+        type: choice
+        options: [dry-run, commit]
+      fetch_files:
+        description: 'Also fetch and verify the source files from Drive'
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Import the workbooks on the server
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          MODE: ${{ inputs.mode }}
+          FETCH_FILES: ${{ inputs.fetch_files }}
+          ACTOR: ${{ github.actor }}
+        with:
+          host: ${{ secrets.GCP_HOST }}
+          username: ${{ secrets.GCP_SSH_USER }}
+          key: ${{ secrets.GCP_SSH_KEY }}
+          port: ${{ secrets.GCP_SSH_PORT || 22 }}
+          envs: MODE,FETCH_FILES,ACTOR
+          script: |
+            set -e
+            cd /opt/ai-ready
+            REGISTER=InGage_Source_Register_BenchMarking_Structure.xlsx
+            AIQIF=InGage_AI_QIF_Benchmark_Master_v1_0_AI_Criteria.xlsx
+            for f in "$REGISTER" "$AIQIF"; do
+              test -f "source_library_work/$f" || { echo "Missing source_library_work/$f on the server (deploy first)."; exit 1; }
+              docker compose cp "source_library_work/$f" "backend:/tmp/$f"
+            done
+            COMMIT=""
+            if [ "$MODE" = "commit" ]; then COMMIT="--commit"; fi
+            echo "=== Mode: $MODE (by $ACTOR) ==="
+
+            echo "=== 1. Source Library (Source Register) ==="
+            docker compose exec -T backend python manage.py import_source_register "/tmp/$REGISTER" $COMMIT \
+              --actor "catalogue-sync:$ACTOR"
+
+            echo "=== 2. AI-QIF catalogue (36 key indicators) ==="
+            docker compose exec -T backend python manage.py import_aiqif "/tmp/$AIQIF" $COMMIT --withdraw-others \
+              --actor "catalogue-sync:$ACTOR"
+
+            if [ "$FETCH_FILES" = "true" ]; then
+              echo "=== 3. Source files from Drive ==="
+              if [ "$MODE" = "commit" ]; then
+                docker compose exec -T backend python manage.py ingest_source_files --actor "catalogue-sync:$ACTOR"
+              else
+                docker compose exec -T backend python manage.py ingest_source_files --dry-run
+              fi
+            fi
+            docker compose exec -T backend rm -f "/tmp/$REGISTER" "/tmp/$AIQIF"
+            echo "=== Done ($MODE) ==="
