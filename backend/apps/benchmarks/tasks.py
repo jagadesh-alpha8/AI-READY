@@ -53,8 +53,12 @@ def draft_source_requirements(self, version_id, actor='requirement_drafting'):
 @shared_task(acks_late=False, ignore_result=True)
 def run_source_watcher(trigger='schedule'):
     """Stage 4: daily check of every enabled source feed. Records snapshots and
-    change events only; it never edits a source, benchmark or release."""
+    change events only; it never edits a source, benchmark or release. Off while the catalogue is read-only."""
     from django.core.cache import cache
+
+    from .permissions import catalogue_locked
+    if catalogue_locked():
+        return None
 
     from .services.watcher import run_watcher
 

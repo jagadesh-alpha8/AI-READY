@@ -35,7 +35,9 @@ class EvidenceRequestDocumentSerializer(serializers.ModelSerializer):
                   'source_context', 'uploaded_for_request', 'source_page', 'source_snippet', 'note',
                   'submitted_by', 'submitted_by_name', 'analysis_status', 'analysis_outcome', 'analysis_summary',
                   'analysis_quote', 'analysis_page_number', 'analysis_document_reference',
-                  'analysis_suggested_value', 'analysis_confidence', 'analysis_error', 'status',
+                  'analysis_suggested_value', 'analysis_confidence', 'analysis_error', 'analysis_attempts',
+                  'analysis_retry_count', 'analysis_started_at', 'analysis_finished_at',
+                  'analysis_retry_requested_at', 'status',
                   'review_reason', 'reviewed_by', 'reviewed_by_name', 'reviewed_at', 'created_at']
         read_only_fields = fields
 

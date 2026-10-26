@@ -2,14 +2,15 @@ import React, { useState } from 'react';
 import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
 import { EvidenceCoverageCard } from './EvidenceCoverageCard';
 import { useParams, useNavigate } from 'react-router-dom';
-import { approveBaseline, approveBaselineProvisional, getBaseline, returnBaseline } from '../../api/baseline';
+import { approveBaseline, approveBaselineProvisional, getBaseline, returnBaseline, reviseBaseline } from '../../api/baseline';
 import { getSprint } from '../../api/sprints';
 import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
-import type { SprintBaseline } from '../../types';
-import { Lock, ArrowRight, ShieldCheck, AlertTriangle, TrendingUp, TrendingDown, Undo2 } from 'lucide-react';
+import type { Baseline, BaselineChangedResponse, SprintBaseline } from '../../types';
+import { Lock, ArrowRight, ShieldCheck, AlertTriangle, TrendingUp, TrendingDown, Undo2, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { useAccess } from '../../utils/access';
+import { isLocalDev } from '../../utils/devMode';
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Provisional Baseline Active',
@@ -18,11 +19,56 @@ const STATUS_LABEL: Record<string, string> = {
   returned: 'Returned for Correction',
 };
 
+const HISTORY_LABEL: Record<string, string> = {
+  submitted: 'Submitted', approved: 'Approved', approved_provisional: 'Approved provisionally',
+  returned: 'Returned for correction', refreshed: 'Preview recalculated',
+};
+
+/** Which calculation this is: short run id and when it was calculated. */
+const runLabel = (b: Baseline) =>
+  `Calculation ${b.scoring_run_id.slice(0, 8)} · ${new Date(b.scoring_run_calculated_at).toLocaleString()}`;
+
 const STATUS_BADGE_CLASS: Record<string, string> = {
   pending: 'text-warning',
   approved: 'text-success',
   provisional: 'text-brand-800',
   returned: 'text-danger',
+};
+
+/** Every baseline decision-cycle with its own audit trail. Cycles are numbered oldest = 1. */
+const ApprovalHistory: React.FC<{ cycles: Baseline[]; currentId: string }> = ({ cycles, currentId }) => {
+  if (!cycles.some((c) => c.history.length)) return null;
+  const number = (id: string | null) => (id ? cycles.length - cycles.findIndex((c) => c.id === id) : 0);
+  return (
+    <div className="glass-card p-5 sm:p-6">
+      <h2 className="eyebrow mb-4">Approval History ({cycles.length} cycle{cycles.length === 1 ? '' : 's'})</h2>
+      <div className="space-y-4">
+        {cycles.map((c) => (
+          <div key={c.id} className="space-y-2">
+            <p className="text-sm text-ink-900 flex flex-wrap items-center gap-2">
+              <strong>Cycle {number(c.id)}</strong>
+              {c.id === currentId && <span className="badge badge-brand">current</span>}
+              <span className={`font-semibold ${STATUS_BADGE_CLASS[c.status]}`}>{STATUS_LABEL[c.status]}</span>
+              <span className="text-ink-500">
+                · Raw CRI {c.overall_cri.toFixed(1)} · {runLabel(c)}
+                {c.revises ? ` · revises cycle ${number(c.revises)}` : ''}
+              </span>
+            </p>
+            {c.history.map((h) => (
+              <div key={h.id} className="flex items-center justify-between gap-3 p-2.5 bg-surface rounded-lg border border-line-200 text-sm">
+                <div className="min-w-0">
+                  <span className="font-semibold text-ink-900">{HISTORY_LABEL[h.action] || h.action}</span>
+                  <span className="text-ink-500"> by {h.user_name || 'system'}</span>
+                  {h.comments && <span className="text-ink-400 italic"> — "{h.comments}"</span>}
+                </div>
+                <span className="text-ink-400 text-xs shrink-0">{new Date(h.created_at).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 };
 
 export const BaselineApproval: React.FC = () => {
@@ -44,43 +90,54 @@ export const BaselineApproval: React.FC = () => {
   // Required by the server to decide while included documents are not fully processed.
   const [overrideReason, setOverrideReason] = useState('');
   const [returning, setReturning] = useState(false);
-  const [acting, setActing] = useState<'approve' | 'provisional' | 'return' | null>(null);
+  const [acting, setActing] = useState<'approve' | 'provisional' | 'return' | 'revise' | null>(null);
+  const [revising, setRevising] = useState(false);
+  const [reviseReason, setReviseReason] = useState('');
   const [actionError, setActionError] = useState('');
+  // The score changed between loading and approving: what it was, so the reviewer sees the difference.
+  const [changedFrom, setChangedFrom] = useState<{ cri: number; run: string } | null>(null);
+  // Shown only after the server confirms the decision is pinned to the calculation on screen.
+  const [decided, setDecided] = useState('');
 
   const baseline = data?.baseline;
   const scorecard = data?.score;
   const isDecided = baseline ? baseline.status !== 'pending' : false;
   const canApprove = !!data?.can_approve && !isDecided;
 
-  const handleApprove = async () => {
-    if (!sprintId) return;
-    setActing('approve');
+  /** Approve exactly the calculation on screen; a 409 means it changed -- show the new one for review. */
+  const decide = async (kind: 'approve' | 'provisional') => {
+    if (!sprintId || !baseline) return;
+    const shown = baseline;
+    setActing(kind);
     setActionError('');
+    setDecided('');
     try {
-      const res = await approveBaseline(sprintId, comments, overrideReason);
+      const call = kind === 'approve' ? approveBaseline : approveBaselineProvisional;
+      const res = await call(sprintId, shown.scoring_run_id, comments, overrideReason);
+      if (res.data.scoring_run_id !== shown.scoring_run_id) {
+        setActionError('The server pinned a different calculation than the one shown. Reload and review it.');
+      } else {
+        setChangedFrom(null);
+        setDecided(`${kind === 'approve' ? 'Approved' : 'Provisionally approved'}: the baseline is locked to `
+          + `calculation ${res.data.scoring_run_id.slice(0, 8)} (Raw CRI ${res.data.overall_cri.toFixed(1)}).`);
+      }
       setData((prev) => (prev ? { ...prev, baseline: res.data } : prev));
       refetch();
-    } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to approve the baseline.'));
+    } catch (err: any) {
+      const body = err?.response?.data as BaselineChangedResponse | undefined;
+      if (err?.response?.status === 409 && body?.baseline) {
+        setChangedFrom({ cri: shown.overall_cri, run: shown.scoring_run_id });
+        setData(body);
+      } else {
+        setActionError(getErrorMessage(err, kind === 'approve' ? 'Failed to approve the baseline.'
+          : 'Failed to provisionally approve the baseline.'));
+      }
     } finally {
       setActing(null);
     }
   };
-
-  const handleApproveProvisional = async () => {
-    if (!sprintId) return;
-    setActing('provisional');
-    setActionError('');
-    try {
-      const res = await approveBaselineProvisional(sprintId, comments, overrideReason);
-      setData((prev) => (prev ? { ...prev, baseline: res.data } : prev));
-      refetch();
-    } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to provisionally approve the baseline.'));
-    } finally {
-      setActing(null);
-    }
-  };
+  const handleApprove = () => decide('approve');
+  const handleApproveProvisional = () => decide('provisional');
 
   const handleReturn = async () => {
     if (!sprintId) return;
@@ -101,6 +158,40 @@ export const BaselineApproval: React.FC = () => {
       setActing(null);
     }
   };
+
+  /** Replace a decided baseline explicitly: a new pending cycle on the current data, with a reason. */
+  const handleRevise = async () => {
+    if (!sprintId || !reviseReason.trim()) return;
+    setActing('revise');
+    setActionError('');
+    try {
+      await reviseBaseline(sprintId, reviseReason.trim());
+      setRevising(false);
+      setReviseReason('');
+      setDecided('');
+      refetch();
+    } catch (err) {
+      setActionError(getErrorMessage(err, 'Failed to start a new baseline revision.'));
+    } finally {
+      setActing(null);
+    }
+  };
+
+  /** Reason + confirm for opening a revision (the server requires the reason and checks the role). */
+  const revisionControls = (label: string) => (revising ? (
+    <div className="flex flex-col sm:flex-row gap-2">
+      <input className="input flex-1 text-sm" value={reviseReason} onChange={(e) => setReviseReason(e.target.value)}
+        placeholder="Why the decided baseline should be revised (required)" />
+      <button className="btn-primary btn-sm" disabled={!reviseReason.trim() || acting !== null} onClick={handleRevise}>
+        {acting === 'revise' ? 'Starting…' : 'Start revision'}
+      </button>
+      <button className="btn-secondary btn-sm" disabled={acting !== null} onClick={() => setRevising(false)}>Cancel</button>
+    </div>
+  ) : (
+    <button className="btn-secondary btn-sm" onClick={() => setRevising(true)}>
+      <RefreshCw className="w-3.5 h-3.5" /> {label}
+    </button>
+  ));
 
   const blockingGaps = (data?.high_priority_gaps || []).filter((g) => g.priority === 'blocking');
   const highPriorityGaps = data?.high_priority_gaps || [];
@@ -126,6 +217,11 @@ export const BaselineApproval: React.FC = () => {
       </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
+      {decided && (
+        <div role="status" className="rounded-lg border border-success-line bg-success-bg p-3 text-sm text-success flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0" /> {decided}
+        </div>
+      )}
 
       {loading ? (
         <LoadingState message="Loading baseline for approval..." />
@@ -145,12 +241,52 @@ export const BaselineApproval: React.FC = () => {
               {baseline.processing_snapshot?.description} Reason recorded: &ldquo;{baseline.processing_override_reason}&rdquo;
             </div>
           )}
-          {isDecided && baseline.status !== 'returned' && Math.abs(scorecard.overall_cri - baseline.overall_cri) >= 0.01 && (
-            <div className="rounded-lg border border-warning-line bg-warning-bg p-3 text-sm text-ink-700">
-              <strong className="text-warning">The CRI has been recalculated since this decision: </strong>
-              it is now {scorecard.overall_cri.toFixed(1)}. The baseline below keeps the {baseline.overall_cri.toFixed(1)} it
-              was decided on; strengths and areas for improvement further down show the latest calculation. New reports
-              use the latest calculation and say so.
+          {!isDecided && changedFrom && (
+            <div role="alert" className="rounded-lg border-2 border-warning-line bg-warning-bg p-3 text-sm text-ink-700 flex items-start gap-2">
+              <RefreshCw className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+              <span>
+                <strong className="text-warning">Not approved - the score changed. </strong>
+                The sprint data changed after you loaded this page, so the baseline was recalculated: Raw CRI
+                {' '}{changedFrom.cri.toFixed(1)} → <strong>{baseline.overall_cri.toFixed(1)}</strong>. Review the new
+                snapshot below, then approve again.
+              </span>
+            </div>
+          )}
+          {!isDecided && !changedFrom && data?.refreshed && (
+            <div className="rounded-lg border border-line-200 bg-surface p-3 text-sm text-ink-700 flex items-start gap-2">
+              <RefreshCw className="w-4 h-4 text-brand-800 shrink-0 mt-0.5" />
+              <span>The sprint data changed since this baseline was last calculated, so it now shows the latest
+                calculation. Review it before approving.</span>
+            </div>
+          )}
+          {!isDecided && baseline.revises && (
+            <div className="rounded-lg border border-line-200 bg-surface p-3 text-sm text-ink-700">
+              This is a <strong>revision</strong> of the decided baseline. That decision stays in force (and in reports)
+              until this revision is approved.
+            </div>
+          )}
+          {isDecided && baseline.status !== 'returned' && data?.baseline_is_current === false && (
+            <div className="rounded-lg border border-warning-line bg-warning-bg p-3 text-sm text-ink-700 space-y-2">
+              <p>
+                <strong className="text-warning">The Live CRI has moved on since this decision: </strong>
+                it is now {scorecard.overall_cri.toFixed(1)}. The baseline below keeps the {baseline.overall_cri.toFixed(1)} it
+                was decided on (it never changes); strengths and areas for improvement further down show the Live CRI.
+                Reports show both.
+              </p>
+              {can('sprint.manage') && revisionControls('Start a new baseline revision')}
+            </div>
+          )}
+          {/* Local development only (never in a production build): open a revision of a CURRENT decided baseline to
+              demonstrate the workflow. Same endpoint, same reason requirement and permissions; nothing is approved. */}
+          {isLocalDev && isDecided && (baseline.status === 'approved' || baseline.status === 'provisional')
+            && data?.baseline_is_current !== false && can('sprint.manage') && (
+            <div className="rounded-lg border-2 border-dashed border-warning-line p-3 text-sm text-ink-700 space-y-2">
+              <p>
+                <span className="badge badge-warning mr-2">Local development only</span>
+                Open a new revision cycle to demonstrate the workflow, although the score has not changed. The current
+                decision stays in force and unchanged until the revision is decided.
+              </p>
+              {revisionControls('Start demo revision')}
             </div>
           )}
 
@@ -165,6 +301,7 @@ export const BaselineApproval: React.FC = () => {
                 {(baseline.overall_confidence * 100).toFixed(0)}% evidence confidence
                 {sprint ? ` · ${sprint.completion_percentage}% complete` : ''}
               </span>
+              <p className="text-[11px] text-ink-500 mt-1 font-mono" title={baseline.scoring_run_id}>{runLabel(baseline)}</p>
             </div>
 
             <div className="glass-card p-6 flex flex-col justify-between md:col-span-2">
@@ -378,24 +515,8 @@ export const BaselineApproval: React.FC = () => {
             </div>
           </div>
 
-          {/* Decision history / audit trail */}
-          {baseline.history.length > 0 && (
-            <div className="glass-card p-5 sm:p-6">
-              <h2 className="eyebrow mb-4">Approval History</h2>
-              <div className="space-y-2">
-                {baseline.history.map((h) => (
-                  <div key={h.id} className="flex items-center justify-between gap-3 p-2.5 bg-surface rounded-lg border border-line-200 text-sm">
-                    <div className="min-w-0">
-                      <span className="font-semibold text-ink-900 capitalize">{h.action.replace('_', ' ')}</span>
-                      <span className="text-ink-500"> by {h.user_name || 'system'}</span>
-                      {h.comments && <span className="text-ink-400 italic"> — "{h.comments}"</span>}
-                    </div>
-                    <span className="text-ink-400 text-xs shrink-0">{new Date(h.created_at).toLocaleString()}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Decision history / audit trail: every cycle of the sprint, newest first (returned and replaced ones too) */}
+          <ApprovalHistory cycles={data?.cycles?.length ? data.cycles : [baseline]} currentId={baseline.id} />
         </>
       )}
     </div>

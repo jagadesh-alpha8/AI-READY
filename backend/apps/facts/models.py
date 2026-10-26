@@ -156,6 +156,16 @@ class FactAIQIFMapping(models.Model):
         CROSSWALK = 'crosswalk', 'NAAC crosswalk'
         AI = 'ai', 'AI suggestion'
         EXPERT = 'expert', 'Added by an expert'
+        #: Added because an expert confirmed this indicator for the same field before (aiqif_tagging.Precedents).
+        PRECEDENT = 'precedent', 'Earlier expert decision'
+
+    class AutoDecision(models.TextChoices):
+        """Why the rules decided the tag without a person (aiqif_tagging.py); '' = they did not."""
+        RULES = 'accepted_rules', 'Accepted: confident AI tag of the same criterion'
+        CROSSWALK = 'accepted_crosswalk', 'Accepted: NAAC crosswalk'
+        PRECEDENT = 'accepted_precedent', 'Accepted: matches an earlier expert decision'
+        AI_CHECK = 'accepted_ai_check', 'Accepted: confirmed by an AI second opinion'
+        REJECTED_PRECEDENT = 'rejected_precedent', 'Rejected: an expert rejected it for this field before'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     fact = models.ForeignKey(ExtractedFact, on_delete=models.CASCADE, related_name='aiqif_mappings')
@@ -179,6 +189,9 @@ class FactAIQIFMapping(models.Model):
     auto_accepted = models.BooleanField(default=False)
     #: The framework / release the crosswalk tag came from ("AI-QIF v1.0").
     framework_version = models.CharField(max_length=60, blank=True)
+    #: How the rules decided it without a person, and in words why (precedent, AI second opinion, ...).
+    auto_decision = models.CharField(max_length=30, choices=AutoDecision.choices, blank=True)
+    auto_reason = models.TextField(blank=True)
     #: Set when a Super Admin reopened the decision or edited the mapping without deciding it: the tag waits in
     #: the expert queue until confirmed or rejected again (cleared then). Earlier decisions stay in the fact's
     #: review history (aiqif_tagging.reopen_tag / edit_tag); re-extraction never removes a pending tag.
@@ -213,7 +226,7 @@ class FactReviewHistory(models.Model):
         EVIDENCE_REQUESTED = 'evidence_requested', 'Evidence Requested'
         #: An evidence request was withdrawn and the fact's earlier status restored (EvidenceRequest).
         REQUEST_WITHDRAWN = 'request_withdrawn', 'Evidence Request Withdrawn'
-        #: The fact's AI-QIF category tags were confirmed in bulk (apps/facts/tag_review.py); the fact is unchanged.
+        #: The fact's AI-QIF category tags were confirmed in bulk (a removed action; kept for existing history).
         AIQIF_TAGS_CONFIRMED = 'aiqif_tags_confirmed', 'AI-QIF Tags Confirmed'
         #: Expert queue (apps/facts/aiqif_tagging.py): a tag confirmed / rejected, a tag added, the kind decided.
         AIQIF_TAG_REVIEWED = 'aiqif_tag_reviewed', 'AI-QIF Tag Reviewed'
@@ -350,7 +363,18 @@ class EvidenceRequestDocument(models.Model):
     analysis_suggested_value = models.JSONField(null=True, blank=True)
     analysis_confidence = models.FloatField(null=True, blank=True,
                                             validators=[MinValueValidator(0), MaxValueValidator(1)])
-    analysis_error = models.TextField(blank=True)
+    analysis_error = models.TextField(blank=True, help_text='The latest AI assessment error (kept until a success).')
+    #: The submission's readable page text as first read ([{page_number, text}]), so a retried AI assessment never
+    #: reads / OCRs the document again. Empty for pasted text (submitted_text is the source) and until first read.
+    source_pages = models.JSONField(default=list, blank=True)
+    #: AI assessment runs started (the first one plus retries), and reviewer-requested retries.
+    analysis_attempts = models.PositiveSmallIntegerField(default=0)
+    analysis_retry_count = models.PositiveSmallIntegerField(default=0)
+    analysis_started_at = models.DateTimeField(null=True, blank=True)
+    analysis_finished_at = models.DateTimeField(null=True, blank=True)
+    analysis_retry_requested_at = models.DateTimeField(null=True, blank=True)
+    analysis_retry_requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+                                                    blank=True, related_name='+')
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.SUBMITTED)
     review_reason = models.TextField(blank=True)
     reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
@@ -380,6 +404,7 @@ class EvidenceRequestEvent(models.Model):
         ANALYSIS_STARTED = 'analysis_started', 'AI assessment started'
         ANALYSIS_COMPLETED = 'analysis_completed', 'AI assessment completed'
         ANALYSIS_FAILED = 'analysis_failed', 'AI assessment failed'
+        ANALYSIS_RETRY = 'analysis_retry', 'AI assessment retry requested'
         EVIDENCE_RETURNED = 'evidence_returned', 'Evidence returned for more'
         EVIDENCE_REJECTED = 'evidence_rejected', 'Evidence rejected'
         FACT_UPDATED = 'fact_updated', 'Fact updated from accepted evidence'

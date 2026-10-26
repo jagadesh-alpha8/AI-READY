@@ -12,6 +12,22 @@ with L3/L2/L1). Sheets used:
                              governance, ...) -> each level's observable requirements
 - "NAAC → AI-QIF Crosswalk"  NAAC metrics that can support a key indicator
 - "AI-QIF Principles", "Scoring Architecture" -> the framework's description
+- "AI-QIF Source References"  (optional) one row per source reference of a key
+                             indicator: Source Library code, version, page, exact
+                             quote, relationship. v1.0 has no such sheet.
+
+The workbook is the authoritative standard catalogue (Benchmark Studio is read-only):
+this import is the controlled way it changes -- a dry run first, which lists every
+change, then --commit; --baseline then freezes it as the release assessments use
+(services/baseline.py).
+
+Provenance (services/provenance.py): every indicator records its origin -- this
+workbook (name and SHA-256), its sheet and row, the framework version and the import
+date. That is the indicator's origin, not a source document. Source mappings come
+only from the workbook's source-reference sheet: each is linked to the Source
+Library version it names when that version exists and the quote is in its text
+(when it has text); anything else stays listed as "not linked" with the reason --
+never inferred or invented.
 
 Everything lands as DRAFT; the workbook itself says "requires expert validation
 before publication". The L3/L2/L1 text is one template with only the key
@@ -27,8 +43,13 @@ from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 
-from ..models import (Authority, Benchmark, Capability, Framework, MaturityDefinition, Pillar, RequirementKind,
-                      SourceAuditEvent)
+import hashlib
+import os
+
+from django.utils import timezone
+
+from ..models import (Authority, Benchmark, BenchmarkRequirement, Capability, Framework, MaturityDefinition, Pillar,
+                      Requirement, RequirementKind, SourceAuditEvent, SourceDocument, SourceVersion)
 from .catalogue_import import CatalogueSummary, _upsert
 
 AUTHORITY = {'code': 'INGAGE', 'name': 'InGage Technologies', 'kind': Authority.Kind.INGAGE_PROPOSED}
@@ -42,6 +63,9 @@ MATURITY = 'AI-QIF Maturity'
 CROSSWALK = 'NAAC → AI-QIF Crosswalk'
 PRINCIPLES = 'AI-QIF Principles'
 ARCHITECTURE = 'Scoring Architecture'
+SOURCE_REFS = 'AI-QIF Source References'
+SOURCE_REF_HEADERS = ('AI-QIF Benchmark ID', 'Source Code', 'Exact Quote')
+ROW = '__row__'  # the spreadsheet row number of a parsed row
 
 # (level, column in the master sheet, column in the maturity sheet)
 LEVELS = (('L3', 'L3 — Foundational'), ('L2', 'L2 — Good / Recommended'), ('L1', 'L1 — Advanced / Aspirational'))
@@ -70,6 +94,8 @@ class AiQif:
     criteria: list = field(default_factory=list)
     benchmarks: list = field(default_factory=list)
     framework_rules: dict = field(default_factory=dict)
+    workbook: str = ''
+    workbook_sha256: str = ''
     maturity: dict = field(default_factory=dict)        # level -> ["Strategy: ...", ...]
     purpose: str = ''
     errors: list = field(default_factory=list)
@@ -83,11 +109,13 @@ class AiQif:
 def _sheet(wb, name):
     if name not in wb.sheetnames:
         raise ValueError(f'Sheet {name!r} not found.')
-    rows = [r for r in wb[name].iter_rows(values_only=True) if r and any(c not in (None, '') for c in r)]
+    rows = [(n, r) for n, r in enumerate(wb[name].iter_rows(values_only=True), start=1)
+            if r and any(c not in (None, '') for c in r)]
     if not rows:
         raise ValueError(f'Sheet {name!r} is empty.')
-    headers = [_t(h) for h in rows[0]]
-    return [{h: r[i] if i < len(r) else None for i, h in enumerate(headers) if h} for r in rows[1:]], headers
+    headers = [_t(h) for h in rows[0][1]]
+    return [{ROW: n, **{h: r[i] if i < len(r) else None for i, h in enumerate(headers) if h}}
+            for n, r in rows[1:]], headers
 
 
 def read_aiqif(path):
@@ -100,13 +128,16 @@ def read_aiqif(path):
         crosswalk, _ = _sheet(wb, CROSSWALK)
         principles, _ = _sheet(wb, PRINCIPLES)
         architecture, _ = _sheet(wb, ARCHITECTURE)
+        refs, ref_headers = _sheet(wb, SOURCE_REFS) if SOURCE_REFS in wb.sheetnames else ([], [])
     finally:
         wb.close()
     missing = [h for h in MASTER_HEADERS if h not in master_headers]
     if missing:
         raise ValueError(f'{MASTER} is missing columns: {", ".join(missing)}')
 
-    data = AiQif()
+    with open(path, 'rb') as fh:
+        sha256 = hashlib.sha256(fh.read()).hexdigest()
+    data = AiQif(workbook=os.path.basename(str(path)), workbook_sha256=sha256)
     for col in FRAMEWORK_COLUMNS:
         values = Counter(_t(r.get(col)) for r in master if _t(r.get(col)))
         if values:
@@ -139,7 +170,7 @@ def read_aiqif(path):
              'definition': _t(r.get('What AI Readiness Capability Is Being Benchmarked?')),
              'weight': _num(r.get('KI Provisional Weight')),
              'levels': {lvl: _t(r.get(col)) for lvl, col in LEVELS},
-             'crosswalk': links.pop(code, [])}
+             'crosswalk': links.pop(code, []), 'row': r[ROW], 'source_refs': []}
         problems = []
         if code in seen:
             problems.append('duplicate benchmark ID')
@@ -161,6 +192,7 @@ def read_aiqif(path):
         c['ki_sum'] += b['weight']
         data.benchmarks.append(b)
     data.criteria = list(criteria.values())
+    _read_source_refs(data, refs, ref_headers)
 
     # Weights: the 9 criteria add up to 1000 and each criterion's KIs add up to its weight.
     total = sum((c['weight'] or 0) for c in data.criteria)
@@ -184,10 +216,46 @@ def read_aiqif(path):
     n_template = sum(all(b['placeholder'].values()) for b in data.benchmarks)
     if n_template:
         data.warnings.append(f'{n_template} of {len(data.benchmarks)} key indicators use the shared L3/L2/L1 template; '
-                             'imported as placeholders for experts to confirm or rewrite.')
+                             'kept as the workbook wrote them and marked "template wording".')
 
     data.purpose = _purpose(data, principles, architecture)
     return data
+
+
+def _read_source_refs(data, refs, headers):
+    """The optional source-reference sheet -> each benchmark's `source_refs` (kept as written; linked later)."""
+    if not headers:
+        data.warnings.append(f'No "{SOURCE_REFS}" sheet: the {len(data.benchmarks)} key indicators get the workbook as '
+                             'their origin, with no source document linked.')
+        return
+    missing = [h for h in SOURCE_REF_HEADERS if h not in headers]
+    if missing:
+        data.errors.append(f'{SOURCE_REFS} is missing columns: {", ".join(missing)}')
+        return
+    by_code = {b['code']: b for b in data.benchmarks}
+    for r in refs:
+        code, source, quote = (_t(r.get(h)) for h in SOURCE_REF_HEADERS)
+        if not (code or source or quote):
+            continue
+        where = f'{SOURCE_REFS} row {r[ROW]}'
+        rel = _t(r.get('Relationship')).lower() or BenchmarkRequirement.Relationship.SUPPORTING
+        page = _t(r.get('Page'))
+        problems = []
+        if code not in by_code:
+            problems.append(f'{code or "(blank)"} is not a key indicator')
+        if not source or not quote:
+            problems.append('needs a source code and the exact quote')
+        if rel not in BenchmarkRequirement.Relationship.values:
+            problems.append(f'relationship {rel!r} is not primary / supporting / crosswalk')
+        if page and not page.isdigit():
+            problems.append(f'page {page!r} is not a number')
+        if problems:
+            data.errors.append(f'{where}: ' + '; '.join(problems))
+            continue
+        by_code[code]['source_refs'].append({
+            'sheet': SOURCE_REFS, 'row': r[ROW], 'source_code': source, 'source_version': _t(r.get('Source Version')),
+            'page': int(page) if page else None, 'source_quote': quote, 'relationship': rel,
+            'statement': _t(r.get('Requirement Statement'))})
 
 
 def _key_indicators(text):
@@ -233,12 +301,74 @@ def _audit(actor, action, obj, after, reason):
                                     object_id=str(obj.pk), after=after, reason=reason)
 
 
-def apply_aiqif(data, *, actor, commit=False, reason='', withdraw_others=False):
+def _origin(data, b, existing, actor):
+    """The indicator's origin: this workbook, sheet and row. The import date is the first import of this
+    workbook (kept on re-runs, so a re-import changes nothing that did not change)."""
+    from .provenance import origin_of
+    before = origin_of(existing) if existing else {}
+    same_book = before.get('type') == Benchmark.Origin.FRAMEWORK_IMPORT and before.get('workbook') == data.workbook
+    return {'workbook': data.workbook, 'workbook_sha256': data.workbook_sha256, 'framework': FRAMEWORK_CODE,
+            'framework_version': VERSION_LABEL,
+            'sheet': MASTER, 'row': b['row'], 'indicator_code': b['code'],
+            'imported_at': before['imported_at'] if same_book and before.get('imported_at') else timezone.now().isoformat(),
+            'imported_by': before['imported_by'] if same_book and before.get('imported_by') else actor}
+
+
+def _ref_plan(ref, existing):
+    """How one workbook source reference lands: (status, version or None). Linked only to a real Source Library
+    version, and only when the quote is in its text (when it has text)."""
+    from .provenance import quote_check
+    doc = SourceDocument.objects.filter(source_code=ref['source_code']).first()
+    if doc is None:
+        return f'not linked: {ref["source_code"]} is not in the Source Library', None
+    versions = doc.versions.exclude(status=SourceVersion.Status.WITHDRAWN)
+    version = (versions.filter(version_label=ref['source_version']).first() if ref['source_version']
+               else versions.order_by('-issued_on', '-created_at').first())
+    if version is None:
+        wanted = f'version {ref["source_version"]}' if ref['source_version'] else 'current version'
+        return f'not linked: no {wanted} of {doc.source_code}', None
+    if existing is not None:
+        found = BenchmarkRequirement.objects.filter(
+            benchmark=existing, requirement__version=version, requirement__page=ref['page'],
+            requirement__source_quote=ref['source_quote']).select_related('requirement').first()
+        if found:
+            return f'linked as {found.requirement.code}', None
+    if quote_check(version, ref['source_quote'], ref['page']) is False:
+        where = f'on page {ref["page"]} of' if ref['page'] else 'in'
+        return f'not linked: the quote is not {where} {version}', None
+    return 'to link', version
+
+
+def _link_ref(bench, version, ref, data, actor, linked_by):
+    """The workbook's mapping -> a requirement marked as the workbook's (no approver: the workbook is
+    authoritative) linked to the indicator. Returns the requirement code."""
+    from .linking import _check_draft
+    from .requirement_drafting import _next_code
+    _check_draft(bench)  # LinkError when the indicator is locked
+    wb = {'workbook': data.workbook, 'workbook_sha256': data.workbook_sha256, 'sheet': ref['sheet'], 'row': ref['row']}
+    req = Requirement.objects.create(
+        code=_next_code(version), version=version, statement=ref['statement'] or ref['source_quote'],
+        kind=RequirementKind.GUIDANCE, page=ref['page'], source_quote=ref['source_quote'], workbook_ref=wb,
+        approved_by=linked_by, approved_at=timezone.now())
+    note = f'Source mapping in {data.workbook}, {ref["sheet"]} row {ref["row"]}.'
+    BenchmarkRequirement.objects.create(benchmark=bench, requirement=req, relationship=ref['relationship'],
+                                        note=note, linked_by=linked_by)
+    SourceAuditEvent.objects.create(actor=actor, action='benchmark.linked_from_workbook', object_type='Benchmark',
+                                    object_id=str(bench.pk), after={'requirement': req.code, **wb,
+                                                                    'relationship': ref['relationship']},
+                                    reason=note)
+    return req.code
+
+
+def apply_aiqif(data, *, actor, commit=False, reason='', withdraw_others=False, linked_by=None):
     """Save the framework. withdraw_others: also withdraw every other DRAFT benchmark
     (e.g. the earlier Source Pack catalogue), so AI-QIF is the only working set.
-    Nothing is deleted, and a benchmark past draft is never changed."""
+    Nothing is deleted, and a benchmark past draft is never changed. linked_by: optionally, the InGage person
+    running the import, recorded on the workbook's source mappings (they are linked either way)."""
+    from .linking import LinkError
     summary = CatalogueSummary(committed=commit)
     summary.withdrawn = []
+    summary.source_refs = Counter()
     rules = data.framework_rules
     with transaction.atomic():
         authority = _upsert(Authority, {'code': AUTHORITY['code']},
@@ -270,9 +400,25 @@ def apply_aiqif(data, *, actor, commit=False, reason='', withdraw_others=False):
                 'scoring_dimensions': rules.get('Measurement Types', '')[:200],
                 'activation_status': rules.get('Status', ''),
             }
+            plans = [(ref, *_ref_plan(ref, existing)) for ref in b['source_refs']]
+            origin = _origin(data, b, existing, actor)
+            origin['workbook_source_refs'] = [{**ref, 'status': st} for ref, st, _v in plans]
+            values['origin_type'], values['origin'] = Benchmark.Origin.FRAMEWORK_IMPORT, origin
             if not (existing and existing.target_guidance):
                 values['target_guidance'] = rules.get('Target Rule', '')
             bench = _upsert(Benchmark, {'benchmark_code': b['code']}, values, summary, 'benchmark', actor, reason)
+            if any(st == 'to link' for _r, st, _v in plans):
+                for entry, (ref, st, version) in zip(origin['workbook_source_refs'], plans):
+                    if st != 'to link':
+                        continue
+                    try:
+                        entry['status'] = f'linked as {_link_ref(bench, version, ref, data, actor, linked_by)}'
+                    except LinkError as exc:
+                        entry['status'] = f'not linked: {exc}'
+                bench.origin = origin
+                bench.save(update_fields=['origin', 'updated_at'])
+            for entry in origin['workbook_source_refs']:
+                summary.source_refs['linked' if entry['status'].startswith('linked') else 'not linked'] += 1
             for lvl, _c in LEVELS:
                 md = MaturityDefinition.objects.filter(benchmark=bench, level=lvl).first()
                 if md and md.edited_by_id:

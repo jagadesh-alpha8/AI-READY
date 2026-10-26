@@ -225,7 +225,7 @@ def snapshot(benchmark):
     applic = (ApplicabilityRule.objects.filter(benchmark=benchmark).prefetch_related('institution_types', 'programme_types')
               .order_by('priority', 'created_at'))
     links = benchmark.requirement_links.select_related('requirement__version__document').order_by('requirement__code')
-    return {
+    data = {
         'benchmark_code': benchmark.benchmark_code, 'title': benchmark.title, 'pillar': benchmark.pillar.code,
         'kind': benchmark.benchmark_kind, 'version_label': benchmark.version_label,
         'capability': benchmark.capability.definition, 'expert_owner': benchmark.expert_owner,
@@ -252,6 +252,11 @@ def snapshot(benchmark):
                           'page': link.requirement.page, 'source_code': link.requirement.version.document.source_code,
                           'source_version': link.requirement.version.version_label} for link in links],
     }
+    # An origin a reviewer entered is content they confirm (an imported / candidate origin is a recorded fact,
+    # frozen on publish with the rest of the provenance -- services/provenance.py).
+    if benchmark.origin_type == Benchmark.Origin.MANUAL:
+        data['origin'] = {k: (benchmark.origin or {}).get(k, '') for k in ('description', 'reference')}
+    return data
 
 
 def _hash(data):
@@ -272,7 +277,9 @@ def publish(release, user):
                 old = release.based_on.items.filter(benchmark=item.benchmark).first()
                 item.snapshot, item.snapshot_hash = old.snapshot, old.snapshot_hash
             else:
-                item.snapshot = snapshot(item.benchmark)
+                from .provenance import frozen
+                # The origin and source references as they are at publish, kept with the release for ever.
+                item.snapshot = {**snapshot(item.benchmark), 'provenance': frozen(item.benchmark)}
                 item.snapshot_hash = _hash(item.snapshot)
             item.save()
             hashes.append(f'{item.benchmark.benchmark_code}:{item.change_type}:{item.snapshot_hash}')
@@ -325,7 +332,7 @@ def diff(release):
         changes = []
         if item.change_type == Item.UPDATED and old and old.snapshot and new:
             for key in ('title', 'levels', 'evidence_rules', 'applicability_rules', 'requirements', 'evidence_types',
-                        'expert_owner', 'target_guidance'):
+                        'expert_owner', 'target_guidance', 'origin'):
                 if old.snapshot.get(key) != new.get(key):
                     changes.append(key)
         out.append({'benchmark_code': item.benchmark.benchmark_code, 'title': item.benchmark.title,

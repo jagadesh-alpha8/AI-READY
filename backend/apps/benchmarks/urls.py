@@ -16,6 +16,7 @@ from .views import (
     BenchmarkCandidateListView, BenchmarkCandidateDetailView, BenchmarkCandidateActionView,
     WatcherEventProposeView, BenchmarkConfirmView, BenchmarkUnconfirmView, BenchmarkApplicabilityValidationView,
     StudioAIJobListView, StudioAIJobActionView, VersionCompareView,
+    BenchmarkProvenanceView, BenchmarkOriginView, BenchmarkSourceReferenceView,
 )
 
 _routes = [
@@ -41,6 +42,10 @@ _routes = [
     ('/catalogue/<str:benchmark_code>/levels/<str:level>', BenchmarkLevelView, 'benchmark-level'),
     ('/catalogue/<str:benchmark_code>/readiness', BenchmarkReadinessView, 'benchmark-readiness'),
     ('/catalogue/<str:benchmark_code>/history', BenchmarkHistoryView, 'benchmark-history'),
+    ('/catalogue/<str:benchmark_code>/provenance', BenchmarkProvenanceView, 'benchmark-provenance'),
+    ('/catalogue/<str:benchmark_code>/origin', BenchmarkOriginView, 'benchmark-origin'),
+    ('/catalogue/<str:benchmark_code>/source-references', BenchmarkSourceReferenceView,
+     'benchmark-source-references'),
     ('/catalogue/<str:benchmark_code>/evidence-rules', BenchmarkEvidenceRulesView, 'benchmark-evidence-rules'),
     ('/requirements/<str:code>/evidence-rules', RequirementEvidenceRulesView, 'requirement-evidence-rules'),
     ('/evidence-rules/<uuid:pk>', EvidenceRuleDetailView, 'evidence-rule-detail'),

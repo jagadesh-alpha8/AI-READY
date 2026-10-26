@@ -78,3 +78,12 @@ export function reviewEvidenceRequest(
 ) {
   return api.post<EvidenceRequestDetail>(`/evidence-requests/${id}/review`, body);
 }
+
+/**
+ * Retry a FAILED AI assessment of one submission (reviewers only, never the submitter): the same evidence is
+ * assessed again from its saved text -- nothing is re-uploaded or re-extracted, and the result stays advisory.
+ * 409 (with the current detail) when an assessment of it is already running.
+ */
+export function retryEvidenceAssessment(id: string, evidenceId: string) {
+  return api.post<EvidenceRequestDetail>(`/evidence-requests/${id}/evidence/${evidenceId}/retry-assessment`);
+}

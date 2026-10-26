@@ -21,7 +21,9 @@ from collections import Counter
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from apps.facts.aiqif_tagging import Crosswalk, apply_tags, guess_kind, metrics_in, refresh_state
+from apps.facts.aiqif_tagging import (
+    Crosswalk, Precedents, ai_check_pending, apply_tags, guess_kind, metrics_in, refresh_state,
+)
 from apps.facts.models import ExtractedFact, FactAIQIFMapping
 from apps.facts.profile_suggestion import match_code
 
@@ -36,6 +38,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--sprint', help='Only this sprint (uuid). Without it: every sprint.')
         parser.add_argument('--commit', action='store_true', help='Apply the changes (default: dry run).')
+        parser.add_argument('--ai-check', action='store_true',
+                            help='Also run the AI second opinion on tags still waiting (makes AI calls; with --commit only).')
 
     def handle(self, *args, **options):
         crosswalk = Crosswalk()
@@ -46,10 +50,11 @@ class Command(BaseCommand):
         if options['sprint']:
             facts = facts.filter(sprint_id=options['sprint'])
         stats, sprints = Counter(), set()
+        precedents = Precedents()  # earlier expert decisions on the same fields (aiqif_tagging rule 4)
         try:
             with transaction.atomic():
                 for fact in facts:
-                    self._retag(fact, crosswalk, stats)
+                    self._retag(fact, crosswalk, stats, precedents)
                     sprints.add(fact.sprint_id)
                 if not options['commit']:
                     raise _DryRun
@@ -59,6 +64,11 @@ class Command(BaseCommand):
         self.stdout.write(f'{verb} {stats["facts"]} fact(s) in {len(sprints)} sprint(s).')
         for key in sorted(k for k in stats if k != 'facts'):
             self.stdout.write(f'  {key}: {stats[key]}')
+        if options['commit'] and options['ai_check']:
+            for sprint_id in sprints:
+                result = ai_check_pending(list(ExtractedFact.objects.filter(sprint_id=sprint_id)), limit=1000)
+                self.stdout.write(f'  AI check, sprint {sprint_id}: {result["checked"]} checked, '
+                                  f'{result["accepted"]} accepted.')
         if options['commit'] and sprints:
             from apps.scoring.services import run_scoring_engine
             from apps.sprints.models import Sprint
@@ -69,7 +79,7 @@ class Command(BaseCommand):
             self.stdout.write('Dry run: nothing was changed. Add --commit to apply.')
 
     @staticmethod
-    def _retag(fact, crosswalk, stats):
+    def _retag(fact, crosswalk, stats, precedents=None):
         stats['facts'] += 1
         if not fact.fact_kind:
             fact.fact_kind = guess_kind(fact)
@@ -89,7 +99,7 @@ class Command(BaseCommand):
         had_confirmed = fact.aiqif_mappings.filter(review_status=FactAIQIFMapping.ReviewStatus.CONFIRMED).exists()
         suggestions = [{'indicator_code': m.indicator_code, 'criterion': m.criterion, 'reason': m.reason,
                         'confidence': m.confidence} for m in existing]
-        apply_tags(fact, suggestions, crosswalk)
+        apply_tags(fact, suggestions, crosswalk, precedents)
         if fact.fact_kind != ExtractedFact.FactKind.AI_EVIDENCE and had_confirmed and not fact.kind_reviewed_by_id:
             # A person confirmed one of its tags (it counted before): a Super Admin decides (kept until decided).
             fact.tagging_notes = [*(fact.tagging_notes or []), {
@@ -98,4 +108,6 @@ class Command(BaseCommand):
             fact.save(update_fields=['tagging_notes', 'updated_at'])
             refresh_state(fact)
         stats['crosswalk tags'] += fact.aiqif_mappings.filter(source=FactAIQIFMapping.Source.CROSSWALK).count()
+        stats['decided by an expert precedent'] += fact.aiqif_mappings.filter(
+            auto_decision__in=['accepted_precedent', 'rejected_precedent']).count()
         stats['sent to the expert queue'] += int(fact.kind_needs_check)

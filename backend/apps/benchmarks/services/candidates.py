@@ -423,7 +423,11 @@ def create_benchmark_draft(candidate, user, data):
                         benchmark_code=code, capability=capability, pillar=pillar, framework=framework, title=title,
                         benchmark_kind=kind, benchmark_class=f'InGage {VERSION_LABEL} ({kind_label})',
                         version_label=VERSION_LABEL, status=Benchmark.Status.DRAFT, source_basis=provenance,
-                        target_guidance=(data.get('target_guidance') or '').strip())
+                        target_guidance=(data.get('target_guidance') or '').strip(),
+                        origin_type=Benchmark.Origin.CANDIDATE,
+                        origin={'candidate_id': str(candidate.pk), 'candidate_title': candidate.title,
+                                'source_code': source or None, 'created_by': user.email,
+                                'created_at': timezone.now().isoformat()})
                 break
             except IntegrityError:
                 continue

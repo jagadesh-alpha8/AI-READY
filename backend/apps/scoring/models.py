@@ -127,6 +127,9 @@ class ScoringRun(models.Model):
     #: Null / {} on runs made before coverage existed.
     coverage_adjusted_cri = models.FloatField(null=True, blank=True)
     evidence_coverage = models.JSONField(default=dict, blank=True)
+    #: The sprint's scoring inputs when this run was made (services/inputs.py). A different current fingerprint
+    #: means the run no longer describes the sprint. Empty on runs made before fingerprints existed.
+    inputs_fingerprint = models.CharField(max_length=64, blank=True)
     triggered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
     )
@@ -153,7 +156,13 @@ class Baseline(models.Model):
     "never overwrite historical approved baseline data" is satisfied simply
     by pointing `scoring_run` at a specific, already-immutable `ScoringRun`
     row (later scoring runs create new rows, never update old ones) and by
-    refusing any further action once this row is APPROVED. A returned
+    refusing any further action once this row is APPROVED.
+
+    While PENDING, the baseline is a preview of the sprint as it is now: whenever its run no longer matches the
+    sprint's scoring inputs (services/inputs.py), services/baseline.py points it at a run that does (an existing
+    one or a fresh calculation), audited as REFRESHED; old runs are never edited or deleted. An approval must name
+    the run the reviewer saw, and is refused (409) if the preview changed since -- so a decision is always pinned
+    to the exact score that was reviewed. Once decided, the pin never moves. A returned
     baseline is not reused or edited either: a fresh sprint pass through
     REVIEWING -> SCORING and a new `GET .../baseline/` call creates a new
     `Baseline` row for the next decision cycle, so the full history of every
@@ -167,14 +176,16 @@ class Baseline(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     sprint = models.ForeignKey('sprints.Sprint', on_delete=models.CASCADE, related_name='baselines')
-    #: The exact ScoringRun this baseline decision was made against --
-    #: immutable once set, and never repointed at a later run (see class
-    #: docstring). ScoringRun.pillar_snapshot is what a report generated
+    #: The exact ScoringRun this baseline decision was made against -- kept current while PENDING, never
+    #: repointed once decided (see class docstring). ScoringRun.pillar_snapshot is what a report generated
     #: against an approved baseline reads instead of live-recomputing.
     scoring_run = models.ForeignKey(
         'scoring.ScoringRun', on_delete=models.PROTECT, related_name='baselines',
     )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    #: Set on an explicit revision of a decided baseline (services/baseline.open_revision): the decision this new
+    #: cycle may replace once it is decided. The earlier decision itself is never changed.
+    revises = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True, related_name='revisions')
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
     )
@@ -211,6 +222,8 @@ class BaselineDecisionHistory(models.Model):
         APPROVED = 'approved', 'Approved'
         APPROVED_PROVISIONAL = 'approved_provisional', 'Approved Provisionally'
         RETURNED = 'returned', 'Returned for Correction'
+        #: A pending baseline's preview moved to a run that matches the current data (comments: from -> to).
+        REFRESHED = 'refreshed', 'Preview recalculated'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     baseline = models.ForeignKey(Baseline, on_delete=models.CASCADE, related_name='history')

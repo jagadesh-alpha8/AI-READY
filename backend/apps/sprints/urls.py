@@ -9,7 +9,7 @@ from apps.documents.views import (
 from apps.extraction.views import SprintAIUsageView, SprintExtractionJobListCreateView, SprintProcessingSummaryView
 from apps.facts.evidence_views import SprintEvidenceAssigneesView, SprintEvidenceRequestListView
 from apps.facts.views import (
-    SprintAIQIFExpertQueueView, SprintAIQIFSummaryView, SprintBulkFactConfirmView, SprintBulkTagConfirmView,
+    SprintAIQIFAutoCheckView, SprintAIQIFExpertQueueView, SprintAIQIFSummaryView, SprintBulkFactConfirmView,
     SprintFactFacetsView, SprintFactListView, SprintProfileSuggestionView, SprintWorkSummaryView,
 )
 from apps.gaps.views import SprintGapFacetsView, SprintGapListView
@@ -24,6 +24,7 @@ from apps.scoring.views import (
     SprintBaselineApproveProvisionalView,
     SprintBaselineApproveView,
     SprintBaselineReturnView,
+    SprintBaselineReviseView,
     SprintBaselineView,
     SprintScoreHistoryView,
     SprintScoreView,
@@ -95,11 +96,11 @@ urlpatterns = [
     ),
     path('/<uuid:sprint_id>/facts', SprintFactListView.as_view(), name='sprint-facts'),
     path('/<uuid:sprint_id>/facts/facets', SprintFactFacetsView.as_view(), name='sprint-facts-facets'),
-    path('/<uuid:sprint_id>/aiqif-mappings/bulk-confirm', SprintBulkTagConfirmView.as_view(),
-         name='sprint-aiqif-tags-bulk-confirm'),
     path('/<uuid:sprint_id>/aiqif-summary', SprintAIQIFSummaryView.as_view(), name='sprint-aiqif-summary'),
     path('/<uuid:sprint_id>/aiqif-expert-queue', SprintAIQIFExpertQueueView.as_view(),
          name='sprint-aiqif-expert-queue'),
+    path('/<uuid:sprint_id>/aiqif-expert-queue/auto-check', SprintAIQIFAutoCheckView.as_view(),
+         name='sprint-aiqif-auto-check'),
     path('/<uuid:sprint_id>/profile-suggestion', SprintProfileSuggestionView.as_view(),
          name='sprint-profile-suggestion'),
     path('/<uuid:sprint_id>/facts/bulk-confirm', SprintBulkFactConfirmView.as_view(),
@@ -143,6 +144,8 @@ urlpatterns = [
         SprintBaselineApproveProvisionalView.as_view(),
         name='sprint-baseline-approve-provisional-slash',
     ),
+    path('/<uuid:sprint_id>/baseline/revise', SprintBaselineReviseView.as_view(), name='sprint-baseline-revise'),
+    path('/<uuid:sprint_id>/baseline/revise/', SprintBaselineReviseView.as_view(), name='sprint-baseline-revise-slash'),
     path(
         '/<uuid:sprint_id>/baseline/return',
         SprintBaselineReturnView.as_view(),

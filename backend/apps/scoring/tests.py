@@ -500,6 +500,12 @@ class BaselineWorkflowTests(ScoringTestBase):
         self._auth(user)
         return self.client.get(f'/api/v1/sprints/{self.sprint.id}/baseline/')
 
+    def _decide(self, action, data=None):
+        """POST approve / approve-provisional with the run the reviewer saw (the pending baseline's current run)."""
+        pending = Baseline.objects.filter(sprint=self.sprint).order_by('-created_at').first()
+        body = {**(data or {}), 'scoring_run_id': str(pending.scoring_run_id) if pending else None}
+        return self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/{action}/', body, format='json')
+
     # -- bootstrap ------------------------------------------------------------
 
     def test_get_baseline_bootstraps_pending_from_scoring_status(self):
@@ -567,7 +573,7 @@ class BaselineWorkflowTests(ScoringTestBase):
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
 
         self._auth(self.viewer)
-        response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve/')
+        response = self._decide('approve')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_iqac_coordinator_cannot_approve_baseline(self):
@@ -577,7 +583,7 @@ class BaselineWorkflowTests(ScoringTestBase):
         self._make_fact(confidence_score=0.8)
         self._get_baseline(self.iqac)
         self._auth(self.iqac)
-        response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve/')
+        response = self._decide('approve')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_outsider_forbidden_from_other_institution_baseline(self):
@@ -596,9 +602,7 @@ class BaselineWorkflowTests(ScoringTestBase):
         self._get_baseline(self.admin)
 
         self._auth(self.admin)
-        response = self.client.post(
-            f'/api/v1/sprints/{self.sprint.id}/baseline/approve/', {'comments': 'Looks solid.'},
-        )
+        response = self._decide('approve', {'comments': 'Looks solid.'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['status'], Baseline.Status.APPROVED)
         self.assertEqual(response.data['comments'], 'Looks solid.')
@@ -615,7 +619,7 @@ class BaselineWorkflowTests(ScoringTestBase):
         self._get_baseline(self.admin)
 
         self._auth(self.admin)
-        response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve/')
+        response = self._decide('approve')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         self.sprint.refresh_from_db()
@@ -625,16 +629,16 @@ class BaselineWorkflowTests(ScoringTestBase):
         self._make_fact(confidence_score=0.8)
         self._get_baseline(self.admin)
         self._auth(self.admin)
-        self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve/')
+        self._decide('approve')
 
-        response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve/')
+        response = self._decide('approve')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_score_can_be_recalculated_after_approval_without_touching_the_baseline(self):
         self._make_fact(confidence_score=0.8)
         self._get_baseline(self.admin)
         self._auth(self.admin)
-        self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve/')
+        self._decide('approve')
         baseline = Baseline.objects.get(sprint=self.sprint)
         pinned = (baseline.scoring_run_id, baseline.scoring_run.overall_cri, baseline.scoring_run.pillar_snapshot)
         runs_before = ScoringRun.objects.filter(sprint=self.sprint).count()
@@ -662,9 +666,7 @@ class BaselineWorkflowTests(ScoringTestBase):
         self._get_baseline(self.admin)
 
         self._auth(self.admin)
-        response = self.client.post(
-            f'/api/v1/sprints/{self.sprint.id}/baseline/approve-provisional/', {'comments': 'Proceeding anyway.'},
-        )
+        response = self._decide('approve-provisional', {'comments': 'Proceeding anyway.'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['status'], Baseline.Status.PROVISIONAL)
 
@@ -716,7 +718,7 @@ class BaselineWorkflowTests(ScoringTestBase):
         self._make_fact(confidence_score=0.8)
         self._get_baseline(self.admin)
         self._auth(self.admin)
-        self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve/', {'comments': 'Good.'})
+        self._decide('approve', {'comments': 'Good.'})
 
         baseline = Baseline.objects.get(sprint=self.sprint)
         actions = list(
@@ -886,7 +888,8 @@ class EvidenceCoverageTests(ScoringTestBase):
         self.sprint.status = Sprint.Status.SCORING
         self.sprint.save(update_fields=['status'])
         baseline = get_or_create_pending_baseline(self.sprint, triggered_by=self.admin)
-        approve_baseline(self.sprint, user=self.admin, comments='ok')
+        approve_baseline(self.sprint, user=self.admin, comments='ok',
+                         expected_scoring_run_id=baseline.scoring_run_id)
         pinned = baseline.scoring_run
         pinned_coverage = dict(pinned.evidence_coverage)
 
@@ -975,3 +978,270 @@ class AIQIFMappingReviewTests(ScoringTestBase):
         self.assertEqual(sorted(tags), ['AIQIF-C1.1', 'AIQIF-C3.1'])  # unreviewed C2.1 replaced
         self.assertEqual((tags['AIQIF-C1.1'].review_status, tags['AIQIF-C1.1'].reason), ('confirmed', 'AI.'))
         self.assertEqual(tags['AIQIF-C3.1'].review_status, 'unreviewed')
+
+
+from django.utils import timezone  # noqa: E402
+
+
+class BaselineFreshnessTests(ScoringTestBase):
+    """A pending baseline previews the current data; a decision is pinned to exactly the run the reviewer saw;
+    a decided baseline never moves (apps/scoring/services/baseline.py, services/inputs.py)."""
+
+    def setUp(self):
+        super().setUp()
+        self.sprint.status = Sprint.Status.SCORING
+        self.sprint.save(update_fields=['status'])
+        self.url = f'/api/v1/sprints/{self.sprint.id}/baseline/'
+        self._auth(self.admin)
+
+    def _get(self):
+        return self.client.get(self.url)
+
+    def _post(self, action, run_id, **body):
+        return self.client.post(f'{self.url}{action}/', {**body, 'scoring_run_id': str(run_id) if run_id else None},
+                                format='json')
+
+    def _actions(self, baseline_id):
+        return list(BaselineDecisionHistory.objects.filter(baseline_id=baseline_id).order_by('created_at')
+                    .values_list('action', flat=True))
+
+    def test_a_pending_baseline_on_an_old_zero_run_moves_to_the_reviewed_evidence(self):
+        first = self._get().data
+        self.assertEqual(first['baseline']['overall_cri'], 0)  # no evidence yet
+        zero_run = first['baseline']['scoring_run_id']
+        self._make_fact(confidence_score=0.9)  # a reviewer confirms evidence afterwards
+
+        again = self._get().data
+        self.assertTrue(again['refreshed'])
+        self.assertGreater(again['baseline']['overall_cri'], 0)
+        self.assertNotEqual(again['baseline']['scoring_run_id'], zero_run)
+        self.assertTrue(ScoringRun.objects.filter(pk=zero_run, overall_cri=0).exists())  # history kept as it was
+        self.assertEqual(again['baseline']['id'], first['baseline']['id'])  # the same pending decision-cycle
+        self.assertEqual(self._actions(first['baseline']['id']),
+                         [BaselineDecisionHistory.Action.SUBMITTED, BaselineDecisionHistory.Action.REFRESHED])
+
+    def test_a_run_made_before_fingerprints_counts_as_stale(self):
+        self._make_fact()
+        baseline = self._get().data['baseline']
+        ScoringRun.objects.filter(pk=baseline['scoring_run_id']).update(inputs_fingerprint='')
+        self.assertTrue(self._get().data['refreshed'])
+
+    def test_unchanged_data_does_not_recalculate(self):
+        self._make_fact()
+        self._get()
+        runs = ScoringRun.objects.filter(sprint=self.sprint).count()
+        data = self._get().data
+        self.assertFalse(data['refreshed'])
+        self.assertTrue(data['baseline_is_current'])
+        self.assertEqual(ScoringRun.objects.filter(sprint=self.sprint).count(), runs)
+
+    def test_facts_tags_gaps_and_scoring_settings_each_refresh_the_preview(self):
+        from apps.facts.models import FactAIQIFMapping
+        from .constants import AIQIF_INDICATORS
+        fact = self._make_fact()
+        self._get()
+        changes = [
+            lambda: ExtractedFact.objects.filter(pk=fact.pk).update(status=ExtractedFact.Status.CORRECTED,
+                                                                   updated_at=timezone.now()),
+            lambda: FactAIQIFMapping.objects.create(
+                fact=fact, criterion=AIQIF_INDICATORS['AIQIF-C1.1'][0], indicator_code='AIQIF-C1.1', reason='t',
+                confidence=0.9, status=FactAIQIFMapping.Status.MAPPED,
+                review_status=FactAIQIFMapping.ReviewStatus.CONFIRMED),
+            lambda: self._make_gap(priority=GapItem.Priority.HIGH),
+            lambda: Pillar.objects.filter(key='aiqif_c1').update(weight=0.2, updated_at=timezone.now()),
+        ]
+        for change in changes:
+            before = self._get().data['baseline']['scoring_run_id']
+            change()
+            after = self._get().data
+            self.assertTrue(after['refreshed'], change)
+            self.assertNotEqual(after['baseline']['scoring_run_id'], before)
+
+    def test_full_and_provisional_approval_pin_exactly_the_run_shown(self):
+        self._make_fact(confidence_score=0.9)
+        shown = self._get().data['baseline']
+        r = self._post('approve', shown['scoring_run_id'], comments='Reviewed.')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual((r.data['status'], r.data['scoring_run_id'], r.data['overall_cri']),
+                         (Baseline.Status.APPROVED, shown['scoring_run_id'], shown['overall_cri']))
+
+        other = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI,
+                                      status=Sprint.Status.SCORING)
+        self.sprint = other
+        self.url = f'/api/v1/sprints/{other.id}/baseline/'
+        self._make_fact(confidence_score=0.7)
+        self._make_gap(priority=GapItem.Priority.BLOCKING)
+        shown = self._get().data['baseline']
+        self.assertEqual(self._post('approve', shown['scoring_run_id']).status_code, status.HTTP_400_BAD_REQUEST)
+        r = self._post('approve-provisional', shown['scoring_run_id'])
+        self.assertEqual((r.status_code, r.data['status'], r.data['scoring_run_id']),
+                         (status.HTTP_200_OK, Baseline.Status.PROVISIONAL, shown['scoring_run_id']))
+
+    def test_a_score_that_changed_after_loading_needs_review_before_approval(self):
+        self._make_fact(confidence_score=0.6)
+        seen = self._get().data['baseline']
+        self._make_fact(field_key='new_evidence', confidence_score=0.95)  # changes after the reviewer loaded it
+
+        r = self._post('approve', seen['scoring_run_id'])
+        self.assertEqual(r.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(r.data['code'], 'baseline_changed')
+        new = r.data['baseline']
+        self.assertEqual(new['status'], Baseline.Status.PENDING)  # nothing was approved
+        self.assertNotEqual(new['scoring_run_id'], seen['scoring_run_id'])
+        self.assertNotEqual(new['overall_cri'], seen['overall_cri'])
+        self.assertTrue(r.data['refreshed'])
+
+        ok = self._post('approve', new['scoring_run_id'])  # after reviewing the new score
+        self.assertEqual((ok.status_code, ok.data['scoring_run_id']), (status.HTTP_200_OK, new['scoring_run_id']))
+
+    def test_approval_must_name_the_reviewed_run(self):
+        self._make_fact()
+        self._get()
+        r = self._post('approve-provisional', None)
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('scoring_run_id', r.data)
+        self.assertEqual(Baseline.objects.get(sprint=self.sprint).status, Baseline.Status.PENDING)
+
+    def test_data_changing_during_the_decision_is_caught_under_the_lock(self):
+        """A change that lands between the refresh and the locked decision is still refused (and then shown)."""
+        from unittest.mock import patch
+
+        from .services import baseline as svc
+        self._make_fact()
+        seen = self._get().data['baseline']
+        real_refresh = svc.refresh_pending_baseline
+        calls = []
+
+        def refresh_then_change(sprint, user=None):
+            result = real_refresh(sprint, user=user)
+            if not calls:  # first call: the data changes right after the refresh
+                self._make_fact(field_key='late_change', confidence_score=0.99)
+            calls.append(1)
+            return result
+
+        with patch.object(svc, 'refresh_pending_baseline', side_effect=refresh_then_change):
+            r = self._post('approve', seen['scoring_run_id'])
+        self.assertEqual(r.status_code, status.HTTP_409_CONFLICT)
+        baseline = Baseline.objects.get(sprint=self.sprint)
+        self.assertEqual(baseline.status, Baseline.Status.PENDING)
+        self.assertNotEqual(str(baseline.scoring_run_id), seen['scoring_run_id'])
+
+    def test_return_for_correction_opens_a_new_cycle_on_the_corrected_data(self):
+        self._make_fact(confidence_score=0.5)
+        first = self._get().data['baseline']
+        self.assertEqual(self._post('return', None, comments='').status_code, status.HTTP_400_BAD_REQUEST)
+        r = self._post('return', None, comments='Faculty count looks wrong.')
+        self.assertEqual(r.data['status'], Baseline.Status.RETURNED)
+        self._make_fact(field_key='faculty_corrected', confidence_score=0.9)  # the correction
+
+        second = self._get().data['baseline']
+        self.assertNotEqual(second['id'], first['id'])
+        self.assertEqual(second['status'], Baseline.Status.PENDING)
+        self.assertNotEqual(second['scoring_run_id'], first['scoring_run_id'])
+        returned = Baseline.objects.get(pk=first['id'])
+        self.assertEqual((returned.status, str(returned.scoring_run_id)),
+                         (Baseline.Status.RETURNED, str(first['scoring_run_id'])))  # kept as it was
+
+    def test_a_decided_baseline_never_moves_when_the_live_cri_is_recalculated(self):
+        self._make_fact(confidence_score=0.6)
+        shown = self._get().data['baseline']
+        self._post('approve', shown['scoring_run_id'])
+        self._make_fact(field_key='after_approval', confidence_score=0.95)
+        live = self.client.post(f'/api/v1/sprints/{self.sprint.id}/score/').data
+
+        after = self._get().data
+        self.assertEqual((after['baseline']['scoring_run_id'], after['baseline']['overall_cri']),
+                         (shown['scoring_run_id'], shown['overall_cri']))
+        self.assertFalse(after['refreshed'])
+        self.assertFalse(after['baseline_is_current'])  # the Live CRI has moved on
+        self.assertNotEqual(live['overall_cri'], shown['overall_cri'])
+        self.assertEqual(self._actions(shown['id']),
+                         [BaselineDecisionHistory.Action.SUBMITTED, BaselineDecisionHistory.Action.APPROVED])
+
+    def test_only_sprint_managers_decide(self):
+        self._make_fact()
+        run = self._get().data['baseline']['scoring_run_id']
+        for user in (self.viewer, self.iqac):
+            self._auth(user)
+            self.assertEqual(self._post('approve', run).status_code, status.HTTP_403_FORBIDDEN)
+        self._auth(self.outsider)
+        self.assertEqual(self._post('approve', run).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Baseline.objects.get(sprint=self.sprint).status, Baseline.Status.PENDING)
+
+    def test_a_decided_baseline_is_replaced_only_by_an_explicit_revision(self):
+        from apps.reports.services import _baseline_summary
+        self._make_fact(confidence_score=0.5)
+        first = self._get().data['baseline']
+        self._post('approve-provisional', first['scoring_run_id'])
+        self._make_fact(field_key='later_evidence', confidence_score=0.95)
+
+        self.assertEqual(self._post('revise', None, comments='').status_code, status.HTTP_400_BAD_REQUEST)
+        self._auth(self.iqac)
+        self.assertEqual(self._post('revise', None, comments='x').status_code, status.HTTP_403_FORBIDDEN)
+        self._auth(self.admin)
+        r = self._post('revise', None, comments='New evidence was confirmed after the decision.')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        revision = r.data
+        self.assertEqual((revision['status'], str(revision['revises'])), (Baseline.Status.PENDING, str(first['id'])))
+        self.assertGreater(revision['overall_cri'], first['overall_cri'])  # previews the current data
+        old = Baseline.objects.get(pk=first['id'])
+        self.assertEqual((old.status, str(old.scoring_run_id)), (Baseline.Status.PROVISIONAL, str(first['scoring_run_id'])))
+        summary = _baseline_summary(self.sprint)  # reports keep the decision in force while the revision is reviewed
+        self.assertEqual((summary['baseline_id'], summary['status'], summary['revision_pending']),
+                         (str(first['id']), 'provisional', True))
+
+        ok = self._post('approve', revision['scoring_run_id'])
+        self.assertEqual((ok.status_code, ok.data['status']), (status.HTTP_200_OK, Baseline.Status.APPROVED))
+        summary = _baseline_summary(self.sprint)
+        self.assertEqual((summary['baseline_id'], summary['status'], summary['revision_pending']),
+                         (str(revision['id']), 'approved', False))
+        self.assertEqual(Baseline.objects.get(pk=first['id']).status, Baseline.Status.PROVISIONAL)  # history kept
+
+    def test_a_pending_baseline_cannot_be_revised(self):
+        self._make_fact()
+        self._get()
+        r = self._post('revise', None, comments='why')
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_a_current_decided_baseline_can_be_revised_for_a_demo_without_touching_the_decision(self):
+        """The local "Start demo revision" uses the same endpoint: same reason rule, same roles, no approval."""
+        from apps.reports.services import _baseline_summary
+        self._make_fact(confidence_score=0.7)
+        self._make_gap(priority=GapItem.Priority.BLOCKING)
+        decided = self._get().data['baseline']
+        self._post('approve-provisional', decided['scoring_run_id'], comments='Pilot decision.')
+        history = self._actions(decided['id'])
+        self.assertTrue(self._get().data['baseline_is_current'])  # the score has not changed
+
+        self.assertEqual(self._post('revise', None, comments='  ').status_code, status.HTTP_400_BAD_REQUEST)
+        for user in (self.viewer, self.iqac, self.outsider):
+            self._auth(user)
+            self.assertEqual(self._post('revise', None, comments='demo').status_code, status.HTTP_403_FORBIDDEN)
+        self._auth(self.admin)
+        r = self._post('revise', None, comments='Demonstrating the revision workflow to the manager.')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        revision = r.data
+        self.assertEqual((revision['status'], str(revision['revises'])), (Baseline.Status.PENDING, str(decided['id'])))
+        self.assertEqual(str(revision['scoring_run_id']), str(decided['scoring_run_id']))  # the current run, reused
+        self.assertEqual(Baseline.objects.filter(sprint=self.sprint).count(), 2)
+
+        old = Baseline.objects.get(pk=decided['id'])  # the decision is untouched and still in force
+        self.assertEqual((old.status, str(old.scoring_run_id), old.comments),
+                         (Baseline.Status.PROVISIONAL, str(decided['scoring_run_id']), 'Pilot decision.'))
+        self.assertEqual(self._actions(decided['id']), history)
+        self.assertEqual(_baseline_summary(self.sprint)['baseline_id'], str(decided['id']))
+        # Nothing was approved, and the normal rules still apply to the revision.
+        self.assertEqual(self._post('approve', revision['scoring_run_id']).status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Baseline.objects.get(pk=revision['id']).status, Baseline.Status.PENDING)
+
+    def test_the_page_gets_every_cycle_with_its_own_history(self):
+        self._make_fact(confidence_score=0.6)
+        first = self._get().data['baseline']
+        self._post('approve-provisional', first['scoring_run_id'])
+        self._post('revise', None, comments='Second look.')
+        data = self._get().data
+        cycles = data['cycles']
+        self.assertEqual(len(cycles), 2)
+        self.assertEqual((cycles[0]['id'], cycles[1]['id']), (data['baseline']['id'], first['id']))  # newest first
+        self.assertEqual([h['action'] for h in cycles[1]['history']], ['approved_provisional', 'submitted'])
+        self.assertEqual(str(cycles[0]['revises']), str(first['id']))

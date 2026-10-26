@@ -139,6 +139,13 @@ class ExtractionJobTestBase(APITestCase):
         self.fact_openai_mock = fact_patcher.start()
         self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': []}
         self.addCleanup(fact_patcher.stop)
+        # The semantic conflict check is an AI call too: never a real one in tests (it used the local API key and
+        # made results depend on a live model). Default verdict: not a conflict; conflict tests set their own.
+        conflict_patcher = patch('apps.extraction.services.conflict_checker.get_ai_service')
+        self.conflict_ai_mock = conflict_patcher.start()
+        self.conflict_ai_mock.return_value.extract_structured_data.return_value = {
+            'is_conflict': False, 'confidence': 0.9, 'explanation': 'Test default: not a conflict.'}
+        self.addCleanup(conflict_patcher.stop)
         route_combined_analysis(self)
 
         self._auth(self.iqac)
@@ -3108,13 +3115,15 @@ class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
              'indicator_code': 'AIQIF-C4.1', 'indicator_name': 'Faculty AI Literacy & Awareness',
              'reason': 'Faculty count.', 'confidence': 0.9, 'status': 'mapped', **UNREVIEWED,
              'auto_accepted': True, 'counts': False, 'counts_reason': 'the fact is not confirmed yet',
-             'pending': False, **NOT_PENDING},  # accepted; counts once the fact is confirmed
+             'pending': False, **NOT_PENDING, 'auto_decision': 'accepted_rules', 'auto_reason': ''},
+            # accepted by the rules; counts once the fact is confirmed
             {'criterion': 'aiqif_c9', 'criterion_code': 'AIQIF-C9',
              'criterion_name': 'AI Assurance, Measurement & Continuous Improvement',
              'indicator_code': 'AIQIF-C9.2', 'indicator_name': 'Evidence, Traceability & Auditability',
              'reason': 'Cited figure.', 'confidence': 0.4, 'status': 'needs_review', **UNREVIEWED,
              'auto_accepted': False, 'counts': False, 'counts_reason': 'waiting for an expert decision',
-             'pending': True, **NOT_PENDING},  # low confidence: waits for the Super Admin
+             'pending': True, **NOT_PENDING, 'auto_decision': '', 'auto_reason': ''},
+            # low confidence: waits for the Super Admin
         ])
         # The evidence stays on the fact; the CRI pillar is untouched by the tags.
         self.assertEqual(
@@ -3510,8 +3519,10 @@ class ExtractionCompletenessTests(ExtractionJobTestBase):
         from apps.gaps.models import GapItem
         GapItem.objects.filter(sprint=self.sprint, priority='blocking').update(status='resolved')  # gaps are another gate
         self._auth(self.admin)
+        self.client.get(f'/api/v1/sprints/{self.sprint.id}/baseline')  # the reviewer loads the current preview
         for path in ('approve', 'approve-provisional'):
-            r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/{path}', {'comments': 'ok'}, format='json')
+            r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/{path}',
+                                 {'comments': 'ok', 'scoring_run_id': self._run_id()}, format='json')
             self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, r.data)
             self.assertIn('not fully processed', str(r.data['detail']))
             counts = r.data['processing']['counts']
@@ -3520,6 +3531,11 @@ class ExtractionCompletenessTests(ExtractionJobTestBase):
         baseline_view = self.client.get(f'/api/v1/sprints/{self.sprint.id}/baseline').data
         self.assertFalse(baseline_view['processing']['complete'])
 
+    def _run_id(self):
+        """The run the pending baseline previews (what the reviewer saw)."""
+        from apps.scoring.models import Baseline
+        return str(Baseline.objects.filter(sprint=self.sprint).order_by('-created_at').first().scoring_run_id)
+
     def test_an_override_needs_a_reason_and_is_recorded_and_reported(self):
         from apps.reports.services import build_report_data
         from apps.scoring.models import BaselineDecisionHistory
@@ -3527,10 +3543,10 @@ class ExtractionCompletenessTests(ExtractionJobTestBase):
         self._pending_baseline()
         self._auth(self.admin)
         r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve-provisional',
-                             {'comments': 'ok', 'processing_override_reason': '   '}, format='json')
+                             {'comments': 'ok', 'scoring_run_id': self._run_id(), 'processing_override_reason': '   '}, format='json')
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)  # blank is not a reason
         r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve-provisional',
-                             {'comments': 'ok', 'processing_override_reason': 'Page 2 is a scanned annexure; '
+                             {'comments': 'ok', 'scoring_run_id': self._run_id(), 'processing_override_reason': 'Page 2 is a scanned annexure; '
                               'its figures were confirmed by hand.'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
         self.assertTrue(r.data['processing_incomplete'])
@@ -3549,7 +3565,8 @@ class ExtractionCompletenessTests(ExtractionJobTestBase):
         self._process()
         self._pending_baseline()
         self._auth(self.admin)
-        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve-provisional', {'comments': 'ok'},
+        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/baseline/approve-provisional',
+                             {'comments': 'ok', 'scoring_run_id': self._run_id()},
                              format='json')
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
         self.assertFalse(r.data['processing_incomplete'])
@@ -4024,6 +4041,27 @@ class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
         fact = self._run(self._ai_course(fact_kind=None))['mba_ai_course']
         self.assertEqual(fact.fact_kind, 'ai_evidence')  # its quote names Artificial Intelligence
         self.assertIn('fact_kind_guessed', [n['kind'] for n in fact.tagging_notes])
+
+    def test_extraction_applies_expert_precedents_and_the_ai_second_opinion(self):
+        from apps.facts.models import FactAIQIFMapping
+        expert = self._make_user('expert@ingage.test', User.Role.SUPER_ADMIN, None)
+        old_sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
+        old = ExtractedFact.objects.create(sprint=old_sprint, field_name='MBA AI course', field_key='mba_ai_course_2023',
+                                           value='Yes', fact_kind='ai_evidence', status='confirmed', pillar='aiqif_c3')
+        FactAIQIFMapping.objects.create(fact=old, criterion='aiqif_c3', indicator_code='AIQIF-C3.3', reason='x',
+                                        confidence=0.4, status='needs_review', review_status='confirmed',
+                                        reviewed_by=expert, reviewed_at=timezone.now())
+        checker = MagicMock()
+        checker.extract_structured_data.return_value = {'supports': True, 'relationship': 'supporting',
+                                                        'confidence': 0.9, 'reason': 'The quote names an AI course.'}
+        with override_settings(AIQIF_AI_CHECK_ENABLED=True),                 patch('apps.extraction.services.ai_service.get_ai_service', return_value=checker):
+            fact = self._run(self._ai_course(naac_metric=None, aiqif_indicators=[
+                _indicator('AIQIF-C3.3', 0.4), _indicator('AIQIF-C6.4', 0.95)]))['mba_ai_course']
+        tags = {m.indicator_code: m for m in fact.aiqif_mappings.all()}
+        self.assertEqual(tags['AIQIF-C3.3'].auto_decision, 'accepted_precedent')  # the expert's earlier decision
+        self.assertEqual(tags['AIQIF-C6.4'].auto_decision, 'accepted_ai_check')   # another criterion: AI checked it
+        self.assertEqual(checker.extract_structured_data.call_count, 1)           # the precedent needed no AI call
+        self.assertEqual(fact.aiqif_mapping_status, 'mapped')
 
     def test_duplicate_facts_across_chunks_keep_both_copies_tags(self):
         from .services.openai_fact_extractor import _merge_fact

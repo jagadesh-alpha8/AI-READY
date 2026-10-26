@@ -323,21 +323,6 @@ export const AIProcessingMonitor: React.FC = () => {
           <div className="glass-card p-4 space-y-3 text-xs">
             <div>
               <p className="text-sm font-semibold text-ink-900">Current documents: {currentTotal}</p>
-              <p className="text-ink-600 tabular-nums" data-testid="current-reconciliation">
-                {completedCount} fully processed + {partialCount} partially processed + {failedCount} failed or stopped
-                {' '}+ {processingCount} processing + {notProcessedCount} not started = {currentTotal} current documents
-              </p>
-              {partialCount > 0 && (
-                <p className="text-ink-500">
-                  Partially processed documents were processed, but some of their content could not be read, so they are
-                  not counted as fully processed. Process them again to read what was missed.
-                </p>
-              )}
-              <p className="text-ink-500">
-                Not counted above: {earlierVersionCount} earlier version{earlierVersionCount === 1 ? '' : 's'} and
-                {' '}{rejectedCount} rejected document{rejectedCount === 1 ? '' : 's'}, kept for sprint history
-                ({documents.length} files in the sprint in all).
-              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {([
@@ -362,11 +347,6 @@ export const AIProcessingMonitor: React.FC = () => {
               <input className="input text-xs ml-auto w-56" placeholder="Search file name…" value={search}
                 onChange={(e) => setSearch(e.target.value)} />
             </div>
-            {!allComplete && !hasActiveJob && (
-              <p className="text-ink-600">
-                Partial and failed documents can be processed again; facts are updated in place, never duplicated.
-              </p>
-            )}
           </div>
 
           {/* Sprint coverage includes documents without a job, so an unqueued item is visible. */}

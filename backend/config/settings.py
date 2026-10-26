@@ -302,7 +302,13 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {
 # of ENABLED source feeds once a day and records changes for review). It needs
 # a beat process (`celery -A config beat`) and WATCHER_ENABLED=true; off by
 # default so a dev machine never contacts government sites by surprise.
-WATCHER_ENABLED = os.getenv('WATCHER_ENABLED', 'false').lower() in ('1', 'true', 'yes')
+# Benchmark Studio is read-only: the manager-provided workbooks are the standard catalogue (sources, indicators,
+# levels, applicability, source mappings). The portal only views it; it changes through the controlled workbook
+# import commands (dry run first), never through portal add / edit / delete, AI drafting, the watcher or candidates.
+# The API enforces it (apps/benchmarks/permissions.py). false = the earlier authoring workflows (maintenance only).
+BENCHMARK_CATALOGUE_READ_ONLY = os.getenv('BENCHMARK_CATALOGUE_READ_ONLY', 'true').lower() in ('1', 'true', 'yes')
+WATCHER_ENABLED = (os.getenv('WATCHER_ENABLED', 'false').lower() in ('1', 'true', 'yes')
+                   and not BENCHMARK_CATALOGUE_READ_ONLY)
 WATCHER_HOUR_UTC = int(os.getenv('WATCHER_HOUR_UTC', 20))  # 20:30 UTC = 02:00 IST
 CELERY_BEAT_SCHEDULE = {}
 if WATCHER_ENABLED:
@@ -642,3 +648,12 @@ if not DEBUG:
 # more database queries than this.
 API_SLOW_REQUEST_MS = int(os.getenv('API_SLOW_REQUEST_MS', 1000))
 API_SLOW_REQUEST_QUERIES = int(os.getenv('API_SLOW_REQUEST_QUERIES', 100))
+
+# AI-QIF tags the rules leave for an expert get an AI second opinion (apps/facts/aiqif_tagging.ai_check_pending):
+# accepted when the check agrees with at least this confidence; at most this many checks per document.
+# Off by default under `manage.py test` (no unmocked AI call); the AI-check tests switch it on.
+AIQIF_AI_CHECK_ENABLED = os.getenv(
+    'AIQIF_AI_CHECK_ENABLED', 'false' if len(sys.argv) > 1 and sys.argv[1] == 'test' else 'true',
+).strip().lower() not in ('', '0', 'false', 'off')
+AIQIF_AI_CHECK_MIN_CONFIDENCE = float(os.getenv('AIQIF_AI_CHECK_MIN_CONFIDENCE', 0.8))
+AIQIF_AI_CHECK_MAX_PER_DOCUMENT = int(os.getenv('AIQIF_AI_CHECK_MAX_PER_DOCUMENT', 40))

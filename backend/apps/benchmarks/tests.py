@@ -225,6 +225,11 @@ from unittest.mock import patch  # noqa: E402
 
 from django.test import override_settings  # noqa: E402
 
+#: Benchmark Studio is read-only in the portal (settings.BENCHMARK_CATALOGUE_READ_ONLY, apps/benchmarks/permissions.py).
+#: The API tests of the earlier authoring workflows run with the lock off: they cover the services the controlled
+#: import and maintenance still use. ReadOnlyCatalogueTests checks the lock itself.
+MAINTENANCE_MODE = override_settings(BENCHMARK_CATALOGUE_READ_ONLY=False)
+
 from .models import Requirement, RequirementCandidate, SourceSection  # noqa: E402
 from .services import approval, file_intake  # noqa: E402
 from .services.requirement_drafting import (  # noqa: E402
@@ -568,6 +573,7 @@ class DraftingTaskTests(_VersionMixin, TestCase):
         self.assertEqual((self.version.extraction_status, self.version.extraction_note), ('failed', 'no file'))
 
 
+@MAINTENANCE_MODE
 class ActionApiTests(_VersionMixin, APITestCase):
     def setUp(self):
         super().setUp()
@@ -834,6 +840,7 @@ class LinkingTests(_LinkFixture, TestCase):
             linking.link(aca, self.req, self.user, relationship='primary')
 
 
+@MAINTENANCE_MODE
 class LinkingApiTests(_LinkFixture, APITestCase):
     def _login(self, role):
         user = User.objects.create_user(email=f'{role}@y.edu', username=f'{role}y', password=PASSWORD, role=role)
@@ -851,7 +858,8 @@ class LinkingApiTests(_LinkFixture, APITestCase):
                          (201, 'UGC-005-R001', 'consultant@y.edu'))
         self.assertEqual(self.client.get('/api/v1/benchmarks/catalogue/ACA-05').data['requirement_count'], 1)
         reqs = self.client.get('/api/v1/benchmarks/requirements').data
-        self.assertEqual(reqs[0]['benchmarks'], [{'benchmark_code': 'ACA-05', 'relationship': 'primary'}])
+        self.assertEqual(reqs[0]['benchmarks'], [{'benchmark_code': 'ACA-05', 'relationship': 'primary',
+                                                  'title': 'Assessment, examination and academic integrity'}])
         self.assertEqual(len(self.client.get('/api/v1/benchmarks/requirements?unlinked=1').data), 0)
         bad = self.client.post('/api/v1/benchmarks/catalogue/ACA-05/requirements',
                                {'requirement_code': 'UGC-005-R001', 'relationship': 'nope'}, format='json')
@@ -952,6 +960,7 @@ class AuthoringTests(_CataloguePack, TestCase):
         self.assertEqual(MaturityDefinition.objects.get(benchmark=self.aca, level='L3').definition, REAL_L3)
 
 
+@MAINTENANCE_MODE
 class AuthoringApiTests(_CataloguePack, APITestCase):
     def setUp(self):
         super().setUp()
@@ -1062,6 +1071,7 @@ class RequirementEvidenceRuleTests(_LinkFixture, TestCase):
             evidence_rules.create_rule(self.user, RULE, requirement=self.req)
 
 
+@MAINTENANCE_MODE
 class EvidenceRuleApiTests(_CataloguePack, APITestCase):
     def setUp(self):
         super().setUp()
@@ -1172,6 +1182,7 @@ class ApplicabilityTests(_CataloguePack, TestCase):
         self.assertTrue({c['key']: c for c in authoring.readiness(self.aca)['checks']}['applicability']['ok'])
 
 
+@MAINTENANCE_MODE
 class ApplicabilityApiTests(_CataloguePack, APITestCase):
     def setUp(self):
         super().setUp()
@@ -1187,13 +1198,28 @@ class ApplicabilityApiTests(_CataloguePack, APITestCase):
                                    'reason': 'Not for ITIs.'}, format='json')
         self.assertEqual((r.status_code, r.data['institution_types']), (201, ['iti']))
         self.assertEqual(self.client.post(url, {'result': 'nope'}, format='json').status_code, 400)
-        preview = self.client.post('/api/v1/benchmarks/applicability/preview',
-                                   {'institution_type': 'iti', 'programme_types': ['iti_trade']}, format='json').data
+        # The preview reads a college's SAVED profile only (the one assessments use).
+        from apps.assessments.models import BenchmarkProfile, Programme
+        from .models import InstitutionType, ProgrammeType
+        iti = Institution.objects.create(name='Govt ITI Karur', city='Karur', state='TN')
+        bare = Institution.objects.create(name='No Profile College', city='Karur', state='TN')
+        BenchmarkProfile.objects.create(institution=iti, institution_type=InstitutionType.objects.get(code='iti'))
+        Programme.objects.create(institution=iti, programme_type=ProgrammeType.objects.get(code='iti_trade'),
+                                 name='Electrician')
+        url = '/api/v1/benchmarks/applicability/preview'
+        colleges = {c['name']: c['has_profile'] for c in self.client.get(url).data}
+        self.assertEqual((colleges['Govt ITI Karur'], colleges['No Profile College']), (True, False))
+        preview = self.client.get(f'{url}?institution={iti.pk}').data
+        self.assertEqual((preview['profile']['institution_type'], preview['profile']['programme_types']),
+                         ('iti', ['iti_trade']))
         aca = [b for b in preview['benchmarks'] if b['benchmark_code'] == 'ACA-05'][0]
         self.assertEqual((aca['result'], aca['reason']), ('does_not_apply', 'Not for ITIs.'))
         self.assertEqual(preview['counts'], {'does_not_apply': 1, 'requires_review': 2})
-        bad = self.client.post('/api/v1/benchmarks/applicability/preview', {'institution_type': 'spaceport'}, format='json')
-        self.assertEqual(bad.status_code, 400)
+        none = self.client.get(f'{url}?institution={bare.pk}').data
+        self.assertEqual((none['profile'], none['benchmarks']), (None, []))  # no saved profile: nothing guessed
+        self.assertIn('no saved benchmark profile', none['detail'])
+        # A typed-in profile is not accepted any more.
+        self.assertEqual(self.client.post(url, {'institution_type': 'iti'}, format='json').status_code, 405)
         rid = r.data['id']
         self.assertEqual(self.client.patch(f'/api/v1/benchmarks/applicability-rules/{rid}', {'priority': 1},
                                            format='json').data['priority'], 1)
@@ -1338,6 +1364,7 @@ class ReleaseTests(_LinkFixture, TestCase):
             releases.create_release('bad/label!', self.user)
 
 
+@MAINTENANCE_MODE
 class ReleaseApiTests(_LinkFixture, APITestCase):
     def _login(self, email):
         token = self.client.post('/api/v1/auth/login/', {'email': email, 'password': PASSWORD}).data['access_token']
@@ -1414,6 +1441,7 @@ class _WatcherFixture(_LinkFixture):
         self.feed.save()
 
 
+@MAINTENANCE_MODE
 class WatcherTests(_WatcherFixture, TestCase):
     def test_first_check_is_a_baseline_and_noise_is_ignored(self):
         r = watcher.check_feed(self.feed, fetcher=fake(index_page(PLAG)))
@@ -1537,6 +1565,7 @@ class WatcherTests(_WatcherFixture, TestCase):
         self.assertFalse(cache.get('benchmarks:watcher:lock'))
 
 
+@MAINTENANCE_MODE
 class WatcherApiTests(_WatcherFixture, APITestCase):
     def _login(self, email):
         token = self.client.post('/api/v1/auth/login/', {'email': email, 'password': PASSWORD}).data['access_token']
@@ -1667,6 +1696,7 @@ class CandidateTests(_WatcherFixture, TestCase):
         self.assertEqual(run.candidates_created, 1)
 
 
+@MAINTENANCE_MODE
 class CandidateApiTests(_WatcherFixture, APITestCase):
     def _login(self, email):
         token = self.client.post('/api/v1/auth/login/', {'email': email, 'password': PASSWORD}).data['access_token']
@@ -1701,8 +1731,10 @@ from .services.aiqif_import import apply_aiqif, read_aiqif  # noqa: E402
 _LV = ('L3 — Foundational', 'L2 — Good / Recommended', 'L1 — Advanced / Aspirational')
 
 
-def _aiqif_workbook(rows=None, crosswalk=None):
-    """A small AI-QIF master: criterion C1 (60 = 30 + 30) and C2 (40, one KI) -- total 100, not 1000."""
+def _aiqif_workbook(rows=None, crosswalk=None, source_refs=None):
+    """A small AI-QIF master: criterion C1 (60 = 30 + 30) and C2 (40, one KI) -- total 100, not 1000.
+    source_refs: rows of the optional 'AI-QIF Source References' sheet
+    (indicator, source code, version, page, quote, relationship)."""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = 'AI Benchmark Master'
@@ -1732,6 +1764,11 @@ def _aiqif_workbook(rows=None, crosswalk=None):
     a = wb.create_sheet('Scoring Architecture')
     a.append(['Layer', 'Definition', 'Authority'])
     a.append(['AI-QIF Criteria', '9 domains totaling 1000', 'InGage methodology'])
+    if source_refs is not None:
+        r = wb.create_sheet('AI-QIF Source References')
+        r.append(['AI-QIF Benchmark ID', 'Source Code', 'Source Version', 'Page', 'Exact Quote', 'Relationship'])
+        for row in source_refs:
+            r.append(list(row))
     fd, path = tempfile.mkstemp(suffix='.xlsx')
     os.close(fd)
     wb.save(path)
@@ -2010,6 +2047,7 @@ from .models import Framework as _Framework  # noqa: E402
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='source-create-'))
+@MAINTENANCE_MODE
 class AddSourceApiTests(APITestCase):
     URL = '/api/v1/benchmarks/sources'
 
@@ -2113,6 +2151,7 @@ from .services import confirmation as _confirmation  # noqa: E402
 from .services import releases as _releases  # noqa: E402
 
 
+@MAINTENANCE_MODE
 class BenchmarkConfirmationTests(APITestCase):
     def setUp(self):
         path = _aiqif_workbook()
@@ -2247,6 +2286,7 @@ def _approve_weights(benchmark, user, weights=('0.25', '0.25', '0.25', '0.25')):
                                              approved_by=user, approved_at=timezone.now())
 
 
+@MAINTENANCE_MODE
 class ReleaseGateTests(_LinkFixture, TestCase):
     def setUp(self):
         super().setUp()
@@ -2367,6 +2407,7 @@ def _no_ai(*_args, **_kwargs):
 
 
 @patch('apps.extraction.services.ai_service.get_ai_service', _no_ai)
+@MAINTENANCE_MODE
 class NewBenchmarkDraftTests(APITestCase):
     """Approve -> create draft (explicitly, once) -> complete by hand -> confirm -> release -> published.
     The AI service is patched to fail, so every step here is proven to work without AI."""
@@ -2555,6 +2596,7 @@ class ScriptedAI:
         return answer
 
 
+@MAINTENANCE_MODE
 class StudioAITests(_LinkFixture, APITestCase):
     QUOTE = 'every thesis shall be checked for plagiarism'
 
@@ -2781,3 +2823,523 @@ class StudioAITests(_LinkFixture, APITestCase):
         r = self.client.post('/api/v1/benchmarks/ai-jobs', {'kind': 'benchmark_content', 'target_id': 'AIQIF-C1.1'},
                              format='json')
         self.assertEqual(r.status_code, 403)
+
+
+# -- provenance: indicator origin vs supporting source references ----------------------------
+
+from .models import Capability, StudioAIJob  # noqa: E402
+from .services import provenance  # noqa: E402
+from .services.requirement_drafting import accept_candidate as _accept  # noqa: E402
+
+QUOTE = 'Every institution shall publish a policy on the responsible use of artificial intelligence'
+
+
+class _ProvenanceFixture:
+    """A Source Library version with extracted text (UGC-005, page 3 holds QUOTE) and a reviewer."""
+
+    def setUp(self):
+        super().setUp()
+        reg = make_register([GOOD])
+        self.addCleanup(os.remove, reg)
+        apply_register(read_register(reg), actor='t', commit=True)
+        self.version = SourceVersion.objects.get()  # UGC-005 @ 2018, 8 pages
+        SourceSection.objects.create(version=self.version, ordinal=1, page_start=3, page_end=3,
+                                     text=f'Clause 4. {QUOTE}, reviewed every year.')
+        self.reviewer = User.objects.create_user(email='rev@ingage.ai', username='rev', password=PASSWORD,
+                                                 role='consultant')
+
+    def _import(self, source_refs=None, linked_by=None):
+        path = _aiqif_workbook(source_refs=source_refs)
+        self.addCleanup(os.remove, path)
+        data = read_aiqif(path)
+        self.assertEqual(data.errors, [])
+        return data, apply_aiqif(data, actor='import_aiqif', commit=True, linked_by=linked_by,
+                                 reason=f'AI-QIF import from {path}')
+
+
+class ProvenanceImportTests(_ProvenanceFixture, TestCase):
+    def test_every_indicator_gets_the_workbook_as_its_origin_and_no_invented_source(self):
+        data, _ = self._import()
+        self.assertTrue(any('no source document linked' in w for w in data.warnings))
+        for code, row in (('AIQIF-C1.1', 2), ('AIQIF-C1.2', 3), ('AIQIF-C2.1', 4)):
+            b = Benchmark.objects.get(benchmark_code=code)
+            p = provenance.provenance(b)
+            o = p['origin']
+            self.assertEqual((o['type'], o['recorded'], o['workbook'], o['sheet'], o['row'], o['indicator_code'],
+                              o['framework_version']),
+                             ('framework_import', 'row', data.workbook, 'AI Benchmark Master', row, code, 'AI-QIF v1.0'))
+            self.assertTrue(o['imported_at'])
+            self.assertEqual(o['workbook_source_refs'], [])
+            # The workbook defined the indicator; no source document is linked, and none is made up.
+            self.assertEqual((p['source_references'], p['source_document_linked']), ([], False))
+        self.assertEqual(Requirement.objects.count(), 0)
+
+    def test_reimporting_the_same_workbook_changes_nothing(self):
+        path = _aiqif_workbook()
+        self.addCleanup(os.remove, path)
+        apply_aiqif(read_aiqif(path), actor='a', commit=True)
+        first = Benchmark.objects.get(benchmark_code='AIQIF-C1.1').origin
+        summary = apply_aiqif(read_aiqif(path), actor='b', commit=True)
+        self.assertEqual(summary.updated['benchmark'], 0)
+        self.assertEqual(Benchmark.objects.get(benchmark_code='AIQIF-C1.1').origin, first)
+
+    def test_an_older_import_without_a_stored_origin_reads_its_audit_event(self):
+        data, _ = self._import()
+        Benchmark.objects.update(origin_type='', origin={})
+        o = provenance.origin_of(Benchmark.objects.get(benchmark_code='AIQIF-C1.1'))
+        self.assertEqual((o['type'], o['recorded'], o['workbook'], o['sheet'], o['row'], o['imported_by']),
+                         ('framework_import', 'audit', data.workbook, 'AI Benchmark Master', None, 'import_aiqif'))
+
+    def test_an_indicator_with_no_recorded_origin_says_so(self):
+        b = Benchmark.objects.create(
+            benchmark_code='X-01', title='Hand-made', benchmark_kind='guidance', version_label='v1',
+            capability=Capability.objects.create(code='CAP-X', name='x', domain='d', definition='d'),
+            pillar=Pillar.objects.create(code='PX', name='px'))
+        self.assertEqual(provenance.origin_of(b), {'type': '', 'label': 'Origin not recorded', 'recorded': ''})
+
+    def test_workbook_source_mappings_are_linked_as_the_workbook_says_and_never_guessed(self):
+        refs = [('AIQIF-C1.1', 'UGC-005', '2018', 3, QUOTE, 'primary'),
+                ('AIQIF-C1.2', 'UGC-005', '', 3, 'words that are not in the source', 'supporting'),
+                ('AIQIF-C2.1', 'NOPE-001', '', '', 'anything', 'supporting')]
+        data, summary = self._import(source_refs=refs)
+        # The workbook is authoritative: no reviewer is needed, but only a real version and a real quote link.
+        self.assertEqual(summary.source_refs, {'linked': 1, 'not linked': 2})
+        statuses = {b.benchmark_code: b.origin['workbook_source_refs'][0]['status'] for b in Benchmark.objects.all()}
+        self.assertTrue(statuses['AIQIF-C1.1'].startswith('linked as UGC-005-R'))
+        self.assertIn('the quote is not on page 3', statuses['AIQIF-C1.2'])
+        self.assertIn('NOPE-001 is not in the Source Library', statuses['AIQIF-C2.1'])
+        ref = provenance.source_references(Benchmark.objects.get(benchmark_code='AIQIF-C1.1'))
+        self.assertEqual(len(ref), 1)
+        self.assertEqual((ref[0]['source_code'], ref[0]['source_version'], ref[0]['page'], ref[0]['source_quote'],
+                          ref[0]['relationship'], ref[0]['requirement_origin'], ref[0]['accepted_by'],
+                          ref[0]['quote_in_source_text']),
+                         ('UGC-005', '2018', 3, QUOTE, 'primary', 'manager_workbook', None, True))
+        self.assertEqual((ref[0]['workbook_ref']['workbook'], ref[0]['workbook_ref']['sheet'], ref[0]['workbook_ref']['row'],
+                          ref[0]['workbook_ref']['workbook_sha256']),
+                         (data.workbook, 'AI-QIF Source References', 2, data.workbook_sha256))
+        for code in ('AIQIF-C1.2', 'AIQIF-C2.1'):  # no mapping -> nothing linked, nothing invented
+            self.assertEqual(provenance.source_references(Benchmark.objects.get(benchmark_code=code)), [])
+        # Re-running links nothing twice.
+        self._import(source_refs=refs)
+        self.assertEqual(Requirement.objects.count(), 1)
+
+    def test_bad_source_reference_rows_are_errors(self):
+        path = _aiqif_workbook(source_refs=[('AIQIF-C9.9', 'UGC-005', '', 'x', QUOTE, 'main')])
+        self.addCleanup(os.remove, path)
+        err = read_aiqif(path).errors[0]
+        for part in ('row 2', 'AIQIF-C9.9 is not a key indicator', "relationship 'main'", "page 'x'"):
+            self.assertIn(part, err)
+
+
+class ProvenanceLinkTests(_ProvenanceFixture, TestCase):
+    def setUp(self):
+        super().setUp()
+        self._import()
+        self.c11, self.c12 = (Benchmark.objects.get(benchmark_code=c) for c in ('AIQIF-C1.1', 'AIQIF-C1.2'))
+
+    def _accepted(self):
+        cand = RequirementCandidate.objects.create(version=self.version, statement='Publish an AI-use policy.',
+                                                   kind='mandatory', page=3, source_quote=QUOTE, confidence=0.9,
+                                                   model='test-model')
+        return _accept(cand, self.reviewer)
+
+    def test_an_accepted_requirement_keeps_source_version_page_and_quote_on_every_indicator(self):
+        req = self._accepted()
+        linking.link(self.c11, req, self.reviewer, relationship='primary')
+        linking.link(self.c12, req, self.reviewer, relationship='supporting')
+        for b, rel in ((self.c11, 'primary'), (self.c12, 'supporting')):
+            ref = provenance.source_references(b)[0]
+            self.assertEqual((ref['requirement_code'], ref['source_code'], ref['source_version'], ref['page'],
+                              ref['source_quote'], ref['relationship'], ref['requirement_origin'], ref['ai_model']),
+                             (req.code, 'UGC-005', '2018', 3, QUOTE, rel, 'ai_draft_accepted', 'test-model'))
+        # The origin is still the workbook: a supporting source is not where the indicator came from.
+        self.assertEqual(provenance.origin_of(self.c11)['type'], 'framework_import')
+
+    def test_one_indicator_can_have_several_sources(self):
+        first = self._accepted()
+        second = provenance.add_source_reference(self.c11, self.reviewer, version=self.version, page=3,
+                                                 source_quote='reviewed every year', statement='Review it yearly.',
+                                                 relationship='supporting')
+        linking.link(self.c11, first, self.reviewer, relationship='primary')
+        codes = [r['requirement_code'] for r in provenance.source_references(self.c11)]
+        self.assertEqual(sorted(codes), sorted([first.code, second.code]))
+
+    def test_ai_drafts_never_become_source_mappings(self):
+        cand = RequirementCandidate.objects.create(version=self.version, statement='Publish an AI-use policy.',
+                                                   kind='mandatory', page=3, source_quote=QUOTE, confidence=0.99)
+        StudioAIJob.objects.create(kind='requirement_fit', target_type='Requirement', target_id='UGC-005-R001',
+                                   status='ready', model='m', output={'matches': [
+                                       {'benchmark_code': 'AIQIF-C1.1', 'relationship': 'primary',
+                                        'rationale': 'same topic', 'confidence': 0.95}]})
+        p = provenance.provenance(self.c11)
+        self.assertEqual((p['source_references'], Requirement.objects.count(), BenchmarkRequirement.objects.count()),
+                         ([], 0, 0))
+        self.assertNotIn('ai_suggestions', p)  # AI output is not shown as provenance at all
+        _accept(cand, self.reviewer)  # even an accepted draft links to nothing by itself
+        self.assertEqual(provenance.source_references(self.c11), [])
+
+    def test_a_reviewer_source_reference_must_quote_the_source_exactly(self):
+        with self.assertRaisesMessage(provenance.ProvenanceError, 'not on page 4'):
+            provenance.add_source_reference(self.c11, self.reviewer, version=self.version, page=4,
+                                            source_quote=QUOTE, statement='x', relationship='primary')
+        with self.assertRaisesMessage(provenance.ProvenanceError, 'Page 9 is not in'):
+            provenance.add_source_reference(self.c11, self.reviewer, version=self.version, page=9,
+                                            source_quote=QUOTE, statement='x', relationship='primary')
+        self.assertEqual(Requirement.objects.count(), 0)
+        req = provenance.add_source_reference(self.c11, self.reviewer, version=self.version, page=3,
+                                              source_quote=QUOTE, statement='Publish an AI-use policy.',
+                                              relationship='primary', note='Cited by the manager')
+        actions = list(SourceAuditEvent.objects.filter(created_at__gte=req.approved_at)
+                       .order_by('created_at').values_list('action', flat=True))
+        self.assertEqual(actions, ['requirement.entered', 'benchmark.linked'])
+
+    def test_manual_origin_only_when_none_is_recorded_and_it_is_confirmed_content(self):
+        with self.assertRaisesMessage(provenance.ProvenanceError, 'already has a recorded origin'):
+            provenance.set_manual_origin(self.c11, self.reviewer, description='Board resolution 2026/14')
+        Benchmark.objects.filter(pk=self.c11.pk).update(origin_type='', origin={})
+        SourceAuditEvent.objects.filter(object_id=str(self.c11.pk), action='catalogue.create').update(reason='by hand')
+        self.c11.refresh_from_db()
+        before = releases.snapshot(self.c11)
+        provenance.set_manual_origin(self.c11, self.reviewer, description='Board resolution 2026/14',
+                                     reference='Minutes p.2')
+        o = provenance.origin_of(self.c11)
+        self.assertEqual((o['type'], o['description'], o['reference'], o['entered_by']),
+                         ('manual', 'Board resolution 2026/14', 'Minutes p.2', 'rev@ingage.ai'))
+        self.assertNotEqual(releases.snapshot(self.c11), before)  # an edit the reviewer must confirm again
+        with self.assertRaisesMessage(provenance.ProvenanceError, 'reason'):
+            provenance.clear_manual_origin(self.c11, self.reviewer, reason='')
+        provenance.clear_manual_origin(self.c11, self.reviewer, reason='Entered on the wrong indicator')
+        actions = (SourceAuditEvent.objects.filter(object_id=str(self.c11.pk), action__startswith='benchmark.origin')
+                   .order_by('created_at').values_list('action', flat=True))
+        self.assertEqual(list(actions), ['benchmark.origin_set', 'benchmark.origin_cleared'])
+
+    def test_a_released_indicator_changes_provenance_only_in_a_new_draft(self):
+        Benchmark.objects.filter(pk=self.c11.pk).update(status='active')
+        self.c11.refresh_from_db()
+        with self.assertRaisesMessage(provenance.ProvenanceError, 'new draft'):
+            provenance.add_source_reference(self.c11, self.reviewer, version=self.version, page=3,
+                                            source_quote=QUOTE, statement='x', relationship='primary')
+
+
+class ProvenanceReleaseTests(_LinkFixture, TestCase):
+    """A published release keeps the origin and source references it was published with."""
+
+    def setUp(self):
+        super().setUp()
+        self.aca = Benchmark.objects.get(benchmark_code='ACA-05')
+        self.approver = User.objects.create_user(email='approver@ingage.ai', username='approver', password=PASSWORD,
+                                                 role='super_admin')
+        make_ready(self.aca, self.user, self.req)
+        rel = releases.create_release('Release 1.0', self.user)
+        releases.add_item(rel, self.aca, self.user)
+        releases.submit(rel, self.user)
+        releases.approve(rel, self.approver)
+        self.release = releases.publish(rel, self.approver)
+
+    def test_history_keeps_the_links_after_later_draft_edits(self):
+        item = self.release.items.get()
+        kept = provenance.release_provenance(item)
+        self.assertEqual([r['requirement_code'] for r in kept['source_references']], ['UGC-005-R001'])
+        self.assertEqual(kept['source_references'][0]['source_quote'], self.req.source_quote)
+        self.assertEqual(kept['origin']['label'], 'Origin not recorded')  # Source Pack fixture: none was recorded
+        self.assertEqual(kept['frozen_in']['release_label'], 'Release 1.0')
+
+        self.aca.refresh_from_db()
+        releases.reopen_benchmark(self.aca, self.user, 'next version')
+        linking.unlink(self.aca, self.req, self.user)
+        other = Requirement.objects.create(code='UGC-005-R002', version=self.version, statement='Another.',
+                                           kind='guidance', page=4, source_quote='another clause',
+                                           approved_by=self.user, approved_at=_tz.now())
+        linking.link(self.aca, other, self.user, relationship='supporting')
+        live = [r['requirement_code'] for r in provenance.provenance(self.aca)['source_references']]
+        self.assertEqual(live, ['UGC-005-R002'])
+        item.refresh_from_db()
+        self.assertEqual([r['requirement_code'] for r in provenance.release_provenance(item)['source_references']],
+                         ['UGC-005-R001'])
+
+    def test_a_release_published_before_provenance_was_frozen_still_shows_its_links(self):
+        item = self.release.items.get()
+        legacy = {k: v for k, v in item.snapshot.items() if k != 'provenance'}
+        BenchmarkReleaseItem.objects.filter(pk=item.pk).update(snapshot=legacy)  # (bypasses the publish lock)
+        item.refresh_from_db()
+        kept = provenance.release_provenance(item)
+        self.assertEqual((kept['source_references'][0]['requirement_code'], kept['source_references'][0]['page']),
+                         ('UGC-005-R001', 3))
+        self.assertIn('not frozen', kept['origin']['label'])
+
+
+@MAINTENANCE_MODE
+class ProvenanceApiTests(_ProvenanceFixture, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self._import()
+        self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
+
+    def _as(self, role):
+        user = User.objects.create_user(email=f'{role}@x.edu', username=f'u-{role}', password=PASSWORD, role=role,
+                                        institution=None if role in User.CROSS_INSTITUTION_ROLES else self.institution)
+        self.client.force_authenticate(user)
+        return user
+
+    def _add(self, **over):
+        body = {'version_id': str(self.version.pk), 'page': 3, 'source_quote': QUOTE,
+                'statement': 'Publish an AI-use policy.', 'relationship': 'primary', **over}
+        return self.client.post('/api/v1/benchmarks/catalogue/AIQIF-C1.1/source-references', body, format='json')
+
+    def test_only_ingage_staff_read_or_change_provenance(self):
+        for role in ('institution_admin', 'iqac_coordinator', 'faculty'):
+            self._as(role)
+            self.assertEqual(self.client.get('/api/v1/benchmarks/catalogue/AIQIF-C1.1/provenance').status_code, 403)
+            self.assertEqual(self._add().status_code, 403)
+            r = self.client.put('/api/v1/benchmarks/catalogue/AIQIF-C1.1/origin', {'description': 'x'}, format='json')
+            self.assertEqual(r.status_code, 403)
+        self.client.force_authenticate(None)
+        self.assertIn(self._add().status_code, (401, 403))
+        self.assertEqual(Requirement.objects.count(), 0)
+
+    def test_staff_see_origin_add_a_source_and_navigate_both_ways(self):
+        self._as('consultant')
+        p = self.client.get('/api/v1/benchmarks/catalogue/AIQIF-C1.1/provenance').data
+        self.assertEqual((p['origin']['type'], p['source_document_linked'], p['releases']),
+                         ('framework_import', False, []))
+        self.assertEqual(self._add(page=4).status_code, 400)  # not on that page: refused, nothing saved
+        r = self._add()
+        self.assertEqual(r.status_code, 201)
+        code = r.data['requirement_code']
+        self.assertEqual(r.data['source_references'][0]['requirement_code'], code)
+        # Sources -> indicators, and requirement -> indicators.
+        doc = self.client.get('/api/v1/benchmarks/sources').data[0]
+        self.assertEqual([i['benchmark_code'] for i in doc['linked_indicators']], ['AIQIF-C1.1'])
+        detail = self.client.get('/api/v1/benchmarks/sources/UGC-005').data
+        self.assertEqual(detail['linked_indicators'][0]['links'], [{'requirement_code': code, 'relationship': 'primary'}])
+        req = self.client.get(f'/api/v1/benchmarks/requirements?code={code}').data[0]
+        self.assertEqual((req['benchmarks'][0]['benchmark_code'], req['benchmarks'][0]['title'],
+                          req['requirement_origin']), ('AIQIF-C1.1', 'AI Vision', 'entered_by_reviewer'))
+        by_indicator = self.client.get('/api/v1/benchmarks/requirements?benchmark=AIQIF-C1.1').data
+        self.assertEqual([x['code'] for x in by_indicator], [code])
+
+    def test_a_release_the_indicator_is_not_in_is_a_404(self):
+        self._as('super_admin')
+        r = self.client.get('/api/v1/benchmarks/catalogue/AIQIF-C1.1/provenance?release=Release 9')
+        self.assertEqual(r.status_code, 404)
+
+
+# -- editing and deleting a source (services/source_edit.py) ---------------------------------
+
+@MAINTENANCE_MODE
+class SourceEditApiTests(APITestCase):
+    def setUp(self):
+        reg = make_register([GOOD])  # UGC-005 with one draft version "2018"
+        self.addCleanup(os.remove, reg)
+        apply_register(read_register(reg), actor='t', commit=True)
+        self.doc = SourceDocument.objects.get()
+        self.version = self.doc.versions.get()
+        self.staff = User.objects.create_user(email='c@ingage.ai', username='c', password=PASSWORD, role='consultant')
+        self.client.force_authenticate(self.staff)
+        self.url = '/api/v1/benchmarks/sources/UGC-005'
+
+    def test_staff_edit_the_source_and_its_draft_version_and_it_is_audited(self):
+        r = self.client.patch(self.url, {'title': 'UGC Plagiarism Regulations 2018 (amended)', 'pages': '9',
+                                         'version_label': '2018 rev 1', 'notes': 'Checked'}, format='json')
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual((r.data['title'], r.data['latest_version']['version_label'], r.data['latest_version']['pages']),
+                         ('UGC Plagiarism Regulations 2018 (amended)', '2018 rev 1', 9))
+        events = {e.action: e for e in SourceAuditEvent.objects.filter(action__in=['source.updated', 'version.updated'])}
+        self.assertEqual(events['source.updated'].before, {'title': 'UGC Plagiarism Regulations, 2018'})
+        self.assertEqual(events['version.updated'].after['version_label'], '2018 rev 1')
+        self.assertEqual(r.data['source_code'], 'UGC-005')  # the code never changes
+
+    def test_bad_values_are_refused_field_by_field(self):
+        r = self.client.patch(self.url, {'title': 'x', 'official_url': 'not a url', 'pages': 'many'}, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(set(r.data['errors']), {'title', 'official_url', 'pages'})
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.title, 'UGC Plagiarism Regulations, 2018')
+
+    def test_an_approved_version_is_frozen_except_its_notes(self):
+        self.version.status = SourceVersion.Status.ACTIVE
+        self.version.save()
+        r = self.client.patch(self.url, {'version_label': '2019'}, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('cannot change', r.data['errors']['version_label'])
+        self.assertEqual(self.client.patch(self.url, {'notes': 'Still current'}, format='json').status_code, 200)
+
+    def test_delete_needs_a_reason_and_removes_the_source_with_its_drafts(self):
+        RequirementCandidate.objects.create(version=self.version, statement='s', kind='mandatory', page=1,
+                                            source_quote='q', confidence=0.5)
+        self.assertEqual(self.client.get('/api/v1/benchmarks/sources').data[0]['delete_blockers'], [])
+        r = self.client.delete(self.url, {'reason': ''}, format='json')
+        self.assertEqual(r.status_code, 400)
+        r = self.client.delete(self.url, {'reason': 'Added twice by mistake'}, format='json')
+        self.assertEqual(r.status_code, 204)
+        self.assertFalse(SourceDocument.objects.exists())
+        self.assertFalse(RequirementCandidate.objects.exists())
+        event = SourceAuditEvent.objects.get(action='source.deleted')
+        self.assertEqual((event.before['source_code'], event.before['pending_ai_drafts_removed'], event.reason),
+                         ('UGC-005', 1, 'Added twice by mistake'))
+
+    def test_a_source_something_depends_on_cannot_be_deleted(self):
+        Requirement.objects.create(code='UGC-005-R001', version=self.version, statement='s', kind='mandatory', page=1,
+                                   source_quote='q', approved_by=self.staff, approved_at=_tz.now())
+        blockers = self.client.get('/api/v1/benchmarks/sources').data[0]['delete_blockers']
+        self.assertEqual(blockers, ['1 accepted requirement(s) come from it.'])
+        r = self.client.delete(self.url, {'reason': 'cleanup'}, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('cannot be deleted', r.data['detail'])
+        self.assertTrue(SourceDocument.objects.exists())
+
+    def test_the_stored_file_goes_only_when_no_other_version_uses_it(self):
+        media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media, True)
+        with override_settings(MEDIA_ROOT=media):
+            rel, _sha = file_intake.store(b'%PDF-1.4 test', 'x.pdf')
+            SourceVersion.objects.filter(pk=self.version.pk).update(file_uri=rel)
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertEqual(self.client.delete(self.url, {'reason': 'wrong file'}, format='json').status_code, 204)
+            self.assertFalse(os.path.exists(os.path.join(media, rel)))
+
+    def test_only_ingage_staff_edit_or_delete(self):
+        inst = Institution.objects.create(name='MKCE', city='Karur', state='TN')
+        self.client.force_authenticate(User.objects.create_user(email='a@x.edu', username='a', password=PASSWORD,
+                                                                role='institution_admin', institution=inst))
+        self.assertEqual(self.client.patch(self.url, {'title': 'Changed title'}, format='json').status_code, 403)
+        self.assertEqual(self.client.delete(self.url, {'reason': 'x'}, format='json').status_code, 403)
+        self.assertTrue(SourceDocument.objects.filter(title='UGC Plagiarism Regulations, 2018').exists())
+
+    def test_category_and_type_choices_are_listed_once(self):
+        first = SourceDocument.objects.get()
+        SourceDocument.objects.create(framework=first.framework, source_code='UGC-006', title='Another UGC regulation',
+                                      category=first.category, document_type=first.document_type)
+        ref = self.client.get('/api/v1/benchmarks/sources/reference').data
+        self.assertEqual((ref['categories'], ref['document_types']), ([first.category], [first.document_type]))
+        summary = self.client.get('/api/v1/benchmarks/sources/summary').data
+        self.assertEqual(summary['by_category'], {first.category: 2})
+
+
+# -- read-only Benchmark Studio: the manager workbooks are the standard catalogue -------------
+
+from django.core.management import CommandError, call_command  # noqa: E402
+
+from .models import WatcherRun  # noqa: E402
+from .services.baseline import label_for, publish_workbook_baseline  # noqa: E402
+
+
+class ReadOnlyCatalogueTests(_ProvenanceFixture, APITestCase):
+    """With the default setting, staff can only read; every write the Studio API had is refused on the server."""
+
+    def setUp(self):
+        super().setUp()
+        self._import()
+        self.client.force_authenticate(self.reviewer)
+
+    def test_staff_can_view_search_and_inspect(self):
+        for url in ('/api/v1/benchmarks/sources', '/api/v1/benchmarks/sources/UGC-005', '/api/v1/benchmarks/catalogue',
+                    '/api/v1/benchmarks/catalogue?q=Vision', '/api/v1/benchmarks/catalogue/AIQIF-C1.1',
+                    '/api/v1/benchmarks/catalogue/AIQIF-C1.1/provenance', '/api/v1/benchmarks/pillars',
+                    '/api/v1/benchmarks/applicability/preview'):
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+
+    def test_every_change_to_master_data_is_refused(self):
+        v = str(self.version.pk)
+        writes = [
+            ('post', '/api/v1/benchmarks/sources', {'source_code': 'NEW-001', 'title': 'A new source'}),
+            ('patch', '/api/v1/benchmarks/sources/UGC-005', {'title': 'Changed title'}),
+            ('delete', '/api/v1/benchmarks/sources/UGC-005', {'reason': 'x'}),
+            ('post', f'/api/v1/benchmarks/versions/{v}/intake', {}),
+            ('post', f'/api/v1/benchmarks/versions/{v}/approve', {'acknowledge_flags': True}),
+            ('post', f'/api/v1/benchmarks/versions/{v}/draft-requirements', {}),
+            ('put', '/api/v1/benchmarks/catalogue/AIQIF-C1.1/levels/L3', {'definition': 'x' * 80}),
+            ('patch', '/api/v1/benchmarks/catalogue/AIQIF-C1.1', {'expert_owner': 'Someone'}),
+            ('post', '/api/v1/benchmarks/catalogue/AIQIF-C1.1/confirm', {}),
+            ('post', '/api/v1/benchmarks/catalogue/AIQIF-C1.1/requirements', {'requirement_code': 'X'}),
+            ('post', '/api/v1/benchmarks/catalogue/AIQIF-C1.1/evidence-rules', {'title': 'x'}),
+            ('post', '/api/v1/benchmarks/catalogue/AIQIF-C1.1/applicability-rules', {'result': 'applies'}),
+            ('put', '/api/v1/benchmarks/catalogue/AIQIF-C1.1/origin', {'description': 'x'}),
+            ('post', '/api/v1/benchmarks/catalogue/AIQIF-C1.1/source-references', {'version_id': v}),
+            ('post', '/api/v1/benchmarks/releases', {'release_label': 'R1'}),
+            ('post', '/api/v1/benchmarks/watcher/runs', {}),
+            ('post', '/api/v1/benchmarks/benchmark-candidates', {'candidate_type': 'new_benchmark', 'title': 'x'}),
+            ('post', '/api/v1/benchmarks/ai-jobs', {'kind': 'requirement_fit', 'target_id': 'X'}),
+        ]
+        before = (SourceDocument.objects.get().title, Benchmark.objects.get(benchmark_code='AIQIF-C1.1').expert_owner)
+        for method, url, body in writes:
+            r = getattr(self.client, method)(url, body, format='json')
+            self.assertEqual(r.status_code, 403, f'{method} {url}')
+            self.assertIn('read-only', str(r.data['detail']), url)
+        self.assertEqual((SourceDocument.objects.get().title, Benchmark.objects.get(benchmark_code='AIQIF-C1.1').expert_owner),
+                         before)
+        self.assertEqual((Requirement.objects.count(), BenchmarkRelease.objects.count(), WatcherRun.objects.count(),
+                          BenchmarkCandidate.objects.count(), StudioAIJob.objects.count()), (0, 0, 0, 0, 0))
+
+    def test_the_watcher_and_ai_drafting_are_switched_off(self):
+        from .tasks import run_source_watcher
+        self.assertIsNone(run_source_watcher())
+        self.assertEqual(WatcherRun.objects.count(), 0)
+        for command in ('run_source_watcher', 'ai_draft_benchmarks'):
+            with self.assertRaisesMessage(CommandError, 'read-only'):
+                call_command(command)
+
+    def test_a_missing_mapping_is_reported_not_invented(self):
+        p = self.client.get('/api/v1/benchmarks/catalogue/AIQIF-C2.1/provenance').data
+        self.assertEqual((p['source_references'], p['source_document_linked'], p['origin']['type']),
+                         ([], False, 'framework_import'))
+
+
+class WorkbookBaselineTests(_ProvenanceFixture, TestCase):
+    """The controlled import freezes the standard catalogue as the release assessments use -- no portal workflow."""
+
+    def setUp(self):
+        super().setUp()
+        refs = [('AIQIF-C1.1', 'UGC-005', '2018', 3, QUOTE, 'primary')]
+        self.data, _ = self._import(source_refs=refs)
+        self.old = BenchmarkRelease.objects.create(release_label='Old 1.0', status='published')
+
+    def test_baseline_freezes_the_catalogue_without_changing_indicator_status(self):
+        statuses = dict(Benchmark.objects.values_list('benchmark_code', 'status'))
+        plan, release = publish_workbook_baseline(self.data.workbook, self.data.workbook_sha256, 'import', commit=False)
+        self.assertIsNone(release)  # dry run
+        self.assertEqual((plan['indicators'], plan['current'], BenchmarkRelease.objects.count()), (3, 'Old 1.0', 1))
+        _plan, release = publish_workbook_baseline(self.data.workbook, self.data.workbook_sha256, 'import', commit=True)
+        self.assertEqual((release.kind, release.status, release.workbook, release.workbook_sha256, release.release_label),
+                         ('workbook_baseline', 'published', self.data.workbook, self.data.workbook_sha256,
+                          label_for(self.data.workbook_sha256)))
+        self.assertEqual(releases.current_release(), release)
+        self.old.refresh_from_db()
+        self.assertEqual(self.old.status, 'retired')  # kept, not deleted
+        self.assertEqual(dict(Benchmark.objects.values_list('benchmark_code', 'status')), statuses)  # still drafts
+        item = release.items.get(benchmark__benchmark_code='AIQIF-C1.1')
+        refs = item.snapshot['provenance']['source_references']
+        self.assertEqual((refs[0]['source_code'], refs[0]['page'], refs[0]['requirement_origin']),
+                         ('UGC-005', 3, 'manager_workbook'))
+        empty = release.items.get(benchmark__benchmark_code='AIQIF-C2.1').snapshot['provenance']['source_references']
+        self.assertEqual(empty, [])
+        # The same workbook again: nothing to publish.
+        plan, again = publish_workbook_baseline(self.data.workbook, self.data.workbook_sha256, 'import', commit=True)
+        self.assertEqual((plan['unchanged'], again, BenchmarkRelease.objects.count()), (True, None, 2))
+
+    def test_assessments_run_on_the_baseline_and_record_the_workbook(self):
+        from apps.assessments.models import BenchmarkProfile
+        from apps.assessments.services import create_cycle
+        from .models import InstitutionType
+        _plan, release = publish_workbook_baseline(self.data.workbook, self.data.workbook_sha256, 'import', commit=True)
+        college = Institution.objects.create(name='MKCE', city='Karur', state='TN')
+        BenchmarkProfile.objects.create(institution=college, institution_type=InstitutionType.objects.get(code='engineering'))
+        cycle = create_cycle(college, self.reviewer, 'AI readiness 2026-27', '2026-10-01')
+        self.assertEqual((cycle.release, cycle.benchmarks.count()), (release, 3))
+        self.assertEqual((cycle.release.workbook, cycle.release.workbook_sha256),
+                         (self.data.workbook, self.data.workbook_sha256))
+
+    def test_the_import_command_previews_then_publishes_the_baseline(self):
+        from io import StringIO
+        path = _aiqif_workbook()
+        self.addCleanup(os.remove, path)
+        out = StringIO()
+        call_command('import_aiqif', path, '--baseline', stdout=out)
+        text = out.getvalue()
+        self.assertIn('DRY RUN', text)
+        self.assertIn('baseline (dry run): would publish', text)
+        self.assertEqual(BenchmarkRelease.objects.filter(kind='workbook_baseline').count(), 0)
+        out = StringIO()
+        call_command('import_aiqif', path, '--commit', '--baseline', stdout=out)
+        self.assertIn('baseline: published', out.getvalue())
+        self.assertEqual(BenchmarkRelease.objects.filter(kind='workbook_baseline', status='published').count(), 1)

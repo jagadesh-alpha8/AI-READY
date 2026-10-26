@@ -165,6 +165,8 @@ class CatalogueSummary:
     created: Counter = field(default_factory=Counter)
     updated: Counter = field(default_factory=Counter)
     locked: list = field(default_factory=list)
+    #: (kind, identity, 'new' or the changed field names) -- the dry run's preview of what would change.
+    changes: list = field(default_factory=list)
 
 
 def _audit(actor, action, obj, after, reason):
@@ -177,6 +179,7 @@ def _upsert(model, lookup, values, summary, key, actor, reason):
     if obj is None:
         obj = model.objects.create(**lookup, **values)
         summary.created[key] += 1
+        summary.changes.append((key, ' '.join(str(v) for v in lookup.values()), 'new'))
         _audit(actor, 'catalogue.create', obj, {k: str(v) for k, v in {**lookup, **values}.items()}, reason)
         return obj
     changed = {k: v for k, v in values.items() if getattr(obj, k) != v}
@@ -185,6 +188,7 @@ def _upsert(model, lookup, values, summary, key, actor, reason):
             setattr(obj, k, v)
         obj.save()
         summary.updated[key] += 1
+        summary.changes.append((key, ' '.join(str(v) for v in lookup.values()), ', '.join(sorted(changed))))
         _audit(actor, 'catalogue.update', obj, {k: str(v) for k, v in changed.items()}, reason)
     return obj
 

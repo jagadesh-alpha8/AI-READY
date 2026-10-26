@@ -6,7 +6,7 @@ target guidance, owner) -- fully automatic, see services/ai_drafting.py.
     python manage.py ai_draft_benchmarks --redo             # also redo ones the AI already wrote
     python manage.py ai_draft_benchmarks --queue            # one background job each, run in parallel on the routers
 """
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from ...models import Benchmark
 from ...services.ai_drafting import draft_with_router
@@ -22,6 +22,10 @@ class Command(BaseCommand):
         parser.add_argument('--queue', action='store_true', help='Queue one background job per benchmark.')
 
     def handle(self, *args, codes, framework, redo, queue, **opts):
+        from ...permissions import catalogue_locked
+        if catalogue_locked():
+            raise CommandError('Benchmark Studio is read-only (BENCHMARK_CATALOGUE_READ_ONLY): the manager workbooks '
+                               'are the standard catalogue, so AI benchmark drafting is switched off.')
         qs = Benchmark.objects.filter(status=Benchmark.Status.DRAFT).select_related('pillar', 'capability')
         if codes:
             qs = qs.filter(benchmark_code__in=codes)

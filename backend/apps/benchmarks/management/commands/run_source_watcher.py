@@ -8,7 +8,7 @@
 Only records snapshots and change events for review; it never edits a source,
 requirement, benchmark or release. Respects robots.txt.
 """
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from ...services.watcher import run_watcher
 
@@ -23,6 +23,10 @@ class Command(BaseCommand):
                             help='Also check feeds that are not enabled (use with --codes).')
 
     def handle(self, *args, codes, dry_run, include_disabled, **opts):
+        from ...permissions import catalogue_locked
+        if catalogue_locked():
+            raise CommandError('Benchmark Studio is read-only (BENCHMARK_CATALOGUE_READ_ONLY): the manager workbooks '
+                               'are the standard catalogue, so the source watcher is switched off.')
         run, results = run_watcher(codes=codes, trigger='manual', dry_run=dry_run, include_disabled=include_disabled)
         style = {'unchanged': str, 'baseline': self.style.SUCCESS, 'changed': self.style.WARNING,
                  'failed': self.style.ERROR, 'skipped': self.style.WARNING}

@@ -53,6 +53,11 @@ export interface AIQIFMapping {
   pending_since: string | null;
   pending_by_name: string;
   pending_reason: string;
+  /** How the rules decided it without a person: accepted_rules / accepted_crosswalk / accepted_precedent /
+   * accepted_ai_check / rejected_precedent, or '' (backend aiqif_tagging.py rule 4). */
+  auto_decision: string;
+  /** Why, in words -- e.g. the earlier expert decision, or what the AI second opinion said. */
+  auto_reason: string;
 }
 
 export interface Fact {

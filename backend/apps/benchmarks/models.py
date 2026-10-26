@@ -341,7 +341,10 @@ class Requirement(models.Model):
     source_quote = models.TextField()
     created_from = models.OneToOneField(RequirementCandidate, on_delete=models.PROTECT, null=True, blank=True,
                                         related_name='requirement')
-    approved_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, related_name='+')
+    #: Set when the requirement is a source mapping written in the manager-provided workbook
+    #: {workbook, workbook_sha256, sheet, row} -- authoritative, so no person approves it (approved_by empty).
+    workbook_ref = models.JSONField(default=dict, blank=True)
+    approved_by = models.ForeignKey('accounts.User', on_delete=models.PROTECT, null=True, blank=True, related_name='+')
     approved_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -445,6 +448,21 @@ class Benchmark(models.Model):
     naac_crosswalk = models.JSONField(default=list, blank=True,
                                       help_text='NAAC metrics whose evidence can support this benchmark '
                                                 '[{metric, requirement, relationship}]. Supporting only, never proof.')
+
+    class Origin(models.TextChoices):
+        """Where the indicator itself came from (services/provenance.py) -- not the documents that later
+        support it, which are its requirement links."""
+        FRAMEWORK_IMPORT = 'framework_import', 'Initial framework (manager-provided workbook)'
+        CANDIDATE = 'candidate', 'Approved benchmark candidate'
+        MANUAL = 'manual', 'Other origin (entered by a reviewer)'
+
+    #: Recorded by the importer / the candidate workflow / a reviewer. Blank = not recorded on the row
+    #: (older imports): provenance.origin_of() then reads the import's audit trail, never guesses.
+    origin_type = models.CharField(max_length=20, choices=Origin.choices, blank=True)
+    #: framework_import: {workbook, framework, framework_version, sheet, row, indicator_code, imported_at,
+    #: imported_by, workbook_source_refs[]}; candidate: {candidate_id, candidate_title, source_code};
+    #: manual: {description, reference, entered_by, entered_at}.
+    origin = models.JSONField(default=dict, blank=True)
     evidence_types = models.ManyToManyField(EvidenceType, blank=True, related_name='benchmarks')
     requirements = models.ManyToManyField(Requirement, through='BenchmarkRequirement', blank=True,
                                           related_name='benchmarks')
@@ -677,6 +695,15 @@ class BenchmarkRelease(models.Model):
     release_label = models.CharField(max_length=40, unique=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     release_notes = models.TextField(blank=True)
+    class Kind(models.TextChoices):
+        PORTAL = 'portal', 'Release made in the portal (earlier workflow)'
+        WORKBOOK_BASELINE = 'workbook_baseline', 'Manager workbook baseline'
+
+    #: A workbook baseline is published by the controlled import (`import_aiqif --commit --baseline`), never in the
+    #: portal: it freezes the standard catalogue as imported, with no draft / review / approve steps.
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.PORTAL)
+    workbook = models.CharField(max_length=255, blank=True, help_text='Workbook file a baseline was imported from.')
+    workbook_sha256 = models.CharField(max_length=64, blank=True)
     #: Assessments on this release need a composite score, so every included benchmark must have
     #: approved scoring weights for the active scoring model before the release can be submitted.
     requires_composite = models.BooleanField(default=False)

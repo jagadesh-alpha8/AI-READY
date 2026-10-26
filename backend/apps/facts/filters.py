@@ -56,7 +56,11 @@ class ExtractedFactFilter(django_filters.FilterSet):
         if value == 'pending':
             tags = FactAIQIFMapping.objects.filter(queued_tags_q())
         elif value == 'reviewed':
-            tags = FactAIQIFMapping.objects.filter(review_status__in=['confirmed', 'rejected'])
+            # Decided by an expert, or by an earlier expert decision / the AI second opinion (reversible there).
+            tags = FactAIQIFMapping.objects.filter(
+                Q(review_status__in=['confirmed', 'rejected'])
+                | Q(review_status='unreviewed', pending_since__isnull=True,
+                    auto_decision__in=['accepted_precedent', 'accepted_ai_check', 'rejected_precedent']))
         else:
             tags = FactAIQIFMapping.objects.filter(review_status=value)
         return queryset.filter(id__in=tags.values('fact_id'))

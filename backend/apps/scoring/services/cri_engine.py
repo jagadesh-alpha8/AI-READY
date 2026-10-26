@@ -235,6 +235,9 @@ def run_scoring_engine(sprint, *, triggered_by=None):
     having its weight redistributed to the rest; that's the honest reading
     of "this pillar isn't part of scoring right now," not a bug.
     """
+    from .inputs import scoring_inputs_fingerprint
+    # Taken before anything is read: a change made while this run computes leaves it marked stale.
+    fingerprint = scoring_inputs_fingerprint(sprint)
     pillars = list(
         Pillar.objects.filter(is_active=True)
         .prefetch_related(
@@ -270,6 +273,7 @@ def run_scoring_engine(sprint, *, triggered_by=None):
         pillar_snapshot=_serialize_pillar_snapshot(pillar_results),
         coverage_adjusted_cri=adjusted_cri(overall_cri, coverage),
         evidence_coverage=coverage,
+        inputs_fingerprint=fingerprint,
         triggered_by=triggered_by if (triggered_by and triggered_by.is_authenticated) else None,
     )
 

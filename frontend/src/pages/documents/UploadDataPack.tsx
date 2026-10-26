@@ -66,7 +66,7 @@ export const UploadDataPack: React.FC = () => {
   const [selectedOwner, setSelectedOwner] = useState('IQAC_COORDINATOR');
   const [dragActive, setDragActive] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [dataSource, setDataSource] = useState<'upload' | 'drive'>('upload');
+  const [dataSource, setDataSource] = useState<'upload' | 'drive'>('drive');
   const [driveUrl, setDriveUrl] = useState('');
   const [driveSubmitting, setDriveSubmitting] = useState(false);
   const [driveError, setDriveError] = useState('');
@@ -289,7 +289,7 @@ export const UploadDataPack: React.FC = () => {
             </p>
           )}
 
-          <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+          <div className="space-y-2">
             {REQUIRED_CHECKLIST.map((item) => {
               const slot = slotByType.get(item.type)!;
               const SlotIcon = SLOT_DISPLAY[slot.state].icon;
@@ -335,20 +335,11 @@ export const UploadDataPack: React.FC = () => {
         </div>
 
         {/* Right: Drag and Drop Upload Area */}
-        <div className="lg:col-span-7 glass-card p-5 sm:p-6 flex flex-col justify-between space-y-4">
-          <div>
+        <div className="lg:col-span-7 glass-card p-5 sm:p-6 flex flex-col">
+          {/* The drop box grows to fill the panel's height (it matches the checklist beside it). */}
+          <div className="flex-1 flex flex-col">
             <h2 className="eyebrow mb-2">Data Source</h2>
             <div className="grid grid-cols-2 gap-3 mb-4">
-              <div
-                onClick={() => setDataSource('upload')}
-                className={`p-3 rounded-xl border-2 cursor-pointer transition-all text-center ${
-                  dataSource === 'upload'
-                    ? 'bg-brand-50 border-brand-500 shadow-card'
-                    : 'bg-card border-line-200 hover:border-line-300'
-                }`}
-              >
-                <span className="text-sm font-bold text-ink-900">Upload Files</span>
-              </div>
               <div
                 onClick={() => setDataSource('drive')}
                 className={`p-3 rounded-xl border-2 cursor-pointer transition-all text-center ${
@@ -361,10 +352,20 @@ export const UploadDataPack: React.FC = () => {
                   <Link2 className="w-4 h-4" /> Google Drive
                 </span>
               </div>
+              <div
+                onClick={() => setDataSource('upload')}
+                className={`p-3 rounded-xl border-2 cursor-pointer transition-all text-center ${
+                  dataSource === 'upload'
+                    ? 'bg-brand-50 border-brand-500 shadow-card'
+                    : 'bg-card border-line-200 hover:border-line-300'
+                }`}
+              >
+                <span className="text-sm font-bold text-ink-900">Upload Files</span>
+              </div>
             </div>
 
             {dataSource === 'upload' && (
-              <div>
+              <div className="flex-1 flex flex-col">
                 <h2 className="eyebrow mb-2">Upload Selected Document</h2>
                 <p className="text-sm text-ink-500 mb-4">
                   Uploading as <span className="font-semibold text-brand-800">{REQUIRED_CHECKLIST.find((c) => c.type === selectedType)?.label}</span> (Owner: <span className="font-semibold text-ink-700">{selectedOwner}</span>).
@@ -381,7 +382,7 @@ export const UploadDataPack: React.FC = () => {
                       handleFileUpload(e.dataTransfer.files[0]);
                     }
                   }}
-                  className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all ${
+                  className={`flex-1 min-h-[16rem] flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all ${
                     dragActive ? 'border-brand-500 bg-brand-50' : 'border-line-300 bg-surface hover:border-line-300/80'
                   }`}
                 >
@@ -424,23 +425,6 @@ export const UploadDataPack: React.FC = () => {
             )}
           </div>
 
-          {/* Quick Mock Files Upload Button for Instant Demo */}
-          <div className="p-4 bg-surface rounded-xl border border-line-200 flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <p className="text-sm font-bold text-ink-900 flex items-center gap-1.5">
-                <Upload className="w-4 h-4 text-brand-800" /> Instant Demo Pack Generator
-              </p>
-              <p className="text-xs text-ink-500 mt-0.5">Populate minimum required 6-file data pack automatically for fast testing.</p>
-            </div>
-            <button
-              onClick={() => setUploadError(
-                'Demo pack seeding is disabled: documents are only ever created through a real file upload or the extraction pipeline, never fabricated.',
-              )}
-              className="btn-secondary btn-sm shrink-0"
-            >
-              Seed Demo Pack
-            </button>
-          </div>
         </div>
       </div>
 

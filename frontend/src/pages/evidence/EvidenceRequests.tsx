@@ -6,7 +6,7 @@ import { FileCheck2 } from 'lucide-react';
 import { downloadDocument, listSprintDocuments } from '../../api/documents';
 import {
   assignEvidenceRequest, commentOnEvidenceRequest, getEvidenceRequest, listEvidenceAssignees, listEvidenceRequests,
-  reviewEvidenceRequest, submitEvidence,
+  retryEvidenceAssessment, reviewEvidenceRequest, submitEvidence,
 } from '../../api/evidenceRequests';
 import type { EvidenceDecision, EvidenceRequestFilters } from '../../api/evidenceRequests';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
@@ -55,6 +55,7 @@ export const statusBadge = (status: string, overdue = false) => {
 const fmt = (v: unknown) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v ?? '—'));
 
 export const EvidenceRequests: React.FC = () => {
+  const { step } = useAccess();
   const [params, setParams] = useSearchParams();
   const [view, setView] = useState<View>((params.get('view') as View) || 'mine');
   const selectedId = params.get('id') || '';
@@ -87,7 +88,7 @@ export const EvidenceRequests: React.FC = () => {
     <div className="space-y-5">
       <PageHeader
         icon={FileCheck2}
-        title="Evidence Requests"
+        title={step('evidence-requests') ? `Step ${step('evidence-requests')}: Evidence Requests` : 'Evidence Requests'}
         description="Evidence asked for behind specific facts: who provides it, what was submitted, and the reviewer's decision."
       />
       <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -154,6 +155,15 @@ const RequestDetail: React.FC<{ id: string; onChanged: () => void }> = ({ id, on
   useEffect(() => setDetail(loaded), [loaded]);
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
+  // While an AI assessment runs (first time or a retry), check back until it is ready or failed.
+  const inProgress = !!detail?.evidence.some((e) => e.analysis_status === 'pending' || e.analysis_status === 'processing');
+  useEffect(() => {
+    if (!inProgress) return undefined;
+    const timer = setInterval(() => {
+      getEvidenceRequest(id).then((res) => setDetail(res.data)).catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [inProgress, id]);
 
   if (loading && !detail) return <LoadingState message="Loading request..." />;
   if (error) return <ErrorState message={error} onRetry={refetch} />;
@@ -173,6 +183,26 @@ const RequestDetail: React.FC<{ id: string; onChanged: () => void }> = ({ id, on
     } catch (err) {
       setActionError(getErrorMessage(err, 'The action failed.'));
       return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Retry a failed AI assessment; a 409 means one is already running (the current state comes back with it). */
+  const retryAssessment = async (evidenceId: string) => {
+    setBusy(true);
+    setActionError('');
+    try {
+      const res = await retryEvidenceAssessment(detail.id, evidenceId);
+      setDetail(res.data);
+      onChanged();
+    } catch (err: any) {
+      if (err?.response?.status === 409 && err.response.data?.evidence) {
+        setDetail(err.response.data);
+        setActionError(err.response.data.detail);
+      } else {
+        setActionError(getErrorMessage(err, 'Could not retry the AI assessment.'));
+      }
     } finally {
       setBusy(false);
     }
@@ -240,7 +270,8 @@ const RequestDetail: React.FC<{ id: string; onChanged: () => void }> = ({ id, on
         {detail.evidence.map((link) => (
           <EvidenceCard key={link.id} link={link} detail={detail} busy={busy}
             canDecide={unresolved && can('facts.review') && link.status === 'submitted' && link.submitted_by !== user?.id}
-            onDecide={(decision, body) => run(() => reviewEvidenceRequest(detail.id, { decision, evidence_id: link.id, ...body }))} />
+            onDecide={(decision, body) => run(() => reviewEvidenceRequest(detail.id, { decision, evidence_id: link.id, ...body }))}
+            onRetry={() => retryAssessment(link.id)} />
         ))}
       </section>
 
@@ -322,10 +353,12 @@ const AssignForm: React.FC<{
   );
 };
 
-const EvidenceCard: React.FC<{
+export const EvidenceCard: React.FC<{
   link: EvidenceLink; detail: EvidenceRequestDetail; busy: boolean; canDecide: boolean;
   onDecide: (decision: EvidenceDecision, body: Record<string, unknown>) => Promise<boolean>;
-}> = ({ link, detail, busy, canDecide, onDecide }) => {
+  /** Retry a failed AI assessment (the same reviewers who may decide; the server checks again). */
+  onRetry?: () => Promise<void>;
+}> = ({ link, detail, busy, canDecide, onDecide, onRetry }) => {
   const [mode, setMode] = useState<'' | 'accept' | 'accept_corrected' | 'return' | 'reject'>('');
   const [page, setPage] = useState(link.analysis_page_number?.toString() || link.source_page);
   const [snippet, setSnippet] = useState(link.analysis_quote || link.source_snippet);
@@ -366,7 +399,9 @@ const EvidenceCard: React.FC<{
           : 'returned')}>
           {link.status === 'accepted' ? 'Accepted' : link.status === 'returned' ? 'Returned'
             : link.status === 'rejected' ? 'Rejected' : link.analysis_status === 'ready' ? 'Ready for review'
-              : link.analysis_status === 'processing' ? 'Processing' : link.analysis_status === 'failed' ? 'Analysis failed' : 'Submitted'}
+              : link.analysis_status === 'processing' ? (link.analysis_retry_count ? 'Retrying AI assessment' : 'Processing')
+                : link.analysis_status === 'failed' ? (link.analysis_retry_count ? 'AI assessment failed again' : 'Analysis failed')
+                  : link.analysis_retry_count ? 'Retry queued' : 'Submitted'}
         </span>
       </div>
       {(link.source_page || link.source_snippet) && (
@@ -380,9 +415,31 @@ const EvidenceCard: React.FC<{
           <p className="mt-2 whitespace-pre-wrap text-ink-700">{link.submitted_text}</p>
         </details>
       )}
-      {link.analysis_status === 'processing' && <p className="text-ink-600">AI is checking this evidence against the requested fact…</p>}
+      {(link.analysis_status === 'processing' || (link.analysis_status === 'pending' && link.analysis_retry_count > 0)) && (
+        <p className="text-ink-600">
+          {link.analysis_retry_count > 0 ? `Retrying the AI assessment (retry ${link.analysis_retry_count})… ` : ''}
+          AI is checking this evidence against the requested fact; this page updates when it is done.
+        </p>
+      )}
       {link.analysis_status === 'failed' && (
-        <p className="text-danger">AI assessment failed: {link.analysis_error || 'Check the source and resubmit evidence.'}</p>
+        <div className="space-y-1.5">
+          <p className="text-danger">
+            AI assessment {link.analysis_retry_count ? `failed again (after ${link.analysis_retry_count} retr${link.analysis_retry_count === 1 ? 'y' : 'ies'})` : 'failed'}:
+            {' '}{link.analysis_error || 'The evidence could not be assessed.'}
+          </p>
+          {canDecide && onRetry && (
+            <button className="btn-secondary btn-sm" disabled={busy} onClick={onRetry}
+              title="Assess the same evidence again; nothing is uploaded or extracted again">
+              {busy ? 'Starting…' : 'Retry AI assessment'}
+            </button>
+          )}
+        </div>
+      )}
+      {canDecide && onRetry && link.analysis_status !== 'failed'
+        && (link.analysis_status === 'processing' || (link.analysis_status === 'pending' && link.analysis_retry_count > 0)) && (
+        <button className="btn-secondary btn-sm" disabled title="An AI assessment of this evidence is already running">
+          Retry in progress…
+        </button>
       )}
       {link.analysis_status === 'ready' && (
         <div className="rounded-lg border border-brand-500/30 p-3 space-y-1">

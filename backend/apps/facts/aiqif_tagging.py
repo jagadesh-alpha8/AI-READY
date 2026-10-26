@@ -21,6 +21,14 @@ Rule 3 -- a tag counts toward AI-QIF coverage (counting_q) only when ALL hold: t
   relationship is Direct or Supporting, the fact is confirmed/corrected, and the tag was accepted (automatically
   or by a Super Admin) and never rejected.
 
+Rule 4 -- fewer manual decisions, both reversible in the expert queue's Reviewed tab:
+  - expert precedents (Precedents): a person's earlier decision on the same field (field key without years or
+    numbers, any sprint) is applied again -- a confirmed indicator is accepted (or added when the AI did not
+    suggest it), a rejected one is rejected; only human decisions count, never an automatic one;
+  - AI second opinion (ai_check_pending): an AI tag still waiting is checked once more by the AI against the
+    fact's own quote; it is accepted when the check agrees with AIQIF_AI_CHECK_MIN_CONFIDENCE, otherwise it
+    keeps waiting, with the check's reason for the expert.
+
 Expert queue (Super Admin): AI tags waiting for a decision, tags a Super Admin reopened or edited without deciding
 (`pending_since`), and facts with kind_needs_check (possible AI evidence filed as context/profile, AI evidence
 without any indicator, not classified yet). A decided tag leaves the queue but stays on the fact, with its history.
@@ -44,6 +52,7 @@ from .models import ExtractedFact, FactAIQIFMapping, FactReviewHistory
 Kind = ExtractedFact.FactKind
 Rel = FactAIQIFMapping.Relationship
 Source = FactAIQIFMapping.Source
+AutoDecision = FactAIQIFMapping.AutoDecision
 Review = FactAIQIFMapping.ReviewStatus
 COUNTING_RELATIONSHIPS = (Rel.DIRECT, Rel.SUPPORTING)
 CONFIRMED_FACT = (ExtractedFact.Status.CONFIRMED, ExtractedFact.Status.CORRECTED)
@@ -184,11 +193,13 @@ def _queued(m, fact):
         return False
     if m.pending_since:  # reopened / edited by a Super Admin: waits whatever its kind or relationship
         return True
-    return fact.fact_kind == Kind.AI_EVIDENCE and not m.auto_accepted and m.relationship != Rel.CONTEXTUAL
+    return (fact.fact_kind == Kind.AI_EVIDENCE and not m.auto_accepted and m.relationship != Rel.CONTEXTUAL
+            and m.auto_decision != AutoDecision.REJECTED_PRECEDENT)
 
 
 def queued_tags_q():
-    automatic = (Q(fact__fact_kind=Kind.AI_EVIDENCE, auto_accepted=False) & ~Q(relationship=Rel.CONTEXTUAL))
+    automatic = (Q(fact__fact_kind=Kind.AI_EVIDENCE, auto_accepted=False) & ~Q(relationship=Rel.CONTEXTUAL)
+                 & ~Q(auto_decision=AutoDecision.REJECTED_PRECEDENT))
     return (Q(review_status=Review.UNREVIEWED) & (automatic | Q(pending_since__isnull=False))
             & ~Q(fact__status=ExtractedFact.Status.REJECTED))
 
@@ -197,6 +208,8 @@ def count_reason(m, fact):
     """Whether the tag counts toward AI-QIF coverage now, and why not (rule 3) -- one short phrase."""
     if m.review_status == Review.REJECTED:
         return False, 'rejected by an expert'
+    if m.review_status == Review.UNREVIEWED and m.auto_decision == AutoDecision.REJECTED_PRECEDENT and not m.pending_since:
+        return False, 'rejected automatically: an expert rejected it for this field before'
     if m.review_status == Review.UNREVIEWED and (m.pending_since or not m.auto_accepted):
         return False, 'waiting for an expert decision'
     if m.relationship not in COUNTING_RELATIONSHIPS:
@@ -248,7 +261,7 @@ def refresh_state(fact, save=True):
 
 # -- tagging ----------------------------------------------------------------------------------------
 
-def apply_tags(fact, ai_mappings, crosswalk=None):
+def apply_tags(fact, ai_mappings, crosswalk=None, precedents=None):
     """Replace the automatic tags of `fact` per rule 2 (`ai_mappings`: the extractor's validated suggestions)
     and refresh its state. Tags a person reviewed or added are kept, and the new run's tag for that indicator
     is dropped."""
@@ -270,7 +283,7 @@ def apply_tags(fact, ai_mappings, crosswalk=None):
     for code, rel, version in links:
         rel = rel if is_evidence else Rel.CONTEXTUAL
         add(code, relationship=rel, source=Source.CROSSWALK, auto_accepted=True, framework_version=version,
-            confidence=1.0, status=FactAIQIFMapping.Status.MAPPED,
+            confidence=1.0, status=FactAIQIFMapping.Status.MAPPED, auto_decision=AutoDecision.CROSSWALK,
             reason=f'NAAC {fact.naac_metric} is linked to {code} ({rel}) in the {version} NAAC -> AI-QIF crosswalk.')
     if is_evidence:
         threshold = settings.AIQIF_MAPPING_MIN_CONFIDENCE
@@ -278,10 +291,11 @@ def apply_tags(fact, ai_mappings, crosswalk=None):
             if links and m['indicator_code'] in crosswalk.linked_codes:
                 continue  # the crosswalk decides the NAAC-linked indicators
             confident = m['confidence'] >= threshold
+            accepted = confident and crosswalk.loaded and m['criterion'] == fact.pillar
             add(m['indicator_code'], relationship=Rel.SUPPORTING, source=Source.AI, confidence=m['confidence'],
                 reason=m['reason'], status=(FactAIQIFMapping.Status.MAPPED if confident
                                             else FactAIQIFMapping.Status.NEEDS_REVIEW),
-                auto_accepted=(confident and crosswalk.loaded and m['criterion'] == fact.pillar))
+                auto_accepted=accepted, auto_decision=AutoDecision.RULES if accepted else '')
     elif ai_mappings:
         notes.append({'kind': 'ai_tags_not_used',
                       'detail': f'{len(ai_mappings)} AI tag(s) not used: a {fact.get_fact_kind_display().lower()} '
@@ -292,7 +306,187 @@ def apply_tags(fact, ai_mappings, crosswalk=None):
     FactAIQIFMapping.objects.bulk_create(rows)
     fact.tagging_notes = notes[-20:]
     fact.save(update_fields=['tagging_notes', 'updated_at'])
+    if precedents is not None:
+        apply_precedents(fact, precedents, refresh=False)
     return refresh_state(fact)
+
+
+# -- rule 4: expert precedents --------------------------------------------------------------------
+
+_YEARS = re.compile(r'(?:19|20)\d{2}(?:_?\d{2,4})?')
+
+
+def precedent_key(field_key):
+    """'mba_approved_intake_2024_25_course_2' -> 'mba_approved_intake_course': the field without years or numbers,
+    so the same field of another year or sprint matches."""
+    key = _YEARS.sub(' ', str(field_key or '').lower())
+    return re.sub(r'[^a-z]+', '_', key).strip('_')
+
+
+class Precedents:
+    """Human decisions on AI-QIF tags, by precedent_key and indicator: the latest decision wins. Built once per
+    extraction / backfill run. Only a person's confirm / reject (or a tag an expert added) counts -- never an
+    automatic acceptance, so the rules never reinforce themselves."""
+
+    def __init__(self, rows=None):
+        from .auto_confirm import AUTO_CONFIRM_EMAIL
+        if rows is None:
+            rows = (FactAIQIFMapping.objects
+                    .filter(review_status__in=[Review.CONFIRMED, Review.REJECTED], reviewed_by__isnull=False)
+                    .exclude(reviewed_by__email=AUTO_CONFIRM_EMAIL)
+                    .values_list('fact__field_key', 'fact_id', 'indicator_code', 'review_status', 'relationship',
+                                 'reviewed_at'))
+        self.by_key = {}
+        for field_key, fact_id, code, decision, relationship, at in rows:
+            key = precedent_key(field_key)
+            if not key:
+                continue
+            current = self.by_key.setdefault(key, {}).get(code)
+            if current is None or (at and (current['at'] is None or at > current['at'])):
+                self.by_key[key][code] = {'decision': decision, 'relationship': relationship, 'at': at,
+                                          'fact_id': str(fact_id), 'field_key': field_key}
+
+    def lookup(self, fact):
+        """{indicator: decision} for this fact's field, its own earlier decisions excluded."""
+        return {code: d for code, d in self.by_key.get(precedent_key(fact.field_key), {}).items()
+                if d['fact_id'] != str(fact.id)}
+
+
+def _precedent_reason(d):
+    when = d['at'].date().isoformat() if d['at'] else 'earlier'
+    verb = 'confirmed' if d['decision'] == Review.CONFIRMED else 'rejected'
+    return f'An expert {verb} this indicator for the field "{d["field_key"]}" ({when}).'
+
+
+def apply_precedents(fact, precedents, refresh=True):
+    """Rule 4a on the fact's undecided automatic tags. Returns how many tags it decided or added."""
+    if fact.fact_kind != Kind.AI_EVIDENCE:
+        return 0
+    decisions = precedents.lookup(fact)
+    if not decisions:
+        return 0
+    changed = 0
+    tags = {m.indicator_code: m for m in fact.aiqif_mappings.all()}
+    for code, d in decisions.items():
+        m = tags.get(code)
+        if m is None:
+            if d['decision'] == Review.CONFIRMED and code in AIQIF_INDICATORS:
+                FactAIQIFMapping.objects.create(
+                    fact=fact, indicator_code=code, criterion=AIQIF_INDICATORS[code][0], relationship=d['relationship'],
+                    source=Source.PRECEDENT, confidence=1.0, status=FactAIQIFMapping.Status.MAPPED, auto_accepted=True,
+                    auto_decision=AutoDecision.PRECEDENT, auto_reason=_precedent_reason(d),
+                    reason='Added from an earlier expert decision on the same field.')
+                changed += 1
+            continue
+        if m.review_status != Review.UNREVIEWED or m.pending_since or m.source == Source.EXPERT:
+            continue  # a person's decision / a reopened tag: never overridden
+        if d['decision'] == Review.CONFIRMED and not (m.auto_accepted and m.relationship == d['relationship']):
+            m.auto_accepted, m.relationship = True, d['relationship']
+            m.auto_decision, m.auto_reason = AutoDecision.PRECEDENT, _precedent_reason(d)
+        elif d['decision'] == Review.REJECTED and m.auto_decision != AutoDecision.REJECTED_PRECEDENT:
+            m.auto_accepted = False
+            m.auto_decision, m.auto_reason = AutoDecision.REJECTED_PRECEDENT, _precedent_reason(d)
+        else:
+            continue
+        m.save(update_fields=['auto_accepted', 'relationship', 'auto_decision', 'auto_reason'])
+        changed += 1
+    if changed and refresh:
+        refresh_state(fact)
+    return changed
+
+
+# -- rule 4: AI second opinion ----------------------------------------------------------------------
+
+_CHECK_PROMPT = (
+    'You check one proposed AI-QIF key-indicator tag on one fact extracted from an institution\'s document. '
+    'Decide only from the fact and its quoted evidence, not from general knowledge. "supports" is true only when '
+    'the quote is evidence about AI at the institution for exactly this indicator. relationship: direct (the quote '
+    'is evidence for the indicator), supporting (it supports it partly), contextual (background only). confidence '
+    '0-1 says how clearly the quote supports it. reason: one short sentence.')
+_CHECK_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'supports': {'type': 'boolean'},
+        'relationship': {'type': 'string', 'enum': ['direct', 'supporting', 'contextual']},
+        'confidence': {'type': 'number'},
+        'reason': {'type': 'string'},
+    },
+    'required': ['supports', 'relationship', 'confidence', 'reason'],
+    'additionalProperties': False,
+}
+
+
+def _checkable_q():
+    """AI tags still waiting for an expert that have not had a second opinion yet."""
+    return (queued_tags_q() & Q(source=Source.AI, pending_since__isnull=True)
+            & ~Q(auto_reason__startswith='AI check'))
+
+
+def ai_check_pending(facts, *, service=None, limit=None):
+    """Rule 4b: one AI check per waiting AI tag of `facts` (at most `limit`). Accepted when the check supports the
+    tag (Direct or Supporting) with at least AIQIF_AI_CHECK_MIN_CONFIDENCE; otherwise it keeps waiting, the check's
+    reason noted for the expert. A failed AI call leaves the tag waiting. Returns {checked, accepted}."""
+    from apps.extraction.exceptions import RecoverableExtractionError
+    tags = list(FactAIQIFMapping.objects.filter(_checkable_q(), fact__in=facts).select_related('fact')
+                .order_by('fact_id', '-confidence')[:limit or settings.AIQIF_AI_CHECK_MAX_PER_DOCUMENT])
+    if not tags:
+        return {'checked': 0, 'accepted': 0}
+    if service is None:
+        from apps.extraction.services.ai_service import get_ai_service
+        service = get_ai_service()
+    threshold = settings.AIQIF_AI_CHECK_MIN_CONFIDENCE
+    checked = accepted = 0
+    touched = {}
+    for m in tags:
+        fact = m.fact
+        content = '\n'.join([
+            f'Fact: {fact.field_name} ({fact.field_key}) = {fact.value!r}',
+            f'Quote: "{fact.source_snippet}"',
+            f'Proposed indicator: {m.indicator_code} {AIQIF_INDICATORS.get(m.indicator_code, ("", ""))[1]}',
+            f'The AI that proposed it said: {m.reason}',
+        ])
+        try:
+            answer = service.extract_structured_data(system_prompt=_CHECK_PROMPT, user_content=content,
+                                                     response_schema=_CHECK_SCHEMA, schema_name='aiqif_tag_check')
+        except RecoverableExtractionError:
+            break  # rate limit / timeout: the rest keep waiting, checked another time
+        except Exception as exc:  # an unusable answer: this tag keeps waiting
+            import logging
+            logging.getLogger(__name__).warning('aiqif.ai_check_failed tag=%s error=%s', m.id, exc)
+            continue
+        checked += 1
+        supports = answer.get('supports') is True
+        relationship = answer.get('relationship') if answer.get('relationship') in Rel.values else ''
+        confidence = answer.get('confidence') if isinstance(answer.get('confidence'), (int, float)) else 0
+        reason = str(answer.get('reason') or '')[:300]
+        if supports and relationship in COUNTING_RELATIONSHIPS and confidence >= threshold:
+            m.auto_accepted, m.relationship, m.auto_decision = True, relationship, AutoDecision.AI_CHECK
+            m.auto_reason = f'AI check agreed ({round(confidence * 100)}%): {reason}'
+            accepted += 1
+        else:
+            m.auto_reason = (f'AI check disagreed ({round(confidence * 100)}%, {relationship or "no relationship"}): '
+                             f'{reason}')
+        m.save(update_fields=['auto_accepted', 'relationship', 'auto_decision', 'auto_reason'])
+        touched[fact.id] = fact
+    for fact in touched.values():
+        refresh_state(fact)
+    return {'checked': checked, 'accepted': accepted}
+
+
+def auto_check_sprint(sprint, *, ai=True):
+    """Run rule 4 on a sprint's waiting tags now (the expert queue's "Decide automatically"): precedents, then the
+    AI second opinion. Returns counts."""
+    precedents = Precedents()
+    facts = list(ExtractedFact.objects.filter(sprint=sprint, fact_kind=Kind.AI_EVIDENCE)
+                 .exclude(status=ExtractedFact.Status.REJECTED).prefetch_related('aiqif_mappings'))
+    by_precedent = sum(apply_precedents(f, precedents) for f in facts)
+    result = {'precedent_decisions': by_precedent, 'checked': 0, 'accepted': 0}
+    if ai and settings.AIQIF_AI_CHECK_ENABLED:
+        from apps.extraction.models import AIUsage
+        from apps.extraction.usage import usage_scope
+        with usage_scope(sprint=sprint, stage=AIUsage.Stage.AIQIF_CHECK):
+            result.update(ai_check_pending(facts, limit=500))
+    return result
 
 
 # -- Super Admin decisions --------------------------------------------------------------------------
@@ -309,7 +503,8 @@ def _history(fact, action, user, reason, new_value=None):
 def decision_snapshot(m):
     """The tag's current decision, as kept in history when it is replaced (never the fact's value)."""
     return {'indicator_code': m.indicator_code, 'relationship': m.relationship, 'source': m.source,
-            'decision': m.review_status, 'auto_accepted': m.auto_accepted,
+            'decision': m.review_status, 'auto_accepted': m.auto_accepted, 'auto_decision': m.auto_decision,
+            'auto_reason': m.auto_reason,
             'reviewer': str(m.reviewed_by_id) if m.reviewed_by_id else None,
             'reviewer_name': (m.reviewed_by.get_full_name() or m.reviewed_by.email) if m.reviewed_by_id else '',
             'reviewed_at': m.reviewed_at.isoformat() if m.reviewed_at else None, 'note': m.review_note}
@@ -353,10 +548,11 @@ def reopen_tag(mapping, user, reason):
             raise TaggingError('This tag is already waiting for an expert decision.')
         before = decision_snapshot(mapping)
         mapping.review_status, mapping.auto_accepted = Review.UNREVIEWED, False
+        mapping.auto_decision, mapping.auto_reason = '', ''  # kept in the history row's `previous`
         mapping.reviewed_by, mapping.reviewed_at, mapping.review_note = None, None, ''
         mapping.pending_since, mapping.pending_by, mapping.pending_reason = timezone.now(), user, reason
-        mapping.save(update_fields=['review_status', 'auto_accepted', 'reviewed_by', 'reviewed_at', 'review_note',
-                                    'pending_since', 'pending_by', 'pending_reason'])
+        mapping.save(update_fields=['review_status', 'auto_accepted', 'auto_decision', 'auto_reason', 'reviewed_by',
+                                    'reviewed_at', 'review_note', 'pending_since', 'pending_by', 'pending_reason'])
         _history(mapping.fact, FactReviewHistory.Action.AIQIF_TAG_REOPENED, user,
                  f'{mapping.indicator_code} review reopened: {reason}',
                  new_value={'indicator_code': mapping.indicator_code, 'previous': before})
@@ -394,10 +590,11 @@ def edit_tag(mapping, user, *, indicator_code=None, relationship=None, note='', 
         if changed:
             # A different mapping now: no earlier approval (a person's or the rules') carries over.
             mapping.source, mapping.auto_accepted, mapping.confidence = Source.EXPERT, False, 1.0
+            mapping.auto_decision, mapping.auto_reason = '', ''
             mapping.review_status, mapping.reviewed_by, mapping.reviewed_at = Review.UNREVIEWED, None, None
             mapping.pending_since, mapping.pending_by, mapping.pending_reason = timezone.now(), user, note or 'Edited.'
             mapping.reason = note or f'Edited by an expert from {before["indicator_code"]} ({before["relationship"]}).'
-            fields += ['source', 'auto_accepted', 'confidence', 'review_status', 'reviewed_by', 'reviewed_at',
+            fields += ['source', 'auto_accepted', 'auto_decision', 'auto_reason', 'confidence', 'review_status', 'reviewed_by', 'reviewed_at',
                        'pending_since', 'pending_by', 'pending_reason', 'reason']
         mapping.review_note = note if note else ('' if changed else mapping.review_note)
         mapping.save(update_fields=fields)

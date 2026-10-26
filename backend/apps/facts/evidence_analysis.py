@@ -2,6 +2,11 @@
 
 The returned result is advisory only. A separate reviewer decision is always
 required before the requested fact or its gaps can change.
+
+A failed assessment (a timeout, a rate limit, unreadable output) can be retried by a reviewer
+(evidence_requests.request_assessment_retry -> tasks.retry_evidence_assessment). The page text a document
+submission was read with is saved on the submission (`source_pages`) before the AI is called, so a retry reuses
+it: the document is never read or OCR'd again, and no extraction runs. Nothing retries by itself.
 """
 import json
 import logging
@@ -79,17 +84,34 @@ def _request_status(request):
         request.save(update_fields=['status', 'updated_at'])
 
 
+_SECRETS = re.compile(r'(sk-[A-Za-z0-9_\-]{8,}|Bearer\s+\S+|api[_-]?key[=:]\s*\S+)', re.IGNORECASE)
+_TRANSIENT = ('timed out', 'timeout', 'rate limit', '429', 'temporarily', 'unavailable', 'connection', '503', '502')
+
+
+def readable_error(message):
+    """A short, secret-free error a reviewer can act on; transient AI problems say that a retry may work."""
+    text = _SECRETS.sub('[redacted]', ' '.join(str(message or '').split()))[:500]
+    lower = text.lower()
+    if 'timed out' in lower or 'timeout' in lower:
+        return f'The AI service timed out before it answered. Retry the assessment when the service is available. ({text})'
+    if any(t in lower for t in _TRANSIENT):
+        return f'The AI service was temporarily unavailable. Retry the assessment in a little while. ({text})'
+    return text or 'Evidence could not be analyzed.'
+
+
 def _fail(link, message):
-    message = str(message or 'Evidence could not be analyzed.')[:2000]
+    message = readable_error(message)[:2000]
     with transaction.atomic():
         link = EvidenceRequestDocument.objects.select_for_update().select_related('request').get(pk=link.pk)
         if link.analysis_status == EvidenceRequestDocument.AnalysisStatus.READY:
             return link
         link.analysis_status = EvidenceRequestDocument.AnalysisStatus.FAILED
         link.analysis_error = message
-        link.save(update_fields=['analysis_status', 'analysis_error'])
+        link.analysis_finished_at = timezone.now()
+        link.save(update_fields=['analysis_status', 'analysis_error', 'analysis_finished_at'])
         _event(link.request, EvidenceRequestEvent.Action.ANALYSIS_FAILED, message,
-               evidence_id=str(link.id), document_id=str(link.document_id) if link.document_id else None)
+               evidence_id=str(link.id), document_id=str(link.document_id) if link.document_id else None,
+               attempt=link.analysis_attempts, retry=link.analysis_retry_count)
         _request_status(link.request)
     return link
 
@@ -171,25 +193,36 @@ def analyze_submission(link, *, pages=None, job=None):
         if link.analysis_status in (EvidenceRequestDocument.AnalysisStatus.READY,
                                     EvidenceRequestDocument.AnalysisStatus.PROCESSING):
             return link
+        # The previous error stays visible until this run succeeds or fails with its own.
         link.analysis_status = EvidenceRequestDocument.AnalysisStatus.PROCESSING
-        link.analysis_error = ''
-        link.save(update_fields=['analysis_status', 'analysis_error'])
+        link.analysis_attempts += 1
+        link.analysis_started_at, link.analysis_finished_at = timezone.now(), None
+        link.save(update_fields=['analysis_status', 'analysis_attempts', 'analysis_started_at',
+                                 'analysis_finished_at'])
         request.status = EvidenceRequest.Status.PROCESSING
         request.save(update_fields=['status', 'updated_at'])
         _event(request, EvidenceRequestEvent.Action.ANALYSIS_STARTED,
-               evidence_id=str(link.id), document_id=str(link.document_id) if link.document_id else None)
+               evidence_id=str(link.id), document_id=str(link.document_id) if link.document_id else None,
+               attempt=link.analysis_attempts, retry=link.analysis_retry_count)
 
     try:
         if link.document_id:
-            if pages is None:
-                from apps.extraction.services.pdf_reader import PDFPageReader
-                pages = PDFPageReader().read_pages(link.document)
-            if not pages.get('format_supported', True):
-                raise ValueError(pages.get('format_note') or 'This document type cannot be read.')
-            page_rows = [p for p in pages.get('pages', []) if (p.get('text') or '').strip()]
-            if not page_rows:
-                warnings = '; '.join(pages.get('ocr_warnings') or [])
-                raise ValueError(warnings or 'No readable text was found. Upload a text-readable document or paste the evidence.')
+            if link.source_pages:  # read before (a retry): never read or OCR the document again
+                page_rows = list(link.source_pages)
+            else:
+                if pages is None:
+                    from apps.extraction.services.pdf_reader import PDFPageReader
+                    pages = PDFPageReader().read_pages(link.document)
+                if not pages.get('format_supported', True):
+                    raise ValueError(pages.get('format_note') or 'This document type cannot be read.')
+                page_rows = [{'page_number': p.get('page_number'), 'text': p.get('text')}
+                             for p in pages.get('pages', []) if (p.get('text') or '').strip()]
+                if not page_rows:
+                    warnings = '; '.join(pages.get('ocr_warnings') or [])
+                    raise ValueError(warnings or 'No readable text was found. Upload a text-readable document or paste the evidence.')
+                # Saved before the AI is called, so a failed assessment can be retried from this text.
+                link.source_pages = page_rows
+                EvidenceRequestDocument.objects.filter(pk=link.pk).update(source_pages=page_rows)
             page_texts = {p['page_number']: p['text'] for p in page_rows}
             link.analysis_document_reference = link.document.original_filename or link.document.title or str(link.document_id)
         else:
@@ -217,9 +250,11 @@ def analyze_submission(link, *, pages=None, job=None):
             link.analysis_suggested_value = result['suggested_value']
             link.analysis_confidence = result['confidence']
             link.analysis_error = ''
+            link.analysis_finished_at = timezone.now()
             link.save(update_fields=['analysis_status', 'analysis_outcome', 'analysis_summary', 'analysis_quote',
                                      'analysis_page_number', 'analysis_document_reference',
-                                     'analysis_suggested_value', 'analysis_confidence', 'analysis_error'])
+                                     'analysis_suggested_value', 'analysis_confidence', 'analysis_error',
+                                     'analysis_finished_at'])
             _event(request, EvidenceRequestEvent.Action.ANALYSIS_COMPLETED,
                    evidence_id=str(link.id), document_id=str(link.document_id) if link.document_id else None,
                    outcome=result['outcome'], confidence=result['confidence'], summary=result['summary'],
@@ -228,7 +263,9 @@ def analyze_submission(link, *, pages=None, job=None):
             _request_status(request)
         return link
     except Exception as exc:
-        logger.exception('evidence.analysis.failed evidence_id=%s', link.id)
+        # The cleaned message only (provider errors can echo request details); the traceback at debug level.
+        logger.warning('evidence.analysis.failed evidence_id=%s error=%s', link.id, readable_error(exc))
+        logger.debug('evidence.analysis.failed evidence_id=%s', link.id, exc_info=True)
         return _fail(link, str(exc))
 
 

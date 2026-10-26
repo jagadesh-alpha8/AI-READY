@@ -193,6 +193,64 @@ def submit_evidence(request, user, *, document_id=None, file=None, submitted_tex
     return link
 
 
+class RetryInProgress(EvidenceRequestError):
+    """An AI assessment of this submission is already queued or running: nothing new was started."""
+
+
+#: A run still "processing" after this long is treated as lost (e.g. a worker restart) and may be retried.
+STALE_ASSESSMENT_MINUTES = 30
+
+
+def request_assessment_retry(request, user, evidence_id):
+    """A reviewer retries a FAILED AI assessment of one submission -- the same submission, its saved page text
+    or pasted text, request and fact; no new upload, no extraction, no OCR. Exactly one run is queued per retry:
+    a second click while it is queued or running raises RetryInProgress and changes nothing. The result stays
+    advisory: only a reviewer's decision (review()) changes the fact or its gaps."""
+    from datetime import timedelta
+
+    from .ownership import check_fact
+    _require_unresolved(request)
+    if not can_review(user, request):
+        raise EvidenceRequestError(check_fact(user, request.fact)[1] or 'You cannot retry the assessment of this evidence.')
+    with transaction.atomic():
+        link = (EvidenceRequestDocument.objects.select_for_update()
+                .filter(pk=evidence_id, request=request).first())
+        if link is None:
+            raise EvidenceRequestError('Choose a submission of this request.')
+        if link.submitted_by_id == user.pk:
+            raise EvidenceRequestError('Someone other than the person who submitted the evidence must handle it.')
+        if link.status != EvidenceRequestDocument.Status.SUBMITTED:
+            raise EvidenceRequestError('That evidence has already been reviewed.')
+        AS = EvidenceRequestDocument.AnalysisStatus
+        stale = (link.analysis_status == AS.PROCESSING and link.analysis_started_at is not None
+                 and link.analysis_started_at < timezone.now() - timedelta(minutes=STALE_ASSESSMENT_MINUTES))
+        if link.analysis_status in (AS.PENDING, AS.PROCESSING) and not stale:
+            raise RetryInProgress('An AI assessment of this evidence is already running. Wait for it to finish.')
+        if link.analysis_status == AS.READY:
+            raise EvidenceRequestError('This evidence already has an AI assessment ready for review.')
+        previous_error = link.analysis_error if not stale else 'The previous assessment did not finish.'
+        link.analysis_status = AS.PENDING
+        link.analysis_retry_count += 1
+        link.analysis_retry_requested_at, link.analysis_retry_requested_by = timezone.now(), user
+        link.save(update_fields=['analysis_status', 'analysis_retry_count', 'analysis_retry_requested_at',
+                                 'analysis_retry_requested_by'])
+        request.status = Status.PROCESSING
+        request.save(update_fields=['status', 'updated_at'])
+        _event(request, Event.ANALYSIS_RETRY, user, evidence_id=str(link.id), retry=link.analysis_retry_count,
+               previous_error=(previous_error or '')[:300])
+        transaction.on_commit(lambda: _queue_retry(link))
+    return link
+
+
+def _queue_retry(link):
+    from .tasks import retry_evidence_assessment
+    try:
+        retry_evidence_assessment.delay(str(link.id))
+    except Exception as exc:
+        from .evidence_analysis import _fail
+        _fail(link, f'Could not queue the AI assessment retry: {exc}')
+
+
 def _start_extraction(sprint, document, *, link=None):
     """Use the regular sprint extraction job; its page read also feeds request assessment."""
     from apps.extraction.models import ExtractionJob

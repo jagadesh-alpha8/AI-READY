@@ -151,6 +151,7 @@ class ExtractionPipeline:
         self._advance(job, Step.MAPPING_AUDIT_FIELDS)
         mapped_facts = self.field_mapper.map_fields(document, raw_facts)
         facts_created = self._persist_facts(job, mapped_facts)
+        self._ai_check_tags(job, document)
 
         self._advance(job, Step.DETECTING_GAPS)
         gaps = self.gap_detector.detect_gaps(document, mapped_facts)
@@ -298,11 +299,12 @@ class ExtractionPipeline:
         but its kind / NAAC metric / automatic tags are refreshed. A kind a
         Super Admin decided, and tags a person reviewed or added, are kept.
         Returns how many facts were created or updated."""
-        from apps.facts.aiqif_tagging import Crosswalk
+        from apps.facts.aiqif_tagging import Crosswalk, Precedents
         from apps.facts.auto_confirm import is_auto_confirmed
         from apps.facts.models import ExtractedFact
 
         crosswalk = Crosswalk()
+        precedents = Precedents()  # earlier expert decisions, applied to this run's tags (aiqif_tagging rule 4)
         if not crosswalk.loaded:
             logger.error('extraction.pipeline.crosswalk_not_loaded job_id=%s: no AI-QIF tag is accepted '
                          'automatically until the NAAC -> AI-QIF crosswalk is imported', job.id)
@@ -346,15 +348,31 @@ class ExtractionPipeline:
                             setattr(fact, name, fields[name])
                     fact.save(update_fields=[*tagging_fields, 'updated_at'])
                     if 'aiqif_mappings' in item:
-                        ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'], crosswalk)
+                        ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'], crosswalk, precedents)
                     continue
                 if 'aiqif_mappings' in item:
-                    ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'], crosswalk)
+                    ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'], crosswalk, precedents)
                 count += 1
         return count
 
     @staticmethod
-    def _save_aiqif_mappings(fact, mappings, crosswalk=None):
+    def _ai_check_tags(job, document):
+        """AI second opinion on the tags this document's facts still leave for an expert (aiqif_tagging rule 4b).
+        Never fails the extraction: a failed check leaves the tags waiting."""
+        if not settings.AIQIF_AI_CHECK_ENABLED:
+            return
+        from apps.facts.aiqif_tagging import ai_check_pending
+        try:
+            with usage_scope(job=job, stage=AIUsage.Stage.AIQIF_CHECK):
+                result = ai_check_pending(list(document.extracted_facts.all()))
+            if result['checked']:
+                logger.info('extraction.pipeline.aiqif_check job_id=%s checked=%d accepted=%d', job.id,
+                            result['checked'], result['accepted'])
+        except Exception:
+            logger.exception('extraction.pipeline.aiqif_check_failed job_id=%s', job.id)
+
+    @staticmethod
+    def _save_aiqif_mappings(fact, mappings, crosswalk=None, precedents=None):
         """Tag `fact` (apps/facts/aiqif_tagging.py: kind, crosswalk, AI suggestions, what is accepted
         automatically) and match a profile fact to the closed profile lists (apps/facts/profile_suggestion.py).
         The Raw CRI never reads tags; coverage counts only the ones aiqif_tagging.counting_q accepts."""
@@ -370,7 +388,7 @@ class ExtractionPipeline:
         if code != fact.profile_code:
             fact.profile_code = code
             fact.save(update_fields=['profile_code', 'updated_at'])
-        apply_tags(fact, mappings, crosswalk)
+        apply_tags(fact, mappings, crosswalk, precedents)
 
     @staticmethod
     def _persist_gaps(job, gaps):

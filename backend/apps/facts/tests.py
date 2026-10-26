@@ -1,6 +1,6 @@
 import tempfile
 from datetime import date, timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -1238,107 +1238,6 @@ class EvidenceRequestSprintScopeTests(FactTestBase):
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
 
-class BulkTagConfirmTests(FactTestBase):
-    """POST /sprints/<id>/aiqif-mappings/bulk-confirm (apps/facts/tag_review.py): tag mappings only."""
-
-    def setUp(self):
-        super().setUp()
-        from .models import FactAIQIFMapping as M
-        self.M = M
-        # The AI-QIF expert (Super Admin) decides tags; the facts are AI evidence.
-        self.expert = self._make_user('expert@ingage.test', User.Role.SUPER_ADMIN, None)
-        self.expert2 = self._make_user('expert2@ingage.test', User.Role.SUPER_ADMIN, None)
-        self.fact = self._make_fact(status=ExtractedFact.Status.CONFIRMED, fact_kind='ai_evidence')
-        self.other = self._make_fact(field_key='labs', field_name='Labs', value=7, fact_kind='ai_evidence')  # extracted
-        self.ok1 = self._tag(self.fact, 'AIQIF-C4.1', 0.92)
-        self.ok2 = self._tag(self.fact, 'AIQIF-C9.2', 0.81)
-        self.ok3 = self._tag(self.other, 'AIQIF-C6.4', 0.75)
-        self.low = self._tag(self.other, 'AIQIF-C6.1', 0.4, status=M.Status.NEEDS_REVIEW)
-        self.rejected = self._tag(self.other, 'AIQIF-C1.1', 0.9, review=M.ReviewStatus.REJECTED)
-        self.url = f'/api/v1/sprints/{self.sprint.id}/aiqif-mappings/bulk-confirm'
-
-    def _tag(self, fact, code, confidence, status=None, review=None):
-        from apps.scoring.constants import AIQIF_INDICATORS
-        return self.M.objects.create(fact=fact, criterion=AIQIF_INDICATORS[code][0], indicator_code=code,
-                                     reason='AI.', confidence=confidence, status=status or self.M.Status.MAPPED,
-                                     review_status=review or self.M.ReviewStatus.UNREVIEWED)
-
-    def _post(self, user, **body):
-        self._auth(user)
-        return self.client.post(self.url, body, format='json')
-
-    def test_dry_run_summarises_without_changing_anything(self):
-        r = self._post(self.expert, dry_run=True)
-        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
-        self.assertEqual((r.data['pending_count'], r.data['eligible_count'], r.data['low_confidence_count']), (4, 3, 1))
-        self.assertEqual((r.data['confidence_min'], r.data['confidence_max']), (0.75, 0.92))
-        self.assertEqual(self.M.objects.filter(review_status='confirmed').count(), 0)
-
-    def test_confirms_pending_tags_only_and_never_the_facts(self):
-        before = [(f.status, f.value, f.reviewed_by_id) for f in (self.fact, self.other)]
-        r = self._post(self.expert, note='Checked the tag list.')
-        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
-        self.assertEqual(r.data['confirmed_count'], 3)
-        for m in (self.ok1, self.ok2, self.ok3):
-            m.refresh_from_db()
-            self.assertEqual((m.review_status, m.reviewed_by), ('confirmed', self.expert))
-        self.low.refresh_from_db()
-        self.rejected.refresh_from_db()
-        self.assertEqual((self.low.review_status, self.rejected.review_status), ('unreviewed', 'rejected'))
-        self.assertEqual(r.data['still_pending_count'], 1)
-        self.assertIn('low AI confidence', r.data['still_pending'][0]['reason'])
-        for f in (self.fact, self.other):
-            f.refresh_from_db()
-        self.assertEqual([(f.status, f.value, f.reviewed_by_id) for f in (self.fact, self.other)], before)
-
-    def test_it_is_audited_per_fact(self):
-        self._post(self.expert)
-        rows = FactReviewHistory.objects.filter(action='aiqif_tags_confirmed').order_by('fact__field_key')
-        self.assertEqual(rows.count(), 2)  # one per fact whose tags were confirmed
-        row = rows.get(fact=self.fact)
-        self.assertEqual(row.user, self.expert)
-        self.assertIn('AIQIF-C4.1, AIQIF-C9.2', row.reason)
-        self.assertIn('3 tag(s)', row.reason)
-        self.assertIn(self.sprint.sprint_code, row.reason)
-
-    def test_repeating_it_changes_nothing(self):
-        self._post(self.expert)
-        again = self._post(self.expert2)
-        self.assertEqual(again.data['confirmed_count'], 0)
-        self.ok1.refresh_from_db()
-        self.assertEqual(self.ok1.reviewed_by, self.expert)  # not re-stamped by the second reviewer
-        self.assertEqual(FactReviewHistory.objects.filter(action='aiqif_tags_confirmed').count(), 2)
-
-    def test_only_the_given_tags_when_ids_are_sent(self):
-        r = self._post(self.expert, mapping_ids=[str(self.ok3.id), str(self.low.id)])
-        self.assertEqual(r.data['confirmed_count'], 1)
-        self.ok1.refresh_from_db()
-        self.assertEqual(self.ok1.review_status, 'unreviewed')
-
-    def test_coverage_is_recalculated_and_the_raw_cri_is_not_moved_by_tags(self):
-        from apps.scoring.services import run_scoring_engine
-        raw_before = run_scoring_engine(self.sprint).overall_cri
-        r = self._post(self.expert)
-        cov = r.data['coverage']
-        self.assertEqual(cov['raw_cri'], raw_before)
-        self.assertEqual(cov['covered_count'], 2)  # C4.1 + C9.2 on the confirmed fact; C6.4's fact is unreviewed
-        self.assertEqual(self.sprint.scoring_runs.count(), 2)
-
-    def test_viewers_and_other_colleges_are_refused(self):
-        self.assertEqual(self._post(self.iqac).status_code, status.HTTP_403_FORBIDDEN)  # not the AI-QIF expert
-        self.assertEqual(self._post(self.viewer).status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(self._post(self.outsider).status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(self.M.objects.filter(review_status='confirmed').count(), 0)
-
-    def test_another_sprints_tags_are_never_touched(self):
-        sprint2 = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
-        foreign = self._tag(self._make_fact(sprint=sprint2, field_key='x'), 'AIQIF-C2.1', 0.95)
-        r = self._post(self.expert, mapping_ids=[str(foreign.id)])
-        self.assertEqual(r.data['confirmed_count'], 0)
-        foreign.refresh_from_db()
-        self.assertEqual(foreign.review_status, 'unreviewed')
-
-
 TEST_CROSSWALK = [
     ('AIQIF-C5.1', [{'metric': '2.1.2', 'naac_key_indicator': '2.1', 'relationship': 'Contextual'}], 'AI-QIF v1.0'),
     ('AIQIF-C3.1', [{'metric': '1.1.3', 'naac_key_indicator': '1.1', 'relationship': 'Direct/Supporting'}],
@@ -1464,13 +1363,6 @@ class AIQIFExpertQueueTests(FactTestBase):
         self.assertIn('waiting for a Super Admin', str(caught.exception.detail['detail']))
         ExtractedFact.objects.update(kind_needs_check=False)
         _expert_queue_gate(self.sprint)  # empty queue: allowed
-
-    def test_bulk_tag_confirmation_is_the_experts(self):
-        self._auth(self.consultant)
-        r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/aiqif-mappings/bulk-confirm', {'dry_run': True},
-                             format='json')
-        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
-
 
 class ProfileSuggestionTests(FactTestBase):
     """The benchmark profile pre-filled from profile facts (apps/facts/profile_suggestion.py)."""
@@ -1916,3 +1808,339 @@ class ConflictChoiceTests(FactTestBase):
         self.assertIn('open evidence request', str(r.data))
         self.a.refresh_from_db()
         self.assertEqual(self.a.status, 'extracted')
+
+
+class AIQIFAutoDecisionTests(FactTestBase):
+    """Rule 4 (apps/facts/aiqif_tagging.py): earlier expert decisions on the same field decide new tags, and an
+    AI second opinion decides what is still waiting -- both reversible, neither ever a person's decision."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import FactAIQIFMapping
+        self.M = FactAIQIFMapping
+        self.expert = self._make_user('expert@ingage.test', User.Role.SUPER_ADMIN, None)
+        # The precedent: last year's sprint, where the expert decided this field's tags.
+        old_sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
+        old = self._make_fact(sprint=old_sprint, field_key='ai_coe_count_2023_24', fact_kind='ai_evidence',
+                              status='confirmed')
+        now = __import__('django.utils.timezone', fromlist=['now']).now()
+        self.M.objects.create(fact=old, criterion='aiqif_c7', indicator_code='AIQIF-C7.2', reason='x', confidence=0.6,
+                              status='needs_review', review_status='confirmed', reviewed_by=self.expert,
+                              reviewed_at=now, relationship='direct')
+        self.M.objects.create(fact=old, criterion='aiqif_c9', indicator_code='AIQIF-C9.1', reason='x', confidence=0.9,
+                              status='mapped', review_status='rejected', reviewed_by=self.expert, reviewed_at=now)
+        self.M.objects.create(fact=old, criterion='aiqif_c4', indicator_code='AIQIF-C4.3', reason='x', confidence=0.9,
+                              status='mapped', review_status='confirmed', reviewed_by=self._auto_user(), reviewed_at=now)
+        self.fact = self._make_fact(field_key='ai_coe_count_2025_26', fact_kind='ai_evidence', pillar='aiqif_c7')
+
+    @staticmethod
+    def _auto_user():
+        from .auto_confirm import system_user
+        return system_user()
+
+    def _tag(self, code, confidence=0.5, **fields):
+        from apps.scoring.constants import AIQIF_INDICATORS
+        return self.M.objects.create(fact=self.fact, criterion=AIQIF_INDICATORS[code][0], indicator_code=code,
+                                     reason='AI.', confidence=confidence, status='needs_review', **fields)
+
+    def _tags(self):
+        return {m.indicator_code: m for m in self.M.objects.filter(fact=self.fact)}
+
+    def test_the_precedent_key_ignores_years_and_numbers(self):
+        from .aiqif_tagging import precedent_key
+        self.assertEqual(precedent_key('ai_coe_count_2023_24'), precedent_key('AI_COE_COUNT_2025-26'))
+        self.assertEqual(precedent_key('mba_approved_intake_2024_25_course_2'), 'mba_approved_intake_course')
+        self.assertNotEqual(precedent_key('ai_coe_count'), precedent_key('ai_lab_count'))
+
+    def test_earlier_expert_decisions_decide_the_same_field_in_a_new_sprint(self):
+        from .aiqif_tagging import Precedents, apply_precedents, queue_counts
+        self._tag('AIQIF-C7.2')               # low confidence: would wait -- the expert confirmed it before
+        self._tag('AIQIF-C9.1', 0.9)          # the expert rejected it before
+        self._tag('AIQIF-C4.3', 0.4)          # only an automatic decision exists: not a precedent
+        self.assertEqual(apply_precedents(self.fact, Precedents()), 2)
+        tags = self._tags()
+        self.assertEqual((tags['AIQIF-C7.2'].auto_accepted, tags['AIQIF-C7.2'].auto_decision,
+                          tags['AIQIF-C7.2'].relationship, tags['AIQIF-C7.2'].review_status),
+                         (True, 'accepted_precedent', 'direct', 'unreviewed'))
+        self.assertIn('ai_coe_count_2023_24', tags['AIQIF-C7.2'].auto_reason)
+        self.assertEqual((tags['AIQIF-C9.1'].auto_accepted, tags['AIQIF-C9.1'].auto_decision),
+                         (False, 'rejected_precedent'))
+        self.assertEqual(tags['AIQIF-C4.3'].auto_decision, '')
+        self.assertEqual(queue_counts(self.sprint)['tags'], 1)  # only C4.3 still waits
+
+    def test_a_confirmed_precedent_adds_an_indicator_the_ai_did_not_suggest(self):
+        from .aiqif_tagging import Precedents, apply_precedents
+        apply_precedents(self.fact, Precedents())
+        added = self._tags()['AIQIF-C7.2']
+        self.assertEqual((added.source, added.auto_accepted, added.relationship), ('precedent', True, 'direct'))
+        self.assertNotIn('AIQIF-C9.1', self._tags())  # a rejected precedent never adds a tag
+
+    def test_a_persons_decision_and_a_reopened_tag_are_never_overridden(self):
+        from .aiqif_tagging import Precedents, apply_precedents
+        mine = self._tag('AIQIF-C9.1', 0.9, review_status='confirmed', reviewed_by=self.expert)
+        pending = self._tag('AIQIF-C7.2', pending_since=__import__('django.utils.timezone', fromlist=['now']).now())
+        apply_precedents(self.fact, Precedents())
+        mine.refresh_from_db()
+        pending.refresh_from_db()
+        self.assertEqual((mine.review_status, mine.auto_decision), ('confirmed', ''))
+        self.assertEqual((pending.auto_accepted, pending.auto_decision), (False, ''))
+
+    def _service(self, *answers):
+        service = MagicMock()
+        service.extract_structured_data.side_effect = list(answers)
+        return service
+
+    def test_the_ai_second_opinion_accepts_only_a_confident_agreeing_check(self):
+        from .aiqif_tagging import ai_check_pending, queue_counts
+        ok = self._tag('AIQIF-C7.1')
+        doubtful = self._tag('AIQIF-C7.3')
+        contextual = self._tag('AIQIF-C7.4')
+        service = self._service(
+            {'supports': True, 'relationship': 'direct', 'confidence': 0.92, 'reason': 'The quote names the AI CoE.'},
+            {'supports': True, 'relationship': 'supporting', 'confidence': 0.55, 'reason': 'Unclear.'},
+            {'supports': True, 'relationship': 'contextual', 'confidence': 0.95, 'reason': 'Background only.'})
+        with override_settings(AIQIF_AI_CHECK_MIN_CONFIDENCE=0.8):
+            result = ai_check_pending([self.fact], service=service)
+        self.assertEqual(result, {'checked': 3, 'accepted': 1})
+        for m in (ok, doubtful, contextual):
+            m.refresh_from_db()
+        self.assertEqual((ok.auto_accepted, ok.auto_decision, ok.relationship), (True, 'accepted_ai_check', 'direct'))
+        self.assertIn('AI check agreed (92%)', ok.auto_reason)
+        self.assertEqual((doubtful.auto_accepted, contextual.auto_accepted), (False, False))
+        self.assertIn('AI check disagreed', doubtful.auto_reason)
+        self.assertEqual(queue_counts(self.sprint)['tags'], 2)  # the two left for the expert, with the reason
+        # Checked once: a second run asks the AI nothing.
+        self.assertEqual(ai_check_pending([self.fact], service=self._service())['checked'], 0)
+
+    def test_a_failed_check_leaves_the_tag_waiting(self):
+        from apps.extraction.exceptions import PermanentExtractionError, RecoverableExtractionError
+
+        from .aiqif_tagging import ai_check_pending
+        a, b = self._tag('AIQIF-C7.1'), self._tag('AIQIF-C7.3')
+        result = ai_check_pending([self.fact], service=self._service(PermanentExtractionError('bad json'),
+                                                                    RecoverableExtractionError('rate limited')))
+        self.assertEqual(result, {'checked': 0, 'accepted': 0})
+        for m in (a, b):
+            m.refresh_from_db()
+            self.assertEqual((m.auto_accepted, m.auto_reason), (False, ''))
+
+    def test_reopening_an_automatic_decision_sends_it_back_to_the_expert(self):
+        from .aiqif_tagging import Precedents, apply_precedents, queue_counts, reopen_tag
+        tag = self._tag('AIQIF-C7.2')
+        apply_precedents(self.fact, Precedents())
+        reopen_tag(self.M.objects.get(pk=tag.pk), self.expert, 'Not an AI CoE this year.')
+        tag.refresh_from_db()
+        self.assertEqual((tag.auto_accepted, tag.auto_decision, tag.auto_reason), (False, '', ''))
+        self.assertEqual(queue_counts(self.sprint)['tags'], 1)
+        reopened = FactReviewHistory.objects.get(fact=self.fact, action='aiqif_tag_reopened')
+        self.assertEqual(reopened.new_value['previous']['auto_decision'], 'accepted_precedent')
+
+    def test_decide_automatically_from_the_expert_queue(self):
+        self._tag('AIQIF-C7.2')
+        url = f'/api/v1/sprints/{self.sprint.id}/aiqif-expert-queue/auto-check'
+        self._auth(self.iqac)
+        self.assertEqual(self.client.post(url).status_code, status.HTTP_403_FORBIDDEN)
+        self._auth(self.expert)
+        r = self.client.post(url)
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual((r.data['precedent_decisions'], r.data['ai_check'], r.data['expert_queue']['tags']),
+                         (1, 'off', 0))  # the AI check is off in tests
+        listed = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts').data['results']
+        tag = next(f for f in listed if f['id'] == str(self.fact.id))['aiqif_mappings'][0]
+        self.assertEqual((tag['auto_decision'], tag['pending']), ('accepted_precedent', False))
+        self.assertTrue(tag['auto_reason'])
+        # Listed in the Reviewed tab, where it can be reversed.
+        reviewed = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts', {'tag_review': 'reviewed'}).data
+        self.assertEqual([f['id'] for f in reviewed['results']], [str(self.fact.id)])
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='evidence-retry-tests-'))
+class EvidenceAssessmentRetryTests(FactTestBase):
+    """A reviewer retries a failed AI assessment of the same submission: no re-upload, no OCR or extraction, one run
+    per click, advisory result only (evidence_requests.request_assessment_retry, tasks.retry_evidence_assessment)."""
+
+    def setUp(self):
+        super().setUp()
+        self.registrar = self._make_user('registrar@test.edu', User.Role.REGISTRAR, self.institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)  # reviews
+        self.fact = self._make_fact()
+
+    _request = EvidenceRequestWorkflowTests._request
+    _open = EvidenceRequestWorkflowTests._open
+    _url = EvidenceRequestWorkflowTests._url
+    _upload = EvidenceRequestWorkflowTests._upload
+    _submit_text = EvidenceRequestWorkflowTests._submit_text
+    _link = EvidenceRequestWorkflowTests._link
+
+    GOOD = {'outcome': 'supports', 'summary': 'The text supports the reported completion rate.',
+            'quote': '120 of 192 faculty completed AI foundation FDP.', 'page_number': None,
+            'suggested_corrected_value': None, 'confidence': 0.93}
+
+    def _ai(self, *, fail=None, result=None):
+        get = patch('apps.facts.evidence_analysis.get_ai_service')
+        mock = get.start()
+        self.addCleanup(get.stop)
+        if fail is not None:
+            mock.return_value.extract_structured_data.side_effect = fail
+        else:
+            mock.return_value.extract_structured_data.side_effect = None
+            mock.return_value.extract_structured_data.return_value = result or self.GOOD
+        return mock
+
+    def _failed_text_submission(self, error=TimeoutError('Request timed out.')):
+        from .evidence_analysis import analyze_submission
+        req = self._open()
+        self._submit_text(req)
+        link = self._link(req)
+        self._ai(fail=error)
+        analyze_submission(link)
+        link.refresh_from_db()
+        self.assertEqual(link.analysis_status, 'failed')
+        return req, link
+
+    def _retry(self, req, link, user=None, run=True):
+        """POST the retry; with run=True the queued task runs right after the commit (as a worker would)."""
+        self._auth(user or self.admin)
+        url = self._url(req, f'evidence/{link.id}/retry-assessment')
+        if not run:
+            with patch('apps.facts.tasks.retry_evidence_assessment.delay') as delay:
+                with self.captureOnCommitCallbacks(execute=True):
+                    response = self.client.post(url, format='json')
+            return response, delay
+        from .tasks import retry_evidence_assessment
+        with patch('apps.facts.tasks.retry_evidence_assessment.delay', side_effect=retry_evidence_assessment):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(url, format='json')
+        return response, None
+
+    def test_a_timeout_then_a_successful_retry_stays_advisory(self):
+        from apps.gaps.models import GapItem
+        gap = GapItem.objects.create(sprint=self.sprint, source_fact=self.fact, gap_type=GapItem.GapType.LOW_CONFIDENCE,
+                                     title='Low confidence', pillar='aiqif_c4')
+        req, link = self._failed_text_submission()
+        self.assertIn('timed out', link.analysis_error)
+        self.assertIn('Retry the assessment', link.analysis_error)
+
+        self._ai(result=self.GOOD)  # the service has recovered
+        response, _ = self._retry(req, link)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        link.refresh_from_db()
+        req.refresh_from_db()
+        self.assertEqual((link.analysis_status, link.analysis_outcome, link.analysis_error), ('ready', 'supports', ''))
+        self.assertEqual((link.analysis_attempts, link.analysis_retry_count), (2, 1))
+        self.assertIsNotNone(link.analysis_finished_at)
+        self.assertEqual(req.status, EvidenceRequest.Status.READY_FOR_REVIEW)
+        evidence = response.data['evidence'][0]  # answered before the queued run starts: "retry in progress"
+        self.assertEqual((evidence['analysis_status'], evidence['analysis_retry_count']), ('pending', 1))
+        # Advisory only: the fact, its review history and its gap are exactly as before.
+        self.fact.refresh_from_db()
+        gap.refresh_from_db()
+        self.assertEqual((self.fact.status, self.fact.value), (ExtractedFact.Status.EVIDENCE_REQUESTED, 62.5))
+        self.assertFalse(FactReviewHistory.objects.filter(fact=self.fact, action__in=['confirmed', 'corrected']).exists())
+        self.assertEqual(gap.status, GapItem.Status.OPEN)
+        self.assertEqual(req.evidence.count(), 1)  # the same submission, nothing re-submitted
+        self.assertEqual(list(req.events.values_list('action', flat=True))[-5:],
+                         ['analysis_started', 'analysis_failed', 'analysis_retry', 'analysis_started',
+                          'analysis_completed'])
+
+    def test_a_document_retry_reuses_the_saved_pages_without_ocr_or_extraction(self):
+        from apps.documents.models import Document
+        from apps.extraction.models import ExtractionJob
+
+        from .evidence_analysis import analyze_pending_document_submissions
+        req = self._open()
+        self._upload(req)
+        link = self._link(req)
+        pages = {'format_supported': True, 'pages': [
+            {'page_number': 3, 'text': '120 of 192 faculty completed AI foundation FDP.', 'source': 'ocr'}]}
+        self._ai(fail=TimeoutError('Request timed out.'))
+        analyze_pending_document_submissions(link.document, pages)
+        link.refresh_from_db()
+        self.assertEqual(link.analysis_status, 'failed')
+        self.assertEqual(link.source_pages, [{'page_number': 3, 'text': '120 of 192 faculty completed AI foundation FDP.'}])
+        documents, jobs = Document.objects.count(), ExtractionJob.objects.count()
+
+        self._ai(result={**self.GOOD, 'page_number': 3})
+        with patch('apps.extraction.services.pdf_reader.PDFPageReader.read_pages',
+                   side_effect=AssertionError('the document must not be read again')), \
+                patch('apps.extraction.views.dispatch_job', side_effect=AssertionError('no extraction on retry')):
+            response, _ = self._retry(req, link)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        link.refresh_from_db()
+        self.assertEqual((link.analysis_status, link.analysis_page_number), ('ready', 3))
+        self.assertEqual((Document.objects.count(), ExtractionJob.objects.count(), req.evidence.count()),
+                         (documents, jobs, 1))
+
+    def test_repeated_clicks_queue_one_retry(self):
+        req, link = self._failed_text_submission()
+        first, delay = self._retry(req, link, run=False)
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(delay.call_count, 1)
+        self.assertEqual(first.data['evidence'][0]['analysis_status'], 'pending')  # "retry in progress"
+        second, delay2 = self._retry(req, link, run=False)
+        self.assertEqual(second.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(second.data['code'], 'retry_in_progress')
+        self.assertEqual(delay2.call_count, 0)
+        link.refresh_from_db()
+        self.assertEqual(link.analysis_retry_count, 1)
+        self.assertEqual(req.events.filter(action='analysis_retry').count(), 1)
+        # A repeated delivery of the same task after it ran does nothing.
+        from .tasks import retry_evidence_assessment
+        self._ai(result=self.GOOD)
+        retry_evidence_assessment(str(link.id))
+        retry_evidence_assessment(str(link.id))
+        link.refresh_from_db()
+        self.assertEqual((link.analysis_status, link.analysis_attempts), ('ready', 2))
+        self.assertEqual(req.events.filter(action='analysis_completed').count(), 1)
+
+    def test_a_retry_that_fails_again_can_be_retried_once_the_service_recovers(self):
+        req, link = self._failed_text_submission()
+        self._ai(fail=RuntimeError('Rate limit reached (429). Bearer sk-abcdef1234567890 rejected'))
+        response, _ = self._retry(req, link)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        link.refresh_from_db()
+        self.assertEqual((link.analysis_status, link.analysis_retry_count), ('failed', 1))
+        self.assertIn('temporarily unavailable', link.analysis_error)
+        self.assertNotIn('sk-abcdef', link.analysis_error)  # no secrets in the stored error or the audit trail
+        self.assertFalse(any('sk-abcdef' in (e.note or '') for e in req.events.all()))
+        self._ai(result=self.GOOD)
+        response, _ = self._retry(req, link)
+        link.refresh_from_db()
+        self.assertEqual((link.analysis_status, link.analysis_retry_count, link.analysis_attempts), ('ready', 2, 3))
+
+    def test_only_a_reviewer_of_the_fact_who_did_not_submit_it_may_retry(self):
+        req, link = self._failed_text_submission()
+        response, delay = self._retry(req, link, user=self.hod, run=False)  # the submitter
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Someone other than the person who submitted', str(response.data['detail']))
+        response, _ = self._retry(req, link, user=self.viewer, run=False)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response, _ = self._retry(req, link, user=self.registrar, run=False)  # not the fact's reviewer
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response, _ = self._retry(req, link, user=self.outsider, run=False)  # another college
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        link.refresh_from_db()
+        self.assertEqual((link.analysis_status, link.analysis_retry_count), ('failed', 0))
+        self.assertFalse(req.events.filter(action='analysis_retry').exists())
+
+    def test_only_a_failed_assessment_of_an_unreviewed_submission_is_retried(self):
+        req, link = self._failed_text_submission()
+        self._ai(result=self.GOOD)
+        self._retry(req, link)
+        response, delay = self._retry(req, link, run=False)  # now ready: nothing to retry
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(delay.call_count, 0)
+
+    def test_a_run_lost_mid_way_can_be_retried_after_a_while(self):
+        from django.utils import timezone
+
+        from .evidence_requests import STALE_ASSESSMENT_MINUTES
+        req, link = self._failed_text_submission()
+        EvidenceRequestDocument.objects.filter(pk=link.pk).update(
+            analysis_status='processing', analysis_started_at=timezone.now() - timedelta(minutes=5))
+        response, _ = self._retry(req, link, run=False)
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)  # still running
+        EvidenceRequestDocument.objects.filter(pk=link.pk).update(
+            analysis_started_at=timezone.now() - timedelta(minutes=STALE_ASSESSMENT_MINUTES + 1))
+        response, delay = self._retry(req, link, run=False)
+        self.assertEqual((response.status_code, delay.call_count), (status.HTTP_200_OK, 1))

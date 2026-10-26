@@ -481,6 +481,31 @@ class SprintAIQIFExpertQueueView(APIView):
                                         for code, (criterion, name) in AIQIF_INDICATORS.items()]})
 
 
+class SprintAIQIFAutoCheckView(APIView):
+    """POST /sprints/<id>/aiqif-expert-queue/auto-check -- Super Admin only. Decides what it can of the waiting
+    AI-QIF tags without a person: earlier expert decisions on the same field now, the AI second opinion in the
+    background (aiqif_tagging rule 4). Everything decided stays reversible in the Reviewed tab."""
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, sprint_id):
+        from apps.scoring.services import run_scoring_engine
+
+        from .aiqif_tagging import auto_check_sprint, queue_counts
+        from .tasks import run_aiqif_auto_check
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        result = auto_check_sprint(sprint, ai=False)
+        if result['precedent_decisions']:
+            run_scoring_engine(sprint, triggered_by=request.user)
+        ai = 'off'
+        if settings.AIQIF_AI_CHECK_ENABLED and queue_counts(sprint)['tags']:
+            try:
+                run_aiqif_auto_check.delay(str(sprint.id))
+                ai = 'queued'
+            except Exception:  # no broker: the precedents above still apply
+                ai = 'unavailable'
+        return Response({**result, 'ai_check': ai, 'expert_queue': queue_counts(sprint)})
+
+
 class SprintProfileSuggestionView(APIView):
     """GET /sprints/<id>/profile-suggestion -- the benchmark profile as read from the sprint's profile facts
     (apps/facts/profile_suggestion.py), with conflicts and the closed option lists.
@@ -536,26 +561,3 @@ class SprintWorkSummaryView(APIView):
         from .work_summary import work_summary
         sprint = get_authorized_sprint(request.user, sprint_id)
         return Response(work_summary(sprint))
-
-
-class SprintBulkTagConfirmView(APIView):
-    """POST /sprints/<id>/aiqif-mappings/bulk-confirm {mapping_ids?, dry_run?, note?}
-
-    Confirms the sprint's eligible pending AI-QIF tags (apps/facts/tag_review.py) -- tag mappings only, never
-    the facts. dry_run returns the summary (count, confidence range, low-confidence tags left for individual
-    review) without changing anything. Super Admin only (the AI-QIF expert), within the sprint's institution."""
-    permission_classes = [IsSuperAdmin]
-
-    def post(self, request, sprint_id):
-        from .serializers import BulkTagConfirmSerializer
-        from .tag_review import confirm_pending, summary
-
-        sprint = get_authorized_sprint(request.user, sprint_id)
-        body = BulkTagConfirmSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        ids = body.validated_data.get('mapping_ids')
-        if body.validated_data['dry_run']:
-            plan = summary(sprint, ids)
-            plan.pop('eligible_ids')
-            return Response(plan)
-        return Response(confirm_pending(sprint, request.user, ids, body.validated_data['note']))

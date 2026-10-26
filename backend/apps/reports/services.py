@@ -146,6 +146,9 @@ def _baseline_summary(sprint):
     baseline = sprint.baselines.order_by('-created_at').first()
     if baseline is None:
         return {'status': 'preliminary', 'baseline_id': None, 'approved_by': '', 'approved_at': None}
+    revision_pending = baseline.status == Baseline.Status.PENDING and baseline.revises_id is not None
+    if revision_pending:  # a revision is being reviewed: the earlier decision is still the one in force
+        baseline = baseline.revises
 
     label = {
         Baseline.Status.APPROVED: 'approved',
@@ -157,6 +160,7 @@ def _baseline_summary(sprint):
         'baseline_id': str(baseline.id),
         'approved_by': baseline.approved_by.get_full_name() if baseline.approved_by else '',
         'approved_at': baseline.approved_at,
+        'revision_pending': revision_pending,
     }
 
 
@@ -192,9 +196,13 @@ def _cri_source(sprint, run):
     same = _same_score(run, baseline.scoring_run)
     who = baseline.approved_by.get_full_name() if baseline.approved_by else 'InGage'
     when = f' on {baseline.approved_at:%d %b %Y}' if baseline.approved_at else ''
+    pinned = baseline.scoring_run
     source.update({
         'baseline_status': baseline.status, 'baseline_scoring_run_id': str(baseline.scoring_run_id),
-        'baseline_cri': baseline.scoring_run.overall_cri, 'differs_from_baseline': not same,
+        'baseline_cri': pinned.overall_cri, 'differs_from_baseline': not same,
+        # The decided baseline's own snapshot, so a report can show it apart from its own (Live) CRI.
+        'baseline_calculated_at': pinned.created_at, 'baseline_confidence': pinned.overall_confidence,
+        'baseline_coverage_adjusted_cri': pinned.coverage_adjusted_cri, 'baseline_approved_at': baseline.approved_at,
         'note': (f'CRI recalculated for this report ({run.overall_cri:.1f}); it matches the '
                  f'{baseline.get_status_display().lower()} baseline approved by {who}{when}.') if same else
                 (f'This report uses a recalculated CRI ({run.overall_cri:.1f}) that differs from the '

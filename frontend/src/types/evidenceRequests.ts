@@ -56,7 +56,14 @@ export interface EvidenceLink {
   analysis_document_reference: string;
   analysis_suggested_value: unknown;
   analysis_confidence: number | null;
+  /** The latest error (kept while a retry runs, cleared by a success). */
   analysis_error: string;
+  /** AI assessment runs started, and reviewer-requested retries of a failed one. */
+  analysis_attempts: number;
+  analysis_retry_count: number;
+  analysis_started_at: string | null;
+  analysis_finished_at: string | null;
+  analysis_retry_requested_at: string | null;
   status: 'submitted' | 'accepted' | 'returned' | 'rejected';
   review_reason: string;
   reviewed_by: string | null;

@@ -97,6 +97,8 @@ class AIUsage(models.Model):
         FACT_EXTRACTION = 'fact_extraction', 'Fact extraction'
         CONFLICT_CHECK = 'conflict_check', 'Conflict check'
         EVIDENCE_ASSESSMENT = 'evidence_assessment', 'Evidence assessment'
+        #: The AI second opinion on AI-QIF tags left for an expert (apps/facts/aiqif_tagging.ai_check_pending).
+        AIQIF_CHECK = 'aiqif_check', 'AI-QIF tag check'
         OTHER = 'other', 'Other'
 
     class Source(models.TextChoices):

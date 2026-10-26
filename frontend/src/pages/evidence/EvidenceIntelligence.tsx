@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  AlertTriangle, ArrowRight, Download, FileStack, FileText, ScanLine, Upload,
+  ArrowRight, Download, FileStack, FileText, ScanLine, Upload,
 } from 'lucide-react';
 
 import { listSprints } from '../../api/sprints';
@@ -66,7 +66,7 @@ function needsAttention(doc: SprintDocument, factCount: number): string | null {
 }
 
 export const EvidenceIntelligence: React.FC = () => {
-  const { can } = useAccess();
+  const { can, step } = useAccess();
   const navigate = useNavigate();
   // The selected sprint is shared by every page (context/SelectedSprintContext.tsx).
   const { sprintId: selectedSprintId } = useSelectedSprint();
@@ -148,7 +148,7 @@ export const EvidenceIntelligence: React.FC = () => {
       <div className="space-y-6">
         <PageHeader
           icon={FileStack}
-          title="Evidence Intelligence"
+          title={`Step ${step('evidence-intelligence')}: Evidence Intelligence`}
           description="Every document this assessment relies on, what state it is in, and what is still missing."
         />
         <EmptyState
@@ -175,7 +175,7 @@ export const EvidenceIntelligence: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         icon={FileStack}
-        title="Evidence Intelligence"
+        title={`Step ${step('evidence-intelligence')}: Evidence Intelligence`}
         description="Every document this assessment relies on, what state it is in, and what is still missing."
         actions={
           activeSprintId && (
@@ -209,46 +209,6 @@ export const EvidenceIntelligence: React.FC = () => {
             />
           </div>
 
-          {coverageAssessed && missingDocuments.length > 0 && (
-            <div className="glass-card p-5 space-y-3 border-danger-line">
-              <h2 className="eyebrow flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-danger shrink-0" />
-                Required documents not yet provided
-              </h2>
-              <p className="text-sm text-ink-500">
-                These block a verified baseline. The list comes from the audit's own gap engine, so
-                it stays correct as documents arrive.
-              </p>
-              <ul className="space-y-2">
-                {missingDocuments.map((gap) => (
-                  <li
-                    key={gap.id}
-                    className="flex items-start gap-2.5 rounded-lg border border-line-200 bg-surface p-3"
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-danger-solid shrink-0 mt-2" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-ink-900">{gap.title}</p>
-                      <p className="text-xs text-ink-500 mt-0.5">{gap.description}</p>
-                    </div>
-                    {gap.owner_role && (
-                      <span className="badge badge-neutral shrink-0">
-                        {gap.owner_role.replace(/_/g, ' ').toLowerCase()}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              <button
-                type="button"
-                onClick={() => navigate(`/sprint/${activeSprintId}/gaps`)}
-                className="btn-secondary btn-sm"
-              >
-                <span>Open the gap dashboard</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-
           {docs.length === 0 ? (
             <EmptyState
               message="No documents uploaded to this sprint yet."
@@ -259,7 +219,18 @@ export const EvidenceIntelligence: React.FC = () => {
             />
           ) : (
             <>
-              <FilterPills options={filterOptions} active={filter} onChange={setFilter} />
+              <div className="flex items-center gap-3 flex-wrap">
+                <FilterPills options={filterOptions} active={filter} onChange={setFilter} />
+                {/* The next audit step: review the facts these documents produced. */}
+                <button
+                  type="button"
+                  onClick={() => navigate(`/sprint/${activeSprintId}/facts`)}
+                  className="btn-primary btn-sm ml-auto"
+                >
+                  <span>Open Extracted Facts</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
 
               <div className="space-y-2">
                 {visible.map((doc) => {
@@ -321,6 +292,7 @@ export const EvidenceIntelligence: React.FC = () => {
               )}
             </>
           )}
+
         </>
       )}
     </div>

@@ -5,8 +5,20 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { Recommendation } from '../../types';
-import { Sparkles, ArrowRight } from 'lucide-react';
+import { Sparkles, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { useAccess } from '../../utils/access';
+
+/** How each status reads on a card; "accepted" is unmistakable (it goes into the report). */
+const STATUS_CHIP: Record<Recommendation['status'], { label: string; cls: string }> = {
+  draft: { label: 'Not reviewed', cls: 'badge-neutral' },
+  edited: { label: 'Edited - not accepted yet', cls: 'badge-warning' },
+  accepted: { label: 'Accepted for report', cls: 'badge-success' },
+  completed: { label: 'Completed', cls: 'badge-success' },
+  hidden: { label: 'Hidden from report', cls: 'badge-neutral' },
+};
+const isIn = (r: Recommendation) => r.status === 'accepted' || r.status === 'completed';
+/** Undo / unhide goes back to what it was before: edited if its text was changed, otherwise not reviewed. */
+const reopened = (r: Recommendation): Recommendation['status'] => (r.edited_text ? 'edited' : 'draft');
 
 export const RecommendationsReview: React.FC = () => {
   const { can, step } = useAccess();
@@ -46,12 +58,19 @@ export const RecommendationsReview: React.FC = () => {
     }
   };
 
-  const handleStatusUpdate = async (recId: string, status: string) => {
+  const handleStatusUpdate = async (recId: string, status: Recommendation['status']) => {
     setUpdatingId(recId);
     setActionError('');
     try {
-      await updateRecommendation(recId, { status: status as Recommendation['status'] });
-      refetch();
+      const { data: saved } = await updateRecommendation(recId, { status });
+      // Show the new status at once, then move on to the next card still to accept.
+      const next = recs.map((r) => (r.id === recId ? { ...r, ...saved, status } : r));
+      setRecs(next);
+      if (status === 'accepted') {
+        const after = next.slice(next.findIndex((r) => r.id === recId) + 1)
+          .find((r) => !isIn(r) && r.status !== 'hidden');
+        if (after) setTimeout(() => document.getElementById(`rec-${after.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+      }
     } catch (err) {
       setActionError(getErrorMessage(err, 'Failed to update recommendation status.'));
     } finally {
@@ -123,8 +142,14 @@ export const RecommendationsReview: React.FC = () => {
             )}
           </div>
         ) : (
-          recs.map((rec) => (
-            <div key={rec.id} className="glass-card-hover p-5 sm:p-6 space-y-4">
+          <>
+          <p className="text-sm text-ink-700" role="status">
+            <strong className="tabular-nums">{recs.filter(isIn).length}</strong> of {recs.filter((r) => r.status !== 'hidden').length} accepted for the report
+          </p>
+          {recs.map((rec) => (
+            <div key={rec.id} id={`rec-${rec.id}`}
+              className={`glass-card-hover p-5 sm:p-6 space-y-4 scroll-mt-24 ${isIn(rec) ? 'border-2 border-success-line'
+                : rec.status === 'hidden' ? 'opacity-60' : ''}`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-line-100 pb-3">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="badge-brand">{rec.pillar?.replace('_', ' ')}</span>
@@ -159,7 +184,7 @@ export const RecommendationsReview: React.FC = () => {
                       </button>
                       <button
                         onClick={() => { setEditingId(null); setEditValue(''); }}
-                        className="px-3 py-1 bg-line-200 hover:bg-line-300 text-ink-600 font-semibold text-xs rounded transition-colors"
+                        className="btn-secondary btn-sm"
                       >
                         Cancel
                       </button>
@@ -173,36 +198,44 @@ export const RecommendationsReview: React.FC = () => {
               </div>
 
               <div className="flex items-center justify-between pt-2 flex-wrap gap-2">
-                <span className="text-xs text-ink-500">Status: <strong className="text-brand-800 uppercase">{rec.status}</strong></span>
+                <span className={`badge ${STATUS_CHIP[rec.status]?.cls || 'badge-neutral'} inline-flex items-center gap-1`}>
+                  {isIn(rec) && <CheckCircle2 className="w-3.5 h-3.5" />}
+                  {STATUS_CHIP[rec.status]?.label || rec.status}
+                </span>
                 {can('recommendations.edit') && <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={() => handleStatusUpdate(rec.id, 'accepted')}
-                    disabled={updatingId === rec.id}
-                    className="px-3 py-1 bg-success-solid hover:brightness-95 text-white font-semibold text-xs rounded transition-all disabled:opacity-60"
-                  >
-                    Accept for Report
-                  </button>
+                  {isIn(rec) ? (
+                    <button onClick={() => handleStatusUpdate(rec.id, reopened(rec))} disabled={updatingId === rec.id}
+                      className="btn-secondary btn-sm" title="Take it out of the report again">
+                      {updatingId === rec.id ? 'Saving…' : 'Undo accept'}
+                    </button>
+                  ) : rec.status !== 'hidden' && (
+                    <button onClick={() => handleStatusUpdate(rec.id, 'accepted')} disabled={updatingId === rec.id}
+                      className="btn-primary btn-sm">
+                      {updatingId === rec.id ? 'Accepting…' : 'Accept for Report'}
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setEditingId(rec.id);
                       setEditValue(rec.edited_text || rec.recommendation_text);
                     }}
                     disabled={updatingId === rec.id}
-                    className="px-3 py-1 bg-line-200 hover:bg-line-300 text-brand-800 font-semibold text-xs rounded transition-colors disabled:opacity-60"
+                    className="btn-secondary btn-sm"
                   >
                     Edit
                   </button>
                   <button
-                    onClick={() => handleStatusUpdate(rec.id, 'hidden')}
+                    onClick={() => handleStatusUpdate(rec.id, rec.status === 'hidden' ? reopened(rec) : 'hidden')}
                     disabled={updatingId === rec.id}
-                    className="px-3 py-1 bg-line-200 hover:bg-line-300 text-ink-500 font-semibold text-xs rounded transition-colors disabled:opacity-60"
+                    className="btn-secondary btn-sm"
                   >
-                    Hide
+                    {rec.status === 'hidden' ? 'Unhide' : 'Hide'}
                   </button>
                 </div>}
               </div>
             </div>
-          ))
+          ))}
+          </>
         )}
       </div>
     </div>

@@ -45,13 +45,32 @@ class SourceDocumentListSerializer(serializers.ModelSerializer):
     latest_version = serializers.SerializerMethodField()
     version_count = serializers.IntegerField(read_only=True)
     review_flag_count = serializers.SerializerMethodField()
+    #: Indicators this source supports through linked requirements (services/provenance.py).
+    linked_indicators = serializers.SerializerMethodField()
+    #: Why it cannot be deleted (services/source_edit.py); [] = it can.
+    delete_blockers = serializers.SerializerMethodField()
 
     class Meta:
         model = SourceDocument
         fields = ['id', 'source_code', 'title', 'authority', 'authority_name', 'authority_kind', 'category',
                   'source_role', 'source_role_label', 'document_type', 'applies_to', 'official_url',
-                  'licensed_content', 'review_cadence_months', 'version_count', 'latest_version', 'review_flag_count']
+                  'licensed_content', 'review_cadence_months', 'version_count', 'latest_version', 'review_flag_count',
+                  'linked_indicators', 'delete_blockers']
         read_only_fields = fields
+
+    def get_delete_blockers(self, obj):
+        from .services.source_edit import blocker_counts, describe_blockers
+        counts = self.context.get('delete_blockers')
+        if counts is None:
+            counts = blocker_counts()
+        return describe_blockers(counts.get(str(obj.pk)))
+
+    def get_linked_indicators(self, obj):
+        found = self.context.get('linked_indicators')
+        if found is None:
+            from .services.provenance import indicators_by_document
+            found = indicators_by_document()
+        return found.get(str(obj.pk), [])
 
     @staticmethod
     def _latest(obj):
@@ -114,18 +133,27 @@ class RequirementCandidateSerializer(serializers.ModelSerializer):
 class RequirementSerializer(serializers.ModelSerializer):
     source_code = serializers.CharField(source='version.document.source_code', read_only=True)
     version_label = serializers.CharField(source='version.version_label', read_only=True)
-    approved_by = serializers.CharField(source='approved_by.email', read_only=True)
+    approved_by = serializers.CharField(source='approved_by.email', default=None, read_only=True)
+    source_title = serializers.CharField(source='version.document.title', read_only=True)
     benchmarks = serializers.SerializerMethodField()
+    #: 'manager_workbook', 'ai_draft_accepted' (an AI draft a person accepted) or 'entered_by_reviewer'.
+    requirement_origin = serializers.SerializerMethodField()
+    ai_model = serializers.CharField(source='created_from.model', default='', read_only=True)
 
     class Meta:
         model = Requirement
-        fields = ['id', 'code', 'source_code', 'version_label', 'statement', 'kind', 'page', 'source_quote',
-                  'approved_by', 'approved_at', 'benchmarks']
+        fields = ['id', 'code', 'source_code', 'source_title', 'version_label', 'statement', 'kind', 'page',
+                  'source_quote', 'approved_by', 'approved_at', 'benchmarks', 'requirement_origin', 'ai_model',
+                  'workbook_ref']
         read_only_fields = fields
 
     def get_benchmarks(self, obj):
-        return [{'benchmark_code': link.benchmark.benchmark_code, 'relationship': link.relationship}
-                for link in obj.benchmark_links.all()]
+        return [{'benchmark_code': link.benchmark.benchmark_code, 'title': link.benchmark.title,
+                 'relationship': link.relationship} for link in obj.benchmark_links.all()]
+
+    def get_requirement_origin(self, obj):
+        from .services.provenance import requirement_origin
+        return requirement_origin(obj)
 
 
 # -- stage 3: catalogue ----------------------------------------------------------
@@ -177,6 +205,7 @@ class BenchmarkSerializer(serializers.ModelSerializer):
     framework = serializers.CharField(source='framework.code', default=None, read_only=True)
     pillar_weight = serializers.DecimalField(source='pillar.weight', max_digits=7, decimal_places=2, read_only=True)
     confirmation = serializers.SerializerMethodField()
+    origin_type_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Benchmark
@@ -184,8 +213,11 @@ class BenchmarkSerializer(serializers.ModelSerializer):
                   'kind_label', 'benchmark_class', 'version_label', 'status', 'applicability', 'source_basis',
                   'scoring_dimensions', 'activation_status', 'expert_owner', 'target_guidance', 'evidence_types',
                   'maturity_levels', 'requirement_count', 'levels_defined', 'framework', 'weight', 'pillar_weight',
-                  'naac_crosswalk', 'confirmation']
+                  'naac_crosswalk', 'confirmation', 'origin_type', 'origin_type_label']
         read_only_fields = fields
+
+    def get_origin_type_label(self, obj):
+        return obj.get_origin_type_display() if obj.origin_type else ''
 
     def get_confirmation(self, obj):
         """Drafts only: confirmed / changed (edited since) / none; null once not a draft."""
@@ -309,7 +341,8 @@ class ReleaseSerializer(serializers.ModelSerializer):
         model = BenchmarkRelease
         fields = ['id', 'release_label', 'status', 'release_notes', 'based_on', 'created_by', 'created_at',
                   'submitted_by', 'submitted_at', 'approved_by', 'approved_at', 'published_by', 'published_at',
-                  'retired_at', 'content_hash', 'item_count', 'requires_composite']
+                  'retired_at', 'content_hash', 'item_count', 'requires_composite', 'kind', 'workbook',
+                  'workbook_sha256']
         read_only_fields = fields
 
     def get_item_count(self, obj):

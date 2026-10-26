@@ -14,6 +14,8 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import IsInGageStaff
 
+from .permissions import CatalogueReadOnly
+
 from .models import Requirement, RequirementCandidate, SourceDocument, SourceVersion
 from .serializers import (
     RequirementCandidateSerializer, RequirementSerializer, SourceDocumentDetailSerializer,
@@ -41,8 +43,14 @@ class SourceDocumentListView(generics.ListAPIView):
     """GET  /benchmarks/sources?category=&authority=&role=&collection=&q=
        POST /benchmarks/sources  multipart: source fields + optional `file` (services/source_create.py)"""
     serializer_class = SourceDocumentListSerializer
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_serializer_context(self):
+        from .services.provenance import indicators_by_document
+        from .services.source_edit import blocker_counts
+        return {**super().get_serializer_context(), 'linked_indicators': indicators_by_document(),
+                'delete_blockers': blocker_counts()}
 
     def post(self, request):
         from .services.source_create import SourceCreateError, create_source
@@ -70,28 +78,60 @@ class SourceDocumentListView(generics.ListAPIView):
 
 
 class SourceDocumentDetailView(generics.RetrieveAPIView):
-    """GET /benchmarks/sources/<source_code>"""
+    """GET    /benchmarks/sources/<source_code>
+       PATCH  /benchmarks/sources/<source_code> {document fields, latest version fields}  (services/source_edit.py)
+       DELETE /benchmarks/sources/<source_code> {reason} -- only while nothing depends on it"""
     serializer_class = SourceDocumentDetailSerializer
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
     lookup_field = 'source_code'
+
+    def get_serializer_context(self):
+        from .services.provenance import indicators_by_document
+        from .services.source_edit import blocker_counts
+        return {**super().get_serializer_context(), 'linked_indicators': indicators_by_document(),
+                'delete_blockers': blocker_counts()}
 
     def get_queryset(self):
         return _documents()
 
+    def patch(self, request, source_code):
+        from .services.source_create import SourceCreateError
+        from .services.source_edit import update_source
+        doc = get_object_or_404(SourceDocument, source_code=source_code)
+        try:
+            update_source(doc, request.user, request.data)
+        except SourceCreateError as exc:
+            return Response({'detail': 'Please fix the highlighted fields.', 'errors': exc.errors},
+                            status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(_documents().get(pk=doc.pk)).data)
+
+    def delete(self, request, source_code):
+        from .services.source_create import SourceCreateError
+        from .services.source_edit import delete_source
+        doc = get_object_or_404(SourceDocument, source_code=source_code)
+        try:
+            delete_source(doc, request.user, request.data.get('reason', ''))
+        except SourceCreateError as exc:
+            detail = exc.errors.get('detail') or exc.errors.get('reason')
+            return Response({'detail': detail, 'errors': exc.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class SourceReferenceView(APIView):
     """GET /benchmarks/sources/reference -- choices for the Add Source form."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request):
         from .models import Authority
         from .services.source_create import MAX_FILE_BYTES, supported_extensions
+        # order_by(): the model's default ordering (source_code) would otherwise make DISTINCT / GROUP BY
+        # return one row per document instead of one per value.
         return Response({
             'authorities': list(Authority.objects.order_by('code').values('code', 'name', 'kind')),
             'authority_kinds': [{'value': k, 'label': l} for k, l in Authority.Kind.choices],
             'source_roles': [{'value': k, 'label': l} for k, l in SourceDocument.Role.choices],
-            'categories': sorted(c for c in SourceDocument.objects.values_list('category', flat=True).distinct() if c),
-            'document_types': sorted(t for t in SourceDocument.objects.values_list('document_type', flat=True).distinct() if t),
+            'categories': sorted(c for c in SourceDocument.objects.order_by().values_list('category', flat=True).distinct() if c),
+            'document_types': sorted(t for t in SourceDocument.objects.order_by().values_list('document_type', flat=True).distinct() if t),
             'file_extensions': supported_extensions(),
             'max_file_mb': MAX_FILE_BYTES // (1024 * 1024),
         })
@@ -99,7 +139,7 @@ class SourceReferenceView(APIView):
 
 class SourceLibrarySummaryView(APIView):
     """GET /benchmarks/sources/summary -- counts for the Studio header."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request):
         versions = SourceVersion.objects.all()
@@ -109,7 +149,7 @@ class SourceLibrarySummaryView(APIView):
             'by_collection_status': dict(versions.values_list('collection_status').annotate(n=Count('id'))),
             'by_status': dict(versions.values_list('status').annotate(n=Count('id'))),
             'by_intake_status': dict(versions.values_list('intake_status').annotate(n=Count('id'))),
-            'by_category': dict(SourceDocument.objects.values_list('category').annotate(n=Count('id'))),
+            'by_category': dict(SourceDocument.objects.order_by().values_list('category').annotate(n=Count('id'))),
             'flagged_versions': versions.exclude(review_flags=[]).count(),
             'pending_drafts': RequirementCandidate.objects.filter(status=RequirementCandidate.Status.PENDING).count(),
             'requirements': Requirement.objects.count(),
@@ -128,7 +168,7 @@ def _version_data(pk):
 
 class VersionIntakeView(APIView):
     """POST /benchmarks/versions/<id>/intake -- fetch, store and verify this version's file now."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, pk):
         result = file_intake.ingest(_version(pk), actor=request.user.email)
@@ -137,7 +177,7 @@ class VersionIntakeView(APIView):
 
 class VersionApproveView(APIView):
     """POST /benchmarks/versions/<id>/approve {note, acknowledge_flags}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, pk):
         try:
@@ -171,7 +211,7 @@ def _queue_drafting(pk, actor):
 
 class VersionWithdrawView(APIView):
     """POST /benchmarks/versions/<id>/withdraw {note}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, pk):
         try:
@@ -183,7 +223,7 @@ class VersionWithdrawView(APIView):
 
 class VersionDraftRequirementsView(APIView):
     """POST /benchmarks/versions/<id>/draft-requirements -- queue AI drafting (Celery)."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, pk):
         version = _version(pk)
@@ -203,7 +243,7 @@ class VersionDraftRequirementsView(APIView):
 class VersionCandidatesView(generics.ListAPIView):
     """GET /benchmarks/versions/<id>/candidates?status=pending"""
     serializer_class = RequirementCandidateSerializer
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get_queryset(self):
         qs = RequirementCandidate.objects.filter(version_id=self.kwargs['pk']).select_related('reviewed_by', 'requirement')
@@ -214,7 +254,7 @@ class VersionCandidatesView(generics.ListAPIView):
 
 class CandidateReviewView(APIView):
     """POST /benchmarks/candidates/<id>/review {decision: accept|reject, statement?, kind?, note?}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, pk):
         candidate = get_object_or_404(RequirementCandidate.objects.select_related('version__document'), pk=pk)
@@ -235,16 +275,20 @@ class CandidateReviewView(APIView):
 
 
 class RequirementListView(generics.ListAPIView):
-    """GET /benchmarks/requirements?source_code=&kind="""
+    """GET /benchmarks/requirements?source_code=&kind=&code=&benchmark=&unlinked=1"""
     serializer_class = RequirementSerializer
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get_queryset(self):
-        qs = (Requirement.objects.select_related('version__document', 'approved_by')
+        qs = (Requirement.objects.select_related('version__document', 'approved_by', 'created_from')
               .prefetch_related('benchmark_links__benchmark'))
         p = self.request.query_params
         if p.get('unlinked'):
             qs = qs.filter(benchmark_links__isnull=True)
+        if p.get('code'):
+            qs = qs.filter(code=p['code'])
+        if p.get('benchmark'):
+            qs = qs.filter(benchmark_links__benchmark__benchmark_code=p['benchmark']).distinct()
         if p.get('source_code'):
             qs = qs.filter(version__document__source_code=p['source_code'])
         if p.get('kind'):
@@ -268,7 +312,7 @@ def _benchmarks():
 class BenchmarkListView(generics.ListAPIView):
     """GET /benchmarks/catalogue?pillar=P01&kind=proposed&q=&status=   (withdrawn hidden unless status=withdrawn|all)"""
     serializer_class = BenchmarkSerializer
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get_queryset(self):
         qs = _benchmarks().select_related('framework')
@@ -292,7 +336,7 @@ class BenchmarkDetailView(generics.RetrieveAPIView):
     """GET   /benchmarks/catalogue/<benchmark_code>
        PATCH /benchmarks/catalogue/<benchmark_code> {expert_owner, target_guidance}"""
     serializer_class = BenchmarkSerializer
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
     lookup_field = 'benchmark_code'
 
     def get_queryset(self):
@@ -312,7 +356,7 @@ class PillarListView(generics.ListAPIView):
     """GET /benchmarks/pillars -- with benchmark counts by kind. Withdrawn benchmarks are not
     counted, and a pillar whose benchmarks are all withdrawn (a replaced catalogue) is hidden."""
     serializer_class = PillarSerializer
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
     pagination_class = None
 
     def get_queryset(self):
@@ -329,7 +373,7 @@ class PillarListView(generics.ListAPIView):
 class EvidenceTypeListView(generics.ListAPIView):
     """GET /benchmarks/evidence-types"""
     serializer_class = EvidenceTypeSerializer
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
     pagination_class = None
     queryset = EvidenceType.objects.order_by('code')
 
@@ -344,7 +388,7 @@ from .services import linking  # noqa: E402
 class BenchmarkRequirementsView(APIView):
     """GET  /benchmarks/catalogue/<code>/requirements
        POST /benchmarks/catalogue/<code>/requirements {requirement_code, relationship, note}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def _links(self, benchmark):
         return (BenchmarkRequirement.objects.filter(benchmark=benchmark)
@@ -371,7 +415,7 @@ class BenchmarkRequirementsView(APIView):
 
 class BenchmarkRequirementDetailView(APIView):
     """DELETE /benchmarks/catalogue/<code>/requirements/<requirement_code>"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def delete(self, request, benchmark_code, requirement_code):
         benchmark = get_object_or_404(Benchmark, benchmark_code=benchmark_code)
@@ -385,7 +429,7 @@ class BenchmarkRequirementDetailView(APIView):
 
 class RequirementSuggestionsView(APIView):
     """GET /benchmarks/requirements/<code>/suggestions -- explainable benchmark suggestions."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, code):
         requirement = get_object_or_404(Requirement.objects.select_related('version__document__framework__authority'),
@@ -405,7 +449,7 @@ class BenchmarkLevelView(APIView):
     """PUT /benchmarks/catalogue/<code>/levels/<L3|L2|L1>
        {definition, measurement_rule, observable_requirements[], minimum_evidence[], outcome_expectations[],
         non_examples[], requires_manual_review, note}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def put(self, request, benchmark_code, level):
         benchmark = get_object_or_404(Benchmark, benchmark_code=benchmark_code)
@@ -418,7 +462,7 @@ class BenchmarkLevelView(APIView):
 
 class BenchmarkReadinessView(APIView):
     """GET /benchmarks/catalogue/<code>/readiness -- what is still missing before release."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, benchmark_code):
         return Response(authoring.readiness(get_object_or_404(Benchmark, benchmark_code=benchmark_code)))
@@ -426,7 +470,7 @@ class BenchmarkReadinessView(APIView):
 
 class BenchmarkHistoryView(APIView):
     """GET /benchmarks/catalogue/<code>/history -- audited edits, newest first."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, benchmark_code):
         benchmark = get_object_or_404(Benchmark, benchmark_code=benchmark_code)
@@ -446,7 +490,7 @@ _RULES = EvidenceRule.objects.select_related('evidence_type', 'benchmark', 'requ
 class BenchmarkEvidenceRulesView(APIView):
     """GET  /benchmarks/catalogue/<code>/evidence-rules  -- the benchmark's rules + its linked requirements' rules
        POST /benchmarks/catalogue/<code>/evidence-rules  {level?, evidence_type, title, ...}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, benchmark_code):
         benchmark = get_object_or_404(Benchmark, benchmark_code=benchmark_code)
@@ -468,7 +512,7 @@ class BenchmarkEvidenceRulesView(APIView):
 class RequirementEvidenceRulesView(APIView):
     """GET  /benchmarks/requirements/<code>/evidence-rules
        POST /benchmarks/requirements/<code>/evidence-rules  {evidence_type, title, mandatory, minimum_currency_months, scope_rule, ...}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, code):
         requirement = get_object_or_404(Requirement, code=code)
@@ -485,7 +529,7 @@ class RequirementEvidenceRulesView(APIView):
 
 class EvidenceRuleDetailView(APIView):
     """PATCH / DELETE /benchmarks/evidence-rules/<id>"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def patch(self, request, pk):
         rule = get_object_or_404(_RULES, pk=pk)
@@ -516,7 +560,7 @@ _APPLIC = ApplicabilityRule.objects.select_related('benchmark', 'requirement', '
 
 class ApplicabilityReferenceView(APIView):
     """GET /benchmarks/applicability/reference -- the closed lists rules and profiles use."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request):
         return Response({
@@ -530,7 +574,7 @@ class ApplicabilityReferenceView(APIView):
 
 class BenchmarkApplicabilityRulesView(APIView):
     """GET/POST /benchmarks/catalogue/<code>/applicability-rules"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, benchmark_code):
         benchmark = get_object_or_404(Benchmark, benchmark_code=benchmark_code)
@@ -547,7 +591,7 @@ class BenchmarkApplicabilityRulesView(APIView):
 
 class RequirementApplicabilityRulesView(APIView):
     """GET/POST /benchmarks/requirements/<code>/applicability-rules"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, code):
         requirement = get_object_or_404(Requirement, code=code)
@@ -564,7 +608,7 @@ class RequirementApplicabilityRulesView(APIView):
 
 class ApplicabilityRuleDetailView(APIView):
     """PATCH / DELETE /benchmarks/applicability-rules/<id>"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def patch(self, request, pk):
         rule = get_object_or_404(_APPLIC, pk=pk)
@@ -584,15 +628,32 @@ class ApplicabilityRuleDetailView(APIView):
 
 
 class ApplicabilityPreviewView(APIView):
-    """POST /benchmarks/applicability/preview {institution_type, autonomous_status, programme_types[],
-    approval_bodies[], jurisdiction} -> every benchmark with its result and reason."""
-    permission_classes = [IsInGageStaff]
+    """GET /benchmarks/applicability/preview                  -> the colleges, and whether each has a saved profile
+       GET /benchmarks/applicability/preview?institution=<id> -> every indicator's result and reason for that
+                                                                college's SAVED benchmark profile
+    Only a saved profile is used (assessments.BenchmarkProfile + its programmes, the same one assessments use); a
+    college without one gets "no saved profile" -- nothing is guessed or typed in."""
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
-    def post(self, request):
+    def get(self, request):
+        from apps.assessments.models import BenchmarkProfile
+        from apps.institutions.models import Institution
+        code = request.query_params.get('institution')
+        if not code:
+            saved = set(BenchmarkProfile.objects.values_list('institution_id', flat=True))
+            return Response([{'id': str(i.pk), 'name': i.name, 'has_profile': i.pk in saved}
+                             for i in Institution.objects.order_by('name')])
+        institution = get_object_or_404(Institution, pk=code) if _uuid(code) else None
+        if institution is None:
+            return Response({'detail': 'Unknown college.'}, status=status.HTTP_404_NOT_FOUND)
+        from apps.assessments.services import AssessmentError, profile_for
         try:
-            profile = applicability.Profile.from_data(request.data)
-        except applicability.ApplicabilityError as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            profile = profile_for(institution)
+        except AssessmentError:
+            return Response({'institution': institution.name, 'profile': None,
+                             'detail': f'{institution.name} has no saved benchmark profile, so applicability is not '
+                                       'shown (nothing is guessed). Save its profile in Benchmark Assessment first.',
+                             'counts': {}, 'benchmarks': []})
         rows = [{'benchmark_code': r['benchmark'].benchmark_code, 'title': r['benchmark'].title,
                  'pillar_code': r['benchmark'].pillar.code, 'result': r['decision'].result,
                  'reason': r['decision'].reason, 'rule_id': r['decision'].rule_id}
@@ -600,7 +661,10 @@ class ApplicabilityPreviewView(APIView):
         counts = {}
         for row in rows:
             counts[row['result']] = counts.get(row['result'], 0) + 1
-        return Response({'counts': counts, 'benchmarks': rows})
+        return Response({'institution': institution.name, 'profile': {
+            'institution_type': profile.institution_type, 'autonomous_status': profile.autonomous_status,
+            'programme_types': sorted(profile.programme_types), 'approval_bodies': sorted(profile.approval_bodies),
+            'jurisdiction': profile.jurisdiction}, 'counts': counts, 'benchmarks': rows})
 
 
 # -- stage 3.6: releases ----------------------------------------------------------------
@@ -635,7 +699,7 @@ def _release_error(exc):
 
 class ReleaseListView(APIView):
     """GET /benchmarks/releases   POST {release_label, release_notes, requires_composite, prefill}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request):
         return Response(ReleaseSerializer(BenchmarkRelease.objects.select_related('based_on'), many=True).data)
@@ -653,7 +717,7 @@ class ReleaseListView(APIView):
 
 class CurrentReleaseView(APIView):
     """GET /benchmarks/releases/current -- the release new scorecards must use (404 if none yet)."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request):
         release = release_svc.current_release()
@@ -665,7 +729,7 @@ class CurrentReleaseView(APIView):
 class ReleaseDetailView(APIView):
     """GET   /benchmarks/releases/<label>
        PATCH /benchmarks/releases/<label> {requires_composite} (draft only)"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, label):
         return Response(_release_payload(_release(label)))
@@ -684,7 +748,7 @@ class ReleaseDetailView(APIView):
 class ReleaseItemsView(APIView):
     """POST /benchmarks/releases/<label>/items {benchmark_code, retire, impact_summary}
        DELETE /benchmarks/releases/<label>/items/<benchmark_code>"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, label, benchmark_code=None):
         release = _release(label)
@@ -707,7 +771,7 @@ class ReleaseItemsView(APIView):
 
 class ReleaseActionView(APIView):
     """POST /benchmarks/releases/<label>/<submit|approve|publish|send-back|prefill> {note}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, label, action):
         release = _release(label)
@@ -733,7 +797,7 @@ class ReleaseActionView(APIView):
 
 class ReleaseDiffView(APIView):
     """GET /benchmarks/releases/<label>/diff -- what changes against the release it is based on."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, label):
         return Response(release_svc.diff(_release(label)))
@@ -741,7 +805,7 @@ class ReleaseDiffView(APIView):
 
 class BenchmarkReopenView(APIView):
     """POST /benchmarks/catalogue/<code>/reopen {reason} -- active benchmark back to draft for the next release."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, benchmark_code):
         try:
@@ -775,7 +839,7 @@ def _feed_data(pk):
 
 class WatcherSummaryView(APIView):
     """GET /benchmarks/watcher/summary"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request):
         last = WatcherRun.objects.first()
@@ -794,7 +858,7 @@ class WatcherSummaryView(APIView):
 class WatcherFeedListView(generics.ListAPIView):
     """GET /benchmarks/watcher/feeds?enabled=true|false&q=..."""
     serializer_class = SourceFeedSerializer
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
     pagination_class = None
 
     def get_queryset(self):
@@ -811,7 +875,7 @@ class WatcherFeedListView(generics.ListAPIView):
 
 class WatcherFeedEnableView(APIView):
     """POST /benchmarks/watcher/feeds/<id>/enable {enabled: bool, note} -- audited."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, pk):
         feed = get_object_or_404(SourceFeed, pk=pk)
@@ -827,7 +891,7 @@ class WatcherFeedEnableView(APIView):
 
 class WatcherFeedCheckView(APIView):
     """POST /benchmarks/watcher/feeds/<id>/check -- check this one page now (a single request)."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, pk):
         feed = get_object_or_404(SourceFeed.objects.select_related('document'), pk=pk)
@@ -837,7 +901,7 @@ class WatcherFeedCheckView(APIView):
 
 class WatcherRunListView(APIView):
     """GET /benchmarks/watcher/runs (latest 30)   POST -- queue a run over every enabled feed now."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request):
         return Response(WatcherRunSerializer(WatcherRun.objects.all()[:30], many=True).data)
@@ -856,7 +920,7 @@ class WatcherRunListView(APIView):
 class WatcherEventListView(generics.ListAPIView):
     """GET /benchmarks/watcher/events?status=open|all|triaged|...&source_code=&kind="""
     serializer_class = SourceChangeEventSerializer
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
     pagination_class = None
 
     def get_queryset(self):
@@ -876,7 +940,7 @@ class WatcherEventListView(generics.ListAPIView):
 
 class WatcherEventReviewView(APIView):
     """POST /benchmarks/watcher/events/<id>/review {status: ignored|under_review|accepted|rejected, note}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, pk):
         event = get_object_or_404(SourceChangeEvent, pk=pk)
@@ -911,7 +975,7 @@ def _candidate_error(exc):
 class BenchmarkCandidateListView(APIView):
     """GET /benchmarks/benchmark-candidates?status=open|all|research|review|approved|rejected|published
        POST {candidate_type, title, source_rationale, benchmark_code?, source_code?, change_event?}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request):
         qs = (BenchmarkCandidate.objects.select_related('benchmark', 'source_document', 'change_event')
@@ -933,7 +997,7 @@ class BenchmarkCandidateListView(APIView):
 
 class BenchmarkCandidateDetailView(APIView):
     """GET / PATCH /benchmarks/benchmark-candidates/<id>"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, pk):
         return Response(BenchmarkCandidateSerializer(_candidate(pk)).data)
@@ -953,7 +1017,7 @@ class BenchmarkCandidateActionView(APIView):
        GET  /benchmarks/benchmark-candidates/<id>/draft-options
        POST /benchmarks/benchmark-candidates/<id>/create-draft {pillar_code, capability_code, title?, target_guidance?}
             (an approved new-benchmark candidate; 201 with the candidate when created, 200 when it already was)"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, pk, action):
         if action != 'draft-options':
@@ -988,7 +1052,7 @@ class WatcherEventProposeView(APIView):
     """POST /benchmarks/watcher/events/<id>/propose -- the watcher's automatic
     candidates for this event, if none were made (e.g. below the threshold) a
     'review this source' candidate in research."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, pk):
         event = get_object_or_404(SourceChangeEvent.objects.select_related('document', 'feed'), pk=pk)
@@ -1011,7 +1075,7 @@ from .services import confirmation as confirmation_svc  # noqa: E402
 class BenchmarkConfirmView(APIView):
     """POST /benchmarks/catalogue/<code>/confirm {note}
        POST /benchmarks/catalogue/<code>/unconfirm {reason}"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, benchmark_code, action='confirm'):
         benchmark = get_object_or_404(Benchmark.objects.select_related('pillar', 'capability'), benchmark_code=benchmark_code)
@@ -1033,7 +1097,7 @@ class BenchmarkUnconfirmView(BenchmarkConfirmView):
 class BenchmarkApplicabilityValidationView(APIView):
     """GET /benchmarks/catalogue/<code>/applicability-validation -- the saved rules run against every
     supported institution profile (read-only; services/release_gates.py)."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, benchmark_code):
         from .services.release_gates import validate_applicability
@@ -1054,7 +1118,7 @@ def _ai_error(exc):
 class StudioAIJobListView(APIView):
     """GET  /benchmarks/ai-jobs?kind=&target_id=&status=&latest=1   (latest=1: the newest job per target)
        POST /benchmarks/ai-jobs {kind, target_id}  -- queue an AI preparation step (202)."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request):
         qs = StudioAIJob.objects.select_related('requested_by', 'decided_by')
@@ -1089,7 +1153,7 @@ class StudioAIJobActionView(APIView):
          apply   {overwrite_items}  release notes: write them onto the draft release
          propose {note}             indicator fit: send the new-indicator proposal to expert review
          candidate {note}           change analysis: prepare a candidate in expert review"""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def post(self, request, pk, action):
         job = get_object_or_404(StudioAIJob, pk=pk)
@@ -1119,7 +1183,103 @@ class StudioAIJobActionView(APIView):
 
 class VersionCompareView(APIView):
     """GET /benchmarks/versions/<id>/compare -- this version against the previous one of the same source."""
-    permission_classes = [IsInGageStaff]
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
 
     def get(self, request, pk):
         return Response(comparison.compare_versions(_version(pk)))
+
+
+# -- provenance: where an indicator came from, and the sources that support it ---------------
+
+from .services import provenance  # noqa: E402
+
+
+def _int_or_none(value):
+    value = str(value if value is not None else '').strip()
+    if not value:
+        return None
+    if not value.isdigit():
+        raise provenance.ProvenanceError('Page must be a number.')
+    return int(value)
+
+
+class BenchmarkProvenanceView(APIView):
+    """GET /benchmarks/catalogue/<code>/provenance[?release=<label>]
+    The indicator's origin, its source references (requirement links) and unreviewed AI suggestions -- live, or as
+    frozen in a published / retired release. `releases` lists the releases that hold a frozen copy."""
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
+
+    def get(self, request, benchmark_code):
+        benchmark = get_object_or_404(Benchmark.objects.select_related('framework'), benchmark_code=benchmark_code)
+        label = request.query_params.get('release')
+        if label:
+            item = (benchmark.release_items.select_related('release', 'benchmark')
+                    .filter(release__release_label=label, snapshot__isnull=False).first())
+            if item is None:
+                return Response({'detail': f'{benchmark_code} was not published in release "{label}".'},
+                                status=status.HTTP_404_NOT_FOUND)
+            data = provenance.release_provenance(item)
+        else:
+            data = provenance.provenance(benchmark)
+        return Response({**data, 'releases': provenance.releases_with(benchmark)})
+
+
+class BenchmarkOriginView(APIView):
+    """PUT    /benchmarks/catalogue/<code>/origin {description, reference, reason} -- "other origin", only when none
+                                                                                 is recorded (drafts)
+       DELETE /benchmarks/catalogue/<code>/origin {reason} -- remove an origin a reviewer entered"""
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
+
+    def put(self, request, benchmark_code):
+        benchmark = get_object_or_404(Benchmark, benchmark_code=benchmark_code)
+        try:
+            provenance.set_manual_origin(benchmark, request.user, description=request.data.get('description', ''),
+                                         reference=request.data.get('reference', ''),
+                                         reason=request.data.get('reason', ''))
+        except provenance.ProvenanceError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(provenance.provenance(benchmark))
+
+    def delete(self, request, benchmark_code):
+        benchmark = get_object_or_404(Benchmark, benchmark_code=benchmark_code)
+        try:
+            provenance.clear_manual_origin(benchmark, request.user, reason=request.data.get('reason', ''))
+        except provenance.ProvenanceError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(provenance.provenance(benchmark))
+
+
+class BenchmarkSourceReferenceView(APIView):
+    """POST /benchmarks/catalogue/<code>/source-references
+       {version_id, page, source_quote, statement, relationship, kind, note}
+    A reviewer cites a Source Library version by hand: the exact words become an approved requirement entered by
+    them, linked to the indicator (drafts only; the quote is checked against the version's text when it has any)."""
+    permission_classes = [IsInGageStaff, CatalogueReadOnly]
+
+    def post(self, request, benchmark_code):
+        benchmark = get_object_or_404(Benchmark, benchmark_code=benchmark_code)
+        version = SourceVersion.objects.select_related('document').filter(pk=request.data.get('version_id')).first() \
+            if _uuid(request.data.get('version_id')) else None
+        if version is None:
+            return Response({'detail': 'Choose the source version the words come from.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        d = request.data
+        try:
+            req = provenance.add_source_reference(
+                benchmark, request.user, version=version, page=_int_or_none(d.get('page')),
+                source_quote=d.get('source_quote', ''), statement=d.get('statement', ''),
+                relationship=d.get('relationship', 'supporting'), kind=d.get('kind') or 'guidance',
+                note=d.get('note', ''))
+        except provenance.ProvenanceError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({**provenance.provenance(benchmark), 'requirement_code': req.code},
+                        status=status.HTTP_201_CREATED)
+
+
+def _uuid(value):
+    import uuid
+    try:
+        uuid.UUID(str(value))
+    except (TypeError, ValueError):
+        return False
+    return True

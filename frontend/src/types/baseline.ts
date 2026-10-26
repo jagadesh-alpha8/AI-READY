@@ -5,7 +5,8 @@ export type BaselineStatus = 'pending' | 'approved' | 'provisional' | 'returned'
 
 export interface BaselineDecision {
   id: string;
-  action: 'submitted' | 'approved' | 'approved_provisional' | 'returned';
+  /** refreshed: a pending baseline's preview moved to a calculation of the current data. */
+  action: 'submitted' | 'approved' | 'approved_provisional' | 'returned' | 'refreshed';
   user: string | null;
   user_name: string;
   comments: string;
@@ -15,8 +16,12 @@ export interface BaselineDecision {
 export interface Baseline {
   id: string;
   sprint_id: string;
+  /** The calculation this baseline previews (pending) or was decided on; approval must name it. */
   scoring_run_id: string;
+  scoring_run_calculated_at: string;
   status: BaselineStatus;
+  /** Set on a revision: the decided baseline it may replace (that decision stays unchanged). */
+  revises: string | null;
   overall_cri: number;
   overall_confidence: number;
   calculation_version: string;
@@ -45,4 +50,16 @@ export interface SprintBaseline {
   score: Scorecard | null;
   high_priority_gaps: Gap[];
   can_approve: boolean;
+  /** Every decision-cycle of the sprint, newest first, each with its own history (the latest = `baseline`). */
+  cycles?: Baseline[];
+  /** Pending: the preview was just recalculated because the sprint data changed. */
+  refreshed?: boolean;
+  /** Pending: true. Decided: false once the Live CRI has moved on since the decision. */
+  baseline_is_current?: boolean;
+}
+
+/** 409 from approve: nothing was decided; the baseline now previews a newer calculation to review. */
+export interface BaselineChangedResponse extends SprintBaseline {
+  detail: string;
+  code: 'baseline_changed';
 }

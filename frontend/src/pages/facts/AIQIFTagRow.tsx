@@ -60,7 +60,8 @@ export const AIQIFTagRow: React.FC<{
   const changesMapping = form.code !== m.indicator_code || form.relationship !== m.relationship;
 
   const decided = m.review_status !== 'unreviewed';
-  const canReopen = !m.pending && (decided || m.auto_accepted);
+  const autoRejected = m.auto_decision === 'rejected_precedent';
+  const canReopen = !m.pending && (decided || m.auto_accepted || autoRejected);
   return (
     <div className="space-y-0.5" title={`${m.criterion_code} ${m.criterion_name}\n${m.indicator_code} ${m.indicator_name}\n\nWhy: ${m.reason}`}>
       <div className="flex items-start gap-1.5">
@@ -77,10 +78,18 @@ export const AIQIFTagRow: React.FC<{
             {m.pending_reason ? ` — ${m.pending_reason}` : ''}
           </span>
         )}
-        {!decided && !m.pending && (
-          <span className="text-ink-500">Accepted automatically ({m.source === 'crosswalk' ? `NAAC crosswalk ${m.framework_version}` : `AI ${Math.round(m.confidence * 100)}%`})</span>
+        {!decided && !m.pending && autoRejected && (
+          <span className="font-semibold text-danger">Rejected automatically (earlier expert decision)</span>
+        )}
+        {!decided && !m.pending && !autoRejected && (
+          <span className="text-ink-500">
+            Accepted automatically ({m.auto_decision === 'accepted_precedent' ? 'earlier expert decision'
+              : m.auto_decision === 'accepted_ai_check' ? 'AI second opinion'
+                : m.source === 'crosswalk' ? `NAAC crosswalk ${m.framework_version}` : `AI ${Math.round(m.confidence * 100)}%`})
+          </span>
         )}
       </p>
+      {m.auto_reason && !decided && <p className="text-[11px] text-ink-500">{m.auto_reason}</p>}
       <p className={`text-[11px] ${m.counts ? 'text-success font-semibold' : 'text-ink-500'}`}>
         {m.counts ? 'Counts toward coverage' : `Does not count: ${m.counts_reason}`}
       </p>

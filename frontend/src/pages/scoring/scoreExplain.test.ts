@@ -113,14 +113,14 @@ describe('rendered', async () => {
     }
   });
 
-  it('the Extracted Facts Review tile is compact: confidence and band, recalculation left to Live CRI Preview', () => {
+  it('the Extracted Facts Review line is compact: confidence and band only, no link', () => {
     g.__user = { id: 'u', role: 'consultant' };
     g.__resources = [ok(card({ calculated_at: '2026-10-22T10:00:00Z' }))];
     const html = render(React.createElement(tile.mod.CriConfidenceTile, { sprintId: 's' }));
-    for (const t of ['CRI Evidence Confidence', '88%', 'High (&gt;=80%)', 'href="/sprint/s/score"']) {
+    for (const t of ['CRI Evidence Confidence', '88%', 'High (&gt;=80%)']) {
       assert.ok(html.includes(t), t);
     }
-    for (const t of ['Recalculate', 'until the CRI is recalculated', 'Calculated ']) {
+    for (const t of ['Recalculate', 'until the CRI is recalculated', 'Calculated ', 'Live CRI Preview', 'href=']) {
       assert.ok(!html.includes(t), `no ${t}`);
     }
     g.__resources = [ok(null)];

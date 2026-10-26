@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { BookOpen, Clock, Eye, Layers, Search, Shield, ShieldCheck, Sparkles } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { BookOpen, Search, ShieldCheck } from 'lucide-react';
 
 import { PageHeader, TabStrip } from '../../components/PageHeader';
 import { getSourceSummary, listSources } from '../../api/benchmarks';
@@ -8,92 +9,56 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ApiStates';
 import { useAuth } from '../../context/AuthContext';
 import { canDo } from '../../utils/access';
-import { AddSourceButton } from './AddSourceForm';
 import { SourcesTable } from './SourcesTable';
+import { useStudioParam } from './studioNav';
 import { CatalogueTab } from './CatalogueTab';
-import { RequirementsTab } from './RequirementLinking';
-import { LevelsEditorTab } from './LevelsEditorTab';
 import { ApplicabilityPreviewTab } from './Applicability';
-import { ReleasesTab } from './ReleasesTab';
-import { WatcherTab } from './WatcherTab';
-import { CandidatesTab } from './CandidatesTab';
 
 /**
- * Benchmark Studio -- InGage's internal benchmark library (apps/benchmarks).
- * Every tab is backed by the API: sources, requirements, the catalogue and its
- * levels / evidence / applicability rules, releases, the daily watcher, and
- * the benchmark candidates that watcher changes turn into. (The prototype's
- * seed-data Editor / Approvals / AI-candidates tabs were removed: their real
- * equivalents are Levels, Releases and Candidates.)
+ * Benchmark Studio -- InGage's internal, READ-ONLY view of the standard benchmark catalogue (apps/benchmarks).
+ * The manager-provided workbooks are authoritative: sources, indicators, L3/L2/L1, applicability and source
+ * mappings change only through the controlled workbook import, never here (the API refuses every write --
+ * apps/benchmarks/permissions.py). Three sections:
+ * - Source Library: the source documents, searchable, with the indicators each one is mapped to.
+ * - Benchmark Library: the indicators, each with its levels, origin and source mappings.
+ * - Applicability Preview: which indicators apply to a college, from its saved benchmark profile.
+ * College evidence review and scoring (sprints, Benchmark Assessment) are separate and unchanged.
  */
 
-type Tab = 'explorer' | 'requirements' | 'applicability' | 'levels' | 'sources' | 'versions' | 'watcher' | 'candidates';
+type Tab = 'sources' | 'explorer' | 'applicability';
+
+const TABS: Tab[] = ['sources', 'explorer', 'applicability'];
 
 const BenchmarkStudioPage: React.FC = () => {
-  const [tab, setTab] = useState<Tab>('explorer');
-  const [levelsCode, setLevelsCode] = useState<string | null>(null);
+  // The open section lives in the URL (?tab=), so a refresh stays on it; a fresh visit opens the Source Library.
+  const [params, setParams] = useSearchParams();
+  const asked = params.get('tab') as Tab | null;
+  const tab: Tab = asked && TABS.includes(asked) ? asked : 'sources';
+  // Picking a section drops the previous one's focus (?code= / ?source=, studioNav.ts).
+  const setTab = (t: Tab) => setParams(new URLSearchParams({ tab: t }), { replace: true });
 
   return (
     <div className="space-y-6">
       <PageHeader
         icon={BookOpen}
         title="Benchmark Studio"
-        description="Author, source, version, approve and publish the benchmark library every client institution is scored against."
+        description="The standard benchmark catalogue every college is assessed against: manager-provided sources and indicators, read-only."
         badge={<span className="badge badge-danger">Admin</span>}
       />
 
-      <div className="rounded-lg border-2 border-danger-line bg-danger-bg p-4 flex items-start gap-3">
-        <Shield className="w-5 h-5 text-danger shrink-0 mt-0.5" />
-        <div className="text-sm text-ink-600 min-w-0 space-y-1.5">
-          <p>
-            <strong className="text-danger">InGage internal only — not for client eyes. </strong>
-            This screen holds the company's benchmark IP and its governance trail.
-          </p>
-          <p>
-            Only InGage staff (super admins and consultants) can open this page, and every
-            benchmark API enforces the same rule on the server.
-          </p>
-        </div>
-      </div>
+      <TabStrip
+        tabs={[
+          { id: 'sources', label: 'Source Library', icon: BookOpen },
+          { id: 'explorer', label: 'Benchmark Library', icon: Search },
+          { id: 'applicability', label: 'Applicability Preview', icon: ShieldCheck },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
 
-      {/* Tabs in the order the work is done; keeping source documents current is its own section. */}
-      <div className="flex flex-col lg:flex-row lg:items-end gap-3 lg:gap-6">
-        <div className="min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-ink-500 mb-1.5">Benchmark library</p>
-          <TabStrip
-            tabs={[
-              { id: 'sources', label: 'Sources', icon: BookOpen },
-              { id: 'requirements', label: 'Requirements', icon: Layers },
-              { id: 'explorer', label: 'Benchmark Library', icon: Search },
-              { id: 'levels', label: 'Levels', icon: Layers },
-              { id: 'applicability', label: 'Applicability Preview', icon: ShieldCheck },
-              { id: 'versions', label: 'Releases', icon: Clock },
-            ]}
-            active={tab}
-            onChange={setTab}
-          />
-        </div>
-        <div className="min-w-0 lg:pl-6 lg:border-l lg:border-line-200">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-ink-500 mb-1.5">Source Updates</p>
-          <TabStrip
-            tabs={[
-              { id: 'watcher', label: 'Watcher', icon: Eye },
-              { id: 'candidates', label: 'Candidates', icon: Sparkles },
-            ]}
-            active={tab}
-            onChange={setTab}
-          />
-        </div>
-      </div>
-
-      {tab === 'explorer' && <CatalogueTab onEditLevels={(c) => { setLevelsCode(c); setTab('levels'); }} />}
-      {tab === 'requirements' && <RequirementsTab />}
-      {tab === 'applicability' && <ApplicabilityPreviewTab />}
-      {tab === 'levels' && <LevelsEditorTab code={levelsCode} onCode={setLevelsCode} />}
       {tab === 'sources' && <Sources />}
-      {tab === 'versions' && <ReleasesTab />}
-      {tab === 'watcher' && <WatcherTab />}
-      {tab === 'candidates' && <CandidatesTab onOpenBenchmark={(c) => { setLevelsCode(c); setTab('levels'); }} />}
+      {tab === 'explorer' && <CatalogueTab />}
+      {tab === 'applicability' && <ApplicabilityPreviewTab />}
     </div>
   );
 };
@@ -119,21 +84,12 @@ export const BenchmarkStudio: React.FC = () => {
   return <BenchmarkStudioPage />;
 };
 
-// ===== SOURCES =====
-// Real data: the Source Library backend (apps/benchmarks), filled by the
-// Source Register import or Add source. Listed as a table (SourcesTable.tsx);
-// each row expands to the version's actions (intake, approval, drafting).
-const COLLECTION_BADGE: Record<string, string> = {
-  downloaded: 'badge-success',
-  link_only: 'badge-brand',
-  licensed_link_only: 'badge-brand',
-  to_find: 'badge-neutral',
-  blocked: 'badge-warning',
-  not_available: 'badge-danger',
-};
-
+// ===== SOURCE LIBRARY =====
+// The manager-provided Source Register, imported by `manage.py import_source_register`; listed read-only.
 const Sources: React.FC = () => {
-  const [query, setQuery] = useState('');
+  const [linked] = useStudioParam('source');  // from an indicator's Origin & Sources
+  const [query, setQuery] = useState(linked);
+  React.useEffect(() => { if (linked) setQuery(linked); }, [linked]);
   const [category, setCategory] = useState('');
   const summary = useApiResource<SourceLibrarySummary>(() => getSourceSummary(), []);
   const { data, loading, error, refetch } = useApiResource<SourceDocument[]>(
@@ -141,32 +97,9 @@ const Sources: React.FC = () => {
     [query, category],
   );
   const categories = Object.keys(summary.data?.by_category || {}).sort();
-  const refreshAll = () => { refetch(); summary.refetch(); };
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-ink-500">
-        The official documents benchmarks are built from, imported from the Source Register or added
-        here. Every version is a draft until a reviewer approves it; approved versions can never be changed.
-      </p>
-
-      <AddSourceButton onAdded={refreshAll} />
-
-      {summary.data && (
-        <div className="flex flex-wrap gap-2 text-xs">
-          <span className="badge badge-neutral">{summary.data.documents} documents</span>
-          <span className="badge badge-neutral">{summary.data.versions} versions</span>
-          {Object.entries(summary.data.by_collection_status).map(([k, n]) => (
-            <span key={k} className={`badge ${COLLECTION_BADGE[k] || 'badge-neutral'}`}>
-              {k.replace(/_/g, ' ')}: {n}
-            </span>
-          ))}
-          {summary.data.flagged_versions > 0 && (
-            <span className="badge badge-warning">{summary.data.flagged_versions} need review</span>
-          )}
-        </div>
-      )}
-
       <div className="flex flex-wrap gap-2">
         <input
           className="input flex-1 min-w-[200px]"
@@ -182,11 +115,9 @@ const Sources: React.FC = () => {
 
       {loading && <LoadingState message="Loading source library…" />}
       {error && <ErrorState message={error} onRetry={refetch} />}
-      {data && data.length === 0 && (
-        <EmptyState message="No sources yet. Use Add source above, or import the Source Register (python manage.py import_source_register <file.xlsx> --commit)." />
-      )}
+      {data && data.length === 0 && <EmptyState message="No sources match." />}
 
-      {data && data.length > 0 && <SourcesTable docs={data} onChanged={refreshAll} />}
+      {data && data.length > 0 && <SourcesTable docs={data} />}
     </div>
   );
 };

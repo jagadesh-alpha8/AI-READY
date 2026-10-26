@@ -106,7 +106,11 @@ function buildModules(sprintId: string): NavModule[] {
         { key: 'sprint-setup', to: '/sprint/setup', label: 'Sprint Setup', icon: FolderPlus },
         { key: 'sprint-upload', to: step('upload'), label: 'Upload Data Pack', icon: Upload },
         { key: 'sprint-monitor', to: step('monitor'), label: 'AI Processing Monitor', icon: Activity },
+        // The selected sprint's evidence position (a sprint page of its own, at /evidence).
+        { key: 'evidence-intelligence', to: '/evidence', label: 'Evidence Intelligence', icon: Layers },
         { key: 'sprint-facts', to: step('facts'), label: 'Extracted Facts Review', icon: FileSearch },
+        // Evidence asked for while reviewing facts, answered before the gaps are worked through.
+        { key: 'evidence-requests', to: '/evidence-requests', label: 'Evidence Requests', icon: FileCheck2 },
         { key: 'sprint-gaps', to: step('gaps'), label: 'Gap Dashboard', icon: AlertCircle },
         { key: 'sprint-confirmation', to: step('confirmation'), label: 'Owner Workspace', icon: CheckSquare },
         { key: 'sprint-score', to: step('score'), label: 'Live CRI Preview', icon: BarChart3 },
@@ -115,8 +119,6 @@ function buildModules(sprintId: string): NavModule[] {
         { key: 'sprint-report', to: step('report'), label: 'Report & Export', icon: FileText },
       ],
     },
-    { key: 'evidence-intelligence', label: 'Evidence Intelligence', icon: Layers, status: 'live', to: '/evidence' },
-    { key: 'evidence-requests', label: 'Evidence Requests', icon: FileCheck2, status: 'live', to: '/evidence-requests' },
     {
       key: 'cri-benchmark-intelligence',
       label: 'CRI & Benchmark Intelligence',
@@ -190,7 +192,7 @@ export const Sidebar: React.FC<{
 
   // Only used to highlight the parent module while one of its steps is open.
   // Nothing collapses: every menu entry stays visible at all times.
-  const onAuditRoute = pathname.startsWith('/sprint');
+  const onAuditRoute = pathname.startsWith('/sprint') || pathname.startsWith('/evidence');
 
   return (
     <>
@@ -325,11 +327,6 @@ export const Sidebar: React.FC<{
                     >
                       <Icon className="w-4 h-4 shrink-0" />
                       <span className="truncate">{module.label}</span>
-                      {module.key === 'evidence-requests' && evidenceTasks > 0 && (
-                        <span className="ml-auto shrink-0 badge-accent" title="Evidence requests waiting on you">
-                          {evidenceTasks}
-                        </span>
-                      )}
                     </NavLink>
                   );
                 }
@@ -389,6 +386,11 @@ export const Sidebar: React.FC<{
                           >
                             <ChildIcon className="w-3.5 h-3.5 shrink-0" />
                             <span className="truncate">{index + 1}. {child.label}</span>
+                            {child.key === 'evidence-requests' && evidenceTasks > 0 && (
+                              <span className="ml-auto shrink-0 badge-accent" title="Evidence requests waiting on you">
+                                {evidenceTasks}
+                              </span>
+                            )}
                           </NavLink>
                         );
                       })}

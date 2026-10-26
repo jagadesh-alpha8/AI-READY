@@ -96,6 +96,8 @@ class BaselineSerializer(serializers.ModelSerializer):
     overall_cri = serializers.FloatField(source='scoring_run.overall_cri', read_only=True)
     overall_confidence = serializers.FloatField(source='scoring_run.overall_confidence', read_only=True)
     calculation_version = serializers.CharField(source='scoring_run.calculation_version', read_only=True)
+    #: When the pinned run was calculated -- with scoring_run_id, which calculation is being reviewed / was decided.
+    scoring_run_calculated_at = serializers.DateTimeField(source='scoring_run.created_at', read_only=True)
     #: The pillar scores the decision was made against (frozen; later recalculations don't change it).
     pillar_snapshot = serializers.JSONField(source='scoring_run.pillar_snapshot', read_only=True)
     coverage_adjusted_cri = serializers.FloatField(source='scoring_run.coverage_adjusted_cri', read_only=True,
@@ -106,7 +108,8 @@ class BaselineSerializer(serializers.ModelSerializer):
     class Meta:
         model = Baseline
         fields = [
-            'id', 'sprint_id', 'scoring_run_id', 'status', 'overall_cri', 'overall_confidence',
+            'id', 'sprint_id', 'scoring_run_id', 'scoring_run_calculated_at', 'status', 'revises', 'overall_cri',
+            'overall_confidence',
             'calculation_version', 'pillar_snapshot', 'coverage_adjusted_cri', 'evidence_coverage',
             'processing_snapshot', 'processing_incomplete', 'processing_override_reason', 'approved_by', 'approved_by_name', 'approved_at', 'comments',
             'created_at', 'updated_at', 'history',
@@ -127,6 +130,9 @@ class BaselineActionSerializer(serializers.Serializer):
     #: Approve / approve provisionally only: why the baseline may be decided although included documents are
     #: not fully processed. Required in that case; recorded and shown with the baseline and in reports.
     processing_override_reason = serializers.CharField(required=False, allow_blank=True, default='')
+    #: Approve / approve provisionally: the baseline.scoring_run_id the reviewer saw. Required; if the baseline
+    #: now points at a different calculation, nothing is decided (409 with the new preview).
+    scoring_run_id = serializers.UUIDField(required=False, allow_null=True, default=None)
 
 
 class PillarCriterionConfigSerializer(serializers.ModelSerializer):

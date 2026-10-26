@@ -209,3 +209,20 @@ class EvidenceRequestReviewView(APIView):
              source_page=d.get('source_page'), source_snippet=d.get('source_snippet'),
              return_to_assignee=d['return_to_assignee'])
         return _detail(obj)
+
+
+class EvidenceAssessmentRetryView(APIView):
+    """POST /evidence-requests/<id>/evidence/<evidence_id>/retry-assessment -- a reviewer retries a failed AI
+    assessment of that submission (no re-upload, no extraction). 409 while one is already queued or running."""
+    permission_classes = [CanReviewFacts]
+
+    @extend_schema(request=None, responses=EvidenceRequestDetailSerializer)
+    def post(self, request, pk, evidence_id):
+        obj = _get(request.user, pk)
+        try:
+            svc.request_assessment_retry(obj, request.user, evidence_id)
+        except svc.RetryInProgress as exc:  # nothing new started; the current state comes back
+            return Response({**_detail(obj).data, 'detail': str(exc), 'code': 'retry_in_progress'}, status=409)
+        except svc.EvidenceRequestError as exc:
+            raise ValidationError({'detail': str(exc)})
+        return _detail(obj)

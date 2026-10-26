@@ -3,7 +3,8 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ShieldCheck } from 'lucide-react';
 
 import {
-  addFactMapping, decideFactKind, getAIQIFExpertQueue, listSprintFactsPage, type AIQIFExpertQueue as Queue,
+  addFactMapping, autoCheckAIQIFQueue, decideFactKind, getAIQIFExpertQueue, listSprintFactsPage,
+  type AIQIFExpertQueue as Queue,
 } from '../../api/facts';
 import type { Page } from '../../api/pagination';
 import { Pagination, useDebounced } from '../../components/Pagination';
@@ -48,6 +49,22 @@ export const AIQIFExpertQueue: React.FC = () => {
   const { data, loading, error, refetch } = useApiResource<Queue>(() => getAIQIFExpertQueue(sprintId!), [sprintId], !!sprintId);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
+  const [autoMessage, setAutoMessage] = useState('');
+  const [autoBusy, setAutoBusy] = useState(false);
+  // Earlier expert decisions now, the AI second opinion in the background; the queue refreshes after both.
+  const decideAutomatically = async () => {
+    setAutoBusy(true); setActionError(''); setAutoMessage('');
+    try {
+      const { data: r } = await autoCheckAIQIFQueue(sprintId!);
+      setAutoMessage(`${r.precedent_decisions} tag${r.precedent_decisions === 1 ? '' : 's'} decided from earlier expert `
+        + `decisions. ${r.ai_check === 'queued' ? 'The AI second opinion is checking the rest -- refresh in a minute.'
+          : r.ai_check === 'off' ? 'The AI second opinion is switched off.' : 'The AI second opinion could not start.'} `
+        + `${r.expert_queue.total} item${r.expert_queue.total === 1 ? '' : 's'} still waiting.`);
+      refetch(); reviewed.refetch();
+    } catch (err) {
+      setActionError(getErrorMessage(err, 'Automatic decisions could not run.'));
+    } finally { setAutoBusy(false); }
+  };
   const [adding, setAdding] = useState<Record<string, { code: string; relationship: Relationship }>>({});
   // Pending (the queue) or Reviewed (decided tags, to edit or reopen); Extracted Facts Review links here.
   const [params, setParams] = useSearchParams();
@@ -141,10 +158,16 @@ export const AIQIFExpertQueue: React.FC = () => {
         <button type="button" className={tabClass(tab === 'pending')} onClick={() => setTab('pending')}>
           Pending{data ? ` (${data.count})` : ''}
         </button>
-        <button type="button" className={tabClass(tab === 'reviewed')} onClick={() => setTab('reviewed')}>
+        <button type="button" className={tabClass(tab === 'reviewed')} onClick={() => setTab('reviewed')}
+          title="Decided by an expert, or automatically (earlier expert decision / AI second opinion) -- to edit or reopen">
           Reviewed{reviewed.data ? ` (${reviewed.data.count})` : ''}
         </button>
+        <button type="button" className="btn-secondary btn-sm ml-auto" disabled={autoBusy} onClick={decideAutomatically}
+          title="Apply earlier expert decisions on the same fields, then ask the AI for a second opinion on the rest">
+          {autoBusy ? 'Deciding…' : 'Decide automatically'}
+        </button>
       </div>
+      {autoMessage && <p className="text-xs text-ink-600">{autoMessage}</p>}
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
       {tab === 'pending' ? (
         loading && !data ? <LoadingState message="Loading the expert queue..." />

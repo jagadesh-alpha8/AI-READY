@@ -309,8 +309,8 @@ class ReportRecalculationTests(ReportsTestBase):
 
     def _approve_baseline(self):
         from apps.scoring.services.baseline import approve_baseline, get_or_create_pending_baseline
-        get_or_create_pending_baseline(self.sprint, triggered_by=self.admin)
-        return approve_baseline(self.sprint, user=self.admin)
+        pending = get_or_create_pending_baseline(self.sprint, triggered_by=self.admin)
+        return approve_baseline(self.sprint, user=self.admin, expected_scoring_run_id=pending.scoring_run_id)
 
     def test_each_report_runs_the_engine_and_records_its_own_run(self):
         from apps.scoring.models import ScoringRun
@@ -345,6 +345,17 @@ class ReportRecalculationTests(ReportsTestBase):
         self.assertTrue(source['differs_from_baseline'])
         self.assertEqual(source['baseline_cri'], pinned[1])
         self.assertIn('recalculated CRI', source['note'])
+        # The report names the baseline snapshot it compares with, apart from its own Live CRI.
+        self.assertEqual((source['baseline_scoring_run_id'], source['baseline_confidence']),
+                         (str(pinned[0]), baseline.scoring_run.overall_confidence))
+        self.assertIsNotNone(source['baseline_calculated_at'])
+        self.assertNotEqual(source['scoring_run_id'], source['baseline_scoring_run_id'])
+        from .rendering import render_pdf_bytes
+        import io
+        from pypdf import PdfReader
+        text = ' '.join(pg.extract_text() for pg in PdfReader(io.BytesIO(render_pdf_bytes(changed))).pages)
+        self.assertIn(f'Approved baseline (approved): CRI {pinned[1]:.1f}', text)
+        self.assertIn(f"Live CRI in this report: {changed.report_data['overall_cri']:.1f}", text)
         baseline.refresh_from_db()
         self.assertEqual((baseline.scoring_run_id, baseline.scoring_run.overall_cri), pinned)  # never overwritten
 
@@ -371,3 +382,53 @@ class ReportRecalculationTests(ReportsTestBase):
         r = self.client.post(f'/api/v1/sprints/{self.sprint.id}/reports/generate/')
         detail = self.client.get(f'/api/v1/reports/{r.data["id"]}/').data
         self.assertEqual(str(detail['scoring_run_id']), detail['report_data']['cri_source']['scoring_run_id'])
+
+
+class VisualPdfTests(TestCase):
+    """The visual PDF (pdf_report.py) renders full and empty reports, with short labels instead of paragraphs."""
+
+    def _report(self, **over):
+        from types import SimpleNamespace
+        data = {
+            'institution': {'name': 'SRM – Chennai'}, 'sprint': {'sprint_code': 'SPR-1'}, 'generated_at': '2026-10-26T11:46:44Z',
+            'baseline': {'status': 'provisional'}, 'cri_source': {'differs_from_baseline': True}, 'processing': {},
+            'overall_cri': 13.0, 'coverage_adjusted_cri': 0.0, 'confidence_score': 0.13,
+            'evidence_coverage': {'available': True, 'summary': '0 of 36 indicators covered'},
+            'evidence_metrics': {'confirmed_facts': 1, 'corrected_facts': 0, 'documents_processed': 2},
+            'pillar_scorecards': [{'label': 'AI-Ready Curriculum & Learning', 'raw_score': 100, 'status': 'strong'},
+                                  {'label': 'Institutional AI Strategy', 'raw_score': 0, 'status': 'not_started'}],
+            'strengths': [{'label': 'AI-Ready Curriculum & Learning', 'raw_score': 100}], 'areas_for_improvement': [],
+            'missing_data_appendix': [{'priority': 'blocking', 'title': 'Missing NAAC Self-Study Report (SSR)',
+                                       'pillar_label': ''}],
+            'recommendations': [{'priority': 'high', 'title': 'Strengthen AI Strategy', 'expected_cri_lift': 8.4,
+                                 'timeline': '30-60 days'}],
+            'ninety_day_action_plan': [{'timeline': '30-60 days', 'items': [{'title': 'Strengthen AI Strategy',
+                                                                             'priority': 'high'}]}],
+            'twelve_month_roadmap': [], 'how_ingage_can_help': [{'offering': 'Consulting', 'recommendation_count': 1}],
+        }
+        data.update(over)
+        return SimpleNamespace(report_data=data, version=4)
+
+    def _text(self, pdf_bytes):
+        import io
+        from pypdf import PdfReader
+        return '\n'.join(p.extract_text() for p in PdfReader(io.BytesIO(pdf_bytes)).pages)
+
+    def test_full_report_has_tiles_chart_tables_and_timeline(self):
+        from .rendering import render_pdf_bytes
+        text = self._text(render_pdf_bytes(self._report()))
+        for t in ('AI READINESS DISCOVERY REPORT', 'SRM - Chennai', 'BASELINE: PROVISIONAL', "Live CRI is 13.0",
+                  'LIVE CRI', '13.0', 'EVIDENCE CONFIDENCE', '13%', 'Pillar scores', 'Strong', 'Not started',
+                  'Priority data gaps', 'BLOCKING', 'Recommendations', '+8.4', 'Action timeline', '30-60 days',
+                  'How InGage can help', 'Page 1 of'):
+            self.assertIn(t, text)
+        self.assertNotIn('PILLAR', text.split('Priority data gaps')[1].split('Recommendations')[0])  # no empty column
+
+    def test_an_empty_report_still_renders(self):
+        from .rendering import render_pdf_bytes
+        empty = self._report(pillar_scorecards=[], strengths=[], missing_data_appendix=[], recommendations=[],
+                             ninety_day_action_plan=[], how_ingage_can_help=[], baseline=None, cri_source={},
+                             evidence_coverage=None, coverage_adjusted_cri=None)
+        text = self._text(render_pdf_bytes(empty))
+        for t in ('No pillar scores yet.', 'No actions scheduled yet.', 'BASELINE: NOT SUBMITTED'):
+            self.assertIn(t, text)

@@ -94,32 +94,6 @@ export function assignFact(id: string, body: { assigned_to: string | null; due_d
   return api.post<Fact>(`/facts/${id}/assign`, body);
 }
 
-export interface BulkTagSummary {
-  pending_count: number;
-  eligible_count: number;
-  low_confidence_count: number;
-  low_confidence_threshold: number;
-  confidence_min: number | null;
-  confidence_max: number | null;
-  facts_count: number;
-}
-
-export interface BulkTagResult {
-  confirmed_count: number;
-  already_decided_count: number;
-  still_pending_count: number;
-  still_pending: { id: string; fact_id: string; indicator_code: string; reason: string }[];
-  coverage: { raw_cri: number; coverage_adjusted_cri: number | null; covered_count: number | null;
-    applicable_count: number | null; ratio: number | null } | null;
-}
-
-/** Confirm pending AI-QIF tag mappings (never the facts). dryRun returns the summary only. */
-export function bulkConfirmSprintTags(sprintId: string, mappingIds: string[] | undefined, dryRun: boolean, note = '') {
-  return api.post<BulkTagSummary | BulkTagResult>(`/sprints/${sprintId}/aiqif-mappings/bulk-confirm`, {
-    ...(mappingIds ? { mapping_ids: mappingIds } : {}), dry_run: dryRun, note,
-  });
-}
-
 /** The sales view of AI-QIF tagging: fact kinds and the expert queue size (no indicator codes). */
 export interface AIQIFSummary {
   facts: number;
@@ -202,4 +176,11 @@ export function editFactMapping(id: string, indicatorCode: string, body: {
 /** Super Admin: send a decided tag back to the expert queue; the earlier decision stays in the history. */
 export function reopenFactMapping(id: string, indicatorCode: string, reason: string) {
   return api.post<Fact>(`/facts/${id}/aiqif-mappings/${indicatorCode}/reopen`, { reason });
+}
+
+/** Super Admin: decide the sprint's waiting tags without a person where possible -- earlier expert decisions now,
+ * the AI second opinion in the background (backend aiqif_tagging rule 4). */
+export function autoCheckAIQIFQueue(sprintId: string) {
+  return api.post<{ precedent_decisions: number; ai_check: 'queued' | 'off' | 'unavailable';
+    expert_queue: { tags: number; facts: number; total: number } }>(`/sprints/${sprintId}/aiqif-expert-queue/auto-check`);
 }

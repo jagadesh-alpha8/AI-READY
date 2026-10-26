@@ -1,16 +1,13 @@
-import React, { useMemo, useState } from 'react';
-import type { BulkTagResult, BulkTagSummary } from '../../api/facts';
+import React, { useState } from 'react';
 import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import {
-  listSprintFacts, listSprintFactsPage, getSprintFactFacets, confirmFact, bulkConfirmSprintFacts, bulkConfirmSprintTags,
+  listSprintFacts, listSprintFactsPage, getSprintFactFacets, confirmFact, bulkConfirmSprintFacts,
   correctFact, rejectFact, type FactFacets,
 } from '../../api/facts';
 import { DEFAULT_PAGE_SIZE, type Page } from '../../api/pagination';
 import { Pagination, optionsFromCounts, useDebounced } from '../../components/Pagination';
 import { useApiResource } from '../../hooks/useApiResource';
-import { getScoringConfig } from '../../api/config';
-import type { PillarConfig } from '../../api/config';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { Fact } from '../../types';
@@ -20,7 +17,7 @@ import { TableFilters } from '../../components/TableFilters';
 import { useAccess } from '../../utils/access';
 import { CriConfidenceTile } from '../scoring/CriConfidenceTile';
 import { RequestEvidenceModal } from './RequestEvidenceModal';
-import { AIQIFSummaryBar, FactKindBadge } from './AIQIFSummaryBar';
+import { FactKindBadge } from './AIQIFSummaryBar';
 import { ProfileConfirmPanel } from './ProfileConfirmPanel';
 import { AIQIFTagRow, FactReviewState } from './AIQIFTagRow';
 
@@ -42,19 +39,12 @@ export const FactsReview: React.FC = () => {
   // totals come from aggregate counts over the whole sprint (facets).
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [pillarFilter, setPillarFilter] = useState('');
-  const [criterionFilter, setCriterionFilter] = useState('');
-  const [mappingFilter, setMappingFilter] = useState('');
   const [ownerFilter, setOwnerFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
-  const [confidenceFilter, setConfidenceFilter] = useState('');
   const [kindFilter, setKindFilter] = useState('');
-  const [tagReviewFilter, setTagReviewFilter] = useState('');
   const q = useDebounced(search.trim());
   const query = {
-    q, status: statusFilter, pillar: pillarFilter, aiqif_criterion: criterionFilter, aiqif_mapping_status: mappingFilter,
-    owner_role: ownerFilter, source_document: sourceFilter, confidence_band: confidenceFilter, fact_kind: kindFilter,
-    tag_review: tagReviewFilter,
+    q, status: statusFilter, owner_role: ownerFilter, source_document: sourceFilter, fact_kind: kindFilter,
   };
   const queryKey = JSON.stringify(query);
   // The page belongs to its filters: a new filter starts at page 1 in the same render (never a request for
@@ -80,19 +70,13 @@ export const FactsReview: React.FC = () => {
   const [correctionValue, setCorrectionValue] = useState('');
   const [actionError, setActionError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
-  // "Confirm all pending tags": the summary shown before confirming, and the action's state.
-  const [tagPlan, setTagPlan] = useState<BulkTagSummary | null>(null);
-  const [tagBusy, setTagBusy] = useState(false);
   const [actingOnId, setActingOnId] = useState<string | null>(null);
   const [bulkConfirming, setBulkConfirming] = useState(false);
   const [bulkProgress, setBulkProgress] = useState('');
 
   const filteredFacts = facts;  // the current page, already filtered by the server
-  const criterionGroups = facets?.aiqif_criterion || [];
   // The CRI pillars are the 9 AI-QIF criteria (live scoring config, in framework order). All 9 are offered,
   // with their fact counts -- a criterion no fact is tagged to yet still shows, as (0).
-  const { data: pillarConfig } = useApiResource<PillarConfig[]>(() => getScoringConfig(), []);
-  const pillarOptions = useMemo(() => criPillarOptions(facets?.pillar || {}, pillarConfig), [facets, pillarConfig]);
 
   const handleConfirm = async (factId: string) => {
     setActingOnId(factId);
@@ -105,48 +89,6 @@ export const FactsReview: React.FC = () => {
     } finally {
       setActingOnId(null);
     }
-  };
-
-  // Pending AI-QIF tags of every fact matching the filters (the whole sprint when no filter is set).
-  const [pendingTagIds, setPendingTagIds] = useState<string[] | undefined>(undefined);
-  const collectPendingTagIds = async () => {
-    if (!filtersActive) return undefined;
-    const { data } = await listSprintFacts(sprintId!, query);
-    return data.flatMap((f) => f.aiqif_mappings.filter((m) => m.review_status === 'unreviewed').map((m) => m.id));
-  };
-  const openTagPlan = async () => {
-    if (!sprintId) return;
-    setActionError(''); setActionMessage(''); setTagBusy(true);
-    try {
-      const ids = await collectPendingTagIds();
-      setPendingTagIds(ids);
-      const { data } = await bulkConfirmSprintTags(sprintId, ids, true);
-      setTagPlan(data as BulkTagSummary);
-    } catch (err) {
-      setActionError(getErrorMessage(err, 'Could not prepare the tag confirmation.'));
-    } finally { setTagBusy(false); }
-  };
-  const confirmTags = async () => {
-    if (!sprintId) return;
-    setTagBusy(true); setActionError('');
-    try {
-      const { data } = await bulkConfirmSprintTags(sprintId, pendingTagIds, false);
-      const r = data as BulkTagResult;
-      const cov = r.coverage;
-      setActionMessage(
-        `${r.confirmed_count} AI-QIF tag${r.confirmed_count === 1 ? '' : 's'} confirmed (facts unchanged).`
-        + (r.already_decided_count ? ` ${r.already_decided_count} had already been decided by someone else.` : '')
-        + (r.still_pending_count ? ` ${r.still_pending_count} still pending: `
-          + Array.from(new Set(r.still_pending.map((p) => p.reason))).join('; ') + '.' : '')
-        + (cov ? ` Coverage recalculated: ${cov.covered_count} of ${cov.applicable_count} indicators covered; `
-          + `coverage-adjusted CRI ${cov.coverage_adjusted_cri ?? '—'} (Raw CRI ${cov.raw_cri}).` : ''),
-      );
-      setTagPlan(null);
-      refetch();
-    } catch (err) {
-      setActionError(`${getErrorMessage(err, 'Confirming the tags failed.')} Refresh to see which tags are still pending.`);
-      refetch();
-    } finally { setTagBusy(false); }
   };
 
   const handleBulkConfirm = async () => {
@@ -165,12 +107,12 @@ export const FactsReview: React.FC = () => {
     }
     setBulkConfirming(false); setBulkProgress('');
     if (factIds.length === 0) {
-      setActionMessage('No fact in the current filter is eligible for confirmation.');
+      setActionMessage('Nothing to confirm in bulk: every fact in this list is already reviewed, or needs a one-by-one review.');
       return;
     }
     const accepted = window.confirm(
-      `Confirm ${factIds.length} eligible fact(s) from the current filtered list? `
-      + 'Each confirmation will be recorded in the audit history.',
+      `Confirm ${factIds.length} fact(s) from this list? The others need a one-by-one review. `
+      + 'Each confirmation is recorded in the audit history.',
     );
     if (!accepted) return;
 
@@ -269,6 +211,7 @@ export const FactsReview: React.FC = () => {
             <p className="text-sm text-ink-500 mt-1">
               Review candidate facts extracted by AIOS. Confirm, correct, or reject values with complete source snippet lineage.
             </p>
+            {isRealSprint && <CriConfidenceTile sprintId={sprintId!} />}
           </div>
           <button onClick={() => navigate(`/sprint/${sprintId}/gaps`)} className="btn-primary shrink-0">
             <span>Proceed to Gap Dashboard</span>
@@ -277,41 +220,7 @@ export const FactsReview: React.FC = () => {
         </div>
       </div>
 
-      {isRealSprint && <CriConfidenceTile sprintId={sprintId!} />}
-
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
-      {tagPlan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4" role="dialog" aria-modal="true">
-          <div className="glass-card w-full max-w-md p-5 space-y-3 text-sm">
-            <h2 className="text-base font-bold text-ink-900">Confirm pending AI-QIF tags?</h2>
-            {tagPlan.eligible_count === 0 ? (
-              <p className="text-ink-700">No tag can be confirmed in bulk{filtersActive ? ' in the current filter' : ''}.</p>
-            ) : (
-              <p className="text-ink-700">
-                <strong>{tagPlan.eligible_count}</strong> tag{tagPlan.eligible_count === 1 ? '' : 's'} on {tagPlan.facts_count}
-                {' '}fact{tagPlan.facts_count === 1 ? '' : 's'}{filtersActive ? ' (current filter)' : ' (whole sprint)'} will be confirmed.
-                {tagPlan.confidence_min != null && ` AI confidence ${Math.round(tagPlan.confidence_min * 100)}%–${Math.round((tagPlan.confidence_max ?? 0) * 100)}%.`}
-              </p>
-            )}
-            {tagPlan.low_confidence_count > 0 && (
-              <p className="text-warning">
-                {tagPlan.low_confidence_count} low-confidence tag{tagPlan.low_confidence_count === 1 ? '' : 's'} (below{' '}
-                {Math.round(tagPlan.low_confidence_threshold * 100)}%, "Needs review") will stay pending for individual review.
-              </p>
-            )}
-            <p className="text-ink-600">
-              This confirms the AI-QIF category mappings only. The facts, their values and their review status do not
-              change. AI-QIF Evidence Coverage is recalculated afterwards; the Raw CRI is not changed by tags.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button className="btn-secondary btn-sm" disabled={tagBusy} onClick={() => setTagPlan(null)}>Cancel</button>
-              <button className="btn-primary btn-sm" disabled={tagBusy || tagPlan.eligible_count === 0} onClick={confirmTags}>
-                {tagBusy ? 'Confirming…' : `Confirm ${tagPlan.eligible_count} tag${tagPlan.eligible_count === 1 ? '' : 's'}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {actionMessage && (
         <div role="status" className="rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
           {actionMessage}
@@ -324,34 +233,11 @@ export const FactsReview: React.FC = () => {
           <h2 className="eyebrow">Candidate & Extracted Fact Records</h2>
           <div className="flex items-center gap-3 flex-wrap justify-end">
             <span className="text-xs text-ink-500">{totalFacts} facts registered</span>
-            {canReview && (
-              <button
-                type="button"
-                onClick={handleBulkConfirm}
-                disabled={bulkConfirming || (pageData?.count ?? 0) === 0}
-                className="btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Confirms every eligible extracted fact matching the current filters (all pages)."
-              >
-                {bulkConfirming ? bulkProgress : 'Confirm all eligible'}
-              </button>
-            )}
             {isExpert && (
               <Link to={`/sprint/${sprintId}/aiqif-review`} className="btn-secondary btn-sm">AI-QIF expert queue</Link>
             )}
-            {isExpert && (
-              <button type="button" onClick={openTagPlan} disabled={tagBusy}
-                className="btn-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Confirms AI-QIF category tags only (not the facts). Current filters apply.">
-                {tagBusy && !tagPlan ? 'Checking tags…' : 'Confirm all pending tags'}
-              </button>
-            )}
           </div>
         </div>
-        {canReview && (
-          <p className="text-xs text-ink-500 -mt-2 mb-4">
-            Current filters apply. Low-confidence, conflicting, incomplete, restricted, or evidence-requested facts are skipped for individual review.
-          </p>
-        )}
 
         {loading && !pageData ? (
           <LoadingState message="Loading extracted facts..." />
@@ -372,7 +258,6 @@ export const FactsReview: React.FC = () => {
         ) : (
           <>
           {isRealSprint && <ProfileConfirmPanel sprintId={sprintId!} canConfirm={can('profile.confirm')} />}
-          {isRealSprint && <AIQIFSummaryBar sprintId={sprintId!} reloadKey={facts} expert={isExpert} />}
           {isRealSprint && (
             <div className="mb-4">
               <ProcessingStatusBanner sprintId={sprintId!} consequence="Facts from those documents may be missing below." />
@@ -381,34 +266,36 @@ export const FactsReview: React.FC = () => {
           <TableFilters
             search={search}
             onSearch={setSearch}
-            placeholder="Search field ID, value, snippet, document or AI-QIF indicator…"
+            placeholder="Search field ID, value, snippet or document…"
             shown={pageData?.count ?? 0}
             total={totalFacts}
             selects={[
-              { key: 'kind', label: 'Fact kind', value: kindFilter, onChange: setKindFilter,
-                options: optionsFromCounts(facets?.fact_kind, (v: string) => KIND_LABELS[v === 'none' ? '' : v] || v) },
-              ...(isExpert ? [
-                { key: 'criterion', label: 'AI-QIF criterion', value: criterionFilter, onChange: setCriterionFilter,
-                  options: criterionGroups.map((g) => ({
-                    value: g.criterion, label: `${shortCode(g.code)} ${g.name}`, count: g.count,
-                  })) },
-                { key: 'mapping', label: 'AI-QIF mapping', value: mappingFilter, onChange: setMappingFilter,
-                  options: optionsFromCounts(facets?.aiqif_mapping_status, (v: string) => MAPPING_STATUS_LABELS[v] || v) },
-                { key: 'tag_review', label: 'Tag review', value: tagReviewFilter, onChange: setTagReviewFilter,
-                  options: optionsFromCounts(facets?.tag_review, (v: string) => TAG_REVIEW_LABELS[v] || v) },
-              ] : []),
               { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
                 options: optionsFromCounts(facets?.status, (v: string) => v.replace(/_/g, ' ')) },
-              { key: 'pillar', label: 'CRI pillar', value: pillarFilter, onChange: setPillarFilter,
-                options: pillarOptions },
-              { key: 'confidence', label: 'Confidence', value: confidenceFilter, onChange: setConfidenceFilter,
-                options: optionsFromCounts(facets?.confidence_band, (v: string) => CONFIDENCE_LABELS[v] || v) },
+              { key: 'kind', label: 'Fact kind', value: kindFilter, onChange: setKindFilter,
+                options: optionsFromCounts(facets?.fact_kind, (v: string) => KIND_LABELS[v === 'none' ? '' : v] || v) },
               { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
                 options: optionsFromCounts(facets?.owner_role) },
               { key: 'source', label: 'Source document', value: sourceFilter, onChange: setSourceFilter,
                 options: optionsFromCounts(facets?.source_document) },
             ]}
           />
+          {canReview && filteredFacts.length > 0 && (
+            // Acts on the list below -- every page of it, with the filters above.
+            <div className="flex justify-end mb-2">
+              <button
+                type="button"
+                onClick={handleBulkConfirm}
+                disabled={bulkConfirming}
+                className="btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title={'Confirms every not-yet-reviewed fact in this list (all pages) that you may confirm. Facts that '
+                  + 'need a closer look -- low confidence, in a conflict, missing details, owned by another role, or '
+                  + 'with an open evidence request -- are left for you to review one by one.'}
+              >
+                {bulkConfirming ? bulkProgress : `Confirm all listed facts (${pageData?.count ?? 0})`}
+              </button>
+            </div>
+          )}
           {filteredFacts.length === 0 ? (
             <div className="panel-muted">
               <p className="text-sm text-ink-500">No facts match these filters.</p>
@@ -577,46 +464,6 @@ export const FactsReview: React.FC = () => {
   );
 };
 
-/** Same bands a reviewer reads off the Confidence column. */
-/** The server's confidence bands (apps/facts/filters.py CONFIDENCE_BANDS). */
-const CONFIDENCE_LABELS: Record<string, string> = {
-  high: 'High (80%+)', medium: 'Medium (50-79%)', low: 'Low (<50%)',
-};
-
-const TAG_REVIEW_LABELS: Record<string, string> = {
-  confirmed: 'Tag confirmed', rejected: 'Tag rejected', pending: 'Pending expert review',
-};
-
-const MAPPING_STATUS_LABELS: Record<string, string> = {
-  mapped: 'Mapped',
-  needs_review: 'Needs review',
-  unmapped: 'Unmapped',
-  pending: 'Not classified yet',
-  context: 'Context',
-  profile: 'Institution profile',
-};
-
-/** 'aiqif_c4' -> 'C4'. */
-const pillarCode = (key: string) => key.replace(/^aiqif_c/i, 'C');
-
-/** CRI pillar filter options: every active pillar (the 9 AI-QIF criteria) in framework order, then any
- * pillar a fact still carries that is no longer active (labelled retired). Falls back to the pillars the
- * facts carry while the config loads. */
-function criPillarOptions(pillarCounts: Record<string, number>, config: PillarConfig[] | null) {
-  const counts = new Map<string, number>(Object.entries(pillarCounts));
-  const labels = new Map([...counts.keys()].map((k) => [k, k || '(none)']));
-  const active = [...(config || [])].filter((p) => p.is_active).sort((a, b) => a.display_order - b.display_order);
-  const known = new Set(active.map((p) => p.key));
-  return [
-    ...active.map((p) => ({ value: p.key, label: `${pillarCode(p.key)} ${p.name}`, count: counts.get(p.key) || 0 })),
-    ...[...counts.keys()].filter((k) => !known.has(k)).map((k) => ({
-      value: k, label: k ? `${labels.get(k)}${config ? ' (retired pillar)' : ''}` : '(none)', count: counts.get(k) || 0,
-    })),
-  ];
-}
-
-/** 'AIQIF-C4.1' -> 'C4.1' for compact display. */
-const shortCode = (code: string) => code.replace(/^AIQIF-/, '');
 
 /** The fact's AI-QIF criterion and indicator(s), each with its confidence;
  * the AI's reason on hover. Unclear tags say so instead of guessing. */

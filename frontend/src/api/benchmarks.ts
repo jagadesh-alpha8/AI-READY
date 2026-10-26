@@ -1,6 +1,10 @@
 import api from './client';
 
-/** Source Library (stage 1 of the benchmark backend) -- InGage staff only. */
+/**
+ * Benchmark Studio API, read-only: the manager-provided standard catalogue (sources, indicators with their levels,
+ * origin and source mappings, applicability from a college's saved profile). The server refuses every change to
+ * this master data (backend apps/benchmarks/permissions.py); it changes only through the controlled workbook import.
+ */
 
 export interface SourceVersion {
   id: string;
@@ -11,6 +15,7 @@ export interface SourceVersion {
   collection_status: string;
   collection_status_label: string;
   reported_status: string;
+  notes: string;
   direct_url: string;
   drive_url: string;
   file_size_kb: number | null;
@@ -48,6 +53,17 @@ export interface SourceDocument {
   version_count: number;
   latest_version: SourceVersion | null;
   review_flag_count: number;
+  /** Indicators this source supports through linked requirements (backend services/provenance.py). */
+  linked_indicators: LinkedIndicator[];
+  /** Why it cannot be deleted (backend services/source_edit.py); [] = it can. */
+  delete_blockers: string[];
+}
+
+export interface LinkedIndicator {
+  benchmark_code: string;
+  title: string;
+  status: string;
+  links: { requirement_code: string; relationship: LinkRelationship }[];
 }
 
 export interface SourceLibrarySummary {
@@ -66,102 +82,6 @@ export function listSources(params: { q?: string; category?: string } = {}) {
 export function getSourceSummary() {
   return api.get<SourceLibrarySummary>('/benchmarks/sources/summary');
 }
-
-// -- add a source (InGage staff) ------------------------------------------------
-
-export interface SourceReference {
-  authorities: { code: string; name: string; kind: string }[];
-  authority_kinds: { value: string; label: string }[];
-  source_roles: { value: string; label: string }[];
-  categories: string[];
-  document_types: string[];
-  file_extensions: string[];
-  max_file_mb: number;
-}
-
-export function getSourceReference() {
-  return api.get<SourceReference>('/benchmarks/sources/reference');
-}
-
-/** Fields the server accepts (services/source_create.py); `authority` OR `authority_name` + `authority_kind`. */
-export interface NewSource {
-  authority: string;
-  authority_name: string;
-  authority_kind: string;
-  category: string;
-  source_code: string;
-  title: string;
-  source_role: string;
-  document_type: string;
-  applies_to: string;
-  programme_scope: string;
-  official_url: string;
-  direct_url: string;
-  licensed_content: boolean;
-  version_label: string;
-  issued_on: string;
-  effective_from: string;
-  review_cadence_months: string;
-  notes: string;
-}
-
-/** 201 with the new source; 400 `{detail, errors: {field: message}}`. */
-export function createSource(fields: NewSource, file: File | null) {
-  const form = new FormData();
-  Object.entries(fields).forEach(([k, v]) => form.append(k, typeof v === 'boolean' ? String(v) : v));
-  if (file) form.append('file', file);
-  return api.post<SourceDocument>('/benchmarks/sources', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-}
-
-// -- actions (InGage staff) ---------------------------------------------------
-
-export interface RequirementCandidate {
-  id: string;
-  statement: string;
-  kind: 'mandatory' | 'recommended' | 'guidance' | 'proposed';
-  page: number | null;
-  source_quote: string;
-  confidence: number;
-  rationale: string;
-  model: string;
-  status: 'pending' | 'accepted' | 'rejected';
-  reviewed_by: string | null;
-  review_note: string;
-  requirement_code: string | null;
-  /** Pending drafts: approved requirements saying nearly the same (deterministic word overlap). */
-  duplicates?: { code: string; statement: string; similarity: number }[];
-  /** Pending drafts: indicators the wording points to. */
-  suggested_benchmarks?: { code: string; title: string; reasons: string[] }[];
-}
-
-export function ingestVersionFile(versionId: string) {
-  return api.post<{ result: string; note: string; version: SourceVersion }>(`/benchmarks/versions/${versionId}/intake`);
-}
-
-export function approveVersion(versionId: string, body: { note?: string; acknowledge_flags?: boolean }) {
-  return api.post<SourceVersion>(`/benchmarks/versions/${versionId}/approve`, body);
-}
-
-export function withdrawVersion(versionId: string, note: string) {
-  return api.post<SourceVersion>(`/benchmarks/versions/${versionId}/withdraw`, { note });
-}
-
-export function draftRequirements(versionId: string) {
-  return api.post<SourceVersion>(`/benchmarks/versions/${versionId}/draft-requirements`);
-}
-
-export function listCandidates(versionId: string, status = 'pending') {
-  return api.get<RequirementCandidate[]>(`/benchmarks/versions/${versionId}/candidates`, { params: { status } });
-}
-
-export function reviewCandidate(
-  candidateId: string,
-  body: { decision: 'accept' | 'reject'; statement?: string; kind?: string; note?: string },
-) {
-  return api.post<RequirementCandidate>(`/benchmarks/candidates/${candidateId}/review`, body);
-}
-
-// -- catalogue (stage 3) ------------------------------------------------------
 
 export interface MaturityLevel {
   level: 'L3' | 'L2' | 'L1';
@@ -209,6 +129,9 @@ export interface CatalogueBenchmark {
   weight: string | null;
   pillar_weight: string | null;
   naac_crosswalk: NaacCrosswalkLink[];
+  /** framework_import / candidate / manual, or '' when none is stored (see getProvenance for the full origin). */
+  origin_type: '' | OriginType;
+  origin_type_label: string;
   /** Drafts only (null state once published / withdrawn). Separate from publishing. */
   confirmation: {
     state: 'confirmed' | 'changed' | 'none' | null;
@@ -241,15 +164,6 @@ export function listCatalogue(params: { pillar?: string; kind?: string; q?: stri
   return api.get<CatalogueBenchmark[]>('/benchmarks/catalogue', { params });
 }
 
-/** Confirm a draft's content (not a publish: it reaches assessments only through a published release). */
-export function confirmBenchmark(code: string, note = '') {
-  return api.post<CatalogueBenchmark>(`/benchmarks/catalogue/${code}/confirm`, { note });
-}
-
-export function withdrawBenchmarkConfirmation(code: string, reason: string) {
-  return api.post<CatalogueBenchmark>(`/benchmarks/catalogue/${code}/unconfirm`, { reason });
-}
-
 export function listPillars() {
   return api.get<CataloguePillar[]>('/benchmarks/pillars');
 }
@@ -258,612 +172,109 @@ export function listEvidenceTypes() {
   return api.get<EvidenceTypeInfo[]>('/benchmarks/evidence-types');
 }
 
-// -- requirement <-> benchmark links (stage 3.2) ----------------------------------
-
 export type LinkRelationship = 'primary' | 'supporting' | 'crosswalk';
 
-export interface BenchmarkLink {
-  benchmark_code: string;
+export type OriginType = 'framework_import' | 'candidate' | 'manual';
+
+/** How the indicator entered the library -- not the documents that support it (those are source references). */
+export interface IndicatorOrigin {
+  type: '' | OriginType;
+  label: string;
+  /** 'row' stored on the indicator, 'audit' read from its import event, 'candidate', or '' (not recorded). */
+  recorded: string;
+  // framework_import
+  workbook?: string;
+  framework?: string | null;
+  framework_version?: string;
+  sheet?: string | null;
+  row?: number | null;
+  indicator_code?: string;
+  imported_at?: string;
+  imported_by?: string;
+  workbook_source_refs?: {
+    sheet: string; row: number; source_code: string; source_version: string; page: number | null;
+    source_quote: string; relationship: LinkRelationship; status: string;
+  }[];
+  // candidate
+  candidate_id?: string;
+  candidate_title?: string;
+  source_code?: string | null;
+  // manual
+  description?: string;
+  reference?: string;
+  entered_by?: string;
+  entered_at?: string;
+}
+
+export interface SourceReferenceRow {
   requirement_code: string;
   statement: string;
-  kind: string;
+  kind?: string;
+  source_code: string;
+  source_title?: string;
+  source_version: string;
+  source_version_status?: string;
   page: number | null;
   source_quote: string;
-  source_code: string;
+  /** true / false against the version's extracted text; null when there is no text to check. */
+  quote_in_source_text?: boolean | null;
   relationship: LinkRelationship;
-  note: string;
-  linked_by: string | null;
-  linked_at: string | null;
-}
-
-export interface ApprovedRequirement {
-  id: string;
-  code: string;
-  source_code: string;
-  version_label: string;
-  statement: string;
-  kind: string;
-  page: number | null;
-  source_quote: string;
-  approved_by: string;
-  approved_at: string;
-  benchmarks: { benchmark_code: string; relationship: LinkRelationship }[];
-}
-
-export interface BenchmarkSuggestion {
-  benchmark_code: string;
-  title: string;
-  pillar_code: string;
-  score: number;
-  reasons: string[];
-}
-
-export function listBenchmarkLinks(benchmarkCode: string) {
-  return api.get<BenchmarkLink[]>(`/benchmarks/catalogue/${benchmarkCode}/requirements`);
-}
-
-export function linkRequirement(benchmarkCode: string, body: { requirement_code: string; relationship: LinkRelationship; note?: string }) {
-  return api.post<BenchmarkLink[]>(`/benchmarks/catalogue/${benchmarkCode}/requirements`, body);
-}
-
-export function unlinkRequirement(benchmarkCode: string, requirementCode: string) {
-  return api.delete(`/benchmarks/catalogue/${benchmarkCode}/requirements/${requirementCode}`);
-}
-
-export function listApprovedRequirements(params: { unlinked?: boolean; source_code?: string } = {}) {
-  return api.get<ApprovedRequirement[]>('/benchmarks/requirements', {
-    params: { unlinked: params.unlinked ? 1 : undefined, source_code: params.source_code },
-  });
-}
-
-export function suggestBenchmarks(requirementCode: string) {
-  return api.get<BenchmarkSuggestion[]>(`/benchmarks/requirements/${requirementCode}/suggestions`);
-}
-
-// -- writing levels (stage 3.3) ----------------------------------------------------
-
-export interface LevelInput {
-  definition: string;
-  measurement_rule?: string;
-  observable_requirements?: string[];
-  minimum_evidence?: string[];
-  outcome_expectations?: string[];
-  non_examples?: string[];
-  requires_manual_review?: boolean;
+  relationship_label: string;
   note?: string;
-}
-
-export interface EditableLevel extends MaturityLevel {
-  observable_requirements: string[];
-  minimum_evidence: string[];
-  outcome_expectations: string[];
-  non_examples: string[];
-  requires_manual_review: boolean;
-  edited_by: string | null;
-  edited_at: string | null;
-}
-
-export interface ReadinessCheck {
-  key: string;
-  label: string;
-  severity: 'required' | 'recommended' | 'pending';
-  ok: boolean;
-  detail: string;
-}
-
-export interface Readiness {
-  ready_for_review: boolean;
-  checks: ReadinessCheck[];
-}
-
-export interface HistoryEntry {
-  at: string;
-  actor: string;
-  action: string;
-  before: Record<string, unknown> | null;
-  after: Record<string, unknown> | null;
-  reason: string;
-}
-
-export function getBenchmark(code: string) {
-  return api.get<CatalogueBenchmark & { target_guidance: string; maturity_levels: EditableLevel[] }>(
-    `/benchmarks/catalogue/${code}`,
-  );
-}
-
-export function updateBenchmark(code: string, body: { expert_owner?: string; target_guidance?: string }) {
-  return api.patch(`/benchmarks/catalogue/${code}`, body);
-}
-
-export function saveLevel(code: string, level: 'L3' | 'L2' | 'L1', body: LevelInput) {
-  return api.put<EditableLevel>(`/benchmarks/catalogue/${code}/levels/${level}`, body);
-}
-
-export function getReadiness(code: string) {
-  return api.get<Readiness>(`/benchmarks/catalogue/${code}/readiness`);
-}
-
-export function getHistory(code: string) {
-  return api.get<HistoryEntry[]>(`/benchmarks/catalogue/${code}/history`);
-}
-
-// -- evidence rules (stage 3.4) ------------------------------------------------------
-
-export interface EvidenceRule {
-  /** Model name when AI wrote it; empty = a person. */
+  /** manager_workbook: a mapping in the authoritative workbook; the others are earlier reviewed links. */
+  requirement_origin?: 'manager_workbook' | 'ai_draft_accepted' | 'entered_by_reviewer';
+  workbook_ref?: { workbook: string; workbook_sha256: string; sheet: string; row: number } | null;
   ai_model?: string;
-  id: string;
-  benchmark_code: string | null;
-  requirement_code: string | null;
-  level: '' | 'L3' | 'L2' | 'L1';
-  evidence_type: string;
-  evidence_type_name: string;
-  title: string;
-  description: string;
-  mandatory: boolean;
-  minimum_count: number;
-  minimum_currency_months: number | null;
-  scope_rule: string;
-  validation_method: 'auto_extract' | 'manual_review' | 'system_integration' | 'ai_assisted_review';
-  validation_method_label: string;
-  privacy_classification: 'public' | 'internal' | 'confidential' | 'restricted';
-  created_by: string | null;
+  accepted_by?: string | null;
+  accepted_at?: string | null;
+  linked_by?: string | null;
+  linked_at?: string | null;
 }
 
-export type EvidenceRuleInput = Partial<Omit<EvidenceRule, 'id' | 'benchmark_code' | 'requirement_code' |
-  'evidence_type_name' | 'validation_method_label' | 'created_by' | 'minimum_currency_months'>> & {
-  minimum_currency_months?: number | '' | null;
-};
-
-export interface BenchmarkEvidenceRules {
-  benchmark_rules: EvidenceRule[];
-  requirement_rules: EvidenceRule[];
-  level_coverage: Record<'L3' | 'L2' | 'L1', number>;
+export interface IndicatorProvenance {
+  benchmark_code: string;
+  version_label: string | null;
+  status: string;
+  origin: IndicatorOrigin;
+  source_references: SourceReferenceRow[];
+  source_document_linked: boolean;
+  naac_crosswalk_count: number;
+  /** Set when this is the copy frozen in a published / retired release. */
+  frozen_in: { release_label: string; status: string; published_at: string | null } | null;
+  releases: { release_label: string; status: string; published_at: string | null }[];
 }
 
-export function getBenchmarkEvidenceRules(code: string) {
-  return api.get<BenchmarkEvidenceRules>(`/benchmarks/catalogue/${code}/evidence-rules`);
+export function getProvenance(benchmarkCode: string, release?: string) {
+  return api.get<IndicatorProvenance>(`/benchmarks/catalogue/${benchmarkCode}/provenance`,
+    { params: { release: release || undefined } });
 }
-
-export function createBenchmarkEvidenceRule(code: string, body: EvidenceRuleInput) {
-  return api.post<EvidenceRule>(`/benchmarks/catalogue/${code}/evidence-rules`, body);
-}
-
-export function deleteEvidenceRule(id: string) {
-  return api.delete(`/benchmarks/evidence-rules/${id}`);
-}
-
-// -- applicability (stage 3.5) ----------------------------------------------------------
 
 export type ApplicabilityResult = 'applies' | 'does_not_apply' | 'optional' | 'requires_review';
 
-export interface ApplicabilityReference {
-  institution_types: { code: string; name: string }[];
-  programme_types: { code: string; name: string; sector: string }[];
-  autonomous_statuses: { code: string; name: string }[];
-  approval_bodies: string[];
-  results: { code: ApplicabilityResult; name: string }[];
-}
-
-export interface ApplicabilityRule {
-  /** Model name when AI wrote it; empty = a person. */
-  ai_model?: string;
-  id: string;
-  benchmark_code: string | null;
-  requirement_code: string | null;
-  result: ApplicabilityResult;
-  result_label: string;
-  priority: number;
-  institution_types: string[];
-  autonomous_statuses: string[];
-  programme_types: string[];
-  approval_bodies: string[];
-  jurisdiction: string;
-  reason: string;
-  created_by: string | null;
-}
-
-export type ApplicabilityRuleInput = Pick<ApplicabilityRule, 'result' | 'priority' | 'institution_types' |
-  'autonomous_statuses' | 'programme_types' | 'approval_bodies' | 'jurisdiction' | 'reason'>;
-
-export interface InstitutionProfile {
-  institution_type: string;
-  autonomous_status?: string;
-  programme_types?: string[];
-  approval_bodies?: string[];
-  jurisdiction?: string;
-}
-
 export interface ApplicabilityPreview {
+  institution: string;
+  /** The college's SAVED benchmark profile that was used; null = it has none, and nothing is shown or guessed. */
+  profile: { institution_type: string; autonomous_status: string; programme_types: string[];
+    approval_bodies: string[]; jurisdiction: string } | null;
+  detail?: string;
   counts: Partial<Record<ApplicabilityResult, number>>;
   benchmarks: { benchmark_code: string; title: string; pillar_code: string; result: ApplicabilityResult; reason: string }[];
 }
 
-export function getApplicabilityReference() {
-  return api.get<ApplicabilityReference>('/benchmarks/applicability/reference');
-}
-
-export function listApplicabilityRules(code: string) {
-  return api.get<ApplicabilityRule[]>(`/benchmarks/catalogue/${code}/applicability-rules`);
-}
-
-export function createApplicabilityRule(code: string, body: ApplicabilityRuleInput) {
-  return api.post<ApplicabilityRule>(`/benchmarks/catalogue/${code}/applicability-rules`, body);
-}
-
-export function deleteApplicabilityRule(id: string) {
-  return api.delete(`/benchmarks/applicability-rules/${id}`);
-}
-
-export function previewApplicability(profile: InstitutionProfile) {
-  return api.post<ApplicabilityPreview>('/benchmarks/applicability/preview', profile);
-}
-
-// -- releases (stage 3.6) ----------------------------------------------------------------
-
-export type ReleaseStatus = 'draft' | 'review' | 'approved' | 'published' | 'retired';
-
-export interface ReleaseItem {
-  benchmark_code: string;
-  title: string;
-  pillar_code: string;
-  benchmark_status: string;
-  change_type: 'added' | 'updated' | 'retired' | 'unchanged';
-  change_type_label: string;
-  impact_summary: string;
-  snapshot_hash: string;
-}
-
-export interface BenchmarkReleaseInfo {
+export interface PreviewCollege {
   id: string;
-  release_label: string;
-  status: ReleaseStatus;
-  release_notes: string;
-  based_on: string | null;
-  created_by: string | null;
-  submitted_by: string | null;
-  approved_by: string | null;
-  published_by: string | null;
-  published_at: string | null;
-  retired_at: string | null;
-  content_hash: string;
-  item_count: number;
-  /** Assessments need a composite score: missing scoring weights block submission. */
-  requires_composite: boolean;
+  name: string;
+  has_profile: boolean;
 }
 
-export interface ReleaseScoring {
-  requires_composite: boolean;
-  scoring_model: string | null;
-  missing: { benchmark_code: string; detail: string }[];
-  fully_scoreable: boolean;
+/** The colleges, and whether each has a saved benchmark profile. */
+export function listPreviewColleges() {
+  return api.get<PreviewCollege[]>('/benchmarks/applicability/preview');
 }
 
-export interface ReleaseEligibilityRow {
-  code: string;
-  title: string;
-  included: boolean;
-  ready: boolean;
-  /** Required checks still failing. */
-  missing: string[];
-}
-
-export interface ReleaseDetail extends BenchmarkReleaseInfo {
-  items: ReleaseItem[];
-  /** Block submission. */
-  problems: string[];
-  /** Guidance only; do not block submission. */
-  warnings: string[];
-  scoring: ReleaseScoring | null;
-  /** Draft releases only: every draft benchmark, included or not, with what keeps it out. */
-  eligibility: ReleaseEligibilityRow[] | null;
-}
-
-export interface ReleaseDiffRow {
-  benchmark_code: string;
-  title: string;
-  change_type: string;
-  changed: string[];
-  impact_summary: string;
-}
-
-const rel = (label: string) => `/benchmarks/releases/${encodeURIComponent(label)}`;
-
-export function listReleases() {
-  return api.get<BenchmarkReleaseInfo[]>('/benchmarks/releases');
-}
-
-export function createRelease(body: { release_label: string; release_notes?: string; requires_composite?: boolean; prefill?: boolean }) {
-  return api.post<ReleaseDetail>('/benchmarks/releases', body);
-}
-
-export function setReleaseRequiresComposite(label: string, requires_composite: boolean) {
-  return api.patch<ReleaseDetail>(rel(label), { requires_composite });
-}
-
-export function getRelease(label: string) {
-  return api.get<ReleaseDetail>(rel(label));
-}
-
-export function addReleaseItem(label: string, body: { benchmark_code: string; retire?: boolean; impact_summary?: string }) {
-  return api.post<ReleaseDetail>(`${rel(label)}/items`, body);
-}
-
-export function removeReleaseItem(label: string, benchmarkCode: string) {
-  return api.delete<ReleaseDetail>(`${rel(label)}/items/${benchmarkCode}`);
-}
-
-export function releaseAction(label: string, action: 'submit' | 'approve' | 'publish' | 'send-back' | 'prefill', note = '') {
-  return api.post<ReleaseDetail>(`${rel(label)}/${action}`, { note });
-}
-
-export function getReleaseDiff(label: string) {
-  return api.get<ReleaseDiffRow[]>(`${rel(label)}/diff`);
-}
-
-
-/** Stage 4: daily watcher of official source pages. It only records; people decide. */
-
-export type ChangeKind = 'new_document' | 'new_version' | 'content_change' | 'withdrawal' | 'access_change';
-export type ChangeStatus = 'triaged' | 'ignored' | 'under_review' | 'accepted' | 'rejected';
-
-export interface WatcherRunInfo {
-  id: string;
-  started_at: string;
-  completed_at: string | null;
-  status: 'running' | 'complete' | 'partial_failure' | 'failed';
-  trigger: string;
-  feeds_checked: number;
-  changes_detected: number;
-  candidates_created: number;
-  failure_detail: { source_code: string; url: string; error: string }[];
-}
-
-export interface WatcherSummary {
-  schedule_enabled: boolean;
-  schedule_hour_utc: number;
-  feeds: number;
-  feeds_enabled: number;
-  open_events: number;
-  new_events: number;
-  last_run: WatcherRunInfo | null;
-}
-
-export interface SourceFeedInfo {
-  id: string;
-  source_code: string;
-  source_title: string;
-  authority: string;
-  feed_type: string;
-  feed_type_label: string;
-  endpoint_url: string;
-  enabled: boolean;
-  last_checked_at: string | null;
-  last_success_at: string | null;
-  last_result: string;
-  last_error: string;
-  snapshot_count: number;
-  open_events: number;
-}
-
-export interface SourceChangeEventInfo {
-  id: string;
-  source_code: string;
-  source_title: string;
-  endpoint_url: string;
-  change_kind: ChangeKind;
-  change_kind_label: string;
-  materiality_score: string;
-  summary: string;
-  details: {
-    added?: [string, string][];
-    removed?: [string, string][];
-    added_lines?: string[];
-    removed_lines?: string[];
-    http_status?: number | null;
-  };
-  impact: { requirements?: string[]; benchmarks?: string[]; published_releases?: string[]; note?: string };
-  detected_at: string;
-  status: ChangeStatus;
-  status_label: string;
-  reviewed_by: string | null;
-  reviewed_at: string | null;
-  review_note: string;
-}
-
-export function getWatcherSummary() {
-  return api.get<WatcherSummary>('/benchmarks/watcher/summary');
-}
-
-export function listWatcherFeeds(params: { enabled?: 'true' | 'false'; q?: string } = {}) {
-  return api.get<SourceFeedInfo[]>('/benchmarks/watcher/feeds', { params });
-}
-
-export function setFeedEnabled(id: string, enabled: boolean, note = '') {
-  return api.post<SourceFeedInfo>(`/benchmarks/watcher/feeds/${id}/enable`, { enabled, note });
-}
-
-export function checkFeedNow(id: string) {
-  return api.post<{ result: { result: string; events: number; detail: string }; feed: SourceFeedInfo }>(
-    `/benchmarks/watcher/feeds/${id}/check`);
-}
-
-export function listWatcherRuns() {
-  return api.get<WatcherRunInfo[]>('/benchmarks/watcher/runs');
-}
-
-export function startWatcherRun() {
-  return api.post<{ detail: string }>('/benchmarks/watcher/runs');
-}
-
-export function listChangeEvents(status: 'open' | 'all' | ChangeStatus = 'open') {
-  return api.get<SourceChangeEventInfo[]>('/benchmarks/watcher/events', { params: { status } });
-}
-
-export function reviewChangeEvent(id: string, status: Exclude<ChangeStatus, 'triaged'>, note: string) {
-  return api.post<SourceChangeEventInfo>(`/benchmarks/watcher/events/${id}/review`, { status, note });
-}
-
-/** Stage 4b: benchmark candidates -- proposed library changes awaiting expert approval. */
-
-export type CandidateStatus = 'research' | 'review' | 'approved' | 'rejected' | 'published';
-export type CandidateRole = 'accreditation' | 'academic' | 'legal' | 'ai_governance' | 'cybersecurity' | 'product';
-
-export interface CandidateReviewInfo {
-  id: string;
-  reviewer: string;
-  reviewer_role: CandidateRole;
-  reviewer_role_label: string;
-  decision: 'approve' | 'reject' | 'needs_research';
-  decision_label: string;
-  notes: string;
-  reviewed_at: string;
-}
-
-export interface BenchmarkCandidateInfo {
-  id: string;
-  candidate_type: 'update_benchmark' | 'new_benchmark' | 'retire_benchmark' | 'source_update';
-  type_label: string;
-  title: string;
-  status: CandidateStatus;
-  status_label: string;
-  benchmark_code: string | null;
-  benchmark_title: string | null;
-  benchmark_status: string | null;
-  source_code: string | null;
-  change_event: string | null;
-  proposed_kind: string;
-  source_rationale: string;
-  emergence_score: string;
-  required_roles: CandidateRole[];
-  role_status: Record<string, { decision: string; reviewer: string } | null>;
-  created_by: string;
-  created_at: string;
-  decided_at: string | null;
-  reviews: CandidateReviewInfo[];
-  /** The AI proposal behind the candidate ({} = proposed by a person). */
-  ai_proposal: Record<string, unknown> & {
-    pillar_code?: string; capability_code?: string; requirement_code?: string; model?: string;
-    confidence?: number | null; source_quote?: string; duplicates?: { code: string; title: string; similarity: number }[];
-    impact_level?: string;
-  };
-}
-
-export function listBenchmarkCandidates(status: 'open' | 'all' | CandidateStatus = 'open') {
-  return api.get<BenchmarkCandidateInfo[]>('/benchmarks/benchmark-candidates', { params: { status } });
-}
-
-export function createBenchmarkCandidate(body: {
-  candidate_type: string; title: string; source_rationale: string; benchmark_code?: string; source_code?: string;
-}) {
-  return api.post<BenchmarkCandidateInfo>('/benchmarks/benchmark-candidates', body);
-}
-
-export function benchmarkCandidateAction(id: string, action: 'submit' | 'open-revision') {
-  return api.post<BenchmarkCandidateInfo>(`/benchmarks/benchmark-candidates/${id}/${action}`);
-}
-
-/** What "Create benchmark draft" offers for an approved new-benchmark candidate (services/candidates.py draft_options). */
-export interface CandidateDraftOptions {
-  can_create: boolean;
-  /** The draft already created from this candidate, if any. */
-  existing_benchmark: string | null;
-  title: string;
-  source_rationale: string;
-  source_code: string | null;
-  /** Fixed: the experts approved the candidate as this kind. */
-  benchmark_kind: string;
-  benchmark_kind_label: string;
-  framework: string | null;
-  criteria: {
-    code: string;
-    name: string;
-    /** The code the new indicator gets under this criterion. */
-    next_code: string;
-    capabilities: { code: string; name: string; definition: string }[];
-  }[];
-}
-
-export function getCandidateDraftOptions(id: string) {
-  return api.get<CandidateDraftOptions>(`/benchmarks/benchmark-candidates/${id}/draft-options`);
-}
-
-/** Creates the draft benchmark (once: a repeat returns the same draft). */
-export function createCandidateBenchmarkDraft(id: string, body: {
-  pillar_code: string; capability_code: string; title: string; target_guidance?: string;
-}) {
-  return api.post<BenchmarkCandidateInfo>(`/benchmarks/benchmark-candidates/${id}/create-draft`, body);
-}
-
-export function reviewBenchmarkCandidate(id: string, body: { reviewer_role: CandidateRole; decision: string; notes: string }) {
-  return api.post<BenchmarkCandidateInfo>(`/benchmarks/benchmark-candidates/${id}/review`, body);
-}
-
-export function proposeFromEvent(eventId: string) {
-  return api.post<BenchmarkCandidateInfo>(`/benchmarks/watcher/events/${eventId}/propose`);
-}
-
-// -- applicability validation (read-only) ---------------------------------------------
-
-export interface ApplicabilityValidation {
-  has_rules: boolean;
-  profiles_checked: number;
-  by_result: Record<string, number>;
-  rules: { id: string; priority: number; result: string; matches: number; decides: number; note: string }[];
-  unmatched: { count: number; by_institution_type: Record<string, number>; examples: Record<string, string> } | null;
-  requires_review: { count: number; by_institution_type: Record<string, number>; examples: Record<string, string> } | null;
-  issues: string[];
-  ok: boolean;
-}
-
-export function getApplicabilityValidation(code: string) {
-  return api.get<ApplicabilityValidation>(`/benchmarks/catalogue/${code}/applicability-validation`);
-}
-
-
-// -- AI preparation across the Studio (backend services/studio_ai.py) --------------------------------
-
-export type StudioAIKind = 'source_metadata' | 'requirement_fit' | 'benchmark_content' | 'change_analysis' | 'release_notes';
-export type StudioAIStatus = 'queued' | 'running' | 'ready' | 'applied' | 'dismissed' | 'failed';
-
-export interface StudioAIJob {
-  id: string;
-  kind: StudioAIKind;
-  kind_label: string;
-  target_type: string;
-  target_id: string;
-  target_label: string;
-  status: StudioAIStatus;
-  status_label: string;
-  model: string;
-  inputs: Record<string, unknown>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  output: Record<string, any>;
-  citations: Record<string, unknown>[];
-  confidence: number | null;
-  error: string;
-  attempts: number;
-  requested_by: string | null;
-  decided_by: string | null;
-  decided_at: string | null;
-  decision_note: string;
-  created_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-}
-
-export function listAIJobs(params: { kind?: StudioAIKind; target_id?: string; status?: string; latest?: boolean } = {}) {
-  return api.get<StudioAIJob[]>('/benchmarks/ai-jobs', { params: { ...params, latest: params.latest ? 1 : undefined } });
-}
-
-export function startAIJob(kind: StudioAIKind, targetId: string) {
-  return api.post<StudioAIJob>('/benchmarks/ai-jobs', { kind, target_id: targetId });
-}
-
-export function aiJobAction(
-  id: string, action: 'retry' | 'dismiss' | 'apply' | 'propose' | 'candidate', body: Record<string, unknown> = {},
-) {
-  return api.post<StudioAIJob>(`/benchmarks/ai-jobs/${id}/${action}`, body);
+/** Every indicator's applicability for a college, from its saved profile only. */
+export function previewApplicability(institutionId: string) {
+  return api.get<ApplicabilityPreview>('/benchmarks/applicability/preview', { params: { institution: institutionId } });
 }
 
 export interface VersionComparison {

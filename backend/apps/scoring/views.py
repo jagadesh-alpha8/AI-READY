@@ -21,10 +21,14 @@ from .serializers import (
     SprintScoreSerializer,
 )
 from .services import (
+    BaselineChanged,
     approve_baseline,
     approve_baseline_provisional,
     build_score_snapshot,
     get_or_create_pending_baseline,
+    is_current,
+    open_revision,
+    refresh_pending_baseline,
     return_baseline_for_correction,
     run_scoring_engine,
 )
@@ -81,40 +85,60 @@ class SprintBaselineView(APIView):
     @extend_schema(responses=None)
     def get(self, request, sprint_id):
         sprint = get_authorized_sprint(request.user, sprint_id)
+        _baseline, refreshed = refresh_pending_baseline(sprint, user=request.user)
         baseline = get_or_create_pending_baseline(sprint, triggered_by=request.user)
-        snapshot = build_score_snapshot(sprint, bootstrap=False)
+        return Response(baseline_payload(sprint, baseline, refreshed=refreshed))
 
-        blocking_gaps = sprint.gaps.filter(status__in=GapItem.ACTIVE_STATUSES, priority=GapItem.Priority.BLOCKING)
-        high_priority_gaps = sprint.gaps.filter(
-            status__in=GapItem.ACTIVE_STATUSES,
-            priority__in=[GapItem.Priority.BLOCKING, GapItem.Priority.HIGH],
-        ).order_by('priority', '-created_at')
 
-        from apps.extraction.services.completeness import describe, processing_summary
-        processing = processing_summary(sprint)
-        return Response({
-            'baseline': BaselineSerializer(baseline).data,
-            # Live: what deciding now would face (approval is refused while incomplete without a reason).
-            'processing': {**processing, 'description': describe(processing)},
-            'score': SprintScoreSerializer(snapshot).data if snapshot else None,
-            'high_priority_gaps': GapItemSerializer(high_priority_gaps, many=True).data,
-            'can_approve': not blocking_gaps.exists(),
-        })
+def baseline_payload(sprint, baseline, *, refreshed=False):
+    """The baseline under review / decided, its pinned calculation, and the live state deciding now would face."""
+    snapshot = build_score_snapshot(sprint, bootstrap=False)
+    blocking_gaps = sprint.gaps.filter(status__in=GapItem.ACTIVE_STATUSES, priority=GapItem.Priority.BLOCKING)
+    high_priority_gaps = sprint.gaps.filter(
+        status__in=GapItem.ACTIVE_STATUSES,
+        priority__in=[GapItem.Priority.BLOCKING, GapItem.Priority.HIGH],
+    ).order_by('priority', '-created_at')
+
+    from apps.extraction.services.completeness import describe, processing_summary
+    processing = processing_summary(sprint)
+    return {
+        'baseline': BaselineSerializer(baseline).data,
+        # Every decision-cycle of the sprint, newest first, each with its own audit history -- the full record
+        # (returned and replaced cycles included); `baseline` above is the latest one.
+        'cycles': BaselineSerializer(sprint.baselines.select_related('scoring_run', 'approved_by')
+                                     .prefetch_related('history__user').order_by('-created_at'), many=True).data,
+        # Pending: the preview was just recalculated because the data changed (review it before approving).
+        'refreshed': refreshed,
+        # Pending: true after a GET. Decided: false once the Live CRI inputs have moved on since the decision.
+        'baseline_is_current': is_current(baseline),
+        # Live: what deciding now would face (approval is refused while incomplete without a reason).
+        'processing': {**processing, 'description': describe(processing)},
+        'score': SprintScoreSerializer(snapshot).data if snapshot else None,
+        'high_priority_gaps': GapItemSerializer(high_priority_gaps, many=True).data,
+        'can_approve': not blocking_gaps.exists(),
+    }
 
 
 class BaseBaselineActionView(APIView):
     permission_classes = [CanApproveBaseline]
 
-    def perform_action(self, sprint, *, user, comments, processing_override_reason=''):
+    def perform_action(self, sprint, *, user, comments, processing_override_reason='', expected_scoring_run_id=None):
         raise NotImplementedError
 
     def post(self, request, sprint_id):
         sprint = get_authorized_sprint(request.user, sprint_id)
         serializer = BaselineActionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        baseline = self.perform_action(
-            sprint, user=request.user, comments=serializer.validated_data['comments'],
-            processing_override_reason=serializer.validated_data['processing_override_reason'])
+        try:
+            baseline = self.perform_action(
+                sprint, user=request.user, comments=serializer.validated_data['comments'],
+                processing_override_reason=serializer.validated_data['processing_override_reason'],
+                expected_scoring_run_id=serializer.validated_data['scoring_run_id'])
+        except BaselineChanged as exc:
+            # Nothing was decided: the baseline now previews a different calculation. Send it back for review.
+            latest = sprint.baselines.order_by('-created_at').first()
+            return Response({'detail': str(exc.detail), 'code': 'baseline_changed',
+                             **baseline_payload(sprint, latest, refreshed=True)}, status=exc.status_code)
         return Response(BaselineSerializer(baseline).data)
 
 
@@ -126,9 +150,10 @@ class SprintBaselineApproveView(BaseBaselineActionView):
     def post(self, request, sprint_id):
         return super().post(request, sprint_id)
 
-    def perform_action(self, sprint, *, user, comments, processing_override_reason=''):
+    def perform_action(self, sprint, *, user, comments, processing_override_reason='', expected_scoring_run_id=None):
         return approve_baseline(sprint, user=user, comments=comments,
-                                processing_override_reason=processing_override_reason)
+                                processing_override_reason=processing_override_reason,
+                                expected_scoring_run_id=expected_scoring_run_id)
 
 
 class SprintBaselineApproveProvisionalView(BaseBaselineActionView):
@@ -140,9 +165,10 @@ class SprintBaselineApproveProvisionalView(BaseBaselineActionView):
     def post(self, request, sprint_id):
         return super().post(request, sprint_id)
 
-    def perform_action(self, sprint, *, user, comments, processing_override_reason=''):
+    def perform_action(self, sprint, *, user, comments, processing_override_reason='', expected_scoring_run_id=None):
         return approve_baseline_provisional(sprint, user=user, comments=comments,
-                                            processing_override_reason=processing_override_reason)
+                                            processing_override_reason=processing_override_reason,
+                                expected_scoring_run_id=expected_scoring_run_id)
 
 
 class SprintBaselineReturnView(BaseBaselineActionView):
@@ -153,7 +179,7 @@ class SprintBaselineReturnView(BaseBaselineActionView):
     def post(self, request, sprint_id):
         return super().post(request, sprint_id)
 
-    def perform_action(self, sprint, *, user, comments, processing_override_reason=''):
+    def perform_action(self, sprint, *, user, comments, processing_override_reason='', expected_scoring_run_id=None):
         return return_baseline_for_correction(sprint, user=user, comments=comments)
 
 
@@ -169,3 +195,15 @@ class ScoringConfigView(generics.ListAPIView):
         # Active pillars unless ?is_active= asks otherwise (the retired pre-AI-QIF pillars are kept only as history).
         qs = Pillar.objects.prefetch_related('criteria').order_by('display_order', 'key')
         return qs if 'is_active' in self.request.query_params else qs.filter(is_active=True)
+
+
+class SprintBaselineReviseView(BaseBaselineActionView):
+    """POST .../baseline/revise/ {comments: reason} -- open a new pending baseline cycle on the current data that
+    may replace the decided one (explicit, audited; the earlier decision stays unchanged)."""
+
+    @extend_schema(request=BaselineActionSerializer, responses=BaselineSerializer)
+    def post(self, request, sprint_id):
+        return super().post(request, sprint_id)
+
+    def perform_action(self, sprint, *, user, comments, processing_override_reason='', expected_scoring_run_id=None):
+        return open_revision(sprint, user=user, reason=comments)
