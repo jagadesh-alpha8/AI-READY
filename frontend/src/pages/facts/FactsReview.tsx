@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import {
   listSprintFacts, listSprintFactsPage, getSprintFactFacets, confirmFact, bulkConfirmSprintFacts,
@@ -18,7 +17,6 @@ import { useAccess } from '../../utils/access';
 import { CriConfidenceTile } from '../scoring/CriConfidenceTile';
 import { RequestEvidenceModal } from './RequestEvidenceModal';
 import { FactKindBadge } from './AIQIFSummaryBar';
-import { ProfileConfirmPanel } from './ProfileConfirmPanel';
 import { AIQIFTagRow, FactReviewState } from './AIQIFTagRow';
 
 const KIND_LABELS: Record<string, string> = {
@@ -257,12 +255,6 @@ export const FactsReview: React.FC = () => {
           </div>
         ) : (
           <>
-          {isRealSprint && <ProfileConfirmPanel sprintId={sprintId!} canConfirm={can('profile.confirm')} />}
-          {isRealSprint && (
-            <div className="mb-4">
-              <ProcessingStatusBanner sprintId={sprintId!} consequence="Facts from those documents may be missing below." />
-            </div>
-          )}
           <TableFilters
             search={search}
             onSearch={setSearch}

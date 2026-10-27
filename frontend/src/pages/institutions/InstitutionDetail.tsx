@@ -20,6 +20,8 @@ import {
 } from '../../api/institutions';
 import { useApiResource } from '../../hooks/useApiResource';
 import { useAuth } from '../../context/AuthContext';
+import { useSelectedSprint } from '../../context/SelectedSprintContext';
+import { ProfileConfirmPanel } from '../facts/ProfileConfirmPanel';
 import { getErrorMessage } from '../../utils/errors';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type {
@@ -91,6 +93,12 @@ export const InstitutionDetail: React.FC = () => {
   } = useApiResource<InstitutionDetailType>(() => getInstitution(institutionId), [institutionId]);
 
   const [tab, setTab] = useState<TabKey>('profile');
+  // The institution profile read from a sprint's documents (moved here from Extracted Facts Review): the selected
+  // sprint when it is this college's, otherwise this college's most recent sprint.
+  const { sprintId: selectedSprintId, sprints } = useSelectedSprint();
+  const ownSprints = (sprints || []).filter((s) => s.institution_id === institutionId)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const profileSprint = ownSprints.find((s) => s.id === selectedSprintId) || ownSprints[0] || null;
 
   return (
     <div className="space-y-6">
@@ -136,6 +144,12 @@ export const InstitutionDetail: React.FC = () => {
             ))}
           </div>
 
+          {tab === 'profile' && profileSprint && (
+            <div className="space-y-1">
+              <p className="text-xs text-ink-500">Read from the documents of sprint {profileSprint.sprint_code}.</p>
+              <ProfileConfirmPanel sprintId={profileSprint.id} canConfirm={canDo(user?.role, 'profile.confirm')} />
+            </div>
+          )}
           {tab === 'profile' && (
             <ProfileTab institution={institution} canEdit={canEdit} onSaved={refetch} />
           )}

@@ -187,3 +187,32 @@ jobs:
             echo "  not healthy yet (attempt $i), retrying in 10 s"; sleep 10
           done
           echo "The site did not become healthy within 5 minutes after deploy."; exit 1
+
+      # Benchmark Studio is read-only; its catalogue comes from the manager's workbooks in source_library_work/.
+      # Loaded after the site is healthy (migrations done). Re-running with unchanged workbooks changes nothing,
+      # and nothing is deleted (other draft benchmarks are withdrawn). A manual dry run: "Benchmark catalogue sync".
+      - name: Load the Benchmark Studio catalogue from the workbooks
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          ACTOR: ${{ github.actor }}
+        with:
+          host: ${{ secrets.GCP_HOST }}
+          username: ${{ secrets.GCP_SSH_USER }}
+          key: ${{ secrets.GCP_SSH_KEY }}
+          port: ${{ secrets.GCP_SSH_PORT || 22 }}
+          envs: ACTOR
+          script: |
+            set -e
+            cd /opt/ai-ready
+            REGISTER=InGage_Source_Register_BenchMarking_Structure.xlsx
+            AIQIF=InGage_AI_QIF_Benchmark_Master_v1_0_AI_Criteria.xlsx
+            for f in "$REGISTER" "$AIQIF"; do
+              docker compose cp "source_library_work/$f" "backend:/tmp/$f"
+            done
+            echo "=== Source Library ==="
+            docker compose exec -T backend python manage.py import_source_register "/tmp/$REGISTER" --commit \
+              --actor "deploy:$ACTOR"
+            echo "=== AI-QIF catalogue ==="
+            docker compose exec -T backend python manage.py import_aiqif "/tmp/$AIQIF" --commit --withdraw-others \
+              --actor "deploy:$ACTOR"
+            docker compose exec -T backend rm -f "/tmp/$REGISTER" "/tmp/$AIQIF"
