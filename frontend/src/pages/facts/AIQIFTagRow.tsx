@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { editFactMapping, reopenFactMapping, reviewFactMapping } from '../../api/facts';
 import type { AIQIFMapping, Fact } from '../../types';
 import { getErrorMessage } from '../../utils/errors';
+import { promptDialog } from '../../components/Dialog';
 
 type Relationship = 'direct' | 'supporting' | 'contextual';
 type Indicator = { code: string; criterion: string; name: string };
@@ -47,10 +48,11 @@ export const AIQIFTagRow: React.FC<{
   };
   const review = (decision: 'confirm' | 'reject') =>
     run(() => reviewFactMapping(fact.id, m.indicator_code, decision), 'The tag decision could not be saved.');
-  const reopen = () => {
-    const reason = window.prompt(`Why reopen the review of ${shortCode(m.indicator_code)}? (kept in the history)`, '');
-    if (!reason || !reason.trim()) return;
-    run(() => reopenFactMapping(fact.id, m.indicator_code, reason.trim()), 'The review could not be reopened.');
+  const reopen = async () => {
+    const reason = await promptDialog(`Why reopen the review of ${shortCode(m.indicator_code)}? (kept in the history)`,
+      { title: 'Reopen review', confirmLabel: 'Reopen', required: true });
+    if (!reason) return;
+    run(() => reopenFactMapping(fact.id, m.indicator_code, reason), 'The review could not be reopened.');
   };
   const save = () => run(() => editFactMapping(fact.id, m.indicator_code, {
     indicator_code: form.code !== m.indicator_code ? form.code : undefined,

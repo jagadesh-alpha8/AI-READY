@@ -9,6 +9,7 @@ import { getErrorMessage } from '../../utils/errors';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { CreateInstitutionPayload, Institution } from '../../types';
 import { canDo } from '../../utils/access';
+import { confirmDialog } from '../../components/Dialog';
 
 // Who may create / delete a college: utils/access.ts ('institution.edit', the
 // backend's WRITE_INSTITUTION_ROLES, and the narrower 'institution.delete' --
@@ -95,9 +96,10 @@ export const InstitutionList: React.FC = () => {
 
   const handleDelete = async (inst: Institution) => {
     if (
-      !window.confirm(
+      !(await confirmDialog(
         `Delete "${inst.name}"? This permanently removes the institution and everything scoped to it — departments, leadership, systems, sprints, uploaded documents, extracted facts, gaps, scores and reports. This cannot be undone.`,
-      )
+        { title: 'Delete institution', confirmLabel: 'Delete', danger: true },
+      ))
     ) {
       return;
     }

@@ -8,6 +8,7 @@ import { ErrorState, InlineError, LoadingState } from '../../components/ApiState
 import type { Report } from '../../types';
 import { FileText, Download, Sparkles, Printer, Globe } from 'lucide-react';
 import { useAccess } from '../../utils/access';
+import { isRealSprintId } from '../../utils/selectedSprint';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -23,7 +24,7 @@ async function fetchLatestReport(sprintId: string): Promise<{ data: Report | nul
 export const ReportPreviewExport: React.FC = () => {
   const { can, step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
-  const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
+  const isRealSprint = isRealSprintId(sprintId);
 
   const {
     data: report,

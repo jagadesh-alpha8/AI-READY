@@ -23,6 +23,17 @@ const ALL_EXCEPT_VIEWER: UserRole[] = [
 ];                                                                           // REVIEW_ROLES
 const QUALITY_LEADS = [...SPRINT_MANAGERS, 'iqac_coordinator'] as const;     // MANAGE_RECOMMENDATION_ROLES
 
+/** Display names of the roles (backend User.Role labels). */
+export const ROLE_LABELS: Record<UserRole, string> = {
+  super_admin: 'Super Admin', consultant: 'InGage Consultant', institution_admin: 'Institution Admin',
+  iqac_coordinator: 'IQAC Coordinator', registrar: 'Registrar', hod: 'Head of Department', hr_officer: 'HR Officer',
+  lab_admin: 'Lab Admin', placement_officer: 'Placement Officer', faculty: 'Faculty', viewer: 'Viewer',
+};
+
+/** A role's display name; an unknown value is shown as written, '' stays ''. */
+export const roleLabel = (role: string | null | undefined): string =>
+  (role && ROLE_LABELS[role as UserRole]) || (role || '').replace(/_/g, ' ');
+
 /** Actions, each matching a server permission. */
 export const ACTION_ROLES = {
   /** Create a sprint, calculate the CRI, approve/return the baseline, generate reports (CanManageSprint). */

@@ -365,3 +365,35 @@ class RecommendationEditTests(RecommendationsTestBase):
         rec.refresh_from_db()
         self.assertEqual(rec.pillar, original_pillar)
         self.assertEqual(rec.source_gap_id, original_source_gap_id)
+
+
+class PillarRecommendationSpecificsTests(APITestCase):
+    """A pillar-weakness recommendation names its owner, the indicators without confirmed evidence and the open
+    gaps -- not the same generic sentence for every pillar."""
+
+    def test_owner_indicators_and_gaps_are_named(self):
+        from apps.gaps.models import GapItem
+        from apps.institutions.models import Institution
+        from apps.scoring.models import Pillar, PillarScore, ScoringRun
+        from apps.sprints.models import Sprint
+
+        from .services import PILLAR_OWNER_ROLE, generate_recommendations_for_sprint
+        sprint = Sprint.objects.create(institution=Institution.objects.create(name='MKCE', city='K', state='TN'))
+        pillar = Pillar.objects.get(key='aiqif_c5')
+        PillarScore.objects.create(sprint=sprint, pillar=pillar, raw_score=0, weighted_score=0, confidence_score=0,
+                                   status=PillarScore.Status.NOT_STARTED, calculation_version='v1')
+        ScoringRun.objects.create(sprint=sprint, calculation_version='v1', evidence_coverage={'indicators': [
+            {'code': 'AIQIF-C5.4', 'weight': 0.04, 'covered': False},
+            {'code': 'AIQIF-C5.1', 'weight': 0.03, 'covered': True}]})
+        GapItem.objects.create(sprint=sprint, gap_type=GapItem.GapType.MISSING_DOCUMENT, pillar='aiqif_c5',
+                               title='Missing Placement Report')
+        recs = [r for r in generate_recommendations_for_sprint(sprint) if r.source_gap_id is None
+                and r.pillar == 'aiqif_c5' and not r.supporting_facts.exists()]
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual(rec.owner_role, PILLAR_OWNER_ROLE['aiqif_c5'])
+        self.assertIn('C5.4', rec.description)
+        self.assertNotIn('C5.1 ', rec.description)  # covered: not listed
+        self.assertIn('"Missing Placement Report"', rec.description)
+        self.assertIn('Why:', rec.description)
+        self.assertIn('evidence for', rec.title)

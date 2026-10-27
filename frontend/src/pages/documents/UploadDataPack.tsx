@@ -18,9 +18,11 @@ import {
   type SprintDocument,
 } from '../../types';
 import {
-  Upload, CheckCircle2, AlertCircle, Play, File, Trash2, Link2, Loader2, Square, Clock, HelpCircle, UserCheck, Check,
+  Upload, CheckCircle2, AlertCircle, Play, File, Trash2, Link2, Loader2, Square, Clock, HelpCircle, UserCheck, Check, ChevronDown,
 } from 'lucide-react';
 import { useAccess } from '../../utils/access';
+import { confirmDialog } from '../../components/Dialog';
+import { isRealSprintId } from '../../utils/selectedSprint';
 
 const POLL_INTERVAL_MS = 3000; // matches AIProcessingMonitor.tsx
 
@@ -41,7 +43,7 @@ export const UploadDataPack: React.FC = () => {
   const { can, userId, step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
-  const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
+  const isRealSprint = isRealSprintId(sprintId);
 
   const {
     data: documentsData,
@@ -98,7 +100,8 @@ export const UploadDataPack: React.FC = () => {
   };
 
   const handleDelete = async (doc: SprintDocument) => {
-    if (!window.confirm(`Delete "${doc.original_filename}"? This removes the file and cannot be undone.`)) {
+    if (!(await confirmDialog(`Delete "${doc.original_filename}"? This removes the file and cannot be undone.`,
+      { title: 'Delete document', confirmLabel: 'Delete', danger: true }))) {
       return;
     }
     setDeletingId(doc.id);
@@ -690,13 +693,16 @@ const DriveImportPanel: React.FC<{
                   )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-ink-600">Filename matches (hint only, confirmed by AI extraction):</p>
+                {/* Each list folds into a dropdown: a large Drive folder can import hundreds of files. */}
+                <ResultList
+                  title="Filename matches (hint only, confirmed by AI extraction)"
+                  count={`${REQUIRED_CHECKLIST.filter((item) => (latestDriveJob.results[item.type] as DriveImportChecklistResult | undefined)?.status === 'found').length} of ${REQUIRED_CHECKLIST.length} found`}
+                >
                   {REQUIRED_CHECKLIST.map((item) => {
                     const result = latestDriveJob.results[item.type] as DriveImportChecklistResult | undefined;
                     const found = result?.status === 'found';
                     return (
-                      <div key={item.type} className="flex items-center gap-2 text-xs">
+                      <div key={item.type} className="flex items-center gap-2">
                         {found ? (
                           <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
                         ) : (
@@ -709,29 +715,27 @@ const DriveImportPanel: React.FC<{
                       </div>
                     );
                   })}
-                </div>
+                </ResultList>
 
                 {additionalFiles.length > 0 && (
-                  <div className="text-xs text-ink-500">
-                    <p className="font-semibold text-ink-600 mb-1">
-                      Also imported, AI will categorize these ({additionalFiles.length}):
-                    </p>
+                  <ResultList title="Also imported, AI will categorize these" count={`${additionalFiles.length}`}>
                     {additionalFiles.map((file) => (
-                      <p key={file.document_id} className="truncate">
+                      <p key={file.document_id} className="truncate" title={`${file.folder || 'Root'}/${file.filename}`}>
                         <span className="text-ink-400">{file.folder ? `${file.folder}/` : 'Root/'}</span>
                         {file.filename}
                       </p>
                     ))}
-                  </div>
+                  </ResultList>
                 )}
 
                 {skippedFiles.length > 0 && (
-                  <div className="text-xs text-ink-500">
-                    <p className="font-semibold text-ink-600 mb-1">Could not be imported:</p>
+                  <ResultList title="Could not be imported" count={`${skippedFiles.length}`} tone="warning">
                     {skippedFiles.map((skipped) => (
-                      <p key={skipped.filename} className="truncate">{skipped.filename} — {skipped.reason}</p>
+                      <p key={skipped.filename} className="truncate" title={`${skipped.filename} — ${skipped.reason}`}>
+                        {skipped.filename} — {skipped.reason}
+                      </p>
                     ))}
-                  </div>
+                  </ResultList>
                 )}
               </div>
             )}
@@ -741,6 +745,22 @@ const DriveImportPanel: React.FC<{
     </div>
   );
 };
+
+/** One Drive import result list as a closed dropdown with its count; open, it scrolls inside a fixed height. */
+const ResultList: React.FC<{ title: string; count: string; tone?: 'warning'; children: React.ReactNode }> = (
+  { title, count, tone, children },
+) => (
+  <details className="group rounded-lg border border-line-200 text-xs text-ink-500">
+    <summary className="flex list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 font-semibold text-ink-600">
+      <span>{title}</span>
+      <span className="flex items-center gap-2">
+        <span className={tone === 'warning' ? 'badge-warning' : 'badge-neutral'}>{count}</span>
+        <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+      </span>
+    </summary>
+    <div className="max-h-64 overflow-y-auto space-y-1 border-t border-line-200 px-3 py-2">{children}</div>
+  </details>
+);
 
 /** The "Processing Notes" column as a filterable value. */
 function textCheck(doc: SprintDocument): string {

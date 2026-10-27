@@ -7,6 +7,7 @@ import { useApiResource } from '../../hooks/useApiResource';
 import type { Gap } from '../../types';
 import { getErrorMessage } from '../../utils/errors';
 import { describeSide } from './conflictSides.ts';
+import { promptDialog } from '../../components/Dialog';
 
 /**
  * The two sides of a conflict gap, next to each other on wide screens and stacked on narrow ones. Every
@@ -72,13 +73,14 @@ export const ConflictComparisonDialog: React.FC<{ gap: Gap; onClose: () => void;
   const [error, setError] = useState('');
   const choose = async (factId: string) => {
     const side = (gap.conflict_candidates || []).find((c) => c.fact_id === factId);
-    const reason = window.prompt(
+    const reason = await promptDialog(
       `Use ${JSON.stringify(side?.current_value)} from ${side?.document_name || 'this document'} as the correct value? `
-      + 'It is confirmed, the other values are rejected and the conflict closes. Reason (optional):', '');
+      + 'It is confirmed, the other values are rejected and the conflict closes. Reason (optional):',
+      { title: 'Choose the correct value', confirmLabel: 'Use this value' });
     if (reason === null) return;
     setBusy(true); setError('');
     try {
-      await chooseConflictValue(gap.id, factId, reason.trim());
+      await chooseConflictValue(gap.id, factId, reason);
       onResolved?.();
       onClose();
     } catch (err) {

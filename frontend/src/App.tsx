@@ -5,6 +5,7 @@ import { SelectedSprintProvider, useSelectedSprint } from './context/SelectedSpr
 import { ThemeProvider } from './context/ThemeContext';
 import { AppShell } from './layouts/AppShell';
 import { ScrollToTop } from './components/ScrollToTop';
+import { DialogHost } from './components/Dialog';
 import { NoAccess } from './components/NoAccess';
 import { canSeeMenu } from './utils/access';
 import type { MenuKey } from './utils/access';
@@ -174,6 +175,7 @@ export default function App() {
           <SelectedSprintProvider>
             <AppRoutes />
           </SelectedSprintProvider>
+          <DialogHost />
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>

@@ -5,6 +5,7 @@ import { AlertTriangle } from 'lucide-react';
 import { getProcessingSummary } from '../api/extraction';
 import { useApiResource } from '../hooks/useApiResource';
 import type { ProcessingSummary } from '../types';
+import { isRealSprintId } from '../utils/selectedSprint';
 
 /**
  * Says plainly when a sprint's included documents are not all fully processed (failed, still processing,
@@ -19,7 +20,7 @@ export const ProcessingStatusBanner: React.FC<{
   summary?: ProcessingSummary | null;
 }> = ({ sprintId, consequence, summary }) => {
   const { data } = useApiResource<ProcessingSummary>(
-    () => getProcessingSummary(sprintId), [sprintId], !summary && !!sprintId && sprintId !== 'demo-sprint-id',
+    () => getProcessingSummary(sprintId), [sprintId], !summary && isRealSprintId(sprintId),
   );
   const s = summary || data;
   if (!s || s.complete) return null;

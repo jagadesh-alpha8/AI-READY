@@ -70,7 +70,7 @@ class SprintFactFacetsView(APIView):
     def get(self, request, sprint_id):
         from django.db.models import Count
 
-        from apps.scoring.constants import AIQIF_CRITERION_CODES, AIQIF_INDICATORS, PILLAR_LABELS
+        from apps.scoring.constants import AIQIF_CRITERION_CODES, AIQIF_INDICATORS, PILLAR_LABELS, pillar_facet
 
         from .aiqif_tagging import queued_tags_q
         from .filters import CONFIDENCE_BANDS, confidence_band_q
@@ -84,10 +84,18 @@ class SprintFactFacetsView(APIView):
         bands = facts.aggregate(**{band: Count('id', filter=confidence_band_q(band)) for band in CONFIDENCE_BANDS})
         criteria = (FactAIQIFMapping.objects.filter(fact__sprint=sprint).values('criterion')
                     .annotate(n=Count('fact', distinct=True)).order_by())
+        indicator_counts = {r['indicator_code']: r['n'] for r in (
+            FactAIQIFMapping.objects.filter(fact__sprint=sprint).values('indicator_code')
+            .annotate(n=Count('fact', distinct=True)).order_by())}
         return Response({
             'total': facts.count(),
             'status': counts('status'),
             'pillar': counts('pillar'),
+            'pillars': pillar_facet(counts('pillar')),
+            # The AI-QIF Category filter: all 36 key indicators in framework order, each with the facts tagged to
+            # it (an indicator no fact is tagged to still shows, as 0).
+            'aiqif_indicators': [{'value': code, 'code': code, 'label': name, 'count': indicator_counts.get(code, 0)}
+                                 for code, (_criterion, name) in AIQIF_INDICATORS.items()],
             'fact_kind': counts('fact_kind', lambda v: v or 'none'),
             'aiqif_mapping_status': counts('aiqif_mapping_status'),
             'owner_role': {k: v for k, v in counts('owner_role').items() if k},

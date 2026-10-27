@@ -46,6 +46,20 @@ SUPPORT_OFFERING_BY_SOURCE = {
     'weakness': 'Pillar improvement consulting engagement',
 }
 
+#: Who owns a whole AI-QIF pillar (a pillar-weakness recommendation has no gap or fact to take an owner from).
+#: Roles are the extraction's owner roles (apps/extraction/services/openai_fact_extractor.FACT_OWNER_ROLE_CHOICES).
+PILLAR_OWNER_ROLE = {
+    'aiqif_c1': 'institution_admin',   # Institutional AI Strategy & Governance
+    'aiqif_c2': 'iqac_coordinator',    # Responsible AI, Risk, Ethics & Compliance
+    'aiqif_c3': 'hod',                 # AI-Ready Curriculum & Learning
+    'aiqif_c4': 'hr_officer',          # Faculty & Institutional Workforce AI Capability
+    'aiqif_c5': 'placement_officer',   # Student AI Readiness, Skills & Employability
+    'aiqif_c6': 'lab_admin',           # AI Infrastructure, Data & Cybersecurity
+    'aiqif_c7': 'hod',                 # AI Research, Innovation & Ecosystem
+    'aiqif_c8': 'registrar',           # AI-Enabled Operations, Industry & Outcomes
+    'aiqif_c9': 'iqac_coordinator',    # AI Assurance, Measurement & Continuous Improvement
+}
+
 #: A confirmed/corrected fact below this confidence is "low-confidence
 #: evidence" worth its own recommendation, even though it already counts as
 #: evidence for scoring purposes (apps.scoring.services.cri_engine).
@@ -146,6 +160,36 @@ def _generate_evidence_recommendations(sprint, actor):
     return created
 
 
+def _pillar_specifics(sprint, pillar_key):
+    """(indicators of the pillar without confirmed AI evidence [(code, name, weight)], open gap titles) -- read
+    from the latest scoring run's coverage and the sprint's open gaps, so the advice names real items."""
+    from apps.scoring.constants import AIQIF_INDICATORS
+    run = sprint.scoring_runs.order_by('-created_at').first()
+    rows = ((run.evidence_coverage or {}).get('indicators') or []) if run else []
+    missing = sorted(((r['code'], AIQIF_INDICATORS.get(r['code'], ('', r['code']))[1], r.get('weight') or 0)
+                      for r in rows if AIQIF_INDICATORS.get(r.get('code'), ('',))[0] == pillar_key
+                      and not r.get('covered')), key=lambda m: (-m[2], m[0]))
+    gaps = list(sprint.gaps.filter(pillar=pillar_key, status__in=GapItem.ACTIVE_STATUSES)
+                .order_by('-created_at').values_list('title', flat=True)[:3])
+    return missing, gaps
+
+
+def _pillar_description(pillar, pillar_score, missing, gaps, lift):
+    parts = [f'{pillar.name} is {pillar_score.get_status_display().lower()} at {pillar_score.raw_score:g}/100 '
+             f'({pillar_score.evidence_count} evidence item(s), {pillar_score.gap_count} unresolved gap(s)).']
+    if missing:
+        named = '; '.join(f'{code.replace("AIQIF-", "")} {name}' for code, name, _w in missing[:4])
+        more = f' and {len(missing) - 4} more' if len(missing) > 4 else ''
+        parts.append(f'No confirmed AI evidence yet for: {named}{more}.')
+        parts.append(f'Start with {missing[0][0].replace("AIQIF-", "")} {missing[0][1]}: provide documents that '
+                     'show it in practice (policy, records, outcomes) and confirm the facts read from them.')
+    if gaps:
+        parts.append('Open gaps to close: ' + '; '.join(f'"{t}"' for t in gaps) + '.')
+    parts.append(f'Why: the pillar is below the strong threshold of {PILLAR_STATUS_STRONG_THRESHOLD:g}, capping the '
+                 f'overall CRI; doing this could raise it by up to {lift:g} points.')
+    return ' '.join(parts)
+
+
 def _generate_pillar_weakness_recommendations(sprint, actor):
     """Note: deliberately leaves `source_gap`/`supporting_facts` unset --
     that "no linked record" shape is itself the dedup signal below (a
@@ -157,6 +201,10 @@ def _generate_pillar_weakness_recommendations(sprint, actor):
             sprint=sprint, source_gap__isnull=True, supporting_facts__isnull=True,
         ).values_list('pillar', flat=True)
     )
+    # Pillar recommendations made before owners were assigned get their pillar's owner (fills blanks only).
+    for key, role in PILLAR_OWNER_ROLE.items():
+        Recommendation.objects.filter(sprint=sprint, pillar=key, owner_role='', source_gap__isnull=True,
+                                      supporting_facts__isnull=True).update(owner_role=role)
     weak_scores = PillarScore.objects.filter(
         sprint=sprint, status__in=[PillarScore.Status.AT_RISK, PillarScore.Status.NOT_STARTED],
         pillar__is_active=True,
@@ -171,17 +219,13 @@ def _generate_pillar_weakness_recommendations(sprint, actor):
             else Recommendation.Priority.HIGH
         )
         lift = round(pillar.weight * max(0.0, PILLAR_STATUS_STRONG_THRESHOLD - pillar_score.raw_score), 2)
+        missing, gaps = _pillar_specifics(sprint, pillar.key)
         rec = Recommendation.objects.create(
             sprint=sprint,
-            title=f'Strengthen {pillar.name}',
-            description=(
-                f'{pillar.name} is currently {pillar_score.get_status_display().lower()} at '
-                f'{pillar_score.raw_score:g}/100, with {pillar_score.gap_count} unresolved gap(s) and '
-                f'{pillar_score.evidence_count} evidence item(s). '
-                f"Why: this pillar sits below the strong threshold of {PILLAR_STATUS_STRONG_THRESHOLD:g}, "
-                f'capping the overall CRI -- closing its gaps and adding confirmed evidence would raise '
-                f'the overall CRI by up to {lift:g} points.'
-            ),
+            title=(f'Strengthen {pillar.name}: evidence for {missing[0][1]}' if missing
+                   else f'Strengthen {pillar.name}')[:255],
+            description=_pillar_description(pillar, pillar_score, missing, gaps, lift),
+            owner_role=PILLAR_OWNER_ROLE.get(pillar.key, ''),
             trigger_gap=f'Pillar Weakness: {pillar.name} ({pillar_score.get_status_display()})',
             pillar=pillar.key,
             priority=priority,

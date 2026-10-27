@@ -46,6 +46,7 @@ describe('Extracted Facts Review', async () => {
       ok({ count: 3, next: null, previous: null, results: [FACT] }),  // the facts page
       ok({ total: 3, status: { extracted: 3 }, pillar: {}, fact_kind: {}, aiqif_mapping_status: {}, owner_role: {},
         source_document: {}, confidence_band: {} }),             // facets
+      ok(null),                                                   // processing summary (drives live refresh)
       ok(null),                                                   // CRI confidence tile
     ];
     const html = route('/sprint/:sprintId/facts', '/sprint/s1/facts', React.createElement(facts.mod.FactsReview));

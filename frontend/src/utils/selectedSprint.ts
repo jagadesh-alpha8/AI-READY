@@ -13,6 +13,9 @@
 /** The placeholder the sidebar used to link to when no sprint was open; never a real selection. */
 export const PLACEHOLDER_SPRINT_ID = 'demo-sprint-id';
 
+/** A real sprint id: not empty and not the old placeholder (still found in bookmarks). */
+export const isRealSprintId = (id: string | undefined | null): id is string => !!id && id !== PLACEHOLDER_SPRINT_ID;
+
 const STORAGE_PREFIX = 'aios_selected_sprint:';
 
 export const storageKey = (userId: string) => `${STORAGE_PREFIX}${userId}`;

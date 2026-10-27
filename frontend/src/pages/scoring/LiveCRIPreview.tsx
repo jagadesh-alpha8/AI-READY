@@ -4,7 +4,6 @@ import { BarChart3, ArrowRight, RefreshCw } from 'lucide-react';
 
 import { getScore, recalculateScore } from '../../api/scoring';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
-import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
 import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { useApiResource } from '../../hooks/useApiResource';
 import type { Scorecard } from '../../types';
@@ -17,6 +16,7 @@ import { ScorecardsNote } from './ScorecardsNote';
 import {
   adjustedReason, coverageCounts, coverageReason, hasCoverage, rawCriZeroReason, reportingPeriod,
 } from './scoreExplain.ts';
+import { isRealSprintId } from '../../utils/selectedSprint';
 
 /**
  * Live CRI Preview: the selected sprint's Raw CRI, evidence coverage and coverage-adjusted CRI, each explained,
@@ -32,7 +32,7 @@ export const LiveCRIPreview: React.FC = () => {
   const [recalculating, setRecalculating] = useState(false);
   const [actionError, setActionError] = useState('');
 
-  const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
+  const isRealSprint = isRealSprintId(sprintId);
   const { data: scorecard, setData: setScorecard, loading, error, refetch } =
     useApiResource<Scorecard>(() => getScore(sprintId!), [sprintId], isRealSprint);
 
@@ -88,7 +88,6 @@ export const LiveCRIPreview: React.FC = () => {
       </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
-      {sprintId && <ProcessingStatusBanner sprintId={sprintId} consequence="This CRI can only use facts from what was read, so it may be understated." />}
       <ScorecardsNote here="cri" />
 
       {loading ? (

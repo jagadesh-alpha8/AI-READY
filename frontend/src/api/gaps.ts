@@ -1,3 +1,4 @@
+import type { PillarFacet } from '../components/Pagination';
 import api from './client';
 import type { Gap, WorkSummary } from '../types';
 import { cleanParams, fetchAllPages, type Page } from './pagination';
@@ -12,6 +13,7 @@ export interface GapQuery {
   status?: string;
   owner_role?: string;
   source_document?: string;
+  pillar?: string;
   ordering?: string;
 }
 
@@ -34,6 +36,8 @@ export interface GapFacets {
   status: Record<string, number>;
   owner_role: Record<string, number>;
   source_document: Record<string, number>;
+  /** CRI Pillar filter options: the 9 AI-QIF criteria in framework order, with counts. */
+  pillars: PillarFacet[];
 }
 
 export function getSprintGapFacets(sprintId: string) {

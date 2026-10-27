@@ -16,6 +16,7 @@ import type {
 } from '../../api/assessments';
 import { CycleBenchmarkPanel } from './CycleBenchmarkPanel';
 import { PlanPanel } from './PlanPanel';
+import { confirmDialog, promptDialog } from '../../components/Dialog';
 
 /**
  * Stage 5: assess a college against the current published benchmark release.
@@ -262,22 +263,25 @@ const CyclePanel: React.FC<{ cycleId: string; reference: AssessmentReference; on
           <button className="btn-primary btn-sm" disabled={!!busy} onClick={() => act('open')}><Play className="w-3.5 h-3.5" /> Ask the college for evidence</button>
         )}
         {reference.can_upload && c.status === 'in_progress' && (
-          <button className="btn-primary btn-sm" disabled={!!busy} onClick={() => {
-            if (window.confirm('Submit the evidence to InGage for review? You can no longer upload unless InGage sends it back.')) act('submit');
+          <button className="btn-primary btn-sm" disabled={!!busy} onClick={async () => {
+            if (await confirmDialog('Submit the evidence to InGage for review? You can no longer upload unless InGage sends it back.',
+              { title: 'Submit evidence', confirmLabel: 'Submit' })) act('submit');
           }}><Send className="w-3.5 h-3.5" /> Submit evidence for review</button>
         )}
         {staff && (c.status === 'submitted' || c.status === 'reviewed') && (
           <>
             <button className="btn-primary btn-sm" disabled={!!busy} onClick={() => act('score')}><CheckCircle2 className="w-3.5 h-3.5" /> Calculate scores</button>
-            <button className="btn-secondary btn-sm" disabled={!!busy} onClick={() => {
-              const note = window.prompt('What should the college add or fix?', '');
+            <button className="btn-secondary btn-sm" disabled={!!busy} onClick={async () => {
+              const note = await promptDialog('What should the college add or fix?',
+                { title: 'Send back to college', confirmLabel: 'Send back', required: true });
               if (note) act('return', note);
             }}><Undo2 className="w-3.5 h-3.5" /> Send back to college</button>
           </>
         )}
         {staff && c.status === 'reviewed' && (
-          <button className="btn-primary btn-sm" disabled={!!busy} onClick={() => {
-            if (window.confirm('Finalize? Scores, weights and evidence decisions are frozen and the college can see the scorecard.')) act('finalize');
+          <button className="btn-primary btn-sm" disabled={!!busy} onClick={async () => {
+            if (await confirmDialog('Scores, weights and evidence decisions are frozen and the college can see the scorecard.',
+              { title: 'Finalize assessment', confirmLabel: 'Finalize' })) act('finalize');
           }}><Lock className="w-3.5 h-3.5" /> Finalize</button>
         )}
         {c.scores_visible && (c.status === 'reviewed' || c.status === 'finalized') && (

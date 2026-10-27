@@ -8,8 +8,8 @@ import { getErrorMessage } from '../utils/errors';
  * function on every render without retriggering the effect -- only
  * changes to `deps` (or `enabled`) do that.
  *
- * `enabled` mirrors the `if (!sprintId || sprintId === 'demo-sprint-id')
- * return;` guard pages already use before their sprint is real -- pass
+ * `enabled` takes the `isRealSprintId(sprintId)` check pages use before
+ * their sprint is real (utils/selectedSprint) -- pass
  * `false` instead of calling the hook conditionally (hooks can't be
  * conditional) to skip the request without erroring or showing loading.
  */

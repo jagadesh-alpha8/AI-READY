@@ -13,6 +13,7 @@ import type {
   SprintDocumentOption, TransformationTemplateInfo,
 } from '../../api/assessments';
 import { fmt } from './BenchmarkAssessments';
+import { promptDialog } from '../../components/Dialog';
 
 const EV_BADGE: Record<string, string> = {
   submitted: 'badge-warning', accepted: 'badge-success', rejected: 'badge-danger', needs_information: 'badge-warning',
@@ -38,7 +39,9 @@ export const CycleBenchmarkPanel: React.FC<{ cycleId: string; code: string; refe
     setErr('');
     const goesAgainst = body.included !== undefined && b.applicability_result !== 'requires_review'
       && body.included !== (b.applicability_result === 'applies');
-    const note = goesAgainst ? window.prompt('This goes against the applicability rules. Why?', '') : '';
+    const note = goesAgainst
+      ? await promptDialog('This goes against the applicability rules. Why?', { title: 'Override applicability', required: true })
+      : '';
     if (goesAgainst && !note) return;
     try { await decideCycleBenchmark(cycleId, code, { ...body, note: note || '' }); refresh(); } catch (e) { setErr(getErrorMessage(e)); }
   };

@@ -17,6 +17,17 @@ from .tasks import generate_report_task
 PASSWORD = 'Str0ng!DevPassw0rd'
 
 
+def _docx_text(blob):
+    """Every paragraph and table cell of a DOCX, as one string."""
+    import io
+    from docx import Document
+    doc = Document(io.BytesIO(blob))
+    parts = [p.text for p in doc.paragraphs]
+    for table in doc.tables:
+        parts += [cell.text for row in table.rows for cell in row.cells]
+    return ' '.join(parts)
+
+
 class ReportsTestBase(APITestCase):
     def setUp(self):
         self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
@@ -141,6 +152,17 @@ class BuildReportDataTests(ReportsTestBase):
         data = build_report_data(self.sprint)
         self.assertEqual(len(data['how_ingage_can_help']), 1)
         self.assertEqual(data['how_ingage_can_help'][0]['recommendation_count'], 1)
+
+    def test_docx_lays_out_scores_pillars_gaps_and_recommendations_as_tables(self):
+        from .rendering import render_docx_bytes
+        self._make_gap(priority=GapItem.Priority.BLOCKING, title='Blocking gap', gap_type=GapItem.GapType.STALE_DATA)
+        generate_recommendations_for_sprint(self.sprint)
+        data = build_report_data(self.sprint)
+        report = Report.objects.create(sprint=self.sprint, version=1, report_data=data)
+        text = _docx_text(render_docx_bytes(report))
+        for expected in ('AI READINESS DISCOVERY REPORT', 'LIVE CRI', 'Pillar scores', 'BLOCKING', 'Blocking gap',
+                         'Resolve: Blocking gap', 'Action timeline', data['pillar_scorecards'][0]['label']):
+            self.assertIn(expected, text)
 
     def test_next_report_version_increments_and_never_overwrites(self):
         self.assertEqual(next_report_version(self.sprint), 1)
@@ -356,6 +378,10 @@ class ReportRecalculationTests(ReportsTestBase):
             text = ' '.join(' '.join(pg.get_text().split()) for pg in pdf)
         self.assertIn(f'Approved baseline (approved): CRI {pinned[1]:.1f}', text)
         self.assertIn(f"Live CRI in this report: {changed.report_data['overall_cri']:.1f}", text)
+        from .rendering import render_docx_bytes
+        docx_text = _docx_text(render_docx_bytes(changed))
+        self.assertIn(f'Approved baseline (approved): CRI {pinned[1]:.1f}', docx_text)
+        self.assertIn(f"Live CRI in this report: {changed.report_data['overall_cri']:.1f}", docx_text)
         baseline.refresh_from_db()
         self.assertEqual((baseline.scoring_run_id, baseline.scoring_run.overall_cri), pinned)  # never overwritten
 

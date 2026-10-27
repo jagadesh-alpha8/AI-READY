@@ -38,3 +38,13 @@ export function optionsFromCounts(counts: Record<string, number> | undefined, la
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([value, count]) => ({ value, label: label(value), count }));
 }
+
+/** One CRI pillar option from the facets API (backend scoring.constants.pillar_facet). */
+export interface PillarFacet { value: string; code: string; label: string; count: number }
+
+/** The CRI Pillar filter options, in the API's framework order (all 9 AI-QIF criteria, an unused one as 0). */
+export function pillarOptions(pillars: PillarFacet[] | undefined) {
+  return (pillars || []).map((p) => ({
+    value: p.value, label: p.code ? `${p.code.replace('AIQIF-', '')} ${p.label}` : p.label, count: p.count,
+  }));
+}

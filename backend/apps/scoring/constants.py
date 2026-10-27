@@ -94,6 +94,17 @@ LEGACY_TO_AIQIF = {
 
 PILLAR_LABELS = {**dict(LEGACY_PILLARS), **dict(PILLAR_CHOICES)}
 
+
+def pillar_facet(counts):
+    """The CRI Pillar filter options for {pillar key: row count}: every AI-QIF criterion in framework order (a
+    criterion with no rows still shows, as 0), then any other pillar value present (a legacy key); blank is left out."""
+    options = [{'value': key, 'code': code, 'label': name, 'count': counts.get(key, 0)}
+               for key, code, name, _w, _kis in AIQIF_PILLARS]
+    known = {o['value'] for o in options}
+    options += [{'value': key, 'code': '', 'label': PILLAR_LABELS.get(key, key), 'count': n}
+                for key, n in sorted(counts.items()) if key and key not in known]
+    return options
+
 #: Bumped when the scoring *algorithm* itself changes (not when someone edits
 #: a Pillar/PillarCriterion weight in the database -- that's captured
 #: automatically by the config fingerprint appended to this in

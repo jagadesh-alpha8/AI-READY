@@ -6,7 +6,8 @@ import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { Recommendation } from '../../types';
 import { Sparkles, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { useAccess } from '../../utils/access';
+import { roleLabel, useAccess } from '../../utils/access';
+import { isRealSprintId } from '../../utils/selectedSprint';
 
 /** How each status reads on a card; "accepted" is unmistakable (it goes into the report). */
 const STATUS_CHIP: Record<Recommendation['status'], { label: string; cls: string }> = {
@@ -24,7 +25,7 @@ export const RecommendationsReview: React.FC = () => {
   const { can, step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
-  const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
+  const isRealSprint = isRealSprintId(sprintId);
 
   const {
     data: recsData,
@@ -153,7 +154,9 @@ export const RecommendationsReview: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-line-100 pb-3">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="badge-brand">{rec.pillar?.replace('_', ' ')}</span>
-                  <span className="text-xs font-semibold text-ink-500">Owner: {rec.owner_role}</span>
+                  {rec.owner_role && (
+                    <span className="text-xs font-semibold text-ink-500">Owner: {roleLabel(rec.owner_role)}</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-mono font-bold text-success bg-success-bg px-2 py-0.5 rounded border border-success-line tabular-nums">

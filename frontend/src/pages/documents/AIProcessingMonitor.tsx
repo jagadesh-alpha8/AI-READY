@@ -27,6 +27,8 @@ import {
   Timer, Coins,
 } from 'lucide-react';
 import { useAccess } from '../../utils/access';
+import { confirmDialog } from '../../components/Dialog';
+import { isRealSprintId } from '../../utils/selectedSprint';
 
 const POLL_INTERVAL_MS = 3000;
 /** The AI usage panel (cost, tokens, requests) is hidden for now; set to true to show it again. */
@@ -50,7 +52,7 @@ export const AIProcessingMonitor: React.FC = () => {
   const { step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
-  const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
+  const isRealSprint = isRealSprintId(sprintId);
 
   const { data: jobsData, loading, error, refetch, refresh: refreshJobs } = useApiResource<ExtractionJob[]>(
     () => listExtractionJobs(sprintId!),
@@ -142,30 +144,34 @@ export const AIProcessingMonitor: React.FC = () => {
   };
 
   const handleStop = async () => {
-    if (!window.confirm('Are you sure you want to stop the AI monitoring process? All active jobs will be cancelled.')) {
+    if (!(await confirmDialog('Stop AI processing for this sprint? All queued and running jobs are cancelled; '
+      + 'facts already extracted are kept.', { title: 'Stop processing', confirmLabel: 'Stop', danger: true }))) {
       return;
     }
 
+    setActionError('');
     try {
       await cancelSprintExtraction(sprintId!);
-      navigate(`/sprint/${sprintId}/upload`);
+      refreshAllRef.current();
     } catch (err) {
       console.error('Failed to cancel extraction:', err);
-      alert('Failed to stop the process. Please try again.');
+      setActionError(getErrorMessage(err, 'Failed to stop the process. Please try again.'));
     }
   };
 
   const handleDeleteJob = async (job: ExtractionJob) => {
-    if (!window.confirm(`Delete this failed job for "${job.document_filename}"? You can start a fresh extraction run for this document afterwards.`)) {
+    if (!(await confirmDialog(`Delete this failed job for "${job.document_filename}"? You can start a fresh extraction run for this document afterwards.`,
+      { title: 'Delete job', confirmLabel: 'Delete', danger: true }))) {
       return;
     }
 
+    setActionError('');
     try {
       await deleteExtractionJob(job.id);
       refreshAllRef.current();
     } catch (err) {
       console.error('Failed to delete extraction job:', err);
-      alert('Failed to delete the job. Please try again.');
+      setActionError(getErrorMessage(err, 'Failed to delete the job. Please try again.'));
     }
   };
 

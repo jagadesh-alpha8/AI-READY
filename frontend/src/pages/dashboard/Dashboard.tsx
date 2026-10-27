@@ -9,6 +9,7 @@ import type { DashboardData, Sprint } from '../../types';
 import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { Building, Plus, Play, CheckCircle2, ArrowRight, ShieldCheck, Trash2, Archive } from 'lucide-react';
 import { useAccess } from '../../utils/access';
+import { alertDialog, confirmDialog } from '../../components/Dialog';
 
 /** Average of the non-null values in `values`, or null if none are scored
  * yet -- never a fabricated number standing in for "not measured". */
@@ -32,7 +33,10 @@ export const Dashboard: React.FC = () => {
   } = useApiResource<Sprint[]>(() => listSprints(), []);
 
   const handleDeleteSprint = async (sprint: Sprint) => {
-    if (!window.confirm(`Are you sure you want to delete sprint "${sprint.name || sprint.sprint_code}"? This will permanently remove all data associated with it.`)) {
+    if (!(await confirmDialog(
+      `Delete sprint "${sprint.name || sprint.sprint_code}"? This permanently removes all data associated with it.`,
+      { title: 'Delete sprint', confirmLabel: 'Delete', danger: true },
+    ))) {
       return;
     }
 
@@ -47,12 +51,15 @@ export const Dashboard: React.FC = () => {
       // claimed the sprint was in a non-deletable status, which was wrong for
       // every other failure — including an archived sprint that failed for an
       // entirely different reason.
-      alert(getErrorMessage(err, 'Failed to delete sprint.'));
+      await alertDialog(getErrorMessage(err, 'Failed to delete sprint.'), { title: 'Could not delete', danger: true });
     }
   };
 
   const handleArchiveSprint = async (sprint: Sprint) => {
-    if (!window.confirm(`Archive sprint "${sprint.name || sprint.sprint_code}"? Archiving is required before it can be deleted, but doesn't remove any data by itself.`)) {
+    if (!(await confirmDialog(
+      `Archive sprint "${sprint.name || sprint.sprint_code}"? Archiving is required before it can be deleted, but doesn't remove any data by itself.`,
+      { title: 'Archive sprint', confirmLabel: 'Archive' },
+    ))) {
       return;
     }
 
@@ -63,7 +70,7 @@ export const Dashboard: React.FC = () => {
       refetchDashboard();
     } catch (err) {
       console.error('Failed to archive sprint:', err);
-      alert(getErrorMessage(err, 'Failed to archive sprint. Please try again.'));
+      await alertDialog(getErrorMessage(err, 'Failed to archive sprint. Please try again.'), { title: 'Could not archive', danger: true });
     }
   };
 

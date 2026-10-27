@@ -1533,6 +1533,45 @@ class PaginatedFactsAndGapsTests(FactTestBase):
         self.assertEqual((facets['total'], facets['open'], facets['priority']), (55, 55, {'high': 5, 'medium': 50}))
         self.assertEqual(facets['source_document'], {'register.pdf': 2})
 
+    def test_cri_pillar_filter_and_its_options_on_facts_and_gaps(self):
+        for i in range(3):
+            self._make_fact(field_key=f'c4_{i}', pillar='aiqif_c4')
+        self._make_fact(field_key='c1', pillar='aiqif_c1')
+        self._gap(title='c4 gap')
+        self._gap(title='c1 gap', pillar='aiqif_c1')
+        self._gap(title='no pillar', pillar='')
+        self._auth(self.iqac)
+        for kind, c4, c1 in (('facts', 3, 1), ('gaps', 1, 1)):
+            url = f'/api/v1/sprints/{self.sprint.id}/{kind}'
+            self.assertEqual(self.client.get(url, {'pillar': 'aiqif_c4'}).data['count'], c4, kind)
+            self.assertEqual(self.client.get(url, {'pillar': 'aiqif_c1'}).data['count'], c1, kind)
+            pillars = self.client.get(f'{url}/facets').data['pillars']
+            # All nine AI-QIF criteria in framework order, an unused one as 0; blank pillars are not an option.
+            self.assertEqual([p['code'] for p in pillars], [f'AIQIF-C{n}' for n in range(1, 10)], kind)
+            counts = {p['value']: p['count'] for p in pillars}
+            self.assertEqual((counts['aiqif_c4'], counts['aiqif_c1'], counts['aiqif_c9']), (c4, c1, 0), kind)
+            self.assertEqual(pillars[0]['label'], 'Institutional AI Strategy & Governance')
+
+    def test_aiqif_category_filter_by_indicator_and_its_options(self):
+        from .models import FactAIQIFMapping
+        tag = lambda fact, criterion, code: FactAIQIFMapping.objects.create(
+            fact=fact, criterion=criterion, indicator_code=code, reason='x', confidence=0.9, status='mapped')
+        both = self._make_fact(field_key='both')
+        tag(both, 'aiqif_c4', 'AIQIF-C4.1')
+        tag(both, 'aiqif_c4', 'AIQIF-C4.2')
+        tag(self._make_fact(field_key='other'), 'aiqif_c4', 'AIQIF-C4.1')
+        self._make_fact(field_key='untagged')
+        self._auth(self.iqac)
+        url = f'/api/v1/sprints/{self.sprint.id}/facts'
+        self.assertEqual(self.client.get(url, {'aiqif_indicator': 'AIQIF-C4.1'}).data['count'], 2)
+        self.assertEqual(self.client.get(url, {'aiqif_indicator': 'AIQIF-C4.2'}).data['count'], 1)
+        self.assertEqual(self.client.get(url, {'aiqif_indicator': 'AIQIF-C9.1'}).data['count'], 0)
+        options = self.client.get(f'{url}/facets').data['aiqif_indicators']
+        self.assertEqual(len(options), 36)
+        self.assertEqual(options[0]['code'], 'AIQIF-C1.1')
+        counts = {o['value']: o['count'] for o in options}
+        self.assertEqual((counts['AIQIF-C4.1'], counts['AIQIF-C4.2'], counts['AIQIF-C9.1']), (2, 1, 0))
+
     def test_pages_never_leak_another_sprint_or_institution(self):
         other_sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.QUICK_CRI)
         foreign_sprint = Sprint.objects.create(institution=self.other_institution, mode=Sprint.SprintMode.QUICK_CRI)
@@ -2186,3 +2225,16 @@ class PostgreSQLRowLockTests(FactTestBase):
         self.assertTrue(joined)  # the query that joins the nullable document
         for q in joined:
             self.assertEqual(q.select_for_update_of, ('self',))
+
+
+class ProfileProgrammeNamesTests(FactTestBase):
+    """A programme fact whose value is a list (or list-looking text) becomes one programme per name."""
+
+    def test_list_values_are_split(self):
+        from .profile_suggestion import programme_names
+        self.assertEqual(programme_names("['Computer Science & Engineering', 'MBA (Logistics)']"),
+                         ['Computer Science & Engineering', 'MBA (Logistics)'])
+        self.assertEqual(programme_names('["BCA", "MCA", "BCA"]'), ['BCA', 'MCA'])
+        self.assertEqual(programme_names(['B.Tech IT', '  MBA ']), ['B.Tech IT', 'MBA'])
+        self.assertEqual(programme_names('Master of Computer Applications'), ['Master of Computer Applications'])
+        self.assertEqual(programme_names('[not a list'), ['[not a list'])

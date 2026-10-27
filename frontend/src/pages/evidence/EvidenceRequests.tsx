@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { Link, useSearchParams } from 'react-router-dom';
 import { FileCheck2 } from 'lucide-react';
@@ -13,6 +13,7 @@ import { EmptyState, ErrorState, InlineError, LoadingState } from '../../compone
 import { FilterPills, PageHeader } from '../../components/PageHeader';
 import { useAuth } from '../../context/AuthContext';
 import { useApiResource } from '../../hooks/useApiResource';
+import { useLivePolling } from '../../hooks/useLivePolling';
 import type {
   EvidenceAssignee, EvidenceLink, EvidenceRequest, EvidenceRequestDetail, SprintDocument,
 } from '../../types';
@@ -157,13 +158,13 @@ const RequestDetail: React.FC<{ id: string; onChanged: () => void }> = ({ id, on
   const [busy, setBusy] = useState(false);
   // While an AI assessment runs (first time or a retry), check back until it is ready or failed.
   const inProgress = !!detail?.evidence.some((e) => e.analysis_status === 'pending' || e.analysis_status === 'processing');
+  useLivePolling(inProgress, () => getEvidenceRequest(id).then((res) => setDetail(res.data)), 5000);
+  // When the assessment finishes, the list's status for this request changes too.
+  const wasInProgress = useRef(false);
   useEffect(() => {
-    if (!inProgress) return undefined;
-    const timer = setInterval(() => {
-      getEvidenceRequest(id).then((res) => setDetail(res.data)).catch(() => undefined);
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [inProgress, id]);
+    if (wasInProgress.current && !inProgress) onChanged();
+    wasInProgress.current = inProgress;
+  }, [inProgress, onChanged]);
 
   if (loading && !detail) return <LoadingState message="Loading request..." />;
   if (error) return <ErrorState message={error} onRetry={refetch} />;

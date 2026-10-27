@@ -10,6 +10,7 @@ import { getErrorMessage } from '../../utils/errors';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { FilterPills } from '../../components/PageHeader';
 import type { Institution } from '../../types';
+import { confirmDialog } from '../../components/Dialog';
 
 /**
  * User administration. Mirrors the rules the server enforces in
@@ -108,10 +109,11 @@ export const UsersTab: React.FC = () => {
     setListError('');
     try {
       if (u.is_active) {
-        if (!window.confirm(
+        if (!(await confirmDialog(
           `Deactivate ${u.full_name || u.email}? They will not be able to sign in. `
           + 'Their record stays, so anything they reviewed or approved still names them.',
-        )) return;
+          { title: 'Deactivate user', confirmLabel: 'Deactivate', danger: true },
+        ))) return;
         await deactivateUser(u.id);
       } else {
         await updateUser(u.id, { is_active: true });

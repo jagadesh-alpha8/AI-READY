@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { ProcessingStatusBanner } from '../../components/ProcessingStatusBanner';
 import { EvidenceCoverageCard } from './EvidenceCoverageCard';
 import { useParams, useNavigate } from 'react-router-dom';
 import { approveBaseline, approveBaselineProvisional, getBaseline, returnBaseline, reviseBaseline } from '../../api/baseline';
@@ -11,6 +10,7 @@ import type { Baseline, BaselineChangedResponse, SprintBaseline } from '../../ty
 import { Lock, ArrowRight, ShieldCheck, AlertTriangle, TrendingUp, TrendingDown, Undo2, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { useAccess } from '../../utils/access';
 import { isLocalDev } from '../../utils/devMode';
+import { isRealSprintId } from '../../utils/selectedSprint';
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Provisional Baseline Active',
@@ -76,7 +76,7 @@ export const BaselineApproval: React.FC = () => {
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
 
-  const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
+  const isRealSprint = isRealSprintId(sprintId);
   const {
     data,
     setData,
@@ -231,10 +231,6 @@ export const BaselineApproval: React.FC = () => {
         <LoadingState message="No score available for this sprint yet." />
       ) : (
         <>
-          {sprintId && !isDecided && (
-            <ProcessingStatusBanner sprintId={sprintId} summary={data?.processing}
-              consequence="Approving is refused until they are fully processed, unless you record a reason below." />
-          )}
           {isDecided && baseline.processing_incomplete && (
             <div className="rounded-lg border border-warning-line bg-warning-bg p-3 text-sm text-ink-700">
               <strong className="text-warning">Decided with incomplete document processing: </strong>

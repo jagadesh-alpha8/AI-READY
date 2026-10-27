@@ -12,6 +12,7 @@ import type { EvidenceAssignee, Fact, Gap, WorkSummary, WorkSummaryRow } from '.
 import { useAccess } from '../../utils/access';
 import { OwnerTaskCard } from './OwnerTaskCard';
 import { buildTasks, filterTasks, isCoordinator, isMine } from './ownerTasks.ts';
+import { isRealSprintId } from '../../utils/selectedSprint';
 
 /**
  * Owner Workspace: the review work of the sprint. "My tasks" = assigned to me, or unassigned and owned by
@@ -24,7 +25,7 @@ export const ConfirmationWorkspace: React.FC = () => {
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
+  const isRealSprint = isRealSprintId(sprintId);
   const coordinator = isCoordinator(user?.role);
 
   const facts = useApiResource<Fact[]>(() => listSprintFacts(sprintId!), [sprintId], isRealSprint);

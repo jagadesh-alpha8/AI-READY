@@ -4,7 +4,7 @@ import {
   getSprintGapFacets, listSprintGapsPage, resolveGap, markGapUnavailable, skipGap, type GapFacets,
 } from '../../api/gaps';
 import { DEFAULT_PAGE_SIZE, type Page } from '../../api/pagination';
-import { Pagination, optionsFromCounts, useDebounced } from '../../components/Pagination';
+import { Pagination, optionsFromCounts, pillarOptions, useDebounced } from '../../components/Pagination';
 import { useApiResource } from '../../hooks/useApiResource';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
@@ -19,12 +19,14 @@ import { UploadEvidenceModal } from './UploadEvidenceModal';
 import { LowConfidenceGapPanel } from './LowConfidenceGapPanel';
 import { ConflictComparisonDialog } from './ConflictComparison';
 import { GapSnippetCell } from './GapSnippetCell';
+import { promptDialog } from '../../components/Dialog';
+import { isRealSprintId } from '../../utils/selectedSprint';
 
 export const GapDashboard: React.FC = () => {
   const { canSee, step } = useAccess();
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
-  const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
+  const isRealSprint = isRealSprintId(sprintId);
 
   // Filters and paging run on the server (apps/gaps/filters.py): one page of gaps is loaded, never the whole
   // sprint; the filter options and totals come from aggregate counts (facets).
@@ -34,9 +36,10 @@ export const GapDashboard: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [ownerFilter, setOwnerFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
+  const [pillarFilter, setPillarFilter] = useState('');
   const q = useDebounced(search.trim());
   const query = { q, gap_type: typeFilter, priority: priorityFilter, status: statusFilter, owner_role: ownerFilter,
-    source_document: sourceFilter };
+    source_document: sourceFilter, pillar: pillarFilter };
   const queryKey = JSON.stringify(query);
   // The page belongs to its filters: a new filter starts at page 1 in the same render (never a request for
   // page 2 of a filter that may have only one page).
@@ -94,13 +97,12 @@ export const GapDashboard: React.FC = () => {
   };
 
   // Closing a gap without fixing it always needs a reason (the server refuses a blank one).
-  const askReason = (what: string) => {
-    const reason = window.prompt(`Why is this gap being ${what}? (required, kept in its history)`, '');
-    return reason && reason.trim() ? reason.trim() : null;
-  };
+  const askReason = async (what: string) => (await promptDialog(
+    `Why is this gap being ${what}? (kept in its history)`, { title: 'Reason required', required: true },
+  )) || null;
 
   const handleMarkUnavailable = async (gapId: string) => {
-    const reason = askReason('marked unavailable');
+    const reason = await askReason('marked unavailable');
     if (!reason) return;
     setResolvingId(gapId);
     setActionError('');
@@ -115,7 +117,7 @@ export const GapDashboard: React.FC = () => {
   };
 
   const handleSkipGap = async (gapId: string) => {
-    const reason = askReason('skipped');
+    const reason = await askReason('skipped');
     if (!reason) return;
     setResolvingId(gapId);
     setActionError('');
@@ -197,15 +199,8 @@ export const GapDashboard: React.FC = () => {
           <ErrorState message={error} onRetry={refetch} />
         ) : totalGaps === 0 && gaps.length === 0 ? (
           <div className="panel-muted">
-            <p className="text-sm text-ink-500">No gaps detected yet.</p>
-            <button
-              onClick={() => setActionError(
-                'Demo gap seeding is disabled: gaps are only ever raised by automatic detection during extraction, never fabricated.',
-              )}
-              className="mt-3 px-3 py-1.5 bg-warning-solid text-white text-xs rounded-lg font-medium hover:brightness-95"
-            >
-              Seed Sample Gaps
-            </button>
+            <p className="text-sm text-ink-500">No gaps detected yet. Gaps are raised automatically when AI extraction finds missing, conflicting or unconfirmed data.</p>
+            <Link to={`/sprint/${sprintId}/facts`} className="btn-secondary btn-sm mt-3 inline-flex">Review extracted facts</Link>
           </div>
         ) : (
           <>
@@ -220,6 +215,9 @@ export const GapDashboard: React.FC = () => {
                 options: optionsFromCounts(facets?.gap_type, (v: string) => v.replace(/_/g, ' ')) },
               { key: 'priority', label: 'Priority', value: priorityFilter, onChange: setPriorityFilter,
                 options: optionsFromCounts(facets?.priority) },
+              // The CRI pillars are the 9 AI-QIF criteria in framework order; one with no gaps still shows, as (0).
+              { key: 'pillar', label: 'CRI Pillar', value: pillarFilter, onChange: setPillarFilter,
+                options: pillarOptions(facets?.pillars) },
               { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
                 options: optionsFromCounts(facets?.status, (v: string) => v.replace(/_/g, ' ')) },
               { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
@@ -234,13 +232,14 @@ export const GapDashboard: React.FC = () => {
             </div>
           ) : (
           <ScrollableTable>
-            <table className="table-base min-w-[1600px]">
+            <table className="table-base min-w-[1750px]">
               <thead>
                 <tr>
                   <th>S.No</th>
                   <th>Audit Field ID</th>
                   <th>Gap Type</th>
                   <th>Priority</th>
+                  <th title="The CRI pillar whose score this gap's penalty is taken from while it is open.">CRI Pillar</th>
                   <th title="The role that owns this data -- not a named person">Owner Role</th>
                   <th>Title</th>
                   <th>Source</th>
@@ -263,6 +262,9 @@ export const GapDashboard: React.FC = () => {
                     </td>
                     <td>
                       <span className={priorityBadgeClass(gap.priority)}>{gap.priority}</span>
+                    </td>
+                    <td>
+                      <span className="badge-neutral">{gap.pillar_label || gap.pillar || '—'}</span>
                     </td>
                     <td className="text-ink-900">
                       <span className="font-semibold">{gap.owner_role || '—'}</span>

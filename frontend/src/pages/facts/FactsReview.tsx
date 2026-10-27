@@ -5,8 +5,11 @@ import {
   correctFact, rejectFact, type FactFacets,
 } from '../../api/facts';
 import { DEFAULT_PAGE_SIZE, type Page } from '../../api/pagination';
-import { Pagination, optionsFromCounts, useDebounced } from '../../components/Pagination';
+import { Pagination, optionsFromCounts, pillarOptions, useDebounced } from '../../components/Pagination';
 import { useApiResource } from '../../hooks/useApiResource';
+import { useLivePolling } from '../../hooks/useLivePolling';
+import { getProcessingSummary } from '../../api/extraction';
+import type { ProcessingSummary } from '../../types/extraction';
 import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { Fact } from '../../types';
@@ -18,6 +21,8 @@ import { CriConfidenceTile } from '../scoring/CriConfidenceTile';
 import { RequestEvidenceModal } from './RequestEvidenceModal';
 import { FactKindBadge } from './AIQIFSummaryBar';
 import { AIQIFTagRow, FactReviewState } from './AIQIFTagRow';
+import { confirmDialog, promptDialog } from '../../components/Dialog';
+import { isRealSprintId } from '../../utils/selectedSprint';
 
 const KIND_LABELS: Record<string, string> = {
   ai_evidence: 'AI evidence', context: 'Context', profile: 'Institution profile', '': 'Not classified yet',
@@ -31,7 +36,7 @@ export const FactsReview: React.FC = () => {
   const isExpert = can('aiqif.expert');
   const { sprintId } = useParams<{ sprintId: string }>();
   const navigate = useNavigate();
-  const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
+  const isRealSprint = isRealSprintId(sprintId);
 
   // Filters (server-side, apps/facts/filters.py): only the current page of facts is loaded; filter options and
   // totals come from aggregate counts over the whole sprint (facets).
@@ -40,9 +45,12 @@ export const FactsReview: React.FC = () => {
   const [ownerFilter, setOwnerFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [kindFilter, setKindFilter] = useState('');
+  const [pillarFilter, setPillarFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const q = useDebounced(search.trim());
   const query = {
     q, status: statusFilter, owner_role: ownerFilter, source_document: sourceFilter, fact_kind: kindFilter,
+    pillar: pillarFilter, aiqif_indicator: categoryFilter,
   };
   const queryKey = JSON.stringify(query);
   // The page belongs to its filters: a new filter starts at page 1 in the same render (never a request for
@@ -55,10 +63,17 @@ export const FactsReview: React.FC = () => {
     loading,
     error,
     refetch: refetchPage,
+    refresh: refreshPage,
   } = useApiResource<Page<Fact>>(() => listSprintFactsPage(sprintId!, { ...query, page, page_size: DEFAULT_PAGE_SIZE }),
     [sprintId, queryKey, page], isRealSprint);
-  const { data: facets, refetch: refetchFacets } = useApiResource<FactFacets>(
+  const { data: facets, refetch: refetchFacets, refresh: refreshFacets } = useApiResource<FactFacets>(
     () => getSprintFactFacets(sprintId!), [sprintId], isRealSprint);
+  // While AI extraction is still running for this sprint, new facts are swapped in place every few seconds
+  // (filters, page and any open edit stay as they are); polling stops once nothing is processing.
+  const { data: processing, refresh: refreshProcessing } = useApiResource<ProcessingSummary>(
+    () => getProcessingSummary(sprintId!), [sprintId], isRealSprint);
+  useLivePolling((processing?.counts?.active ?? 0) > 0,
+    () => Promise.all([refreshPage(), refreshFacets(), refreshProcessing()]), 5000);
   const refetch = () => { refetchPage(); refetchFacets(); };
   const facts = pageData?.results || [];
   const totalFacts = facets?.total ?? 0;
@@ -73,8 +88,6 @@ export const FactsReview: React.FC = () => {
   const [bulkProgress, setBulkProgress] = useState('');
 
   const filteredFacts = facts;  // the current page, already filtered by the server
-  // The CRI pillars are the 9 AI-QIF criteria (live scoring config, in framework order). All 9 are offered,
-  // with their fact counts -- a criterion no fact is tagged to yet still shows, as (0).
 
   const handleConfirm = async (factId: string) => {
     setActingOnId(factId);
@@ -108,9 +121,10 @@ export const FactsReview: React.FC = () => {
       setActionMessage('Nothing to confirm in bulk: every fact in this list is already reviewed, or needs a one-by-one review.');
       return;
     }
-    const accepted = window.confirm(
+    const accepted = await confirmDialog(
       `Confirm ${factIds.length} fact(s) from this list? The others need a one-by-one review. `
       + 'Each confirmation is recorded in the audit history.',
+      { title: 'Bulk confirm', confirmLabel: `Confirm ${factIds.length}` },
     );
     if (!accepted) return;
 
@@ -164,12 +178,13 @@ export const FactsReview: React.FC = () => {
 
   const handleReject = async (factId: string) => {
     // The reason is required: it stays with the fact's gap, which moves to "needs replacement".
-    const reason = window.prompt('Why is this value wrong? (kept with the fact and its gap)', '');
-    if (!reason || !reason.trim()) return;
+    const reason = await promptDialog('Why is this value wrong? (kept with the fact and its gap)',
+      { title: 'Reject fact', confirmLabel: 'Reject', danger: true, required: true });
+    if (!reason) return;
     setActingOnId(factId);
     setActionError('');
     try {
-      await rejectFact(factId, reason.trim());
+      await rejectFact(factId, reason);
       refetch();
     } catch (err) {
       setActionError(getErrorMessage(err, 'Failed to reject fact.'));
@@ -243,15 +258,11 @@ export const FactsReview: React.FC = () => {
           <ErrorState message={error} onRetry={refetch} />
         ) : totalFacts === 0 && facts.length === 0 ? (
           <div className="panel-muted">
-            <p className="text-sm text-ink-500">No facts extracted yet. Seed facts or run extraction.</p>
-            <button
-              onClick={() => setActionError(
-                'Demo fact seeding is disabled: facts are only ever created by the extraction pipeline, never fabricated.',
-              )}
-              className="btn-primary btn-sm mt-3"
-            >
-              Seed Sample Facts
-            </button>
+            <p className="text-sm text-ink-500">No facts extracted yet. Facts appear here once uploaded documents are processed by AI.</p>
+            <div className="flex flex-wrap gap-2 mt-3">
+              <Link to={`/sprint/${sprintId}/upload`} className="btn-primary btn-sm">Upload documents</Link>
+              <Link to={`/sprint/${sprintId}/monitor`} className="btn-secondary btn-sm">AI processing monitor</Link>
+            </div>
           </div>
         ) : (
           <>
@@ -264,6 +275,12 @@ export const FactsReview: React.FC = () => {
             selects={[
               { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
                 options: optionsFromCounts(facets?.status, (v: string) => v.replace(/_/g, ' ')) },
+              // The CRI pillars are the 9 AI-QIF criteria in framework order; one with no facts still shows, as (0).
+              { key: 'pillar', label: 'CRI Pillar', value: pillarFilter, onChange: setPillarFilter,
+                options: pillarOptions(facets?.pillars) },
+              // Facts tagged to one of the 36 AI-QIF key indicators (what the AI-QIF Category column shows).
+              { key: 'category', label: 'AI-QIF Category', value: categoryFilter, onChange: setCategoryFilter,
+                options: pillarOptions(facets?.aiqif_indicators) },
               { key: 'kind', label: 'Fact kind', value: kindFilter, onChange: setKindFilter,
                 options: optionsFromCounts(facets?.fact_kind, (v: string) => KIND_LABELS[v === 'none' ? '' : v] || v) },
               { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,

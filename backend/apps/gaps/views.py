@@ -62,6 +62,7 @@ class SprintGapFacetsView(APIView):
         from django.db.models import Count
 
         from apps.facts.ownership import checklist_owner_role
+        from apps.scoring.constants import pillar_facet
 
         from .services import missing_document_type
         sprint = get_authorized_sprint(request.user, sprint_id)
@@ -92,6 +93,7 @@ class SprintGapFacetsView(APIView):
             'status': status_counts,
             'owner_role': dict(owners),
             'source_document': dict(sources),
+            'pillars': pillar_facet(counts('pillar')),
         })
 
 

@@ -1,3 +1,4 @@
+import type { PillarFacet } from '../components/Pagination';
 import api from './client';
 import type { Fact } from '../types';
 import { cleanParams, fetchAllPages, type Page } from './pagination';
@@ -11,6 +12,7 @@ export interface FactQuery {
   pillar?: string;
   fact_kind?: string;          // 'ai_evidence' | 'context' | 'profile' | 'none'
   aiqif_criterion?: string;
+  aiqif_indicator?: string;  // e.g. 'AIQIF-C4.1'
   aiqif_mapping_status?: string;
   owner_role?: string;
   source_document?: string;    // file name
@@ -36,6 +38,10 @@ export interface FactFacets {
   total: number;
   status: Record<string, number>;
   pillar: Record<string, number>;
+  /** CRI Pillar filter options: the 9 AI-QIF criteria in framework order, with counts. */
+  pillars: PillarFacet[];
+  /** AI-QIF Category filter options: the 36 key indicators in framework order, with the facts tagged to each. */
+  aiqif_indicators: PillarFacet[];
   fact_kind: Record<string, number>;
   aiqif_mapping_status: Record<string, number>;
   owner_role: Record<string, number>;
