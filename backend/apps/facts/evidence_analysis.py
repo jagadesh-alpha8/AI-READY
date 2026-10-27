@@ -188,7 +188,8 @@ def analyze_submission(link, *, pages=None, job=None):
     if link.analysis_status == EvidenceRequestDocument.AnalysisStatus.READY:
         return link
     with transaction.atomic():
-        link = EvidenceRequestDocument.objects.select_for_update().select_related(
+        # of=('self',): `document` is nullable (an outer join), which PostgreSQL cannot lock -- lock this row only.
+        link = EvidenceRequestDocument.objects.select_for_update(of=('self',)).select_related(
             'request__fact', 'request__sprint', 'document').get(pk=link.pk)
         if link.analysis_status in (EvidenceRequestDocument.AnalysisStatus.READY,
                                     EvidenceRequestDocument.AnalysisStatus.PROCESSING):

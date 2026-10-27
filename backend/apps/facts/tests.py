@@ -2144,3 +2144,45 @@ class EvidenceAssessmentRetryTests(FactTestBase):
             analysis_started_at=timezone.now() - timedelta(minutes=STALE_ASSESSMENT_MINUTES + 1))
         response, delay = self._retry(req, link, run=False)
         self.assertEqual((response.status_code, delay.call_count), (status.HTTP_200_OK, 1))
+
+
+class PostgreSQLRowLockTests(FactTestBase):
+    """Row locks must be valid on PostgreSQL (production): FOR UPDATE may not reach the nullable side of an outer
+    join. SQLite (local, CI) ignores FOR UPDATE, so the locking queries are checked for FOR UPDATE OF (the row itself) here."""
+
+    def _locking_queries(self, run):
+        """Run `run()` and return each row-locking query it fetched with .get()."""
+        from django.db.models.query import QuerySet
+        captured, real_get = [], QuerySet.get
+
+        def spy(qs, *args, **kwargs):
+            captured.append(qs.query)
+            return real_get(qs, *args, **kwargs)
+
+        with patch.object(QuerySet, 'get', spy):
+            run()
+        return [q for q in captured if q.select_for_update]
+
+    def test_tag_lock_only_locks_the_tag_row(self):
+        from .aiqif_tagging import _lock
+        from .models import FactAIQIFMapping
+        mapping = FactAIQIFMapping.objects.create(fact=self._make_fact(), criterion='aiqif_c4',
+                                                  indicator_code='AIQIF-C4.1', reason='x', confidence=0.9,
+                                                  status=FactAIQIFMapping.Status.MAPPED)
+        queries = self._locking_queries(lambda: _lock(mapping))  # reviewed_by (nullable) is joined
+        self.assertEqual(len(queries), 1)
+        self.assertIn('reviewed_by', queries[0].select_related)
+        self.assertEqual(queries[0].select_for_update_of, ('self',))  # FOR UPDATE OF the tag row only
+
+    def test_evidence_assessment_lock_only_locks_the_submission_row(self):
+        from .evidence_analysis import analyze_submission
+        req = EvidenceRequest.objects.create(sprint=self.sprint, fact=self._make_fact(), description='Proof',
+                                             fact_status_before='extracted')
+        link = EvidenceRequestDocument.objects.create(request=req, submitted_text='120 of 192.', source_context='HR')
+        with patch('apps.facts.evidence_analysis.get_ai_service') as ai:
+            ai.return_value.extract_structured_data.side_effect = TimeoutError('timed out')
+            queries = self._locking_queries(lambda: analyze_submission(link))
+        joined = [q for q in queries if isinstance(q.select_related, dict) and 'document' in q.select_related]
+        self.assertTrue(joined)  # the query that joins the nullable document
+        for q in joined:
+            self.assertEqual(q.select_for_update_of, ('self',))

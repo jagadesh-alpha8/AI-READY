@@ -511,7 +511,11 @@ def decision_snapshot(m):
 
 
 def _lock(mapping):
-    return FactAIQIFMapping.objects.select_for_update().select_related('fact', 'reviewed_by').get(pk=mapping.pk)
+    # of=('self',): lock only the tag row. reviewed_by is nullable (an outer join), and PostgreSQL refuses
+    # FOR UPDATE on the nullable side of an outer join -- a 500 on any tag nobody has reviewed yet. (SQLite, used
+    # locally and in CI, ignores FOR UPDATE, so only PostgreSQL showed it.)
+    return (FactAIQIFMapping.objects.select_for_update(of=('self',)).select_related('fact', 'reviewed_by')
+            .get(pk=mapping.pk))
 
 
 def _clear_pending(m):
