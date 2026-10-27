@@ -52,18 +52,20 @@ export const AIProcessingMonitor: React.FC = () => {
   const navigate = useNavigate();
   const isRealSprint = !!sprintId && sprintId !== 'demo-sprint-id';
 
-  const { data: jobsData, loading, error, refetch } = useApiResource<ExtractionJob[]>(
+  const { data: jobsData, loading, error, refetch, refresh: refreshJobs } = useApiResource<ExtractionJob[]>(
     () => listExtractionJobs(sprintId!),
     [sprintId],
     isRealSprint,
   );
   const jobs = jobsData || [];
-  const { data: documentsData, loading: documentsLoading, error: documentsError, refetch: refetchDocuments } =
+  const { data: documentsData, loading: documentsLoading, error: documentsError, refetch: refetchDocuments,
+    refresh: refreshDocuments } =
     useApiResource<SprintDocument[]>(() => listSprintDocuments(sprintId!), [sprintId], isRealSprint);
   const documents = documentsData || [];
   // Every count, chip and row state comes from the server's processing summary, so this page, the review
   // screens and the baseline gate use one definition; the jobs list only adds per-row detail.
-  const { data: summary, loading: summaryLoading, error: summaryError, refetch: refetchSummary } =
+  const { data: summary, loading: summaryLoading, error: summaryError, refetch: refetchSummary,
+    refresh: refreshSummary } =
     useApiResource<ProcessingSummary>(() => getProcessingSummary(sprintId!), [sprintId], isRealSprint);
   const stateByDocument = new Map<string, DocState>();
   const excludedLabel = new Map<string, string>();
@@ -79,17 +81,17 @@ export const AIProcessingMonitor: React.FC = () => {
 
   // Fact / gap / conflict counts for the stat cards and each row: database aggregates (facets), never the
   // whole fact and gap lists.
-  const { data: factFacets, refetch: refetchFacts } = useApiResource<FactFacets>(
+  const { data: factFacets, refresh: refreshFacts } = useApiResource<FactFacets>(
     () => getSprintFactFacets(sprintId!),
     [sprintId],
     isRealSprint,
   );
-  const { data: gapFacets, refetch: refetchGaps } = useApiResource<GapFacets>(
+  const { data: gapFacets, refresh: refreshGaps } = useApiResource<GapFacets>(
     () => getSprintGapFacets(sprintId!),
     [sprintId],
     isRealSprint,
   );
-  const { data: usage, refetch: refetchUsage } = useApiResource<SprintAIUsage>(
+  const { data: usage, refresh: refreshUsage } = useApiResource<SprintAIUsage>(
     () => getSprintAIUsage(sprintId!),
     [sprintId],
     isRealSprint && SHOW_AI_USAGE,
@@ -118,7 +120,7 @@ export const AIProcessingMonitor: React.FC = () => {
       if (!job) await startExtraction(sprintId!, [document.id]);
       else if (action === 'stop') await cancelExtractionJob(job.id);
       else await processExtractionJob(job.id);
-      refetchAllRef.current();
+      refreshAllRef.current();
     } catch (err) {
       setActionError(getErrorMessage(err, `Failed to ${action} "${document.original_filename}".`));
     } finally {
@@ -131,7 +133,7 @@ export const AIProcessingMonitor: React.FC = () => {
     setActionError('');
     try {
       await processIncompleteExtraction(sprintId!);
-      refetchAllRef.current();
+      refreshAllRef.current();
     } catch (err) {
       setActionError(getErrorMessage(err, 'Failed to start processing the unfinished documents.'));
     } finally {
@@ -160,34 +162,56 @@ export const AIProcessingMonitor: React.FC = () => {
 
     try {
       await deleteExtractionJob(job.id);
-      refetchAllRef.current();
+      refreshAllRef.current();
     } catch (err) {
       console.error('Failed to delete extraction job:', err);
       alert('Failed to delete the job. Please try again.');
     }
   };
 
-  const refetchAllRef = useRef(() => {
-    refetch();
-    refetchDocuments();
-    refetchSummary();
-    refetchFacts();
-    refetchGaps();
-    refetchUsage();
-  });
-  refetchAllRef.current = () => {
-    refetch();
-    refetchDocuments();
-    refetchSummary();
-    refetchFacts();
-    refetchGaps();
-    refetchUsage();
+  // Live updates: every resource is refreshed in the background and swapped in place -- the page, its filters,
+  // scroll position and open details stay as they are. One round of requests at a time; a failed round keeps
+  // the last good data and shows a small warning with Retry.
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [refreshError, setRefreshError] = useState('');
+  const inFlight = useRef(false);
+  const refreshAllRef = useRef(async () => {});
+  refreshAllRef.current = async () => {
+    if (inFlight.current) return;  // the previous round is still running: never overlap
+    inFlight.current = true;
+    try {
+      const errors = await Promise.all([refreshJobs(), refreshDocuments(), refreshSummary(), refreshFacts(),
+        refreshGaps(), refreshUsage()]);
+      const failed = errors.find(Boolean);
+      if (failed) setRefreshError(failed);
+      else { setRefreshError(''); setLastUpdated(Date.now()); }
+    } finally {
+      inFlight.current = false;
+    }
   };
-
+  // Also counts the first load as an update.
   useEffect(() => {
-    if (!hasActiveJob) return;
-    const timer = setInterval(() => refetchAllRef.current(), POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
+    if (lastUpdated === null && jobsData && documentsData && summary) setLastUpdated(Date.now());
+  }, [lastUpdated, jobsData, documentsData, summary]);
+
+  // Poll only while something is processing; wait for each round before scheduling the next; skip rounds while
+  // the tab is hidden and catch up as soon as it is visible again.
+  useEffect(() => {
+    if (!hasActiveJob) return undefined;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      if (!document.hidden) await refreshAllRef.current();
+      if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
+    };
+    timer = setTimeout(tick, POLL_INTERVAL_MS);
+    const onVisible = () => { if (!document.hidden) refreshAllRef.current(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [hasActiveJob]);
 
   const currentTotal = counts?.total ?? 0;
@@ -257,9 +281,9 @@ export const AIProcessingMonitor: React.FC = () => {
         </div>
       )}
 
-      {loading || documentsLoading || (summaryLoading && !summary) ? (
+      {(loading && !jobsData) || (documentsLoading && !documentsData) || (summaryLoading && !summary) ? (
         <LoadingState message="Loading extraction jobs..." />
-      ) : error || documentsError || summaryError ? (
+      ) : (error && !jobsData) || (documentsError && !documentsData) || (summaryError && !summary) ? (
         <ErrorState message={getErrorMessage(error || documentsError || summaryError, 'Could not load sprint processing status.')}
           onRetry={() => { refetch(); refetchDocuments(); refetchSummary(); }} />
       ) : documents.length === 0 ? (
@@ -272,6 +296,13 @@ export const AIProcessingMonitor: React.FC = () => {
         <>
           {/* Only while documents are processing: progress and time left. A finished run is summarised by the
               sprint counts and document statuses below. */}
+          <LiveStatus live={hasActiveJob} lastUpdated={lastUpdated} error={refreshError}
+            onRetry={() => refreshAllRef.current()} />
+          {/* Announced only when a count changes, never for each small progress step. */}
+          <p className="sr-only" role="status" aria-live="polite">
+            {`${completedCount} of ${currentTotal} documents fully processed`
+              + (processingCount ? `, ${processingCount} processing` : '') + (failedCount ? `, ${failedCount} failed` : '')}
+          </p>
           {run?.active && <RunTimingPanel run={run} />}
           {SHOW_AI_USAGE && usage && usage.calls > 0 && <AIUsagePanel usage={usage} currentTotal={currentTotal} />}
 
@@ -486,6 +517,9 @@ export const AIProcessingMonitor: React.FC = () => {
                           {job.ai_cost_usd !== null && ` · ${formatUsd(job.ai_cost_usd)}`}
                         </span>
                       )}
+                      {job && ACTIVE_EXTRACTION_STATUSES.includes(job.status) && (
+                        <ProgressBar percent={job.progress_percentage || 0} className="hidden sm:block w-16" />
+                      )}
                       <span className="text-sm font-mono text-ink-500 tabular-nums">{job?.progress_percentage || 0}%</span>
                       <span className={badgeClass}>
                         {!current ? (docState(document) === 'rejected' ? 'rejected' : 'earlier version')
@@ -536,6 +570,8 @@ export const AIProcessingMonitor: React.FC = () => {
 };
 
 const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+/** With seconds, for "updated 10:42:05" (the data changes every few seconds). */
+const clockSeconds = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 const OUTCOME_CLASS: Record<string, string> = {
   'fully processed': 'text-success', 'partially processed': 'text-warning', failed: 'text-danger',
@@ -571,6 +607,41 @@ const ActivityDetails: React.FC<{ run: RunTiming }> = ({ run }) => (
 );
 
 /** While documents are processing: elapsed time, progress and a rounded time-left estimate. */
+/** A slim bar that eases to its new width (no motion for people who ask for reduced motion). Decorative: the
+ * number next to it carries the value. */
+const ProgressBar: React.FC<{ percent: number; className?: string }> = ({ percent, className = '' }) => (
+  <span className={`h-1.5 rounded-full bg-line-200 overflow-hidden ${className}`} aria-hidden="true">
+    <span className="block h-full rounded-full bg-brand-500 transition-[width] duration-700 ease-out motion-reduce:transition-none"
+      style={{ width: `${Math.max(0, Math.min(100, percent))}%` }} />
+  </span>
+);
+
+/** "Live · updated 10:42:05" while processing, "Updated …" otherwise; a failed refresh is a small warning with
+ * Retry, and the last good data stays on screen. Not a live region (it changes every few seconds). */
+const LiveStatus: React.FC<{ live: boolean; lastUpdated: number | null; error: string; onRetry: () => void }> = ({
+  live, lastUpdated, error, onRetry,
+}) => (
+  <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs text-ink-500">
+    {error ? (
+      <span className="text-warning">
+        Couldn't refresh{lastUpdated ? ` — showing data from ${clockSeconds(lastUpdated)}` : ''}.{' '}
+        <button type="button" className="underline font-semibold" onClick={onRetry}>Retry</button>
+      </span>
+    ) : live ? (
+      <span className="inline-flex items-center gap-1.5">
+        <span className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-60 motion-safe:animate-ping" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
+        </span>
+        <span className="font-semibold text-success">Live</span>
+        {lastUpdated && <span>· updated {clockSeconds(lastUpdated)}</span>}
+      </span>
+    ) : lastUpdated ? (
+      <span>Updated {clockSeconds(lastUpdated)}</span>
+    ) : null}
+  </div>
+);
+
 const RunTimingPanel: React.FC<{ run: RunTiming }> = ({ run }) => {
   const finished = run.completed + run.failed + run.stopped;
   const outcome = [
@@ -602,6 +673,7 @@ const RunTimingPanel: React.FC<{ run: RunTiming }> = ({ run }) => {
           <div>
             <p className="text-xs text-ink-500">Progress of this activity</p>
             <p className="text-lg font-bold text-ink-900 tabular-nums">{finished} / {run.total}</p>
+            <ProgressBar percent={run.total ? (finished / run.total) * 100 : 0} className="w-full my-1" />
             <p className="text-xs text-ink-500">{run.remaining} remaining{outcome && ` · ${outcome}`}</p>
           </div>
           <div>

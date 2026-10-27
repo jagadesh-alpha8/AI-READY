@@ -411,6 +411,33 @@ class SprintDeleteWithBaselineTests(APITestCase):
         self.assertFalse(Baseline.objects.filter(sprint_id=self.sprint.id).exists())
         self.assertFalse(ScoringRun.objects.filter(sprint_id=self.sprint.id).exists())
 
+    def test_a_sprint_with_a_generated_report_can_be_deleted(self):
+        """Regression: `Report.scoring_run` is PROTECT too -- an archived sprint with a report could not be deleted."""
+        from apps.reports.models import Report
+        from apps.scoring.models import ScoringRun
+        Report.objects.create(sprint=self.sprint, version=1, scoring_run=ScoringRun.objects.filter(sprint=self.sprint).first())
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f'/api/v1/sprints/{self.sprint.id}')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Sprint.objects.filter(pk=self.sprint.pk).exists())
+        self.assertFalse(Report.objects.filter(sprint_id=self.sprint.id).exists())
+
+    def test_a_sprint_with_evidence_submitted_as_a_document_can_be_deleted(self):
+        """`EvidenceRequestDocument.document` is PROTECT: evidence linked to a sprint document blocked the delete."""
+        from django.core.files.base import ContentFile
+
+        from apps.documents.models import Document
+        from apps.facts.models import EvidenceRequest, EvidenceRequestDocument, ExtractedFact
+        doc = Document.objects.create(sprint=self.sprint, original_filename='register.pdf', title='Register',
+                                      file=ContentFile(b'%PDF-1.4', name='register.pdf'))
+        fact = ExtractedFact.objects.create(sprint=self.sprint, field_name='Faculty', field_key='faculty', value=1)
+        req = EvidenceRequest.objects.create(sprint=self.sprint, fact=fact, description='Proof',
+                                             fact_status_before=fact.status)
+        EvidenceRequestDocument.objects.create(request=req, document=doc)
+        response = self.client.delete(f'/api/v1/sprints/{self.sprint.id}')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, getattr(response, 'data', None))
+        self.assertFalse(Document.objects.filter(pk=doc.pk).exists())
+
     def test_a_non_deletable_status_is_still_refused(self):
         """The status gate is unchanged — only the PROTECT blocker was fixed."""
         self.sprint.status = Sprint.Status.REVIEWING

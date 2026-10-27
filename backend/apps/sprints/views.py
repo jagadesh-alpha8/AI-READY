@@ -94,6 +94,13 @@ class SprintViewSet(viewsets.ModelViewSet):
             # Both are pre-existing landmines that only fire on a sprint with
             # real data, which is why neither showed up until one was deleted.
             instance.baselines.all().delete()
+            # 3. The same PROTECT as (1), from `Report.scoring_run` (a generated report keeps the run it was
+            #    built from) and `EvidenceRequestDocument.document` (evidence keeps its document): removed with
+            #    the sprint they belong to. Their stored PDF / DOCX files go once the delete has committed.
+            files = [f for r in instance.reports.all() for f in (r.pdf_file, r.docx_file) if f]
+            instance.reports.all().delete()
+            instance.evidence_requests.all().delete()
+            transaction.on_commit(lambda: [f.storage.delete(f.name) for f in files])
             instance.gaps.all().delete()
             try:
                 instance.delete()

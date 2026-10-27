@@ -44,5 +44,21 @@ export function useApiResource<T>(
     refetch();
   }, [refetch]);
 
-  return { data, setData, loading, error, refetch };
+  /** Background refresh for live pages: no loading state, and the current data stays shown while it fetches.
+   * Resolves to '' on success, or the error message on failure -- the last good data is kept, and the error is
+   * left to the caller to show unobtrusively (it does not become this resource's `error`). */
+  const refresh = useCallback(async (): Promise<string> => {
+    if (!enabled) return '';
+    try {
+      const res = await fetcherRef.current();
+      setData(res.data);
+      setError('');
+      return '';
+    } catch (err) {
+      return getErrorMessage(err, 'Failed to refresh data.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, ...deps]);
+
+  return { data, setData, loading, error, refetch, refresh };
 }

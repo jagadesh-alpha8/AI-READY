@@ -18,6 +18,11 @@ function initialValues(s: ProfileSuggestion): ProfileValues {
   };
 }
 
+/** [programme type, number of programmes] -- most common first. */
+const programmeTypes = (programmes: ProfileValues['programmes']) => Object.entries(
+  programmes.reduce<Record<string, number>>((acc, p) => ({ ...acc, [p.programme_type]: (acc[p.programme_type] || 0) + 1 }), {}),
+).sort((a, b) => b[1] - a[1]);
+
 const same = (a: ProfileValues, b: ProfileValues | null) => !!b && JSON.stringify({ ...a, approval_bodies: [...a.approval_bodies].sort(), programmes: [...a.programmes].sort((x, y) => x.name.localeCompare(y.name)) })
   === JSON.stringify({ ...b, approval_bodies: [...b.approval_bodies].sort(), programmes: [...b.programmes].sort((x, y) => x.name.localeCompare(y.name)) });
 
@@ -107,16 +112,38 @@ export const ProfileConfirmPanel: React.FC<{ sprintId: string; canConfirm: boole
         </div>
         <div>
           <dt className="text-ink-500">Programmes</dt>
-          <dd className="text-ink-900">
-            {values.programmes.length ? values.programmes.map((p) => `${p.name} (${name(data.options.programme_types, p.programme_type)})`).join('; ') : '—'}
+          <dd className="text-ink-900 space-y-1">
+            {values.programmes.length ? (
+              <>
+                {/* One chip per programme type (what the applicability rules use), with how many programmes. */}
+                <div className="flex flex-wrap gap-1">
+                  {programmeTypes(values.programmes).map(([type, count]) => (
+                    <span key={type} className="badge-neutral">
+                      {name(data.options.programme_types, type)}{count > 1 ? ` ×${count}` : ''}
+                    </span>
+                  ))}
+                </div>
+                <details>
+                  <summary className="cursor-pointer text-brand-800">Show all {values.programmes.length} programmes</summary>
+                  <ul className="list-disc pl-4 pt-1 text-ink-700 space-y-0.5">
+                    {values.programmes.map((p, i) => <li key={`${p.name}-${i}`}>{p.name}</li>)}
+                  </ul>
+                </details>
+              </>
+            ) : '—'}
           </dd>
         </div>
       </dl>
       {data.unmatched.length > 0 && (
-        <p className="text-ink-500">
-          Also read, but not matched to the lists above (choose the right value if it matters):{' '}
-          {data.unmatched.map((u) => `${u.field_name}: ${String(u.value)}`).join('; ')}.
-        </p>
+        <details className="text-ink-500">
+          <summary className="cursor-pointer">
+            {data.unmatched.length} other value{data.unmatched.length === 1 ? '' : 's'} read from the documents (not used)
+          </summary>
+          <p className="pt-1">Not matched to the lists above; choose the right value with Edit if one matters.</p>
+          <ul className="list-disc pl-4 pt-1 space-y-0.5">
+            {data.unmatched.map((u, i) => <li key={`${u.field_name}-${i}`}>{u.field_name}: {String(u.value)}</li>)}
+          </ul>
+        </details>
       )}
     </div>
   );
