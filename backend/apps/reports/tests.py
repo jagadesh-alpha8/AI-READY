@@ -351,9 +351,9 @@ class ReportRecalculationTests(ReportsTestBase):
         self.assertIsNotNone(source['baseline_calculated_at'])
         self.assertNotEqual(source['scoring_run_id'], source['baseline_scoring_run_id'])
         from .rendering import render_pdf_bytes
-        import io
-        from pypdf import PdfReader
-        text = ' '.join(pg.extract_text() for pg in PdfReader(io.BytesIO(render_pdf_bytes(changed))).pages)
+        import pymupdf
+        with pymupdf.open(stream=render_pdf_bytes(changed), filetype='pdf') as pdf:
+            text = ' '.join(' '.join(pg.get_text().split()) for pg in pdf)
         self.assertIn(f'Approved baseline (approved): CRI {pinned[1]:.1f}', text)
         self.assertIn(f"Live CRI in this report: {changed.report_data['overall_cri']:.1f}", text)
         baseline.refresh_from_db()
@@ -410,9 +410,9 @@ class VisualPdfTests(TestCase):
         return SimpleNamespace(report_data=data, version=4)
 
     def _text(self, pdf_bytes):
-        import io
-        from pypdf import PdfReader
-        return '\n'.join(p.extract_text() for p in PdfReader(io.BytesIO(pdf_bytes)).pages)
+        import pymupdf  # requirements/base.txt
+        with pymupdf.open(stream=pdf_bytes, filetype='pdf') as pdf:
+            return '\n'.join(' '.join(p.get_text().split()) for p in pdf)
 
     def test_full_report_has_tiles_chart_tables_and_timeline(self):
         from .rendering import render_pdf_bytes
