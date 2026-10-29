@@ -1338,7 +1338,9 @@ class PDFPageReaderTests(TestCase):
 
         self.assertTrue(result['pages'][0]['requires_ocr'])
         self.assertEqual(result['pages'][0]['text_source'], 'none')
-        self.assertIn('has no readable text, even after', result['ocr_warnings'][0])  # OCR, then vision fallback
+        # Worded by what was tried: "... even after vision fallback" where a vision provider is configured,
+        # "... and vision fallback was unavailable" where none is (CI). Either way the page is flagged unreadable.
+        self.assertIn('no readable text', result['ocr_warnings'][0])
 
     def test_default_ocr_provider_never_fabricates_text(self):
         """With no real OCR backend configured, a low-text page stays
@@ -3968,8 +3970,10 @@ class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
     """Automatic AI-QIF tagging at extraction (apps/facts/aiqif_tagging.py): the fact's kind, the crosswalk for
     NAAC metrics printed in the text, which AI tags are accepted automatically, and what goes to the expert."""
 
-    # One short line per page: a line wider than the page is cut off when the PDF is read.
-    PAGES = ('Metric 1.1.3: MBA course on Artificial Intelligence.', 'Metric 2.1.2: MBA intake is 120 seats.')
+    # One short line per page: a line wider than the page is cut off when the PDF is read. Each line is at least
+    # PDF_MIN_TEXT_CHARS_PER_PAGE (40) characters, so it is read from the text layer in every environment -- a
+    # shorter page counts as a scan, needs OCR / vision (absent in CI) and leaves the document partially read.
+    PAGES = ('Metric 1.1.3: MBA course on Artificial Intelligence.', 'Metric 2.1.2: MBA intake is 120 seats per year.')
 
     def setUp(self):
         super().setUp()
