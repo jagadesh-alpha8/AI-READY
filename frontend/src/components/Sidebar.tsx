@@ -209,7 +209,7 @@ export const Sidebar: React.FC<{
         className={`bg-card border-r border-line-200 p-4 flex flex-col
           fixed inset-y-0 left-0 z-50 w-72 transition-transform duration-200 ease-out overflow-y-auto
           ${open ? 'translate-x-0' : '-translate-x-full'}
-          lg:translate-x-0 lg:static lg:z-0 lg:w-64 lg:shrink-0 lg:min-h-[calc(100vh-57px)]`}
+          lg:translate-x-0 lg:static lg:z-0 lg:w-64 lg:shrink-0 lg:h-full lg:min-h-0`}
       >
         <div className="space-y-6">
           <div className="flex items-center justify-between lg:hidden mb-2">
@@ -238,6 +238,7 @@ export const Sidebar: React.FC<{
                     <NavLink
                       key={module.key}
                       to={module.to!}
+                      data-tour={`nav-${module.key}`}
                       onClick={onClose}
                       title={
                         isAdmin
@@ -288,6 +289,7 @@ export const Sidebar: React.FC<{
                   return (
                     <div
                       key={module.key}
+                      data-tour={`nav-${module.key}`}
                       aria-disabled="true"
                       title="Not built yet"
                       className={`${ROW_BASE} border-transparent text-ink-500/50 cursor-not-allowed select-none`}
@@ -316,6 +318,7 @@ export const Sidebar: React.FC<{
                       key={module.key}
                       to={module.to!}
                       end={module.exact}
+                      data-tour={`nav-${module.key}`}
                       onClick={onClose}
                       className={({ isActive }) =>
                         `${ROW_BASE} ${
@@ -335,7 +338,7 @@ export const Sidebar: React.FC<{
                 // The module row is a heading, not a control: it owns no route
                 // of its own, and its steps are always listed below it.
                 return (
-                  <div key={module.key}>
+                  <div key={module.key} data-tour={`module-${module.key}`}>
                     <div
                       className={`${ROW_BASE} select-none ${
                         onAuditRoute
@@ -362,6 +365,7 @@ export const Sidebar: React.FC<{
                           return (
                             <div
                               key={child.key}
+                              data-tour={`nav-${child.key}`}
                               aria-disabled="true"
                               title="Choose a sprint first"
                               className="flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium text-ink-500/50 cursor-not-allowed select-none"
@@ -375,11 +379,12 @@ export const Sidebar: React.FC<{
                           <NavLink
                             key={child.key}
                             to={child.to}
+                            data-tour={`nav-${child.key}`}
                             onClick={onClose}
                             className={({ isActive }) =>
                               `flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium transition-colors ${
                                 isActive
-                                  ? 'bg-brand-50 text-brand-800 font-semibold'
+                                   ? 'bg-brand-50 text-brand-800 font-semibold'
                                   : 'text-ink-600 hover:text-ink-900 hover:bg-surface'
                               }`
                             }

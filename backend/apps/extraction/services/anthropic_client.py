@@ -25,7 +25,10 @@ from anthropic import (
     RateLimitError,
 )
 
-from ..exceptions import AIResponseError, PermanentExtractionError, ProviderQuotaExhausted, RecoverableExtractionError
+from ..exceptions import (
+    AIResponseError, PermanentExtractionError, ProviderQuotaExhausted, ProviderRateLimited, ProviderUnavailable,
+)
+from . import rate_limit
 from ..usage import record_anthropic_usage
 
 logger = logging.getLogger(__name__)
@@ -73,13 +76,18 @@ class AnthropicExtractionService:
 
         # `client` is accepted for dependency injection in tests -- normal
         # callers just get a real Anthropic client built from the settings above.
-        self._client = client if client is not None else Anthropic(api_key=self.api_key)
+        self._client = client if client is not None else Anthropic(
+            api_key=self.api_key, max_retries=settings.AI_SDK_MAX_RETRIES)
+
+    def supports_vision(self):
+        from .vision_fallback import model_supports_vision
+        return model_supports_vision(self.model, provider='anthropic')
 
     def extract_structured_data(
         self, *, system_prompt, user_content, response_schema,
-        schema_name='extraction_result', timeout=DEFAULT_TIMEOUT_SECONDS,
+        schema_name='extraction_result', timeout=DEFAULT_TIMEOUT_SECONDS, image_b64=None,
     ):
-        """Send `user_content` to the model under `system_prompt`, constrained
+        """Send `user_content` (and optional `image_b64`) to the model under `system_prompt`, constrained
         to `response_schema` (a JSON Schema `dict`) via a forced tool call,
         and return the parsed result (`dict`/`list`, whatever the schema
         describes).
@@ -96,44 +104,42 @@ class AnthropicExtractionService:
         """
         started = time.monotonic()
         try:
-            response = self._client.messages.create(
-                model=self.model,
-                max_tokens=DEFAULT_MAX_TOKENS,
-                system=system_prompt,
-                messages=[{'role': 'user', 'content': user_content}],
-                tools=[{
-                    'name': schema_name,
-                    'description': f'Return data matching the {schema_name} schema. Always call this tool.',
-                    'input_schema': response_schema,
-                    'strict': True,
-                }],
-                tool_choice={'type': 'tool', 'name': schema_name, 'disable_parallel_tool_use': True},
-                timeout=timeout,
-            )
+            # Shared per-key request / token limits across every worker (services/rate_limit.py).
+            estimate = rate_limit.estimate_tokens(system_prompt, user_content, output_tokens=DEFAULT_MAX_TOKENS, has_image=bool(image_b64))
+            with rate_limit.throttle('anthropic', self.model, self.api_key, estimate) as slot:
+                response = self._create(system_prompt, user_content, response_schema, schema_name, timeout, image_b64=image_b64)
+                usage = getattr(response, 'usage', None)
+                slot.record((getattr(usage, 'input_tokens', 0) or 0) + (getattr(usage, 'output_tokens', 0) or 0)
+                            if usage is not None else None)
         except RateLimitError as exc:
             quota = _quota(exc)
             if quota:
                 self._log_outcome(started, success=False, error='quota_exhausted')
+                rate_limit.mark_exhausted('anthropic', self.model, self.api_key, quota)
                 raise ProviderQuotaExhausted(f'The AI provider is out of quota or credit: {quota}.', quota) from exc
             self._log_outcome(started, success=False, error='rate_limited')
-            raise RecoverableExtractionError(f'Claude rate limit hit: {exc}') from exc
+            wait = rate_limit.retry_after_seconds(exc)
+            rate_limit.block('anthropic', self.model, self.api_key, wait)
+            raise ProviderRateLimited(f'Claude rate limit hit: {exc}', retry_after=wait) from exc
         except APITimeoutError as exc:
             self._log_outcome(started, success=False, error='timeout')
-            raise RecoverableExtractionError(f'Claude request timed out: {exc}') from exc
+            raise ProviderUnavailable(f'Claude request timed out: {exc}', kind='timeout') from exc
         except APIConnectionError as exc:
             self._log_outcome(started, success=False, error='connection_error')
-            raise RecoverableExtractionError(f'Could not reach Claude: {exc}') from exc
+            raise ProviderUnavailable(f'Could not reach Claude: {exc}', kind='network') from exc
         except APIStatusError as exc:
             # "Your credit balance is too low" arrives as a 400: out of credit, not a bad request.
             quota = _quota(exc)
             if quota:
                 self._log_outcome(started, success=False, error='quota_exhausted')
+                rate_limit.mark_exhausted('anthropic', self.model, self.api_key, quota)
                 raise ProviderQuotaExhausted(f'The AI provider is out of quota or credit: {quota}.', quota) from exc
             # 5xx is transient (Anthropic's side) and worth retrying; any
             # other 4xx means the request itself was bad and won't succeed on retry.
             if exc.status_code >= 500:
                 self._log_outcome(started, success=False, error=f'server_error_{exc.status_code}')
-                raise RecoverableExtractionError(f'Claude server error ({exc.status_code}): {exc}') from exc
+                raise ProviderUnavailable(f'Claude server error ({exc.status_code}): {exc}', kind='server_error',
+                                          retry_after=rate_limit.retry_after_seconds(exc)) from exc
             self._log_outcome(started, success=False, error=f'client_error_{exc.status_code}')
             raise PermanentExtractionError(f'Claude rejected the request ({exc.status_code}): {exc}') from exc
         except APIError as exc:
@@ -153,6 +159,37 @@ class AnthropicExtractionService:
 
         self._log_outcome(started, success=True)
         return result
+
+    def _create(self, system_prompt, user_content, response_schema, schema_name, timeout, image_b64=None):
+        if image_b64:
+            content_blocks = [
+                {
+                    'type': 'image',
+                    'source': {
+                        'type': 'base64',
+                        'media_type': 'image/png',
+                        'data': image_b64,
+                    },
+                },
+                {'type': 'text', 'text': user_content},
+            ]
+        else:
+            content_blocks = user_content
+
+        return self._client.messages.create(
+            model=self.model,
+            max_tokens=DEFAULT_MAX_TOKENS,
+            system=system_prompt,
+            messages=[{'role': 'user', 'content': content_blocks}],
+            tools=[{
+                'name': schema_name,
+                'description': f'Return data matching the {schema_name} schema. Always call this tool.',
+                'input_schema': response_schema,
+                'strict': True,
+            }],
+            tool_choice={'type': 'tool', 'name': schema_name, 'disable_parallel_tool_use': True},
+            timeout=timeout,
+        )
 
     @staticmethod
     def _parse_response(response, schema_name):

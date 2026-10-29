@@ -21,17 +21,17 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from .models import User
 
-MANAGE_SPRINT_ROLES = {User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.INSTITUTION_ADMIN}
+MANAGE_SPRINT_ROLES = {User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.IQAC_COORDINATOR}
 MANAGE_RECOMMENDATION_ROLES = {
-    User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.INSTITUTION_ADMIN, User.Role.IQAC_COORDINATOR,
+    User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.IQAC_COORDINATOR,
 }
 #: Editing a recommendation's content (title/description/priority/...) is
 #: narrower than viewing or generating one -- only InGage's own consultants
 #: (and platform super admins) are trusted to rewrite the engine's output,
 #: not every institution-side role that can view it.
 EDIT_RECOMMENDATION_ROLES = {User.Role.SUPER_ADMIN, User.Role.CONSULTANT}
-# Every role can review facts / resolve gaps except the read-only viewer persona.
-REVIEW_ROLES = set(User.Role.values) - {User.Role.VIEWER}
+# All three target roles can review facts / resolve gaps.
+REVIEW_ROLES = {User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.IQAC_COORDINATOR}
 
 
 def _is_authenticated(request):
@@ -60,11 +60,15 @@ class IsInGageStaff(BasePermission):
         return _is_authenticated(request) and request.user.role in User.CROSS_INSTITUTION_ROLES
 
 
-class IsInstitutionAdmin(BasePermission):
-    message = 'This action requires an institution admin account.'
+class IsIQACCoordinator(BasePermission):
+    message = 'This action requires an IQAC coordinator account.'
 
     def has_permission(self, request, view):
-        return _is_authenticated(request) and request.user.role == User.Role.INSTITUTION_ADMIN
+        return _is_authenticated(request) and request.user.role == User.Role.IQAC_COORDINATOR
+
+
+# Backward compatibility alias
+IsInstitutionAdmin = IsIQACCoordinator
 
 
 class IsReadOnly(BasePermission):
@@ -95,7 +99,7 @@ class CanContribute(BasePermission):
     """Anyone authenticated can read; every role except the read-only viewer can
     write -- upload documents, import from Drive, start / stop AI processing.
     Pair it with an institution check (get_authorized_sprint / IsInstitutionMember)."""
-    message = 'Viewers have read-only access.'
+    message = 'Only authorized staff and IQAC coordinators have write access.'
 
     def has_permission(self, request, view):
         if not _is_authenticated(request):

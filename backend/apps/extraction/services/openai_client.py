@@ -30,8 +30,11 @@ from openai import (
     RateLimitError,
 )
 
-from ..exceptions import AIResponseError, PermanentExtractionError, ProviderQuotaExhausted, RecoverableExtractionError
+from ..exceptions import (
+    AIResponseError, PermanentExtractionError, ProviderQuotaExhausted, ProviderRateLimited, ProviderUnavailable,
+)
 from ..usage import record_openai_usage
+from . import rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -97,13 +100,20 @@ class OpenAIExtractionService:
 
         # `client` is accepted for dependency injection in tests -- normal
         # callers just get a real OpenAI client built from the settings above.
-        self._client = client if client is not None else OpenAI(api_key=self.api_key, base_url=self.base_url)
+        # max_retries: the SDK's own quick retries (it honours Retry-After); the job-level retry is tasks.py's.
+        self._client = client if client is not None else OpenAI(
+            api_key=self.api_key, base_url=self.base_url, max_retries=settings.AI_SDK_MAX_RETRIES)
+
+    def supports_vision(self):
+        from .vision_fallback import model_supports_vision
+        provider = 'openai_compatible' if self.base_url else 'openai'
+        return model_supports_vision(self.model, provider=provider)
 
     def extract_structured_data(
         self, *, system_prompt, user_content, response_schema,
-        schema_name='extraction_result', timeout=DEFAULT_TIMEOUT_SECONDS,
+        schema_name='extraction_result', timeout=DEFAULT_TIMEOUT_SECONDS, image_b64=None,
     ):
-        """Send `user_content` to the model under `system_prompt`, constrained
+        """Send `user_content` (and optional `image_b64`) to the model under `system_prompt`, constrained
         to `response_schema` (a JSON Schema `dict`), and return the parsed
         result (`dict`/`list`, whatever the schema describes).
 
@@ -125,9 +135,17 @@ class OpenAIExtractionService:
             system_prompt = system_prompt + _JSON_INSTRUCTIONS.format(
                 schema=json.dumps(response_schema, separators=(',', ':')),
             )
+        if image_b64:
+            user_payload = [
+                {'type': 'text', 'text': user_content},
+                {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{image_b64}'}},
+            ]
+        else:
+            user_payload = user_content
+
         messages = [
             {'role': 'system', 'content': system_prompt},
-            {'role': 'user', 'content': user_content},
+            {'role': 'user', 'content': user_payload},
         ]
         response_format = {
             'type': 'json_schema',
@@ -164,19 +182,24 @@ class OpenAIExtractionService:
         if self.base_url and self.base_url in _NO_RESPONSE_FORMAT:
             response_format = None
         call_started = time.monotonic()
+        provider = 'openai_compatible' if self.base_url else 'openai'
         try:
             kwargs = {'response_format': response_format} if response_format else {}
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                timeout=timeout,
-                **kwargs,
-            )
+            # Shared per-key request / token limits across every worker (services/rate_limit.py).
+            estimate = rate_limit.estimate_tokens(*(m.get('content') or '' for m in messages))
+            with rate_limit.throttle(provider, self.model, self.api_key, estimate) as slot:
+                response = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    timeout=timeout,
+                    **kwargs,
+                )
+                slot.record(getattr(getattr(response, 'usage', None), 'total_tokens', None))
             # Every response is billed, even one that later fails to parse --
             # record it now (no-op outside an extraction's usage scope).
             record_openai_usage(
                 response,
-                provider='openai_compatible' if self.base_url else 'openai',
+                provider=provider,
                 model=self.model,
                 duration_ms=(time.monotonic() - call_started) * 1000,
             )
@@ -185,15 +208,18 @@ class OpenAIExtractionService:
             quota = _quota(exc)
             if quota:  # a 429 for an empty account, not a busy one
                 self._log_outcome(started, success=False, error='quota_exhausted')
+                rate_limit.mark_exhausted(provider, self.model, self.api_key, quota)
                 raise ProviderQuotaExhausted(f'The AI provider is out of quota or credit: {quota}.', quota) from exc
             self._log_outcome(started, success=False, error='rate_limited')
-            raise RecoverableExtractionError(f'OpenAI rate limit hit: {exc}') from exc
+            wait = rate_limit.retry_after_seconds(exc)
+            rate_limit.block(provider, self.model, self.api_key, wait)  # every worker on this key waits
+            raise ProviderRateLimited(f'OpenAI rate limit hit: {exc}', retry_after=wait) from exc
         except APITimeoutError as exc:
             self._log_outcome(started, success=False, error='timeout')
-            raise RecoverableExtractionError(f'OpenAI request timed out: {exc}') from exc
+            raise ProviderUnavailable(f'OpenAI request timed out: {exc}', kind='timeout') from exc
         except APIConnectionError as exc:
             self._log_outcome(started, success=False, error='connection_error')
-            raise RecoverableExtractionError(f'Could not reach OpenAI: {exc}') from exc
+            raise ProviderUnavailable(f'Could not reach OpenAI: {exc}', kind='network') from exc
         except APIStatusError as exc:
             if response_format and self.base_url and _rejects_response_format(exc):
                 logger.warning('openai.request base_url=%s response_format_unsupported resending_without_it', self.base_url)
@@ -204,12 +230,14 @@ class OpenAIExtractionService:
             quota = _quota(exc)
             if quota:
                 self._log_outcome(started, success=False, error='quota_exhausted')
+                rate_limit.mark_exhausted(provider, self.model, self.api_key, quota)
                 raise ProviderQuotaExhausted(f'The AI provider is out of quota or credit: {quota}.', quota) from exc
             # 5xx is transient (OpenAI's side) and worth retrying; any other
             # 4xx means the request itself was bad and won't succeed on retry.
             if exc.status_code >= 500:
                 self._log_outcome(started, success=False, error=f'server_error_{exc.status_code}')
-                raise RecoverableExtractionError(f'OpenAI server error ({exc.status_code}): {exc}') from exc
+                raise ProviderUnavailable(f'OpenAI server error ({exc.status_code}): {exc}', kind='server_error',
+                                          retry_after=rate_limit.retry_after_seconds(exc)) from exc
             self._log_outcome(started, success=False, error=f'client_error_{exc.status_code}')
             raise PermanentExtractionError(f'OpenAI rejected the request ({exc.status_code}): {exc}') from exc
         except APIError as exc:

@@ -47,7 +47,7 @@ class _AssessmentFixture(_LinkFixture):
         self.college = Institution.objects.create(name='MKCE', city='Karur', state='TN')
         self.other = Institution.objects.create(name='Other College', city='Salem', state='TN')
         self.admin = User.objects.create_user(email='iqac@mkce.edu', username='iqac', password=PASSWORD,
-                                              role='institution_admin', institution=self.college)
+                                              role='iqac_coordinator', institution=self.college)
         svc.save_profile(self.college, self.user, {
             'institution_type': 'engineering', 'autonomous_status': 'autonomous', 'approval_bodies': ['AICTE'],
             'programmes': [{'programme_type': 'ug_engineering', 'name': 'B.E. CSE', 'approval_body': 'NBA'}]})
@@ -272,7 +272,7 @@ class AssessmentApiTests(_AssessmentFixture, APITestCase):
     def test_colleges_only_see_their_own(self):
         c = self.cycle()
         outsider = User.objects.create_user(email='a@other.edu', username='o', password=PASSWORD,
-                                            role='institution_admin', institution=self.other)
+                                            role='iqac_coordinator', institution=self.other)
         self._login('a@other.edu')
         self.assertEqual(self.client.get(f'/api/v1/assessments/cycles/{c.pk}').status_code, 403)
         self.assertEqual(self.client.get('/api/v1/assessments/cycles').data, [])
@@ -280,15 +280,16 @@ class AssessmentApiTests(_AssessmentFixture, APITestCase):
                                          {'institution_type': 'iti'}, format='json').status_code, 403)
         self.assertTrue(outsider.pk)
 
-    def test_viewers_cannot_upload(self):
+    def test_another_college_cannot_upload(self):
         c = self.cycle()
         svc.open_cycle(c, self.user)
-        User.objects.create_user(email='v@mkce.edu', username='v', password=PASSWORD, role='viewer',
-                                 institution=self.college)
-        self._login('v@mkce.edu')
+        # 3-role model: no read-only college users; another college's coordinator cannot upload here.
+        User.objects.create_user(email='v@other.edu', username='v', password=PASSWORD, role='iqac_coordinator',
+                                 institution=self.other)
+        self._login('v@other.edu')
         r = self.client.post(f'/api/v1/assessments/cycles/{c.pk}/benchmarks/ACA-05/evidence', {'title': 'x'},
                              format='multipart')
-        self.assertEqual(r.status_code, 403)
+        self.assertIn(r.status_code, (403, 404))
 
     def test_scoring_model_is_seeded_and_active(self):
         self.assertTrue(ScoringModel.objects.filter(code='BM-SCORE-1', active=True).exists())
@@ -393,12 +394,12 @@ class PlanApiTests(_FinalizedFixture, APITestCase):
         gap = plan_data['gaps'][0]['id']
         self.assertEqual(self.client.patch(f'/api/v1/assessments/gaps/{gap}', {'status': 'planned'},
                                            format='json').status_code, 403)  # gap decisions are staff-only
-        User.objects.create_user(email='v@mkce.edu', username='v', password=PASSWORD, role='viewer',
-                                 institution=self.college)
-        self._login('v@mkce.edu')
-        self.assertEqual(self.client.get(url).status_code, 200)
-        self.assertEqual(self.client.patch(f'/api/v1/assessments/tasks/{task["id"]}', {'status': 'complete'},
-                                           format='json').status_code, 403)
+        User.objects.create_user(email='v@other.edu', username='v', password=PASSWORD, role='iqac_coordinator',
+                                 institution=self.other)
+        self._login('v@other.edu')  # another college: neither reads nor changes this plan
+        self.assertIn(self.client.get(url).status_code, (403, 404))
+        self.assertIn(self.client.patch(f'/api/v1/assessments/tasks/{task["id"]}', {'status': 'complete'},
+                                        format='json').status_code, (403, 404))
 
     def test_templates_are_staff_only(self):
         self._login('x@ingage.ai')

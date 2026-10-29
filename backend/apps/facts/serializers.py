@@ -93,6 +93,11 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
     assigned_to_name = serializers.SerializerMethodField()
     can_act = serializers.SerializerMethodField()
     act_blocked_reason = serializers.SerializerMethodField()
+    # Verification (apps/facts/verification/): four results kept apart -- extraction confidence (the model's
+    # estimate), grounding (citation + quote, deterministic), validation (deterministic checks) and cross-source.
+    verification = serializers.SerializerMethodField()
+    # A correction awaiting approval (FactCorrectionProposal), or null.
+    pending_correction = serializers.SerializerMethodField()
 
     class Meta:
         model = ExtractedFact
@@ -106,6 +111,8 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
             'tagging_notes',
             'owner_role_label', 'assigned_to', 'assigned_to_name', 'assigned_at', 'due_date', 'can_act',
             'act_blocked_reason',
+            'value_origin', 'original_value', 'original_source_page', 'original_source_snippet', 'derivation',
+            'scope', 'verification', 'pending_correction',
             'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
@@ -163,6 +170,33 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
             'due_date': r.due_date, 'overdue': bool(r.due_date and r.due_date < date.today()),
         }
 
+    def get_verification(self, obj):
+        if not obj.verification_status:
+            return None
+        return {
+            'status': obj.verification_status, 'status_label': obj.get_verification_status_display(),
+            'extraction_confidence': obj.confidence_score, 'grounding': obj.grounding_status,
+            'validation': obj.validation_status, 'cross_source': obj.cross_source_status,
+            'risk_level': obj.risk_level, 'automation_decision': obj.automation_decision,
+            'automation_reason': obj.automation_reason, 'verified_at': obj.verified_at,
+        }
+
+    def get_pending_correction(self, obj):
+        pending = getattr(obj, 'pending_corrections', None)
+        if pending is None:
+            pending = list(obj.correction_proposals.filter(status='pending').select_related('submitted_by'))
+        if not pending:
+            return None
+        p = pending[0]
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        return {'id': str(p.id), 'proposed_value': p.proposed_value, 'reason': p.reason,
+                'source_page': p.source_page, 'submitted_by': str(p.submitted_by_id) if p.submitted_by_id else None,
+                'submitted_by_name': (p.submitted_by.get_full_name() or p.submitted_by.email) if p.submitted_by else '',
+                'verification_outcome': (p.verification or {}).get('outcome'),
+                'mine': bool(user and user.is_authenticated and p.submitted_by_id == user.pk),
+                'created_at': p.created_at}
+
     def get_pillar_label(self, obj):
         return PILLAR_LABELS.get(obj.pillar, '') if obj.pillar else ''
 
@@ -178,7 +212,8 @@ class FactReviewHistorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FactReviewHistory
-        fields = ['id', 'action', 'original_value', 'new_value', 'user', 'user_name', 'reason', 'created_at']
+        fields = ['id', 'action', 'original_value', 'new_value', 'user', 'user_name', 'reason', 'decision_source',
+                  'details', 'created_at']
         read_only_fields = fields
 
     def get_user_name(self, obj):
@@ -217,6 +252,8 @@ class BulkFactConfirmSerializer(serializers.Serializer):
         child=serializers.UUIDField(), min_length=1, max_length=100,
     )
     comment = serializers.CharField(required=False, allow_blank=True, default='')
+    #: Confirm only facts the verification found `verified` (the safe bulk action for exception review).
+    only_verified = serializers.BooleanField(required=False, default=False)
 
     def validate_fact_ids(self, value):
         # A repeated ID should never create repeated review history entries.

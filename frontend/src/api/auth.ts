@@ -29,3 +29,27 @@ export function requestPasswordReset(email: string) {
 export function confirmPasswordReset(uid: string, token: string, newPassword: string) {
   return api.post<{ detail: string }>('/auth/password-reset/confirm', { uid, token, new_password: newPassword });
 }
+
+export interface RoleAccessModule {
+  name: string;
+  access: string;
+  description: string;
+}
+
+export interface RoleAccessDefinition {
+  role: string;
+  name: string;
+  institution_scope: string;
+  description: string;
+  modules: RoleAccessModule[];
+  permitted_actions: string[];
+  prohibited_actions: string[];
+}
+
+export interface RoleAccessMatrixResponse {
+  roles: RoleAccessDefinition[];
+}
+
+export function getRoleAccessMatrix() {
+  return api.get<RoleAccessMatrixResponse>('/auth/access-matrix');
+}

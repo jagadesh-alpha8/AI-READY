@@ -87,11 +87,13 @@ export const EvidenceRequests: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        icon={FileCheck2}
-        title={step('evidence-requests') ? `Step ${step('evidence-requests')}: Evidence Requests` : 'Evidence Requests'}
-        description="Evidence asked for behind specific facts: who provides it, what was submitted, and the reviewer's decision."
-      />
+      <div data-tour="evidence-requests-header">
+        <PageHeader
+          icon={FileCheck2}
+          title="Evidence Requests"
+          description="Evidence asked for behind specific facts: who provides it, what was submitted, and the reviewer's decision."
+        />
+      </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="font-semibold text-ink-700">Showing requests for</span>
         {scope === 'all' ? (
@@ -111,10 +113,12 @@ export const EvidenceRequests: React.FC = () => {
           <span className="text-ink-500">Select a sprint in the header to see just that sprint.</span>
         )}
       </div>
-      <FilterPills options={VIEWS.map(({ id, label }) => ({ id, label }))} active={view} onChange={setView} />
+      <div data-tour="evidence-requests-views">
+        <FilterPills options={VIEWS.map(({ id, label }) => ({ id, label }))} active={view} onChange={setView} />
+      </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
-        <div className="xl:col-span-2 space-y-2">
+        <div data-tour="evidence-requests-table" className="xl:col-span-2 space-y-2">
           {loading ? <LoadingState message="Loading requests..." />
             : error ? <ErrorState message={error} onRetry={refetch} />
               : rows.length === 0 ? <EmptyState message="Nothing here." />
@@ -260,12 +264,13 @@ const RequestDetail: React.FC<{ id: string; onChanged: () => void }> = ({ id, on
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
 
-      {unresolved && canAssign && (
-        <AssignForm sprintId={detail.sprint} current={detail.assigned_to} busy={busy}
-          onAssign={(person, note) => run(() => assignEvidenceRequest(detail.id, person, note))} />
-      )}
+      <div data-tour="evidence-requests-actions" className="space-y-4">
+        {unresolved && canAssign && (
+          <AssignForm sprintId={detail.sprint} current={detail.assigned_to} busy={busy}
+            onAssign={(person, note) => run(() => assignEvidenceRequest(detail.id, person, note))} />
+        )}
 
-      <section className="space-y-2">
+        <section className="space-y-2">
         <h3 className="eyebrow">Submitted evidence ({detail.evidence.length})</h3>
         {detail.evidence.length === 0 && <p className="text-xs text-ink-500">Nothing submitted yet.</p>}
         {detail.evidence.map((link) => (
@@ -323,6 +328,7 @@ const RequestDetail: React.FC<{ id: string; onChanged: () => void }> = ({ id, on
           <CommentForm busy={busy} onComment={(note) => run(() => commentOnEvidenceRequest(detail.id, note))} />
         )}
       </section>
+      </div>
     </div>
   );
 };

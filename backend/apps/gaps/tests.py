@@ -23,9 +23,9 @@ class GapTestBase(APITestCase):
         self.other_institution = Institution.objects.create(name='Other', city='X', state='Y')
 
         self.iqac = self._make_user('iqac@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
-        self.hod = self._make_user('hod@test.edu', User.Role.HOD, self.institution)
-        self.viewer = self._make_user('viewer@test.edu', User.Role.VIEWER, self.institution)
-        self.outsider = self._make_user('outsider@test.edu', User.Role.HOD, self.other_institution)
+        self.hod = self._make_user('hod@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
+        self.viewer = self._make_user('viewer@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
+        self.outsider = self._make_user('outsider@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
 
         self.sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
 

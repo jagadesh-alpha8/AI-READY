@@ -29,6 +29,7 @@ import {
 import { useAccess } from '../../utils/access';
 import { confirmDialog } from '../../components/Dialog';
 import { isRealSprintId } from '../../utils/selectedSprint';
+import { attemptOutcome, attemptSource, jobActivity, jobBadge, nextRetry, partialSummary } from '../../utils/jobStatus';
 
 const POLL_INTERVAL_MS = 3000;
 /** The AI usage panel (cost, tokens, requests) is hidden for now; set to true to show it again. */
@@ -249,35 +250,24 @@ export const AIProcessingMonitor: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="glass-card p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <Activity className="w-5 h-5 text-brand-800" /> Step {step('sprint-monitor')}: AI Processing Monitor
-            </h1>
-            <p className="text-sm text-ink-500 mt-1">
-              Transparent tracking of document classification, table parsing, entity extraction, and gap identification.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            {incompleteCount > 0 && (
-              <button onClick={handleProcessIncomplete} disabled={bulkBusy} className="btn-secondary">
-                <RotateCcw className={`w-4 h-4 ${bulkBusy ? 'animate-spin' : ''}`} />
-                <span>{bulkBusy ? 'Starting…' : `Process Unfinished (${incompleteCount})`}</span>
-              </button>
-            )}
-            {hasActiveJob && (
-              <button onClick={handleStop} className="btn-secondary text-danger">
-                <XCircle className="w-4 h-4" />
-                <span>Stop Processing</span>
-              </button>
-            )}
-            <button onClick={() => navigate(`/sprint/${sprintId}/facts`)} className="btn-primary shrink-0">
-              <span>Proceed to Extracted Facts</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+      {/* Action Bar */}
+      <div data-tour="monitor-actions" className="flex items-center justify-end gap-3 flex-wrap">
+        {incompleteCount > 0 && (
+          <button onClick={handleProcessIncomplete} disabled={bulkBusy} className="btn-secondary">
+            <RotateCcw className={`w-4 h-4 ${bulkBusy ? 'animate-spin' : ''}`} />
+            <span>{bulkBusy ? 'Starting…' : `Process Unfinished (${incompleteCount})`}</span>
+          </button>
+        )}
+        {hasActiveJob && (
+          <button onClick={handleStop} className="btn-secondary text-danger">
+            <XCircle className="w-4 h-4" />
+            <span>Stop Processing</span>
+          </button>
+        )}
+        <button data-tour="monitor-proceed-btn" onClick={() => navigate(`/sprint/${sprintId}/facts`)} className="btn-primary shrink-0">
+          <span>Proceed to Extracted Facts</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
       </div>
 
       {actionError && (
@@ -313,7 +303,7 @@ export const AIProcessingMonitor: React.FC = () => {
           {SHOW_AI_USAGE && usage && usage.calls > 0 && <AIUsagePanel usage={usage} currentTotal={currentTotal} />}
 
           {/* Progress Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div data-tour="monitor-summary-tiles" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="glass-card p-5">
               <div className="flex items-center justify-between text-ink-500">
                 <span className="text-sm font-medium">Fully processed current documents</span>
@@ -387,7 +377,7 @@ export const AIProcessingMonitor: React.FC = () => {
           </div>
 
           {/* Sprint coverage includes documents without a job, so an unqueued item is visible. */}
-          <div className="glass-card p-5 sm:p-6 space-y-4">
+          <div data-tour="monitor-pipeline-table" className="glass-card p-5 sm:p-6 space-y-4">
             <h2 className="eyebrow">Sprint Document Processing ({completedCount}/{currentTotal} current documents fully processed)</h2>
             {(stateFilter !== 'all' || search.trim()) && (
               <p className="text-xs text-ink-500">
@@ -460,16 +450,13 @@ export const AIProcessingMonitor: React.FC = () => {
                             ? job.current_step_label
                               ? `Stopped at: ${job.current_step_label}`
                               : 'Stopped before it started'
-                            : job.current_step_label || 'Queued'}
+                            : isActive ? jobActivity(job) : job.current_step_label || 'Queued'}
                           {current && stepIndex >= 0 && ` (step ${stepIndex + 1} of ${STEP_LABELS.length})`}
-                          {current && job?.ai_router && ` · ${job.ai_router}`}
+                          {current && job && (job.ai_provider ? ` · ${job.ai_provider}` : job.ai_router ? ` · ${job.ai_router}` : '')}
                         </p>
                         {partial && job && (
                           <div className="text-xs text-warning mt-0.5 space-y-0.5">
-                            <p className="font-semibold">
-                              Partially processed: {job.chunks_completed} of {job.chunks_total} text chunk{job.chunks_total === 1 ? '' : 's'} read
-                              {' '}· {documentFactCount} fact{documentFactCount === 1 ? '' : 's'} extracted. Some content was not read.
-                            </p>
+                            <p className="font-semibold">{partialSummary(job, documentFactCount)}</p>
                             {job.extraction_warnings.map((w, i) => <p key={i}>• {w.detail}</p>)}
                           </div>
                         )}
@@ -488,6 +475,7 @@ export const AIProcessingMonitor: React.FC = () => {
                         {job?.status === 'retrying' && job.error_message && (
                           <p className="text-xs text-warning mt-0.5">
                             {humanizeExtractionError(job.error_message, true)}
+                            {nextRetry(job) && ` (${nextRetry(job)})`}
                           </p>
                         )}
                         {current && job && (job.attempts || []).filter((a) => a.outcome !== 'reset').length > 1 && (
@@ -500,7 +488,7 @@ export const AIProcessingMonitor: React.FC = () => {
                             <ul className="mt-0.5 space-y-0.5">
                               {(job.attempts || []).filter((a) => a.outcome !== 'reset').slice(-8).map((a, i) => (
                                 <li key={i}>
-                                  {new Date(a.at).toLocaleString()} · {a.router || 'no router'} · {a.outcome.replace(/_/g, ' ')}
+                                  {new Date(a.at).toLocaleString()} · {attemptSource(job, a.router)} · {attemptOutcome(a.outcome)}
                                   {a.detail && ` — ${a.detail}`}
                                 </li>
                               ))}
@@ -529,7 +517,7 @@ export const AIProcessingMonitor: React.FC = () => {
                       <span className="text-sm font-mono text-ink-500 tabular-nums">{job?.progress_percentage || 0}%</span>
                       <span className={badgeClass}>
                         {!current ? (docState(document) === 'rejected' ? 'rejected' : 'earlier version')
-                          : partial ? 'partial' : completedWithoutFacts ? 'completed · 0 facts' : status === 'not_started' ? 'not started' : status === 'cancelled' ? 'stopped' : status}
+                          : completedWithoutFacts ? 'completed · 0 facts' : jobBadge(job)}
                       </span>
                       {isActive && (
                         <button

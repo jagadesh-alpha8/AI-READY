@@ -1,35 +1,26 @@
-"""Auto-confirm extracted facts whose AI confidence is above FACT_AUTO_CONFIRM_MIN_CONFIDENCE (default 0.80).
+"""Automatic confirmation of extracted facts -- now decided by the shared verification pipeline.
 
-Run at the end of each extraction (ExtractionPipeline) and, for facts extracted earlier, by
-`python manage.py auto_confirm_facts`. A fact is auto-confirmed only when ALL of these hold:
+Since apps/facts/verification/, a fact is confirmed without a person only when verification proves it
+(citation and page exist, the quote is on the cited page, the quote states the value or a checked calculation
+produces it, every deterministic validation passes, no comparable source disagrees) AND the automation policy
+allows its risk level (verification/policy.py), with FACT_VERIFICATION_MODE='enforce'. AI confidence alone
+never confirms a fact: FACT_AUTO_CONFIRM_MIN_CONFIDENCE is no longer a confirmation rule.
 
-- it is still EXTRACTED (nobody has reviewed it) and its confidence is strictly above the threshold;
-- it is not part of an open conflict (two facts disagreeing -- a person decides which is right);
-- its value is supported by its own quote: for numbers, percentages and amounts, the number appears in the
-  source snippet (an AI-filled number with no quote behind it -- e.g. a percentage the document never gives --
-  is left for a person).
-
-Every auto-confirmation is a FactReviewHistory CONFIRMED row by the system account
-`auto.confirm@system.ingage.local` (inactive, cannot sign in), with the confidence in its reason, so it can be
-told apart from a person's confirmation and found again. Auto-confirmed facts count in the CRI like any
-confirmed fact. Unlike a person's decision, a re-extraction may still update an auto-confirmed fact
-(ExtractionPipeline._persist_facts), which is then checked again.
+What stays here: the system account every automatic confirmation is recorded as
+(`auto.confirm@system.ingage.local`, inactive, cannot sign in), `is_auto_confirmed`, and `auto_confirm()` for the
+`auto_confirm_facts` command, which now runs the same pipeline. Unlike a person's decision, a re-extraction may
+still update an auto-confirmed fact (ExtractionPipeline._persist_facts), which is then verified again.
 """
-import re
-
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import transaction
-from django.utils import timezone
 
-from .models import ExtractedFact, FactReviewHistory
+from .models import ExtractedFact
 
 AUTO_CONFIRM_EMAIL = 'auto.confirm@system.ingage.local'
-NUMERIC_TYPES = (ExtractedFact.DataType.NUMBER, ExtractedFact.DataType.PERCENTAGE, ExtractedFact.DataType.CURRENCY)
 
 
 def threshold():
-    """The configured threshold, or None when auto-confirmation is switched off (empty / 'off')."""
+    """The legacy confidence setting (informational only: it no longer confirms anything)."""
     value = getattr(settings, 'FACT_AUTO_CONFIRM_MIN_CONFIDENCE', None)
     return None if value is None else float(value)
 
@@ -50,96 +41,31 @@ def is_auto_confirmed(fact):
         getattr(fact.reviewed_by, 'email', None) == AUTO_CONFIRM_EMAIL)
 
 
-def _number_forms(value):
-    """The ways a numeric value can be written in a quote: 42, 42.0 -> '42'; 77.94; 1,234 -> '1234'."""
-    try:
-        number = float(str(value).replace(',', '').replace('%', '').strip())
-    except (TypeError, ValueError):
-        return set()
-    forms = {f'{number:g}'}
-    if number == int(number):
-        forms.add(str(int(number)))
-    else:
-        forms |= {f'{number:.1f}', f'{number:.2f}'}
-    return forms
-
-
-_NUMBER_IN_TEXT = re.compile(r'\d[\d,]*(?:\.\d+)?')
-
-
-def _amount_forms(fact):
-    """The ways the fact's number may be written. A currency value keeps the page's text ("Rs 20,000",
-    "₹20,000", "INR 20,000") and normalized_value its amount (20000); both count, as facts extracted before
-    the currency parsing fix hold a wrong normalized_value for "Rs." amounts ("Rs. 20,000" -> 0.2)."""
-    forms = set()
-    for candidate in (fact.normalized_value, fact.value):
-        if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
-            forms |= _number_forms(candidate)
-        else:
-            match = _NUMBER_IN_TEXT.search(str(candidate or ''))
-            if match:
-                forms |= _number_forms(match.group())
-    return forms
-
-
-def value_in_snippet(fact):
-    """True when the fact's value is backed by its own quote (numbers must appear in it)."""
-    snippet = fact.source_snippet or ''
-    if not snippet.strip():
-        return False
-    if fact.data_type not in NUMERIC_TYPES:
-        return True
-    numbers_in_quote = set()
-    for token in _NUMBER_IN_TEXT.findall(snippet):
-        numbers_in_quote |= _number_forms(token)
-    return bool(_amount_forms(fact) & numbers_in_quote)
-
-
-
-def _in_open_conflict(facts):
-    from apps.gaps.models import GapItem
-    ids = [f.id for f in facts]
-    rows = GapItem.objects.filter(gap_type=GapItem.GapType.CONFLICT, status__in=GapItem.ACTIVE_STATUSES).filter(
-        source_fact_id__in=ids).values_list('source_fact_id', flat=True)
-    rows_b = GapItem.objects.filter(gap_type=GapItem.GapType.CONFLICT, status__in=GapItem.ACTIVE_STATUSES).filter(
-        conflict_fact_b_id__in=ids).values_list('conflict_fact_b_id', flat=True)
-    return set(rows) | set(rows_b)
-
-
 def auto_confirm(facts_queryset, *, dry_run=False):
-    """Auto-confirm the eligible facts of `facts_queryset`. Returns {'confirmed': [...ids], 'skipped': {reason: n}}."""
-    from apps.gaps.services import resolve_unconfirmed_fact_gap
+    """Verify the unreviewed facts of `facts_queryset` and let the policy decide them.
 
-    limit = threshold()
-    result = {'confirmed': [], 'skipped': {}, 'threshold': limit}
-    if limit is None:
-        return result
-    candidates = list(facts_queryset.filter(status=ExtractedFact.Status.EXTRACTED, confidence_score__gt=limit))
-    conflicted = _in_open_conflict(candidates)
-    user = None if dry_run else system_user()
-    for fact in candidates:
-        reason = None
-        if fact.id in conflicted:
-            reason = 'open conflict'
-        elif not value_in_snippet(fact):
-            reason = 'value not in its quote'
-        if reason:
-            result['skipped'][reason] = result['skipped'].get(reason, 0) + 1
-            continue
-        result['confirmed'].append(str(fact.id))
+    dry_run: nothing is written at all (no verification record, no status) -- the rules are replayed in memory.
+    Otherwise each fact's verification is recorded and the policy applied in the configured mode (shadow records
+    what it would do; enforce confirms). Returns {'confirmed': [ids confirmed, or that would be],
+    'skipped': {reason: n}, 'mode'}."""
+    from .evidence_requests import open_request_for
+    from .verification import engine, metrics, policy, precedent, scope
+
+    current = policy.mode()
+    result = {'confirmed': [], 'skipped': {}, 'mode': 'dry run' if dry_run else current}
+    for fact in facts_queryset.filter(status=ExtractedFact.Status.EXTRACTED).select_related(
+            'source_document', 'document', 'sprint'):
         if dry_run:
-            continue
-        with transaction.atomic():
-            # Only if still unreviewed at this moment (a person may have acted meanwhile).
-            updated = ExtractedFact.objects.filter(pk=fact.pk, status=ExtractedFact.Status.EXTRACTED).update(
-                status=ExtractedFact.Status.CONFIRMED, reviewed_by=user, reviewed_at=timezone.now(),
-                updated_at=timezone.now())
-            if not updated:
-                result['confirmed'].pop()
-                continue
-            FactReviewHistory.objects.create(
-                fact=fact, action=FactReviewHistory.Action.CONFIRMED, original_value=fact.value, user=user,
-                reason=f'Auto-confirmed: AI confidence {fact.confidence_score:.2f} is above {limit:.2f}.')
-            fact.refresh_from_db()
-            resolve_unconfirmed_fact_gap(fact, user=user)
+            verified = engine.verify_snapshot(engine.Snapshot.of(fact))
+            decision = policy.decide(fact, verified, precedent=precedent.find(fact, scope.read_scope(fact)),
+                                     has_open_request=bool(open_request_for(fact)), current_mode='shadow')
+            action, why = decision.action, decision.reason
+        else:
+            run = engine.verify_fact(fact, source='reverify', apply_policy=True, current_mode=current)
+            action, why = run.automation_decision, run.automation_reason
+        if action in ('auto_verified', 'precedent', 'would_auto_verify', 'would_precedent'):
+            result['confirmed'].append(str(fact.id))
+        else:
+            reason = metrics.GROUP_LABELS.get(metrics._blocker_code(why), 'Other')
+            result['skipped'][reason] = result['skipped'].get(reason, 0) + 1
     return result

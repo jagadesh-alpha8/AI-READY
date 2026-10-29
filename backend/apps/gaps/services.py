@@ -152,20 +152,27 @@ def _detect_unconfirmed_facts(sprint):
 
 
 def _detect_conflicting_facts(sprint):
-    facts = sprint.facts.exclude(status=ExtractedFact.Status.REJECTED).order_by('field_key')
+    """A conflict per field whose comparable facts disagree (apps/facts/verification/conflicts.py): values compared
+    after removing printing differences, and only between facts of the same period / population / unit /
+    categories; an earlier version of the same file does not count as a second source."""
+    from apps.facts.verification import conflicts as rules
+    facts = (sprint.facts.exclude(status=ExtractedFact.Status.REJECTED)
+             .select_related('source_document', 'document').order_by('field_key'))
     by_field = {}
     for fact in facts:
         by_field.setdefault(fact.field_key, []).append(fact)
 
     created = []
     for field_key, group in by_field.items():
-        distinct_values = {_hashable_value(fact.value) for fact in group}
-        if len(distinct_values) <= 1:
+        disagreeing = rules.disagreements(group)
+        if not disagreeing:
             continue
+        group = disagreeing[0]
 
         representative = min(group, key=lambda fact: fact.confidence_score)
         title = f'Conflicting values for {representative.field_name or field_key}'
-        values_summary = ', '.join(json.dumps(fact.value) for fact in group)
+        values_summary = '; '.join(f'{r["value"]!r} ({rules._where(r)})'
+                                   for r in (rules.candidate_row(f) for f in group))
         gap = create_gap_if_new(
             sprint,
             gap_type=GapItem.GapType.CONFLICT,
@@ -175,7 +182,7 @@ def _detect_conflicting_facts(sprint):
             # can change as more facts arrive, but the conflict itself is
             # the same one until it's actually resolved.
             dedup_filter={'title': title},
-            description=f'Documents report different values for "{field_key}": {values_summary}.',
+            description=f'Sources report different values for "{field_key}": {values_summary}.',
             pillar=representative.pillar,
             priority=GapItem.Priority.HIGH,
             source_fact=representative,
@@ -401,9 +408,10 @@ def conflict_facts(gap):
 
 
 def conflict_reconciled(gap):
-    """True once the conflicting values agree: every fact still in play (not rejected) has one value."""
-    live = [f for f in conflict_facts(gap) if f.status != ExtractedFact.Status.REJECTED]
-    return len({_hashable_value(f.value) for f in live}) <= 1
+    """True once the conflicting values agree: every comparable fact still in play (not rejected, not on a
+    superseded version) states the same value once printing differences are removed ("1,234" == 1234)."""
+    from apps.facts.verification import conflicts as rules
+    return not rules.disagreements(conflict_facts(gap))
 
 
 def _event(gap, action, user, note='', **data):
@@ -500,8 +508,10 @@ def after_fact_review(fact, *, user, reason=''):
             gap.save(update_fields=['status', 'updated_at'])
             _event(gap, GapEvent.Action.NEEDS_REPLACEMENT, user, reason)
             changed += 1
+    from apps.facts.verification.conflicts import refresh as refresh_conflict
     for gap in G.objects.filter(sprint_id=fact.sprint_id, gap_type=G.GapType.CONFLICT,
                                 status__in=G.ACTIVE_STATUSES, source_fact__field_key=fact.field_key):
+        refresh_conflict(gap, user=user)  # never leave the old values in its description
         if conflict_reconciled(gap):
             _close(gap, G.Status.RESOLVED, user,
                    f'Reconciled: the values of {fact.field_name or fact.field_key} now agree.',
@@ -561,7 +571,8 @@ def choose_conflict_value(gap, user, fact_id, reason=''):
     chosen = next((f for f in candidates if str(f.id) == str(fact_id)), None)
     if chosen is None:
         raise ConflictChoiceError('Choose one of the values this conflict compares.')
-    losers = [f for f in candidates if _hashable_value(f.value) != _hashable_value(chosen.value)]
+    from apps.facts.verification.normalize import same_value
+    losers = [f for f in candidates if not same_value(f.value, chosen.value, chosen.data_type)]
     blocked = [f for f in [chosen, *losers] if evidence_requests.open_request_for(f)]
     if blocked:
         raise ConflictChoiceError(f'{blocked[0].field_name or blocked[0].field_key} has an open evidence request; '

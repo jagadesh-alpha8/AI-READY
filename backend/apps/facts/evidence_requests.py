@@ -6,6 +6,7 @@ AI evidence analysis is advisory. Uploading or pasting evidence never confirms a
 resolves a request or touches the CRI -- only an authorized, different reviewer can do that through
 `review()`.
 """
+import logging
 from datetime import date
 
 from django.db import IntegrityError, transaction
@@ -17,11 +18,12 @@ from apps.documents.models import Document
 
 from .models import EvidenceRequest, EvidenceRequestDocument, EvidenceRequestEvent, ExtractedFact, FactReviewHistory
 
+logger = logging.getLogger(__name__)
 Status = EvidenceRequest.Status
 Event = EvidenceRequestEvent.Action
 
 #: Besides the requester, who may assign / reassign a request (and so cover a role with no user yet).
-ASSIGN_ROLES = {User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.INSTITUTION_ADMIN, User.Role.IQAC_COORDINATOR}
+ASSIGN_ROLES = {User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.IQAC_COORDINATOR}
 
 #: Default document type for a file uploaded as evidence (the uploader may choose another).
 EVIDENCE_DOCUMENT_TYPE = 'supporting_evidence'
@@ -46,9 +48,9 @@ def open_request_for(fact):
 # -- who ------------------------------------------------------------------------------------------
 
 def eligible_assignees(sprint):
-    """Active people of the sprint's college who can upload evidence (everyone but a viewer)."""
-    return (User.objects.filter(institution_id=sprint.institution_id, is_active=True)
-            .exclude(role=User.Role.VIEWER).order_by('first_name', 'last_name', 'email'))
+    """Active people of the sprint's college who can upload evidence."""
+    return (User.objects.filter(institution_id=sprint.institution_id, is_active=True, role=User.Role.IQAC_COORDINATOR)
+            .order_by('first_name', 'last_name', 'email'))
 
 
 def _eligible(sprint, user_id):
@@ -56,7 +58,7 @@ def _eligible(sprint, user_id):
         return None
     user = eligible_assignees(sprint).filter(pk=user_id).first()
     if user is None:
-        raise EvidenceRequestError('Assign the request to an active, non-viewer user of this college.')
+        raise EvidenceRequestError('Assign the request to an active IQAC Coordinator of this college.')
     return user
 
 
@@ -405,6 +407,12 @@ def _accept(request, user, link, decision, reason, page, snippet, corrected_valu
         _event(request, Event.ACCEPTED_CORRECTED if corrected else Event.ACCEPTED, user, reason,
                evidence_id=str(link.id), document_id=str(link.document_id) if link.document_id else None, source_page=page,
                **({'corrected_value': corrected_value} if corrected else {}))
+    # The accepted citation, verified for display (the reviewer has decided; nothing is decided here).
+    try:
+        from .verification.engine import verify_fact
+        verify_fact(fact, source='evidence')
+    except Exception:  # never undo a reviewer's decision because a check could not run
+        logger.exception('evidence.accept.verification_failed fact_id=%s', fact.id)
     return request
 
 

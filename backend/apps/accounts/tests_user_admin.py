@@ -28,24 +28,27 @@ class UserAdministrationTests(APITestCase):
         )
         self.alpha_admin = User.objects.create_user(
             email='admin@alpha.edu', username='alpha_admin', password=PASSWORD,
-            role=User.Role.INSTITUTION_ADMIN, institution=self.alpha,
+            role=User.Role.IQAC_COORDINATOR, institution=self.alpha,
         )
         self.alpha_faculty = User.objects.create_user(
             email='faculty@alpha.edu', username='alpha_faculty', password=PASSWORD,
-            role=User.Role.FACULTY, institution=self.alpha,
+            role=User.Role.IQAC_COORDINATOR, institution=self.alpha,
         )
         self.beta_faculty = User.objects.create_user(
             email='faculty@beta.edu', username='beta_faculty', password=PASSWORD,
-            role=User.Role.FACULTY, institution=self.beta,
+            role=User.Role.IQAC_COORDINATOR, institution=self.beta,
         )
 
     def _auth(self, user):
         self.client.force_authenticate(user=user)
 
     # --- access ---------------------------------------------------------
-    def test_faculty_cannot_reach_the_api(self):
+    def test_a_coordinator_sees_only_their_own_colleges_users(self):
+        # 3-role model: every college user is an IQAC Coordinator, who administers their own college's users.
         self._auth(self.alpha_faculty)
-        self.assertEqual(self.client.get('/api/v1/users').status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get('/api/v1/users')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn('faculty@beta.edu', {row['email'] for row in response.data})
 
     def test_super_admin_sees_every_institution(self):
         self._auth(self.super_admin)
@@ -82,7 +85,7 @@ class UserAdministrationTests(APITestCase):
         self._auth(self.alpha_admin)
         response = self.client.post('/api/v1/users', {
             'email': 'new@alpha.edu', 'username': 'new_alpha', 'password': PASSWORD,
-            'role': User.Role.REGISTRAR, 'institution_id': str(self.beta.id),
+            'role': User.Role.IQAC_COORDINATOR, 'institution_id': str(self.beta.id),
         })
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -103,7 +106,7 @@ class UserAdministrationTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.alpha_faculty.refresh_from_db()
-        self.assertEqual(self.alpha_faculty.role, User.Role.FACULTY)
+        self.assertEqual(self.alpha_faculty.role, User.Role.IQAC_COORDINATOR)
 
     def test_super_admin_may_create_a_consultant(self):
         self._auth(self.super_admin)
@@ -124,7 +127,7 @@ class UserAdministrationTests(APITestCase):
     def test_cannot_change_your_own_role(self):
         self._auth(self.alpha_admin)
         response = self.client.patch(
-            f'/api/v1/users/{self.alpha_admin.id}', {'role': User.Role.VIEWER},
+            f'/api/v1/users/{self.alpha_admin.id}', {'role': User.Role.CONSULTANT},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -133,7 +136,7 @@ class UserAdministrationTests(APITestCase):
         self._auth(self.alpha_admin)
         response = self.client.post('/api/v1/users', {
             'email': 'registrar@alpha.edu', 'username': 'alpha_registrar',
-            'password': PASSWORD, 'role': User.Role.REGISTRAR, 'first_name': 'New',
+            'password': PASSWORD, 'role': User.Role.IQAC_COORDINATOR, 'first_name': 'New',
         })
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -147,7 +150,7 @@ class UserAdministrationTests(APITestCase):
         self._auth(self.alpha_admin)
         response = self.client.post('/api/v1/users', {
             'email': 'weak@alpha.edu', 'username': 'weak', 'password': '12345',
-            'role': User.Role.VIEWER,
+            'role': User.Role.IQAC_COORDINATOR,
         })
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -198,7 +201,7 @@ class InstitutionlessAdminTests(APITestCase):
         )
         self.orphan_admin = User.objects.create_user(
             email='orphan@nowhere.edu', username='orphan', password=PASSWORD,
-            role=User.Role.INSTITUTION_ADMIN,
+            role=User.Role.IQAC_COORDINATOR,
         )
         self.client.force_authenticate(user=self.orphan_admin)
 

@@ -152,24 +152,16 @@ export const GapDashboard: React.FC = () => {
         <UploadEvidenceModal gap={uploadingGap} sprintLabel={sprintLabel} onClose={() => setUploadingGap(null)}
           onUploaded={(message) => { setUploadingGap(null); setUploadMessage(message); refetch(); }} />
       )}
-      <div className="glass-card p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-warning" /> Step {step('sprint-gaps')}: Gap Dashboard
-            </h1>
-            <p className="text-sm text-ink-500 mt-1">
-              Identify missing required fields, weak evidence, stale documents, and conflicts affecting score and confidence.
-            </p>
-          </div>
-          <button
-            onClick={() => navigate(`/sprint/${sprintId}/${canSee('sprint-confirmation') ? 'confirmation' : 'score'}`)}
-            className="btn-primary shrink-0"
-          >
-            <span>{canSee('sprint-confirmation') ? 'Proceed to Owner Workspace' : 'Proceed to Live CRI Preview'}</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
+      {/* Action Bar */}
+      <div className="flex justify-end">
+        <button
+          data-tour="gaps-proceed-btn"
+          onClick={() => navigate(`/sprint/${sprintId}/${canSee('sprint-confirmation') ? 'confirmation' : 'score'}`)}
+          className="btn-primary shrink-0"
+        >
+          <span>{canSee('sprint-confirmation') ? 'Proceed to Owner Workspace' : 'Proceed to Live CRI Preview'}</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
       </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
@@ -181,7 +173,7 @@ export const GapDashboard: React.FC = () => {
       )}
 
       {/* Gaps List Table */}
-      <div className="glass-card p-5 sm:p-6">
+      <div className="glass-card p-5 sm:p-6" data-tour="gaps-summary-bar">
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <h2 className="eyebrow">Identified Data Gaps &amp; Score Penalties</h2>
           {/* The table below lists every gap, resolved ones included, so this
@@ -204,133 +196,140 @@ export const GapDashboard: React.FC = () => {
           </div>
         ) : (
           <>
-          <TableFilters
-            search={search}
-            onSearch={setSearch}
-            placeholder="Search title, field ID, source or snippet…"
-            shown={pageData?.count ?? 0}
-            total={totalGaps}
-            selects={[
-              { key: 'type', label: 'Gap type', value: typeFilter, onChange: setTypeFilter,
-                options: optionsFromCounts(facets?.gap_type, (v: string) => v.replace(/_/g, ' ')) },
-              { key: 'priority', label: 'Priority', value: priorityFilter, onChange: setPriorityFilter,
-                options: optionsFromCounts(facets?.priority) },
-              // The CRI pillars are the 9 AI-QIF criteria in framework order; one with no gaps still shows, as (0).
-              { key: 'pillar', label: 'CRI Pillar', value: pillarFilter, onChange: setPillarFilter,
-                options: pillarOptions(facets?.pillars) },
-              { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
-                options: optionsFromCounts(facets?.status, (v: string) => v.replace(/_/g, ' ')) },
-              { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
-                options: optionsFromCounts(facets?.owner_role) },
-              { key: 'source', label: 'Source', value: sourceFilter, onChange: setSourceFilter,
-                options: optionsFromCounts(facets?.source_document) },
-            ]}
-          />
+          <div data-tour="gaps-filters">
+            <TableFilters
+              search={search}
+              onSearch={setSearch}
+              placeholder="Search title, field ID, source or snippet…"
+              shown={pageData?.count ?? 0}
+              total={totalGaps}
+              selects={[
+                { key: 'type', label: 'Gap type', value: typeFilter, onChange: setTypeFilter,
+                  options: optionsFromCounts(facets?.gap_type, (v: string) => v.replace(/_/g, ' ')) },
+                { key: 'priority', label: 'Priority', value: priorityFilter, onChange: setPriorityFilter,
+                  options: optionsFromCounts(facets?.priority) },
+                // The CRI pillars are the 9 AI-QIF criteria in framework order; one with no gaps still shows, as (0).
+                { key: 'pillar', label: 'CRI Pillar', value: pillarFilter, onChange: setPillarFilter,
+                  options: pillarOptions(facets?.pillars) },
+                { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
+                  options: optionsFromCounts(facets?.status, (v: string) => v.replace(/_/g, ' ')) },
+                { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
+                  options: optionsFromCounts(facets?.owner_role) },
+                { key: 'source', label: 'Source', value: sourceFilter, onChange: setSourceFilter,
+                  options: optionsFromCounts(facets?.source_document) },
+              ]}
+            />
+          </div>
           {filteredGaps.length === 0 ? (
             <div className="panel-muted">
               <p className="text-sm text-ink-500">No gaps match these filters.</p>
             </div>
           ) : (
-          <ScrollableTable>
-            <table className="table-base min-w-[1750px]">
-              <thead>
-                <tr>
-                  <th>S.No</th>
-                  <th>Audit Field ID</th>
-                  <th>Gap Type</th>
-                  <th>Priority</th>
-                  <th title="The CRI pillar whose score this gap's penalty is taken from while it is open.">CRI Pillar</th>
-                  <th title="The role that owns this data -- not a named person">Owner Role</th>
-                  <th>Title</th>
-                  <th>Source</th>
-                  <th title="The linked fact's snippet and page; both sources for a conflict">Source Snippet</th>
-                  <th>Score Impact</th>
-                  <th>Status</th>
-                  <th title="The fact's evidence request and the person it is assigned to">Evidence Request</th>
-                  <th className="text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredGaps.map((gap, index) => (
-                  <tr key={gap.id}>
-                    <td className="text-ink-500 tabular-nums">{(page - 1) * DEFAULT_PAGE_SIZE + index + 1}</td>
-                    <td className="font-mono text-xs font-bold text-brand-800">
-                      {gap.audit_field_id || '—'}
-                    </td>
-                    <td className="text-ink-700 font-medium capitalize">
-                      {gap.gap_type.replace('_', ' ')}
-                    </td>
-                    <td>
-                      <span className={priorityBadgeClass(gap.priority)}>{gap.priority}</span>
-                    </td>
-                    <td>
-                      <span className="badge-neutral">{gap.pillar_label || gap.pillar || '—'}</span>
-                    </td>
-                    <td className="text-ink-900">
-                      <span className="font-semibold">{gap.owner_role || '—'}</span>
-                      <span className="block text-[11px] text-ink-500">
-                        {gap.assigned_to_name ? `→ ${gap.assigned_to_name}` : 'unassigned'}
-                        {gap.due_date ? ` · due ${gap.due_date}` : ''}
-                      </span>
-                    </td>
-                    <td className="text-ink-600">{gap.title}</td>
-                    <td
-                      className="text-ink-600 max-w-[14rem] truncate"
-                      title={gap.source_document_filename || undefined}
-                    >
-                      {gap.source_document_filename || '—'}
-                    </td>
-                    <td className="max-w-[18rem] min-w-[12rem] align-top">
-                      <GapSnippetCell gap={gap} />
-                    </td>
-                    <td className="font-mono font-bold text-danger tabular-nums">
-                      -{gap.score_impact} pts
-                    </td>
-                    <td>
-                      <span className={statusBadgeClass(gap.status)}>{gap.status}</span>
-                    </td>
-                    <td className="text-xs">
-                      {gap.evidence_state && gap.evidence_state.state !== 'still_open' && gap.evidence_state.state !== 'evidence_requested' && (
-                        <div className="mb-1 max-w-[16rem] whitespace-normal">
-                          <span className={gap.evidence_state.state === 'processing_failed' ? 'badge-danger'
-                            : gap.evidence_state.state === 'resolved' ? 'badge-success'
-                              : gap.evidence_state.state === 'awaiting_review' ? 'badge-warning' : 'badge-info'}>
-                            {gap.evidence_state.label}
-                          </span>
-                          <span className="block text-ink-600 mt-0.5">{gap.evidence_state.reason}</span>
-                          {gap.evidence_state.next_action && (
-                            <span className="block text-ink-500">Next: {gap.evidence_state.next_action}{' '}
-                              {['processing', 'uploaded', 'processing_failed'].includes(gap.evidence_state.state) && (
-                                <Link to={`/sprint/${sprintId}/monitor`} className="text-brand-800 hover:underline">Monitor</Link>
-                              )}
-                              {gap.evidence_state.state === 'awaiting_review' && (
-                                <Link to={`/sprint/${sprintId}/${gap.gap_type === 'missing_document' ? 'upload' : 'facts'}`}
-                                  className="text-brand-800 hover:underline">
-                                  {gap.gap_type === 'missing_document' ? 'Upload Data Pack' : 'Facts Review'}
-                                </Link>
-                              )}
+          <div data-tour="gaps-table">
+            <ScrollableTable>
+              <table className="table-base min-w-[1750px]">
+                <thead>
+                  <tr>
+                    <th>S.No</th>
+                    <th>Audit Field ID</th>
+                    <th>Gap Type</th>
+                    <th>Priority</th>
+                    <th title="The CRI pillar whose score this gap's penalty is taken from while it is open.">CRI Pillar</th>
+                    <th title="The role that owns this data -- not a named person">Owner Role</th>
+                    <th>Title</th>
+                    <th>Source</th>
+                    <th title="The linked fact's snippet and page; both sources for a conflict">Source Snippet</th>
+                    <th>Score Impact</th>
+                    <th>Status</th>
+                    <th title="The fact's evidence request and the person it is assigned to">Evidence Request</th>
+                    <th className="text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredGaps.map((gap, index) => (
+                    <tr key={gap.id}>
+                      <td className="text-ink-500 tabular-nums">{(page - 1) * DEFAULT_PAGE_SIZE + index + 1}</td>
+                      <td className="font-mono text-xs font-bold text-brand-800">
+                        {gap.audit_field_id || '—'}
+                      </td>
+                      <td className="text-ink-700 font-medium capitalize">
+                        {gap.gap_type.replace('_', ' ')}
+                      </td>
+                      <td>
+                        <span className={priorityBadgeClass(gap.priority)}>{gap.priority}</span>
+                      </td>
+                      <td>
+                        <span className="badge-neutral">{gap.pillar_label || gap.pillar || '—'}</span>
+                      </td>
+                      <td className="text-ink-900">
+                        <span className="font-semibold">{gap.owner_role || '—'}</span>
+                        <span className="block text-[11px] text-ink-500">
+                          {gap.assigned_to_name ? `→ ${gap.assigned_to_name}` : 'unassigned'}
+                          {gap.due_date ? ` · due ${gap.due_date}` : ''}
+                        </span>
+                      </td>
+                      <td className="text-ink-600">{gap.title}</td>
+                      <td
+                        className="text-ink-600 max-w-[14rem] truncate"
+                        title={gap.source_document_filename || undefined}
+                      >
+                        {gap.source_document_filename || '—'}
+                      </td>
+                      <td className="max-w-[18rem] min-w-[12rem] align-top">
+                        <GapSnippetCell gap={gap} />
+                      </td>
+                      <td className="font-mono font-bold text-danger tabular-nums">
+                        -{gap.score_impact} pts
+                      </td>
+                      <td>
+                        <span className={statusBadgeClass(gap.status)}>{gap.status}</span>
+                      </td>
+                      <td className="text-xs">
+                        {gap.evidence_state && gap.evidence_state.state !== 'still_open' && gap.evidence_state.state !== 'evidence_requested' && (
+                          <div className="mb-1 max-w-[16rem] whitespace-normal">
+                            <span className={gap.evidence_state.state === 'processing_failed' ? 'badge-danger'
+                              : gap.evidence_state.state === 'resolved' ? 'badge-success'
+                                : gap.evidence_state.state === 'awaiting_review' ? 'badge-warning' : 'badge-info'}>
+                              {gap.evidence_state.label}
                             </span>
-                          )}
-                        </div>
-                      )}
-                      {gap.evidence_request ? (
-                        <Link to={`/evidence-requests?view=all&id=${gap.evidence_request.id}`}
-                          className="font-semibold text-accent hover:underline">
-                          {gap.evidence_request.overdue ? 'Overdue' : gap.evidence_request.status_label}
-                          <span className="block font-normal text-ink-500">
-                            {gap.evidence_request.assigned_to_name || 'not assigned yet'}
-                          </span>
-                        </Link>
-                      ) : <span className="text-ink-500">—</span>}
-                    </td>
-                    <td className="text-right space-x-1 whitespace-nowrap">
-                      {gap.can_upload_evidence && gap.can_act !== false && (
-                        <button onClick={() => { setUploadMessage(''); setUploadingGap(gap); }} aria-haspopup="dialog"
-                          className="px-3 py-1 bg-line-200 hover:bg-line-300 text-accent font-semibold text-xs rounded transition-colors">
-                          Upload Evidence
-                        </button>
-                      )}
-                      {gap.gap_type === 'conflict' && (
+                            <span className="block text-ink-600 mt-0.5">{gap.evidence_state.reason}</span>
+                            {gap.evidence_state.next_action && (
+                              <span className="block text-ink-500">Next: {gap.evidence_state.next_action}{' '}
+                                {['processing', 'uploaded', 'processing_failed'].includes(gap.evidence_state.state) && (
+                                  <Link to={`/sprint/${sprintId}/monitor`} className="text-brand-800 hover:underline">Monitor</Link>
+                                )}
+                                {gap.evidence_state.state === 'awaiting_review' && (
+                                  <Link to={`/sprint/${sprintId}/${gap.gap_type === 'missing_document' ? 'upload' : 'facts'}`}
+                                    className="text-brand-800 hover:underline">
+                                    {gap.gap_type === 'missing_document' ? 'Upload Data Pack' : 'Facts Review'}
+                                  </Link>
+                                )}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {gap.evidence_request ? (
+                          <Link to={`/evidence-requests?view=all&id=${gap.evidence_request.id}`}
+                            className="font-semibold text-accent hover:underline">
+                            {gap.evidence_request.overdue ? 'Overdue' : gap.evidence_request.status_label}
+                            <span className="block font-normal text-ink-500">
+                              {gap.evidence_request.assigned_to_name || 'not assigned yet'}
+                            </span>
+                          </Link>
+                        ) : <span className="text-ink-500">—</span>}
+                      </td>
+                      <td className="text-right space-x-1 whitespace-nowrap">
+                        {gap.can_upload_evidence && gap.can_act !== false && (
+                          <button
+                            data-tour={index === 0 ? "gaps-evidence-btn" : undefined}
+                            onClick={() => { setUploadMessage(''); setUploadingGap(gap); }}
+                            aria-haspopup="dialog"
+                            className="px-3 py-1 bg-line-200 hover:bg-line-300 text-accent font-semibold text-xs rounded transition-colors"
+                          >
+                            Upload Evidence
+                          </button>
+                        )}
+                        {gap.gap_type === 'conflict' && (
                         <button
                           onClick={() => setComparingId(gap.id)}
                           aria-haspopup="dialog"
@@ -391,6 +390,7 @@ export const GapDashboard: React.FC = () => {
               </tbody>
             </table>
           </ScrollableTable>
+          </div>
           )}
           {pageData && (
             <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} count={pageData.count} onPage={setPage} />

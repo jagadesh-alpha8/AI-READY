@@ -18,7 +18,7 @@ export const SprintContextBar: React.FC = () => {
   const options = sprints || [];
 
   const picker = options.length > 0 && (
-    <label className="flex items-center gap-2 text-xs font-semibold text-ink-700 shrink-0">
+    <label data-tour="sprint-selector" className="flex items-center gap-2 text-xs font-semibold text-ink-700 shrink-0">
       <span>{status === 'ok' ? 'Switch sprint' : 'Choose a sprint'}</span>
       <select
         className="input py-1.5 text-xs max-w-[22rem]"
@@ -70,6 +70,7 @@ export const SprintContextBar: React.FC = () => {
 
   return (
     <div
+      data-tour="sprint-context-bar"
       className={`glass-card px-4 py-3 mb-5 flex flex-col sm:flex-row sm:items-center gap-3 justify-between border-l-4 ${
         status === 'ok' ? 'border-l-brand-500' : 'border-l-warning'}`}
       role="region"

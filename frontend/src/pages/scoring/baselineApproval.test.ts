@@ -129,9 +129,11 @@ describe('Start demo revision (local development only)', async () => {
   });
 
   it('is not offered to roles that cannot manage the sprint', () => {
-    for (const role of ['viewer', 'iqac_coordinator', 'faculty']) {
+    for (const role of ['viewer', 'faculty']) {
       assert.ok(!render(local, role, decidedCurrent).includes('Start demo revision'), role);
     }
+    // In the consolidated 3-role model, IQAC Coordinator manages the sprint and baseline approval
+    assert.ok(render(local, 'iqac_coordinator', decidedCurrent).includes('Start demo revision'), 'iqac_coordinator manages sprint');
   });
 
   it('is not offered for a pending or returned baseline, or when the normal revision applies', () => {

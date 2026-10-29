@@ -126,7 +126,7 @@ export const InstitutionList: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+      <div data-tour="institution-dna-header" className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="p-2.5 rounded-lg bg-brand-500/10 border border-brand-500/30 text-brand-800 shrink-0">
             <Building2 className="w-6 h-6" />
@@ -138,16 +138,19 @@ export const InstitutionList: React.FC = () => {
             </p>
           </div>
         </div>
-        {canCreate && !showForm && (
-          <button
-            type="button"
-            onClick={openForm}
-            className="btn-primary btn-sm shrink-0 self-start sm:self-auto"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add institution</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+          {canCreate && !showForm && (
+            <button
+              type="button"
+              data-tour="institution-add-btn"
+              onClick={openForm}
+              className="btn-primary btn-sm shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add institution</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {showForm && (
@@ -234,7 +237,7 @@ export const InstitutionList: React.FC = () => {
           action={canCreate && !showForm ? { label: 'Add institution', onClick: openForm } : undefined}
         />
       ) : (
-        <div className="table-shell">
+        <div data-tour="institution-dna-table" className="table-shell">
           <table className="table-base">
             <thead>
               <tr>

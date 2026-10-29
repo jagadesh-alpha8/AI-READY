@@ -33,9 +33,9 @@ class ReportsTestBase(APITestCase):
         self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
         self.other_institution = Institution.objects.create(name='Other', city='X', state='Y')
 
-        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
-        self.viewer = self._make_user('viewer@test.edu', User.Role.VIEWER, self.institution)
-        self.outsider = self._make_user('outsider@test.edu', User.Role.INSTITUTION_ADMIN, self.other_institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
+        self.viewer = self._make_user('viewer@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
+        self.outsider = self._make_user('outsider@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
 
         self.sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
 
@@ -301,13 +301,6 @@ class ReportEndpointTests(ReportsTestBase):
         self._auth(self.admin)
         response = self.client.get(f'/api/v1/reports/{report.id}/download/')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_viewer_can_view_but_not_generate(self):
-        self._auth(self.viewer)
-        get_response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/reports/')
-        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
-        post_response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/reports/generate/')
-        self.assertEqual(post_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_outsider_forbidden(self):
         self._auth(self.outsider)

@@ -2,6 +2,10 @@ export type ExtractionJobStatus = 'pending' | 'running' | 'retrying' | 'complete
 
 export const ACTIVE_EXTRACTION_STATUSES: ExtractionJobStatus[] = ['pending', 'running', 'retrying'];
 
+export type JobPhase =
+  | 'queued' | 'reading_pages' | 'classifying' | 'extracting_facts' | 'finishing' | 'continuing' | 'retrying'
+  | 'waiting_for_router' | 'completed' | 'partial' | 'failed' | 'stopped';
+
 export interface ExtractionJob {
   id: string;
   sprint_id: string;
@@ -25,6 +29,23 @@ export interface ExtractionJob {
   extraction_warnings: ExtractionWarning[];
   chunks_total: number;
   chunks_completed: number;
+  /** Live reading progress (backend DocumentPage rows); 0 on runs from before it existed. */
+  pages_total?: number;
+  pages_done?: number;
+  ocr_pages?: number;
+  unreadable_pages?: number;
+  /** A large document finished over several bounded attempts: how many follow-ups this run took. */
+  continuations?: number;
+  heartbeat_at?: string | null;
+  /** When a scheduled retry is due (status retrying). */
+  next_retry_at?: string | null;
+  /** What it is doing right now (backend services/job_phase.py) and its label, e.g. "Reading pages 12 of 40". */
+  phase?: JobPhase;
+  phase_label?: string;
+  /** 'single' (one AI provider) or 'multi_router'. */
+  processing_mode?: string;
+  /** Where its AI calls go, without any key: "single provider: api.openai.com, gpt-4o" or "router2 (...), qwen". */
+  ai_provider?: string;
   created_at: string;
   updated_at: string;
   /** AI tokens and cost of this job (all attempts); cost is null when the model has no price. */

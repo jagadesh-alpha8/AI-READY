@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SelectedSprintProvider, useSelectedSprint } from './context/SelectedSprintContext';
+import { MenuTourProvider } from './context/MenuTourContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AppShell } from './layouts/AppShell';
 import { ScrollToTop } from './components/ScrollToTop';
@@ -78,7 +79,7 @@ const ProtectedLayout: React.FC<{ children: React.ReactNode; menu?: MenuKey; spr
   // A new sprint = a fresh page (state, requests and all).
   const pageKey = sprint ? `sprint:${routeSprintId || selection.sprintId || 'none'}` : undefined;
   return (
-    <AppShell showSprintBar={!!sprint && allowed}>
+    <AppShell showSprintBar={!!sprint && allowed} currentMenu={menu}>
       <React.Fragment key={pageKey}>{page}</React.Fragment>
     </AppShell>
   );
@@ -173,7 +174,9 @@ export default function App() {
               paints. */}
           <ScrollToTop />
           <SelectedSprintProvider>
-            <AppRoutes />
+            <MenuTourProvider>
+              <AppRoutes />
+            </MenuTourProvider>
           </SelectedSprintProvider>
           <DialogHost />
         </AuthProvider>

@@ -181,13 +181,14 @@ export const UatReadiness: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        dataTour="uat-header"
         icon={ClipboardCheck}
         title="UAT Readiness"
         description="Whether this engagement is ready to hand over — every check computed from the sprint's real state."
       />
 
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4" data-tour="uat-meter">
         <Metric label="Checks passing" value={`${passed} / ${checks.length}`} tone={passed === checks.length ? 'success' : 'default'} />
         <Metric label="Blocking failures" value={blockers.length} tone={blockers.length > 0 ? 'danger' : 'success'} />
         <Metric label="Not yet assessed" value={unknown} />
@@ -209,7 +210,7 @@ export const UatReadiness: React.FC = () => {
         </div>
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-2" data-tour="uat-checklist">
         {checks.map((check) => {
           const Icon = STATE_ICON[check.state];
           return (

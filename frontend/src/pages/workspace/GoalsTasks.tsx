@@ -181,6 +181,7 @@ export const GoalsTasks: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        dataTour="goals-tasks-header"
         icon={ListChecks}
         title="Goals & Tasks"
         description="Who owes what — the outstanding work from the audit, by the role that owns it."
@@ -203,14 +204,16 @@ export const GoalsTasks: React.FC = () => {
 
       {!gapsLoading && !gapsError && (
         <>
-          <TabStrip
-            tabs={[
-              { id: 'tasks', label: 'Tasks', count: tasks.length },
-              { id: 'goals', label: 'Goals', count: goals.length },
-            ]}
-            active={tab}
-            onChange={setTab}
-          />
+          <div data-tour="goals-tasks-tabs">
+            <TabStrip
+              tabs={[
+                { id: 'tasks', label: 'Tasks', count: tasks.length },
+                { id: 'goals', label: 'Goals', count: goals.length },
+              ]}
+              active={tab}
+              onChange={setTab}
+            />
+          </div>
 
           {tab === 'tasks' && (
             <div className="space-y-4">
@@ -229,16 +232,18 @@ export const GoalsTasks: React.FC = () => {
                 <EmptyState message="Nothing outstanding on this sprint." />
               ) : (
                 <>
-                  <FilterPills
-                    options={[
-                      { id: 'all', label: 'Everyone', count: tasks.length },
-                      ...roles.map(([r, count]) => ({ id: r, label: humanRole(r), count })),
-                    ]}
-                    active={role}
-                    onChange={setRole}
-                  />
+                  <div data-tour="goals-tasks-filters">
+                    <FilterPills
+                      options={[
+                        { id: 'all', label: 'Everyone', count: tasks.length },
+                        ...roles.map(([r, count]) => ({ id: r, label: humanRole(r), count })),
+                      ]}
+                      active={role}
+                      onChange={setRole}
+                    />
+                  </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2" data-tour="goals-tasks-list">
                     {shown.map((item) => (
                       <div key={item.id} className="glass-card p-4 flex items-start gap-3">
                         {item.inProgress

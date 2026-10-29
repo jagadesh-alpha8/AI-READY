@@ -38,49 +38,9 @@ PERSONAS = [
         'role': User.Role.CONSULTANT, 'institution': False, 'department_name': '',
     },
     {
-        'email': 'principal@mkce.ac.in', 'username': 'principal',
-        'first_name': 'N.', 'last_name': 'Ramesh',
-        'role': User.Role.INSTITUTION_ADMIN, 'institution': True, 'department_name': '',
-    },
-    {
         'email': 'iqac@mkce.ac.in', 'username': 'iqac_coordinator',
         'first_name': 'S.', 'last_name': 'Kanthaswamy',
-        'role': User.Role.IQAC_COORDINATOR, 'institution': True, 'department_name': '',
-    },
-    {
-        'email': 'registrar@mkce.ac.in', 'username': 'registrar',
-        'first_name': 'K.', 'last_name': 'Vignesh',
-        'role': User.Role.REGISTRAR, 'institution': True, 'department_name': '',
-    },
-    {
-        'email': 'hod_cs@mkce.ac.in', 'username': 'hod_cs',
-        'first_name': 'C.', 'last_name': 'Vivek',
-        'role': User.Role.HOD, 'institution': True, 'department_name': 'Computer Science',
-    },
-    {
-        'email': 'hr@mkce.ac.in', 'username': 'hr_officer',
-        'first_name': 'P.', 'last_name': 'Meenakshi',
-        'role': User.Role.HR_OFFICER, 'institution': True, 'department_name': '',
-    },
-    {
-        'email': 'labadmin@mkce.ac.in', 'username': 'lab_admin',
-        'first_name': 'S.', 'last_name': 'Karthik',
-        'role': User.Role.LAB_ADMIN, 'institution': True, 'department_name': '',
-    },
-    {
-        'email': 'placement@mkce.ac.in', 'username': 'placement_officer',
-        'first_name': 'R.', 'last_name': 'Anand',
-        'role': User.Role.PLACEMENT_OFFICER, 'institution': True, 'department_name': '',
-    },
-    {
-        'email': 'faculty@mkce.ac.in', 'username': 'faculty_cs',
-        'first_name': 'R.', 'last_name': 'Priya',
-        'role': User.Role.FACULTY, 'institution': True, 'department_name': 'Computer Science',
-    },
-    {
-        'email': 'viewer@mkce.ac.in', 'username': 'viewer',
-        'first_name': 'Trustee', 'last_name': 'Board',
-        'role': User.Role.VIEWER, 'institution': True, 'department_name': '',
+        'role': User.Role.IQAC_COORDINATOR, 'institution': True, 'department_name': 'IQAC',
     },
 ]
 

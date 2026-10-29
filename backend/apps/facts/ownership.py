@@ -25,9 +25,9 @@ from apps.accounts.permissions import user_can_access_institution
 Role = User.Role
 STAFF_ROLES = frozenset(User.CROSS_INSTITUTION_ROLES)
 #: Act on every fact and gap of their college, whatever its owner role.
-OVERRIDE_ROLES = STAFF_ROLES | {Role.INSTITUTION_ADMIN}
+OVERRIDE_ROLES = STAFF_ROLES | {Role.IQAC_COORDINATOR}
 #: Assign work, see every task of the sprint, and own work that has no owner role.
-COORDINATOR_ROLES = OVERRIDE_ROLES | {Role.IQAC_COORDINATOR}
+COORDINATOR_ROLES = OVERRIDE_ROLES
 
 
 class OwnershipError(Exception):
@@ -35,10 +35,9 @@ class OwnershipError(Exception):
 
 
 def normalize_role(value):
-    """The User.Role a stored owner role names ('HOD', 'hod', ' Hod ' -> 'hod'), or '' when it is not one
-    (blank, a viewer, or a team such as RESEARCH_CELL that has no login role)."""
+    """The User.Role a stored owner role names, or '' when it is not one."""
     slug = (value or '').strip().lower()
-    return slug if slug in Role.values and slug != Role.VIEWER else ''
+    return slug if slug in Role.values else ''
 
 
 def role_label(role):
@@ -47,11 +46,7 @@ def role_label(role):
 
 def who_can_act(owner_role):
     """Plain words for the people allowed, for "why can't I" messages."""
-    if owner_role and owner_role not in OVERRIDE_ROLES:
-        return f'the {role_label(owner_role)}, an Institution Admin or InGage staff'
-    if owner_role == Role.INSTITUTION_ADMIN:
-        return 'an Institution Admin or InGage staff'
-    return 'an Institution Admin, the IQAC Coordinator or InGage staff'
+    return 'the IQAC Coordinator or InGage staff'
 
 
 # -- owner of a fact / a gap ------------------------------------------------------------------------
@@ -90,14 +85,13 @@ def check(user, owner_role, institution_id, *, what='this item'):
     """(allowed, reason). `reason` says who may, when the user may not."""
     if not user_can_access_institution(user, institution_id):
         return False, 'This belongs to another college.'
-    if user.role == Role.VIEWER:
-        return False, f'Viewers cannot change {what}; {who_can_act(owner_role)} can.'
     if user.role in OVERRIDE_ROLES:
         return True, ''
     if owner_role:
         allowed = user.role == owner_role
     else:
         allowed = user.role in COORDINATOR_ROLES
+    return (True, '') if allowed else (False, f'Only {who_can_act(owner_role)} can act on {what}.')
     return (True, '') if allowed else (False, f'Only {who_can_act(owner_role)} can act on {what}.')
 
 
@@ -127,11 +121,10 @@ def is_coordinator(user, institution_id):
 
 # -- assignment ------------------------------------------------------------------------------------------
 
-def eligible_assignees(institution_id, owner_role):
-    """Active users of the college who may act on an item of this owner role."""
-    roles = {Role.INSTITUTION_ADMIN} | ({owner_role} if owner_role else {Role.IQAC_COORDINATOR})
-    return (User.objects.filter(institution_id=institution_id, is_active=True, role__in=roles)
-            .order_by('role', 'first_name', 'last_name', 'email'))
+def eligible_assignees(institution_id, owner_role=None):
+    """Active users of the college who may act on an item."""
+    return (User.objects.filter(institution_id=institution_id, is_active=True, role=Role.IQAC_COORDINATOR)
+            .order_by('first_name', 'last_name', 'email'))
 
 
 def _person(user):
@@ -148,7 +141,7 @@ def assign(item, user, *, assigned_to, due_date=None, note=''):
     owner_role = fact_owner_role(item) if is_fact else gap_owner_role(item)
     institution_id = item.sprint.institution_id
     if not is_coordinator(user, institution_id):
-        raise OwnershipError('Only an Institution Admin, the IQAC Coordinator or InGage staff can assign work.')
+        raise OwnershipError('Only the IQAC Coordinator or InGage staff can assign work.')
     if due_date and due_date < date.today():
         raise OwnershipError('The due date cannot be in the past.')
     assignee = None
@@ -178,13 +171,9 @@ def person_name(user):
 
 
 def check_conflict_choice(user, gap):
-    """(allowed, reason): who may decide which value of a conflict is correct -- the gap's owner role of the
-    gap's own college, or a Super Admin. Stricter than check_gap: choosing a value confirms one fact and rejects
-    the others, so neither an Institution Admin nor an InGage consultant decides it for the owner."""
-    owner = gap_owner_role(gap)
-    if user.role == Role.SUPER_ADMIN:
+    """(allowed, reason): who may decide which value of a conflict is correct."""
+    if user.role in STAFF_ROLES:
         return True, ''
-    if owner and user.role == owner and user.institution_id == gap.sprint.institution_id:
+    if user.role == Role.IQAC_COORDINATOR and user.institution_id == gap.sprint.institution_id:
         return True, ''
-    who = f'the {role_label(owner)} of this college' if owner else 'nobody at the college (no owner role)'
-    return False, f'Only {who} or a Super Admin can choose the correct value of this conflict.'
+    return False, 'Only the IQAC Coordinator of this college or InGage staff can choose the correct value of this conflict.'

@@ -19,6 +19,9 @@ import { TableFilters } from '../../components/TableFilters';
 import { useAccess } from '../../utils/access';
 import { CriConfidenceTile } from '../scoring/CriConfidenceTile';
 import { RequestEvidenceModal } from './RequestEvidenceModal';
+import { FactVerificationModal, VerificationCell } from './FactVerification';
+import { VerificationPanel } from './VerificationPanel';
+import { PendingCorrectionNote, ProposeCorrectionModal } from './CorrectionProposal';
 import { FactKindBadge } from './AIQIFSummaryBar';
 import { AIQIFTagRow, FactReviewState } from './AIQIFTagRow';
 import { confirmDialog, promptDialog } from '../../components/Dialog';
@@ -46,11 +49,12 @@ export const FactsReview: React.FC = () => {
   const [sourceFilter, setSourceFilter] = useState('');
   const [kindFilter, setKindFilter] = useState('');
   const [pillarFilter, setPillarFilter] = useState('');
+  const [verificationFilter, setVerificationFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const q = useDebounced(search.trim());
   const query = {
     q, status: statusFilter, owner_role: ownerFilter, source_document: sourceFilter, fact_kind: kindFilter,
-    pillar: pillarFilter, aiqif_indicator: categoryFilter,
+    pillar: pillarFilter, aiqif_indicator: categoryFilter, verification_status: verificationFilter,
   };
   const queryKey = JSON.stringify(query);
   // The page belongs to its filters: a new filter starts at page 1 in the same render (never a request for
@@ -195,6 +199,9 @@ export const FactsReview: React.FC = () => {
 
   // "Request Evidence" opens a form (what, why, who, by when); see RequestEvidenceModal.
   const [requestingFor, setRequestingFor] = useState<Fact | null>(null);
+  // Why a fact was (or was not) verified, and correcting a value a person already reviewed.
+  const [verifyingFact, setVerifyingFact] = useState<Fact | null>(null);
+  const [proposingFor, setProposingFor] = useState<Fact | null>(null);
 
   const statusBadgeClass = (status: Fact['status']) => {
     switch (status) {
@@ -208,6 +215,18 @@ export const FactsReview: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {verifyingFact && <FactVerificationModal fact={verifyingFact} onClose={() => setVerifyingFact(null)} />}
+      {proposingFor && (
+        <ProposeCorrectionModal
+          fact={proposingFor}
+          onClose={() => setProposingFor(null)}
+          onDone={() => {
+            setProposingFor(null);
+            setActionMessage('Correction proposed. Another reviewer must approve it before the fact changes.');
+            refetch();
+          }}
+        />
+      )}
       {requestingFor && (
         <RequestEvidenceModal
           fact={requestingFor}
@@ -215,17 +234,15 @@ export const FactsReview: React.FC = () => {
           onCreated={() => { setRequestingFor(null); refetch(); }}
         />
       )}
-      <div className="glass-card p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <FileSearch className="w-5 h-5 text-brand-800" /> Step {step('sprint-facts')}: Extracted Facts Review
-            </h1>
-            <p className="text-sm text-ink-500 mt-1">
-              Review candidate facts extracted by AIOS. Confirm, correct, or reject values with complete source snippet lineage.
-            </p>
+      {/* Action Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="sr-only">Extracted Facts Review</h1>
+          <div data-tour="facts-summary-tile">
             {isRealSprint && <CriConfidenceTile sprintId={sprintId!} />}
           </div>
+        </div>
+        <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
           <button onClick={() => navigate(`/sprint/${sprintId}/gaps`)} className="btn-primary shrink-0">
             <span>Proceed to Gap Dashboard</span>
             <ArrowRight className="w-4 h-4" />
@@ -240,6 +257,10 @@ export const FactsReview: React.FC = () => {
         </div>
       )}
 
+      {isRealSprint && sprintId && (
+        <VerificationPanel sprintId={sprintId} canReview={canReview} onChanged={refetch} />
+      )}
+
       {/* Facts Table */}
       <div className="glass-card p-5 sm:p-6">
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
@@ -247,7 +268,7 @@ export const FactsReview: React.FC = () => {
           <div className="flex items-center gap-3 flex-wrap justify-end">
             <span className="text-xs text-ink-500">{totalFacts} facts registered</span>
             {isExpert && (
-              <Link to={`/sprint/${sprintId}/aiqif-review`} className="btn-secondary btn-sm">AI-QIF expert queue</Link>
+              <Link data-tour="facts-expert-link" to={`/sprint/${sprintId}/aiqif-review`} className="btn-secondary btn-sm">AI-QIF expert queue</Link>
             )}
           </div>
         </div>
@@ -266,34 +287,41 @@ export const FactsReview: React.FC = () => {
           </div>
         ) : (
           <>
-          <TableFilters
-            search={search}
-            onSearch={setSearch}
-            placeholder="Search field ID, value, snippet or document…"
-            shown={pageData?.count ?? 0}
-            total={totalFacts}
-            selects={[
-              { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
-                options: optionsFromCounts(facets?.status, (v: string) => v.replace(/_/g, ' ')) },
-              // The CRI pillars are the 9 AI-QIF criteria in framework order; one with no facts still shows, as (0).
-              { key: 'pillar', label: 'CRI Pillar', value: pillarFilter, onChange: setPillarFilter,
-                options: pillarOptions(facets?.pillars) },
-              // Facts tagged to one of the 36 AI-QIF key indicators (what the AI-QIF Category column shows).
-              { key: 'category', label: 'AI-QIF Category', value: categoryFilter, onChange: setCategoryFilter,
-                options: pillarOptions(facets?.aiqif_indicators) },
-              { key: 'kind', label: 'Fact kind', value: kindFilter, onChange: setKindFilter,
-                options: optionsFromCounts(facets?.fact_kind, (v: string) => KIND_LABELS[v === 'none' ? '' : v] || v) },
-              { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
-                options: optionsFromCounts(facets?.owner_role) },
-              { key: 'source', label: 'Source document', value: sourceFilter, onChange: setSourceFilter,
-                options: optionsFromCounts(facets?.source_document) },
-            ]}
-          />
+          <div data-tour="facts-filters">
+            <TableFilters
+              search={search}
+              onSearch={setSearch}
+              placeholder="Search field ID, value, snippet or document…"
+              shown={pageData?.count ?? 0}
+              total={totalFacts}
+              selects={[
+                { key: 'verification', label: 'Verification', value: verificationFilter, onChange: setVerificationFilter,
+                  options: optionsFromCounts(facets?.verification_status, (v: string) => ({
+                    verified: 'Verified', needs_review: 'Needs review', invalid: 'Invalid', conflicting: 'Conflicting',
+                    none: 'Not verified yet' } as Record<string, string>)[v] || v) },
+                { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
+                  options: optionsFromCounts(facets?.status, (v: string) => v.replace(/_/g, ' ')) },
+                // The CRI pillars are the 9 AI-QIF criteria in framework order; one with no facts still shows, as (0).
+                { key: 'pillar', label: 'CRI Pillar', value: pillarFilter, onChange: setPillarFilter,
+                  options: pillarOptions(facets?.pillars) },
+                // Facts tagged to one of the 36 AI-QIF key indicators (what the AI-QIF Category column shows).
+                { key: 'category', label: 'AI-QIF Category', value: categoryFilter, onChange: setCategoryFilter,
+                  options: pillarOptions(facets?.aiqif_indicators) },
+                { key: 'kind', label: 'Fact kind', value: kindFilter, onChange: setKindFilter,
+                  options: optionsFromCounts(facets?.fact_kind, (v: string) => KIND_LABELS[v === 'none' ? '' : v] || v) },
+                { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
+                  options: optionsFromCounts(facets?.owner_role) },
+                { key: 'source', label: 'Source document', value: sourceFilter, onChange: setSourceFilter,
+                  options: optionsFromCounts(facets?.source_document) },
+              ]}
+            />
+          </div>
           {canReview && filteredFacts.length > 0 && (
             // Acts on the list below -- every page of it, with the filters above.
             <div className="flex justify-end mb-2">
               <button
                 type="button"
+                data-tour="facts-bulk-confirm"
                 onClick={handleBulkConfirm}
                 disabled={bulkConfirming}
                 className="btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
@@ -310,8 +338,9 @@ export const FactsReview: React.FC = () => {
               <p className="text-sm text-ink-500">No facts match these filters.</p>
             </div>
           ) : (
-          <ScrollableTable>
-            <table className="table-base min-w-[1640px]">
+          <div data-tour="facts-table">
+            <ScrollableTable>
+              <table className="table-base min-w-[1640px]">
               <thead>
                 <tr>
                   <th>S.No</th>
@@ -325,6 +354,7 @@ export const FactsReview: React.FC = () => {
                   <th>Source Snippet</th>
                   <th>Confidence</th>
                   <th>Owner</th>
+                  <th title="Checked against the cited page: citation, quote, value, validation rules and other sources. Separate from the extraction confidence.">Verification</th>
                   <th>Status</th>
                   <th className="text-right">Actions</th>
                 </tr>
@@ -385,14 +415,18 @@ export const FactsReview: React.FC = () => {
                       {(fact.confidence * 100).toFixed(0)}%
                     </td>
                     <td className="text-ink-700 font-medium">{fact.owner_role || 'IQAC'}</td>
+                    <td><VerificationCell fact={fact} onOpen={() => setVerifyingFact(fact)} /></td>
                     <td>
                       <span className={statusBadgeClass(fact.status)}>{fact.status}</span>
                       {fact.auto_confirmed && (
                         <span className="block text-[11px] text-ink-500 mt-0.5"
-                          title="Confirmed by the system because the AI confidence was above 80%. Correct or reject it if it is wrong.">
-                          auto ({Math.round(fact.confidence * 100)}%)
+                          title="Confirmed by the system, not a person. Correct or reject it if it is wrong; that is recorded as an override.">
+                          {fact.verification?.automation_decision === 'precedent' ? 'auto (earlier decision)'
+                            : fact.verification?.automation_decision === 'auto_verified' ? 'auto (all checks passed)'
+                              : 'auto (older rule)'}
                         </span>
                       )}
+                      <PendingCorrectionNote fact={fact} onChanged={refetch} onError={setActionError} />
                       {fact.evidence_for_gaps?.map((g) => (
                         <span key={g.id} className="block text-[11px] text-ink-500 mt-0.5 max-w-[14rem] whitespace-normal"
                           title="This fact comes from a document uploaded as evidence for this gap. Confirming or correcting it (with its citation) settles a Low Confidence gap; it is not confirmed automatically.">
@@ -429,15 +463,28 @@ export const FactsReview: React.FC = () => {
                           {actingOnId === fact.id ? 'Working...' : 'Confirm'}
                         </button>
                       )}
-                      <button
-                        onClick={() => {
-                          setEditingFactId(fact.id);
-                          setCorrectionValue(String(fact.value_json));
-                        }}
-                        className="px-2.5 py-1 bg-line-200 hover:bg-line-300 text-ink-700 text-xs font-semibold rounded transition-colors"
-                      >
-                        Correct
-                      </button>
+                      {(fact.status === 'confirmed' || fact.status === 'corrected') && !fact.auto_confirmed ? (
+                        // A person already decided this value: a change needs another reviewer's approval.
+                        !fact.pending_correction && (
+                          <button
+                            onClick={() => setProposingFor(fact)}
+                            className="px-2.5 py-1 bg-line-200 hover:bg-line-300 text-ink-700 text-xs font-semibold rounded transition-colors"
+                            title="Propose a corrected value with its source; another reviewer approves it."
+                          >
+                            Propose correction
+                          </button>
+                        )
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setEditingFactId(fact.id);
+                            setCorrectionValue(String(fact.value_json));
+                          }}
+                          className="px-2.5 py-1 bg-line-200 hover:bg-line-300 text-ink-700 text-xs font-semibold rounded transition-colors"
+                        >
+                          Correct
+                        </button>
+                      )}
                       <button
                         onClick={() => setRequestingFor(fact)}
                         disabled={actingOnId === fact.id}
@@ -462,6 +509,7 @@ export const FactsReview: React.FC = () => {
               </tbody>
             </table>
           </ScrollableTable>
+          </div>
           )}
           {pageData && (
             <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} count={pageData.count} onPage={setPage} />

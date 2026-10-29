@@ -40,7 +40,7 @@ def _forbid(msg='Only InGage staff can do this.'):
 
 
 def _can_upload(user):
-    return user.role != User.Role.VIEWER
+    return user.role in {User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.IQAC_COORDINATOR}
 
 
 def _cycle(request, pk):

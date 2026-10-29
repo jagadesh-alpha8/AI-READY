@@ -213,7 +213,9 @@ def _conflict_side(label, fact, snapshot):
                 'current_value': None, 'fact_status': '', 'document_id': None, 'document_name': None,
                 'page': None, 'snippet': None, 'confidence_score': None}
     # The citation the fact carries now (its evidence document, else the one it was extracted from).
+    from apps.facts.verification.conflicts import candidate_row
     document = fact.source_document or fact.document
+    row = candidate_row(fact)  # version, period, population, unit, categories, validation (verification/)
     return {
         'side': label, 'fact_id': str(fact.id), 'field_name': fact.field_name or fact.field_key,
         'value_at_detection': snapshot, 'current_value': fact.value, 'fact_status': fact.status,
@@ -221,6 +223,10 @@ def _conflict_side(label, fact, snapshot):
         'document_name': (document.original_filename or document.title or None) if document else None,
         'page': fact.source_page or None, 'snippet': fact.source_snippet or None,
         'confidence_score': fact.confidence_score,
+        'document_version': row['document_version'], 'superseded': row['superseded'], 'period': row['period'],
+        'population': row['population'], 'unit': row['unit'], 'includes': row['includes'],
+        'excludes': row['excludes'], 'validation_status': row['validation_status'],
+        'grounding_status': row['grounding_status'], 'verification_status': row['verification_status'],
     }
 
 

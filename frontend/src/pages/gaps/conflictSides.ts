@@ -55,9 +55,16 @@ export function describeSide(side: ConflictSide): SideView {
     rows: [
       row('Extracted value', shown, 'value'),
       row('Source document', side.document_name),
+      // Recorded by the verification pipeline; shown only when the API sends them.
+      ...(side.document_version !== undefined
+        ? [row('Version', side.document_version ? `v${side.document_version}${side.superseded ? ' (superseded)' : ''}` : null)] : []),
       row('Page', side.page),
+      ...(side.period !== undefined ? [row('Period', side.period)] : []),
+      ...(side.population !== undefined ? [row('Population', side.population?.length ? side.population.join(', ') : null)] : []),
       row('Snippet', side.snippet, 'quote'),
       row('Confidence', confidence),
+      ...(side.validation_status !== undefined
+        ? [row('Checks', side.validation_status ? `${side.validation_status}${side.grounding_status ? ` · quote ${side.grounding_status.replace(/_/g, ' ')}` : ''}` : null)] : []),
     ],
     valueNote,
   };

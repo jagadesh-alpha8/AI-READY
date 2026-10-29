@@ -94,7 +94,7 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Banner */}
-      <div className="glass-card p-6 sm:p-8 bg-gradient-to-br from-brand-50 to-card">
+      <div data-tour="dashboard-banner" className="glass-card p-6 sm:p-8 bg-gradient-to-br from-brand-50 to-card">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <span className="text-xs font-bold uppercase tracking-wide text-brand-800">AIOS Platform</span>
@@ -103,17 +103,19 @@ export const Dashboard: React.FC = () => {
               Execute fast-track AI readiness audits across governance, curriculum, faculty capability, student readiness, labs, research, and placements.
             </p>
           </div>
-          {can('sprint.manage') && (
-            <button onClick={() => navigate('/sprint/setup')} className="btn-primary shrink-0">
-              <Plus className="w-4 h-4" />
-              <span>Create New Discovery Sprint</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {can('sprint.manage') && (
+              <button data-tour="dashboard-create-btn" onClick={() => navigate('/sprint/setup')} className="btn-primary shrink-0">
+                <Plus className="w-4 h-4" />
+                <span>Create New Discovery Sprint</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div data-tour="dashboard-metrics" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="glass-card p-5">
           <div className="flex items-center justify-between text-ink-500">
             <span className="text-sm font-medium">Active Sprints</span>
@@ -160,7 +162,7 @@ export const Dashboard: React.FC = () => {
       </div>
 
       {/* Sprints List Table */}
-      <div className="glass-card p-5 sm:p-6">
+      <div data-tour="dashboard-sprints-table" className="glass-card p-5 sm:p-6">
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <h2 className="eyebrow">Discovery Sprints</h2>
           <span className="text-xs text-ink-500">{sprints.length} sprint records</span>

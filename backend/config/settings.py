@@ -176,7 +176,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': (
         {'login': '10000/minute', 'login_email': '10000/minute', 'password_change': '10000/minute',
          'password_reset': '10000/minute', 'password_reset_email': '10000/minute'}
-        if len(sys.argv) > 1 and sys.argv[1] == 'test' else {
+        if ((len(sys.argv) > 1 and sys.argv[1] == 'test') or 'pytest' in sys.modules or any('pytest' in arg for arg in sys.argv)) else {
             'login': os.getenv('LOGIN_RATE_PER_IP', '10/minute'),
             'login_email': os.getenv('LOGIN_RATE_PER_EMAIL', '20/hour'),
             'password_change': '10/hour',
@@ -311,6 +311,40 @@ WATCHER_ENABLED = (os.getenv('WATCHER_ENABLED', 'false').lower() in ('1', 'true'
                    and not BENCHMARK_CATALOGUE_READ_ONLY)
 WATCHER_HOUR_UTC = int(os.getenv('WATCHER_HOUR_UTC', 20))  # 20:30 UTC = 02:00 IST
 CELERY_BEAT_SCHEDULE = {}
+
+# Extraction job recovery (apps/extraction/services/recovery.py): every EXTRACTION_RECOVERY_INTERVAL_SECONDS the
+# beat process re-queues jobs whose queue message or worker was lost (PostgreSQL is the source of truth).
+# EXTRACTION_STALE_SECONDS: a running job with no heartbeat for this long lost its worker -- keep it well above
+#   AI_REQUEST_TIMEOUT_SECONDS x (AI_SDK_MAX_RETRIES + 1), the longest a healthy worker can go between heartbeats.
+# EXTRACTION_RECOVERY_PENDING_SECONDS: a queued / retrying job this overdue whose task id the broker no longer
+#   holds lost its message. EXTRACTION_RECOVERY_GRACE_SECONDS: a job created this long ago and never published.
+EXTRACTION_RECOVERY_ENABLED = os.getenv('EXTRACTION_RECOVERY_ENABLED', 'true').lower() in ('1', 'true', 'yes')
+EXTRACTION_RECOVERY_INTERVAL_SECONDS = int(os.getenv('EXTRACTION_RECOVERY_INTERVAL_SECONDS', 300))
+EXTRACTION_STALE_SECONDS = int(os.getenv('EXTRACTION_STALE_SECONDS', 30 * 60))
+EXTRACTION_RECOVERY_PENDING_SECONDS = int(os.getenv('EXTRACTION_RECOVERY_PENDING_SECONDS', 15 * 60))
+EXTRACTION_RECOVERY_GRACE_SECONDS = int(os.getenv('EXTRACTION_RECOVERY_GRACE_SECONDS', 120))
+EXTRACTION_RECOVERY_BATCH = int(os.getenv('EXTRACTION_RECOVERY_BATCH', 50))
+EXTRACTION_RECOVERY_DEAD_WORKER_SECONDS = int(os.getenv('EXTRACTION_RECOVERY_DEAD_WORKER_SECONDS', 180))
+if EXTRACTION_RECOVERY_ENABLED:
+    CELERY_BEAT_SCHEDULE['extraction-job-recovery'] = {
+        'task': 'apps.extraction.tasks.recover_extraction_jobs',
+        'schedule': float(EXTRACTION_RECOVERY_INTERVAL_SECONDS),
+    }
+
+# Named queues (optional). Empty = Celery's default queue for everything, as before. Set both to separate
+# OCR-heavy page reading from AI extraction so each gets its own worker service and concurrency
+# (docker-compose: the `celery-ocr` worker, profile "ocr-queue"):
+#   OCR_QUEUE=ocr  EXTRACTION_QUEUE=extraction
+# Then a document is read (text + OCR) by tasks.read_document_pages on OCR_QUEUE first, and its AI extraction runs
+# on EXTRACTION_QUEUE, reusing the saved pages. Worker services must listen on the matching queue (-Q).
+EXTRACTION_QUEUE = os.getenv('EXTRACTION_QUEUE', '').strip()
+OCR_QUEUE = os.getenv('OCR_QUEUE', '').strip()
+CELERY_TASK_ROUTES = {}
+if EXTRACTION_QUEUE:
+    CELERY_TASK_ROUTES['apps.extraction.tasks.run_extraction_job'] = {'queue': EXTRACTION_QUEUE}
+    CELERY_TASK_ROUTES['apps.extraction.tasks.recover_extraction_jobs'] = {'queue': EXTRACTION_QUEUE}
+if OCR_QUEUE:
+    CELERY_TASK_ROUTES['apps.extraction.tasks.read_document_pages'] = {'queue': OCR_QUEUE}
 if WATCHER_ENABLED:
     from celery.schedules import crontab
     CELERY_BEAT_SCHEDULE['daily-source-watcher'] = {
@@ -406,6 +440,27 @@ AIQIF_MAPPING_MIN_CONFIDENCE = float(os.getenv('AIQIF_MAPPING_MIN_CONFIDENCE', 0
 # as the system account, so they stay distinguishable from a person's confirmation. 'off' (or empty) disables.
 _auto_confirm = os.getenv('FACT_AUTO_CONFIRM_MIN_CONFIDENCE', '0.8').strip().lower()
 FACT_AUTO_CONFIRM_MIN_CONFIDENCE = None if _auto_confirm in ('', 'off', 'none', 'false') else float(_auto_confirm)
+# NOTE: since the verification pipeline (apps/facts/verification/), FACT_AUTO_CONFIRM_MIN_CONFIDENCE no longer
+# confirms anything on its own: AI confidence alone never confirms a fact. Kept so existing env files still load.
+
+# Fact verification and safe automation (apps/facts/verification/policy.py).
+# 'shadow' (default): every fact is verified and the policy records what it WOULD do; no fact changes.
+# 'enforce': verified facts the policy allows are confirmed by the system account. Switch only after
+# `python manage.py fact_verification_report --shadow` shows the rules agree with reviewers.
+FACT_VERIFICATION_MODE = os.getenv('FACT_VERIFICATION_MODE', 'shadow').strip().lower()
+# Risk by data type ('low' | 'medium' | 'high'), field-key overrides, and what each risk may automate.
+FACT_RISK_BY_TYPE = {}
+FACT_RISK_BY_FIELD = {}
+FACT_AUTOMATION_POLICY = {
+    'low': {'automate': True, 'allow_precedent': True},
+    'medium': {'automate': True, 'allow_precedent': True},
+    'high': {'automate': False, 'allow_precedent': True},
+}
+# Facts the extractor rated below this always go to a person (this only adds review; never confirms).
+FACT_REVIEW_BELOW_CONFIDENCE = float(os.getenv('FACT_REVIEW_BELOW_CONFIDENCE', os.getenv(
+    'GAP_LOW_CONFIDENCE_THRESHOLD', 0.7)))
+# Extra allowed ranges for particular fields: {field_key regex: [min, max]} (None = open).
+FACT_VALIDATION_RANGES = {r'percent|pct|ratio_pct': [0, 100]}
 
 # apps.extraction.services.pdf_reader: a page with fewer than this many
 # extractable characters (or mostly non-letter garbage) is sent to OCR; if
@@ -424,6 +479,12 @@ OCR_PROVIDER = os.getenv('OCR_PROVIDER', 'none' if _RUNNING_TESTS else 'paddle')
 OCR_LANG = os.getenv('OCR_LANG', 'en')
 OCR_DPI = int(os.getenv('OCR_DPI', 200))
 OCR_MIN_CONFIDENCE = float(os.getenv('OCR_MIN_CONFIDENCE', 0.5))
+# OCR_RETRY_DPI: a page whose first OCR pass (at OCR_DPI) finds no readable text is rendered again at this
+# resolution and read once more (small or faint print). 0 = no second pass.
+OCR_RETRY_DPI = int(os.getenv('OCR_RETRY_DPI', 300))
+# PDF_TABLE_EXTRACTION: keep a text-layer table's header and rows together (PyMuPDF find_tables), rendered as
+# "column: value" rows with the table and page number, instead of loose cell lines.
+PDF_TABLE_EXTRACTION = os.getenv('PDF_TABLE_EXTRACTION', 'true').strip().lower() in ('1', 'true', 'yes')
 # OCR_ENABLE_MKLDNN: PaddlePaddle's oneDNN CPU acceleration -- roughly 4-5x
 # faster, but broken in paddlepaddle 3.3.x on Windows (pinned <3.3 in
 # requirements); set false if your paddlepaddle version crashes with it.
@@ -441,7 +502,12 @@ OCR_DET_MODEL = os.getenv('OCR_DET_MODEL', 'PP-OCRv5_mobile_det').strip()
 # document logs a warning and only its first MAX_CHUNKS chunks are
 # processed, rather than an unbounded number of API calls.
 OPENAI_FACT_EXTRACTION_MAX_CHUNK_CHARS = int(os.getenv('OPENAI_FACT_EXTRACTION_MAX_CHUNK_CHARS', 12000))
+# Inside an extraction job this caps the NEW AI chunk calls of one attempt, not the document: past it the job
+# saves its chunks and continues in a follow-up attempt (services/chunk_store.py), so every chunk is read.
+# 0 = no cap. EXTRACTION_MAX_CONTINUATIONS bounds how many follow-ups one run may take.
 OPENAI_FACT_EXTRACTION_MAX_CHUNKS = int(os.getenv('OPENAI_FACT_EXTRACTION_MAX_CHUNKS', 20))
+EXTRACTION_MAX_CONTINUATIONS = int(os.getenv('EXTRACTION_MAX_CONTINUATIONS', 100))
+EXTRACTION_CONTINUE_DELAY_SECONDS = int(os.getenv('EXTRACTION_CONTINUE_DELAY_SECONDS', 2))
 
 # apps.extraction.services.conflict_checker: safety cap on how many
 # candidate (fact, fact) pairs one document's processing can send to OpenAI
@@ -460,6 +526,33 @@ RUN_OPENAI_INTEGRATION_TESTS = os.getenv('RUN_OPENAI_INTEGRATION_TESTS', 'false'
 # before the job is marked permanently failed.
 EXTRACTION_MAX_RETRIES = int(os.getenv('EXTRACTION_MAX_RETRIES', 3))
 EXTRACTION_RETRY_BACKOFF_SECONDS = int(os.getenv('EXTRACTION_RETRY_BACKOFF_SECONDS', 30))
+# Backoff gets 50-100% jitter and is capped here; a provider's Retry-After is respected (up to the cap).
+EXTRACTION_RETRY_MAX_BACKOFF_SECONDS = int(os.getenv('EXTRACTION_RETRY_MAX_BACKOFF_SECONDS', 15 * 60))
+
+# Provider-aware AI calls (apps/extraction/services/rate_limit.py):
+# AI_SDK_MAX_RETRIES: the provider SDK's own quick retries per request (they honour Retry-After).
+# AI_RATE_LIMIT_RPM / AI_RATE_LIMIT_TPM: requests / tokens per minute shared by every worker, per provider + model
+#   + API key (0 = no limit). Set them a little under the account's real limits.
+# AI_RATE_LIMIT_MAX_WAIT_SECONDS: a request waits this long for a free window, then the job is retried later.
+# AI_RETRY_MAX_DELAY_SECONDS: the longest Retry-After pause shared with other workers.
+# AI_QUOTA_EXHAUSTED_HOLD_SECONDS: after "out of quota / credit", other requests with that key fail at once
+#   (no call, no retry loop) for this long, or until `manage.py ai_router_reactivate` clears it.
+AI_SDK_MAX_RETRIES = int(os.getenv('AI_SDK_MAX_RETRIES', 2))
+AI_RATE_LIMIT_ENABLED = (os.getenv('AI_RATE_LIMIT_ENABLED', 'false' if _RUNNING_TESTS else 'true').lower()
+                         in ('1', 'true', 'yes'))
+AI_RATE_LIMIT_RPM = int(os.getenv('AI_RATE_LIMIT_RPM', 0))
+AI_RATE_LIMIT_TPM = int(os.getenv('AI_RATE_LIMIT_TPM', 0))
+AI_RATE_LIMIT_MAX_WAIT_SECONDS = int(os.getenv('AI_RATE_LIMIT_MAX_WAIT_SECONDS', 90))
+AI_RATE_LIMIT_OUTPUT_ESTIMATE = int(os.getenv('AI_RATE_LIMIT_OUTPUT_ESTIMATE', 2000))
+AI_RETRY_MAX_DELAY_SECONDS = int(os.getenv('AI_RETRY_MAX_DELAY_SECONDS', 300))
+AI_QUOTA_EXHAUSTED_HOLD_SECONDS = int(os.getenv('AI_QUOTA_EXHAUSTED_HOLD_SECONDS', 30 * 60))
+
+# Page-level vision fallback (apps/extraction/services/vision_fallback.py):
+# When local text extraction and OCR fail/return no readable text on a page, render only that page
+# and send its image to the configured AI provider if the model supports vision.
+AI_VISION_ENABLED = os.getenv('AI_VISION_ENABLED', 'true').lower() in ('1', 'true', 'yes')
+AI_VISION_MODELS = [m.strip().lower() for m in os.getenv('AI_VISION_MODELS', '').split(',') if m.strip()]
+AI_VISION_DPI = int(os.getenv('AI_VISION_DPI', '150'))
 
 # apps.documents's Google Drive Link data source (Screen 2 "Upload Data
 # Pack"): a single server-side Drive REST v3 API key -- no OAuth client, no

@@ -32,6 +32,11 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     logging: *default-logging
+    # Redis is the Celery broker: queued and reserved extraction tasks live here. The image's default keeps only
+    # periodic RDB snapshots, so a restart could drop the last minutes of queued work. Append-only file, synced
+    # every second (at most ~1s of writes lost on a crash), plus the snapshots. PostgreSQL stays the source of
+    # truth: anything still lost is re-queued by the recovery job (apps/extraction/services/recovery.py).
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", "900", "1", "--save", "300", "100"]
     volumes:
       - redis_data:/data
 
@@ -84,10 +89,39 @@ services:
     # Worker slots come from settings: AI_PROCESSING_MODE (single = 2,
     # multi_router = routers x AI_ROUTER_MAX_CONCURRENT), or CELERY_WORKER_CONCURRENCY
     # if set. No --concurrency flag here, so the mode decides.
-    command: ["celery", "-A", "config", "worker", "-l", "info"]
+    # Queues: CELERY_WORKER_QUEUES (default "celery", Celery's default queue). With a separate OCR queue
+    # (OCR_QUEUE=ocr, EXTRACTION_QUEUE=extraction in .env) set CELERY_WORKER_QUEUES=extraction here and start
+    # the celery-ocr service below (docker compose --profile ocr-queue up -d).
+    command: ["sh", "-c", "exec celery -A config worker -l info -Q $${CELERY_WORKER_QUEUES:-celery}"]
+    # Warm shutdown on deploy: a document mid-AI-call gets a moment to reach a checkpoint. Whatever is still
+    # running is re-queued by the recovery job and continues from its saved pages / chunks.
+    stop_grace_period: 60s
 
-  # Daily scheduler. Only sends the source-watcher job (when WATCHER_ENABLED=true);
-  # the celery worker above does the work. Exactly one beat must run.
+  # Optional OCR worker (profile "ocr-queue"): reads documents' pages -- text layer + PaddleOCR, CPU-bound -- on
+  # OCR_QUEUE, sized for this server's CPU (CELERY_OCR_CONCURRENCY, default 1 process per 2 cores is a sensible
+  # start) independently of the AI worker's slots, which follow the provider / router quota.
+  celery-ocr:
+    image: ghcr.io/jagadesh-alpha8/ai-ready-backend:latest
+    profiles: ["ocr-queue"]
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DJANGO_CACHE_URL: redis://redis:6379/1
+    volumes:
+      - media_data:/app/media
+      - paddle_models:/root/.paddlex
+    command: ["sh", "-c", "exec celery -A config worker -l info -n ocr@%h -Q $${OCR_QUEUE:-ocr} --concurrency $${CELERY_OCR_CONCURRENCY:-1}"]
+    stop_grace_period: 60s
+
+  # Scheduler: the extraction-job recovery every EXTRACTION_RECOVERY_INTERVAL_SECONDS (default 5 min) and the
+  # daily source watcher (when WATCHER_ENABLED=true); the celery worker above does the work. Exactly one beat
+  # must run.
   celery-beat:
     image: ghcr.io/jagadesh-alpha8/ai-ready-backend:latest
     restart: unless-stopped

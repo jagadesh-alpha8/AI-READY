@@ -1,5 +1,7 @@
 import logging
+import random
 import time
+from datetime import timedelta
 
 from celery import shared_task
 from django.conf import settings
@@ -8,8 +10,8 @@ from django.utils import timezone
 from apps.documents.models import Document
 
 from .exceptions import (
-    AllRoutersExhausted, ExtractionCancelled, PermanentExtractionError, ProviderQuotaExhausted,
-    RecoverableExtractionError,
+    AllRoutersExhausted, ExtractionCancelled, ExtractionContinues, ExtractionSuperseded, PermanentExtractionError,
+    ProviderQuotaExhausted, RecoverableExtractionError,
 )
 from .services import ExtractionPipeline
 from .services.router_pool import get_router_pool, use_lease
@@ -46,11 +48,14 @@ def run_extraction_job(self, job_id):
     if job.celery_task_id and self.request.id and job.celery_task_id != self.request.id:
         logger.info('extraction.task.skipped_stale job_id=%s task_id=%s', job.id, self.request.id)
         return None
-    if not _claim(job):
+    worker = self.request.hostname or 'local'
+    if not _claim(job, worker):
         logger.info('extraction.task.skipped job_id=%s status=%s', job.id, job.status)
         return None
+    # Checked at every checkpoint (pipeline._is_cancelled): if the job is handed to another worker meanwhile,
+    # this one abandons it instead of both carrying on.
+    job.task_token = job.celery_task_id or self.request.id or ''
     started = time.monotonic()
-    worker = self.request.hostname or 'local'
     logger.info(
         'extraction.task.running job_id=%s attempt=%d mode=%s worker=%s',
         job.id, self.request.retries + 1, settings.AI_PROCESSING_MODE, worker,
@@ -89,6 +94,12 @@ def run_extraction_job(self, job_id):
                                    lease.router.label, exc.reason)
                     pool.release(lease)
                     lease = None
+    except ExtractionSuperseded:
+        # Recovered and handed to another worker while this one was quiet: leave the job to its new owner.
+        logger.warning('extraction.task.superseded job_id=%s worker=%s', job.id, worker)
+        return None
+    except ExtractionContinues as exc:
+        return _handle_continue(self, job, exc)
     except ExtractionCancelled:
         _end_attempt(job, 'stopped')
         logger.info('extraction.task.stopped job_id=%s step=%s', job.id, job.current_step)
@@ -231,10 +242,52 @@ def _handle_all_exhausted(task, job, exc):
                      max_retries=task.request.retries + 1)
 
 
+def _handle_continue(task, job, exc):
+    """A large document: this attempt read its share of chunks and saved them; carry on in the next attempt
+    right away. Not a retry (no budget used) -- bounded by EXTRACTION_MAX_CONTINUATIONS."""
+    from .models import ExtractionJob
+
+    from django.db.models import F
+
+    ExtractionJob.objects.filter(id=job.id).update(continuations=F('continuations') + 1)
+    job.refresh_from_db(fields=['continuations'])
+    continues = job.continuations - 1
+    _end_attempt(job, 'continued', str(exc))
+    if continues + 1 > settings.EXTRACTION_MAX_CONTINUATIONS:
+        _fail(job, f'{exc} Stopped after {continues + 1} continuations (EXTRACTION_MAX_CONTINUATIONS); press '
+                   'Process to carry on -- the chunks already read are kept.')
+        return None
+    if not _set_status(job, ExtractionJob.Status.RETRYING, error_message=f'Continuing: {exc}',
+                       next_retry_at=timezone.now() + timedelta(seconds=settings.EXTRACTION_CONTINUE_DELAY_SECONDS)):
+        return None
+    logger.info('extraction.task.continuing job_id=%s done=%d total=%d', job.id, exc.done, exc.total)
+    raise task.retry(exc=exc, countdown=settings.EXTRACTION_CONTINUE_DELAY_SECONDS,
+                     max_retries=task.request.retries + 1)
+
+
+def _continuations(job):
+    from .models import ExtractionJob
+    return ExtractionJob.objects.filter(id=job.id).values_list('continuations', flat=True).first() or 0
+
+
+def retry_countdown(attempt, exc=None):
+    """Seconds before retry `attempt` (1-based): exponential backoff with jitter (50-100% of
+    EXTRACTION_RETRY_BACKOFF_SECONDS x 2^(attempt-1)), never sooner than the provider's Retry-After, never
+    longer than EXTRACTION_RETRY_MAX_BACKOFF_SECONDS. The jitter keeps many documents that failed together
+    (one provider outage) from all coming back at the same second."""
+    base = settings.EXTRACTION_RETRY_BACKOFF_SECONDS * (2 ** (max(1, attempt) - 1))
+    delay = base * random.uniform(0.5, 1.0)
+    retry_after = getattr(exc, 'retry_after', None)
+    if retry_after:
+        delay = max(delay, float(retry_after) + random.uniform(0, 2))
+    return int(min(delay, settings.EXTRACTION_RETRY_MAX_BACKOFF_SECONDS))
+
+
 def _handle_recoverable(task, job, exc):
     max_retries = settings.EXTRACTION_MAX_RETRIES
-    # Waiting for an exhausted router is not a failed attempt: it does not use up this budget.
-    attempt = task.request.retries - _since_reset(job, 'waiting') + 1
+    # Waiting for an exhausted router, or continuing a large document, is not a failed attempt: neither uses up
+    # this budget.
+    attempt = task.request.retries - _since_reset(job, 'waiting') - _continuations(job) + 1
 
     if attempt > max_retries:
         logger.error('extraction.task.retries_exhausted job_id=%s attempts=%d', job.id, attempt)
@@ -243,11 +296,12 @@ def _handle_recoverable(task, job, exc):
 
     from .models import ExtractionJob
 
-    if not _set_status(job, ExtractionJob.Status.RETRYING, retry_count=attempt, error_message=str(exc)):
+    countdown = retry_countdown(attempt, exc)
+    if not _set_status(job, ExtractionJob.Status.RETRYING, retry_count=attempt, error_message=str(exc),
+                       next_retry_at=timezone.now() + timedelta(seconds=countdown)):
         return None  # stopped by the user -- don't schedule a retry
-    logger.warning('extraction.task.retrying job_id=%s attempt=%d error=%s', job.id, attempt, exc)
-
-    countdown = settings.EXTRACTION_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1))
+    logger.warning('extraction.task.retrying job_id=%s attempt=%d kind=%s countdown=%ds error=%s', job.id, attempt,
+                   getattr(exc, 'kind', 'transient'), countdown, exc)
     raise task.retry(exc=exc, countdown=countdown, max_retries=task.request.retries + 1)
 
 
@@ -292,24 +346,32 @@ def _advance_sprint_if_all_jobs_done(sprint):
         )
 
 
-def _claim(job):
-    """Move the job to running if it's pending, retrying, or running (a
-    worker that died mid-job, redelivered). Returns False for a cancelled,
-    completed or failed job -- a reprocess resets it to pending first, so a
-    finished job reaching here is a duplicate message."""
+def _claim(job, worker=''):
+    """Move the job to running if it's pending or retrying -- or running with a heartbeat older than
+    EXTRACTION_STALE_SECONDS (its worker died; the message was redelivered). A RUNNING job whose worker is still
+    sending heartbeats is never taken: one document is processed by one worker at a time. Returns False for that
+    case and for a cancelled, completed or failed job -- a reprocess resets it to pending first, so a finished
+    job reaching here is a duplicate message. One conditional UPDATE, so two workers can't both win."""
+    from django.db.models import Q
+
     from .models import ExtractionJob
 
-    started_at = job.started_at or timezone.now()
-    updated = ExtractionJob.objects.filter(
-        id=job.id,
-        status__in=[ExtractionJob.Status.PENDING, ExtractionJob.Status.RETRYING, ExtractionJob.Status.RUNNING],
-    ).update(status=ExtractionJob.Status.RUNNING, started_at=started_at, error_message='', updated_at=timezone.now())
+    now = timezone.now()
+    stale = now - timedelta(seconds=settings.EXTRACTION_STALE_SECONDS)
+    started_at = job.started_at or now
+    updated = ExtractionJob.objects.filter(id=job.id).filter(
+        Q(status__in=[ExtractionJob.Status.PENDING, ExtractionJob.Status.RETRYING])
+        | Q(status=ExtractionJob.Status.RUNNING, heartbeat_at__lt=stale)
+        | Q(status=ExtractionJob.Status.RUNNING, heartbeat_at__isnull=True, updated_at__lt=stale),
+    ).update(status=ExtractionJob.Status.RUNNING, started_at=started_at, error_message='', heartbeat_at=now,
+             worker=worker[:200], next_retry_at=None, updated_at=now)
     if not updated:
         job.refresh_from_db(fields=['status'])
         return False
     job.status = ExtractionJob.Status.RUNNING
     job.started_at = started_at
     job.error_message = ''
+    job.heartbeat_at = now
     Document.objects.filter(id=job.document_id).exclude(status=Document.Status.REJECTED).update(
         status=Document.Status.PROCESSING, updated_at=timezone.now(),
     )
@@ -325,9 +387,14 @@ def _set_status(job, status, **fields):
     """
     from .models import ExtractionJob
 
-    updated = ExtractionJob.objects.filter(id=job.id).exclude(
-        status=ExtractionJob.Status.CANCELLED,
-    ).update(status=status, updated_at=timezone.now(), **fields)
+    from django.db.models import Q
+
+    rows = ExtractionJob.objects.filter(id=job.id).exclude(status=ExtractionJob.Status.CANCELLED)
+    token = getattr(job, 'task_token', '')
+    if token:
+        # Only the job's current owner moves it on: a worker it was taken from (recovery) changes nothing.
+        rows = rows.filter(Q(celery_task_id=token) | Q(celery_task_id=''))
+    updated = rows.update(status=status, updated_at=timezone.now(), **fields)
     if not updated:
         job.status = ExtractionJob.Status.CANCELLED
         return False
@@ -335,3 +402,56 @@ def _set_status(job, status, **fields):
     for name, value in fields.items():
         setattr(job, name, value)
     return True
+
+
+@shared_task(ignore_result=True)
+def recover_extraction_jobs():
+    """Periodic (celery beat) and after a worker starts: re-queue jobs whose message or worker was lost
+    (services/recovery.py). Never touches completed, failed or stopped jobs."""
+    from .services.recovery import recover
+
+    recovered = recover()
+    if recovered:
+        logger.warning('extraction.recovery.done count=%d reasons=%s', len(recovered),
+                       sorted({r['reason'] for r in recovered}))
+    return len(recovered)
+
+
+def two_phase():
+    """OCR_QUEUE and EXTRACTION_QUEUE set to different queues: page reading (text + OCR, CPU-bound) and AI
+    extraction (network-bound, quota-bound) run on separately sized worker services."""
+    return bool(settings.OCR_QUEUE) and settings.OCR_QUEUE != (settings.EXTRACTION_QUEUE or 'celery')
+
+
+@shared_task(bind=True, acks_late=True, ignore_result=True)
+def read_document_pages(self, job_id):
+    """Phase 1 of two (two_phase()): read the job's document page by page -- text layer, then OCR where needed --
+    saving each page (DocumentPage), then hand the job to run_extraction_job on EXTRACTION_QUEUE, which reuses
+    those pages instead of reading again. The job stays queued (status pending) while its pages are read; the
+    monitor shows it as reading pages. A read error is left for the extraction task to report: it reads the
+    failed pages once more and fails or finishes partial with the reason."""
+    from .models import ExtractionJob
+    from .services.pdf_reader import PDFPageReader
+    from .services.pipeline import _page_progress
+
+    job = ExtractionJob.objects.select_related('document').filter(id=job_id).first()
+    if job is None or job.status != ExtractionJob.Status.PENDING:
+        return None
+    if job.celery_task_id and self.request.id and job.celery_task_id != self.request.id:
+        logger.info('extraction.read_pages.skipped_stale job_id=%s task_id=%s', job.id, self.request.id)
+        return None
+    now = timezone.now()
+    ExtractionJob.objects.filter(id=job.id).update(
+        current_step=ExtractionJob.Step.READING_PAGES, heartbeat_at=now, worker=(self.request.hostname or '')[:200])
+    reader = PDFPageReader()
+    reader.on_progress = lambda **counts: _page_progress(job, **counts)
+    try:
+        reader.read_pages(job.document)
+    except Exception as exc:  # reported by the extraction phase, which reads the failed pages again
+        logger.warning('extraction.read_pages.failed job_id=%s error=%s', job.id, exc)
+    # Hand over unless the user stopped it meanwhile (a conditional update: a Stop always wins).
+    result = run_extraction_job.delay(str(job.id))
+    handed = ExtractionJob.objects.filter(id=job.id, status=ExtractionJob.Status.PENDING).update(
+        celery_task_id=result.id, dispatched_at=timezone.now(), heartbeat_at=None)
+    logger.info('extraction.read_pages.done job_id=%s handed_over=%s', job.id, bool(handed))
+    return None

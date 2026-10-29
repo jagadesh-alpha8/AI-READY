@@ -12,6 +12,9 @@ from apps.facts.views import (
     SprintAIQIFAutoCheckView, SprintAIQIFExpertQueueView, SprintAIQIFSummaryView, SprintBulkFactConfirmView,
     SprintFactFacetsView, SprintFactListView, SprintProfileSuggestionView, SprintWorkSummaryView,
 )
+from apps.facts.verification_views import (
+    SprintCorrectionListView, SprintReverifyView, SprintShadowReportView, SprintVerificationSummaryView,
+)
 from apps.gaps.views import SprintGapFacetsView, SprintGapListView
 from apps.recommendations.views import SprintRecommendationGenerateView, SprintRecommendationListView
 from apps.reports.views import SprintReportGenerateView, SprintReportListView
@@ -108,6 +111,12 @@ urlpatterns = [
     path('/<uuid:sprint_id>/facts/bulk-confirm/', SprintBulkFactConfirmView.as_view(),
          name='sprint-facts-bulk-confirm-slash'),
     path('/<uuid:sprint_id>/work-summary', SprintWorkSummaryView.as_view(), name='sprint-work-summary'),
+    path('/<uuid:sprint_id>/verification/summary', SprintVerificationSummaryView.as_view(),
+         name='sprint-verification-summary'),
+    path('/<uuid:sprint_id>/verification/shadow-report', SprintShadowReportView.as_view(),
+         name='sprint-verification-shadow-report'),
+    path('/<uuid:sprint_id>/verification/reverify', SprintReverifyView.as_view(), name='sprint-verification-reverify'),
+    path('/<uuid:sprint_id>/fact-corrections', SprintCorrectionListView.as_view(), name='sprint-fact-corrections'),
     path('/<uuid:sprint_id>/evidence-requests', SprintEvidenceRequestListView.as_view(),
          name='sprint-evidence-requests'),
     path('/<uuid:sprint_id>/evidence-requests/assignees', SprintEvidenceAssigneesView.as_view(),

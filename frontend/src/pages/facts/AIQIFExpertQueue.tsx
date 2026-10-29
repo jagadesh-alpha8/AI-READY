@@ -143,18 +143,21 @@ export const AIQIFExpertQueue: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="glass-card p-5 sm:p-6">
-        <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-          <ShieldCheck className="w-5 h-5 text-brand-800" /> AI-QIF expert queue
-        </h1>
-        <p className="text-sm text-ink-500 mt-1">
-          Pending: what the automatic tagging could not settle -- until it is empty the sprint's AI-QIF coverage is
-          provisional and its baseline cannot be decided. Reviewed: tags already confirmed or rejected, to edit or
-          reopen. Tag decisions never change the facts themselves. The sales team never sees this page.
-        </p>
-        <Link to={`/sprint/${sprintId}/facts`} className="text-xs text-brand-800 hover:underline">Back to Extracted Facts Review</Link>
+      <div data-tour="aiqif-header" className="glass-card p-5 sm:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-brand-800" /> AI-QIF expert queue
+          </h1>
+          <p className="text-sm text-ink-500 mt-1">
+            Pending: what the automatic tagging could not settle -- until it is empty the sprint's AI-QIF coverage is
+            provisional and its baseline cannot be decided. Reviewed: tags already confirmed or rejected, to edit or
+            reopen. Tag decisions never change the facts themselves. The sales team never sees this page.
+          </p>
+          <Link to={`/sprint/${sprintId}/facts`} className="text-xs text-brand-800 hover:underline">Back to Extracted Facts Review</Link>
+        </div>
+
       </div>
-      <div className="flex gap-2">
+      <div data-tour="aiqif-tabs" className="flex gap-2 items-center flex-wrap">
         <button type="button" className={tabClass(tab === 'pending')} onClick={() => setTab('pending')}>
           Pending{data ? ` (${data.count})` : ''}
         </button>
@@ -162,7 +165,7 @@ export const AIQIFExpertQueue: React.FC = () => {
           title="Decided by an expert, or automatically (earlier expert decision / AI second opinion) -- to edit or reopen">
           Reviewed{reviewed.data ? ` (${reviewed.data.count})` : ''}
         </button>
-        <button type="button" className="btn-secondary btn-sm ml-auto" disabled={autoBusy} onClick={decideAutomatically}
+        <button type="button" data-tour="aiqif-auto-decide" className="btn-secondary btn-sm ml-auto" disabled={autoBusy} onClick={decideAutomatically}
           title="Apply earlier expert decisions on the same fields, then ask the AI for a second opinion on the rest">
           {autoBusy ? 'Deciding…' : 'Decide automatically'}
         </button>
@@ -175,7 +178,7 @@ export const AIQIFExpertQueue: React.FC = () => {
           : !data || data.count === 0 ? (
             <div className="panel-muted"><p className="text-sm text-ink-500">Nothing is waiting: AI-QIF coverage for this sprint is final.</p></div>
           ) : (
-            <div className="space-y-3">
+            <div data-tour="aiqif-cards" className="space-y-3">
               <p className="text-xs text-ink-500">{data.count} fact{data.count === 1 ? '' : 's'} waiting.</p>
               {data.facts.map((fact) => card(fact, indicators))}
             </div>

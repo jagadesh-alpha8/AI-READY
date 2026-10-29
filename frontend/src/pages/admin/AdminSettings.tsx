@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Coins, Info, KeyRound, Settings, Sliders, UserCog } from 'lucide-react';
+import { Check, Coins, Info, KeyRound, Settings, Shield, Sliders, UserCog } from 'lucide-react';
 
 import { changePassword } from '../../api/auth';
 import { getScoringConfig } from '../../api/config';
@@ -10,6 +10,7 @@ import { getErrorMessage } from '../../utils/errors';
 import { ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { UsersTab } from './UsersTab';
 import { AIUsageTab } from './AIUsageTab';
+import { RoleAccessMatrixTab } from './RoleAccessMatrixTab';
 import { PageHeader, TabStrip } from '../../components/PageHeader';
 import { canSeeSettingsTab } from '../../utils/access';
 
@@ -33,7 +34,7 @@ import { canSeeSettingsTab } from '../../utils/access';
  *                     per college, sprint and month, for billing.
  */
 
-type Tab = 'rubric' | 'account' | 'users' | 'usage';
+type Tab = 'rubric' | 'account' | 'access' | 'users' | 'usage';
 
 export const AdminSettings: React.FC = () => {
   const { user } = useAuth();
@@ -49,33 +50,40 @@ export const AdminSettings: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        dataTour="settings-header"
         icon={Settings}
         title="Settings"
-        description="Your account, and -- depending on your role -- the scoring rubric, users and AI usage."
+        description="Your account, role access matrix, and -- depending on your role -- the scoring rubric, users and AI usage."
       />
 
-      <TabStrip
-        tabs={[
-          ...(sees('rubric') ? [{ id: 'rubric' as Tab, label: 'Scoring rubric', icon: Sliders, count: pillars?.length }] : []),
-          { id: 'account', label: 'Account', icon: KeyRound },
-          ...(sees('users') ? [{ id: 'users' as Tab, label: 'Users', icon: UserCog }] : []),
-          ...(canSeeUsage ? [{ id: 'usage' as Tab, label: 'AI Usage & Billing', icon: Coins }] : []),
-        ]}
-        active={tab}
-        onChange={setTab}
-      />
+      <div data-tour="settings-tabs">
+        <TabStrip
+          tabs={[
+            ...(sees('rubric') ? [{ id: 'rubric' as Tab, label: 'Scoring rubric', icon: Sliders, count: pillars?.length }] : []),
+            { id: 'account', label: 'Account', icon: KeyRound },
+            { id: 'access', label: 'Role & Access Matrix', icon: Shield },
+            ...(sees('users') ? [{ id: 'users' as Tab, label: 'Users', icon: UserCog }] : []),
+            ...(canSeeUsage ? [{ id: 'usage' as Tab, label: 'AI Usage & Billing', icon: Coins }] : []),
+          ]}
+          active={tab}
+          onChange={setTab}
+        />
+      </div>
 
-      {tab === 'rubric' && sees('rubric') && (
-        <>
-          {loading && <LoadingState message="Loading the scoring rubric…" />}
-          {error && <ErrorState message={error} onRetry={refetch} />}
-          {!loading && !error && pillars && <Rubric pillars={pillars} />}
-        </>
-      )}
+      <div data-tour="settings-content">
+        {tab === 'rubric' && sees('rubric') && (
+          <>
+            {loading && <LoadingState message="Loading the scoring rubric…" />}
+            {error && <ErrorState message={error} onRetry={refetch} />}
+            {!loading && !error && pillars && <Rubric pillars={pillars} />}
+          </>
+        )}
 
-      {tab === 'account' && <Account user={user} />}
-      {tab === 'users' && sees('users') && <UsersTab />}
-      {tab === 'usage' && canSeeUsage && <AIUsageTab />}
+        {tab === 'account' && <Account user={user} />}
+        {tab === 'access' && <RoleAccessMatrixTab />}
+        {tab === 'users' && sees('users') && <UsersTab />}
+        {tab === 'usage' && canSeeUsage && <AIUsageTab />}
+      </div>
     </div>
   );
 };

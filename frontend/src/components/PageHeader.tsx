@@ -1,5 +1,6 @@
 import React from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { TakeTourButton } from './tour/MenuTourOfferBanner';
 
 /** The header every module page opens with: icon tile, title, one line of
  * context, and optional actions on the right. Shared so the ported modules
@@ -10,8 +11,10 @@ export const PageHeader: React.FC<{
   description: string;
   badge?: React.ReactNode;
   actions?: React.ReactNode;
-}> = ({ icon: Icon, title, description, badge, actions }) => (
-  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+  dataTour?: string;
+  showTourButton?: boolean;
+}> = ({ icon: Icon, title, description, badge, actions, dataTour, showTourButton = false }) => (
+  <div className="flex flex-col sm:flex-row sm:items-center gap-3" data-tour={dataTour}>
     <div className="flex items-start gap-3 min-w-0 flex-1">
       <div className="p-2.5 rounded-lg bg-brand-500/10 border border-brand-500/30 text-brand-800 shrink-0">
         <Icon className="w-6 h-6" />
@@ -24,7 +27,10 @@ export const PageHeader: React.FC<{
         <p className="text-sm text-ink-500 mt-0.5">{description}</p>
       </div>
     </div>
-    {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+    <div className="flex items-center gap-2 shrink-0">
+      {showTourButton && <TakeTourButton />}
+      {actions}
+    </div>
   </div>
 );
 

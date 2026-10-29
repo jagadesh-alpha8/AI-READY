@@ -84,7 +84,10 @@ def make_pdf_bytes(page_texts=('Sample document text for extraction pipeline tes
         pdf.add_page()
         if text:
             pdf.set_font('Helvetica', size=12)
-            pdf.cell(0, 10, text)
+            if '\n' in text:  # several lines (a single cell would run off the page)
+                pdf.multi_cell(0, 6, text)
+            else:
+                pdf.cell(0, 10, text)
     return bytes(pdf.output())
 
 
@@ -116,7 +119,7 @@ class ExtractionJobTestBase(APITestCase):
         self.other_institution = Institution.objects.create(name='Other', city='X', state='Y')
 
         self.iqac = self._make_user('iqac@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
-        self.outsider = self._make_user('outsider@test.edu', User.Role.HOD, self.other_institution)
+        self.outsider = self._make_user('outsider@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
 
         self.sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
 
@@ -450,7 +453,7 @@ class SuccessfulRunTests(ExtractionJobTestBase):
         self.assertEqual(fact.normalized_value, 42)
         self.assertEqual(fact.data_type, 'number')
         self.assertEqual(fact.pillar, 'aiqif_c4')
-        self.assertEqual(fact.owner_role, 'hr_officer')
+        self.assertEqual(fact.owner_role, 'iqac_coordinator')  # 3-role model: every college role -> IQAC
         self.assertEqual(fact.source_page, '1')
         self.assertEqual(fact.source_document_id, self.document.id)
         self.assertEqual(fact.sprint_id, self.sprint.id)
@@ -675,15 +678,21 @@ class RetryDecisionLogicTests(TestCase):
         self.assertEqual(self.job.status, ExtractionJob.Status.RETRYING)
         self.assertEqual(self.job.retry_count, 1)
         task.retry.assert_called_once()
-        self.assertEqual(task.retry.call_args.kwargs['countdown'], settings.EXTRACTION_RETRY_BACKOFF_SECONDS)
+        # Jittered backoff (tasks.retry_countdown): 50-100% of the base delay for the first retry.
+        countdown = task.retry.call_args.kwargs['countdown']
+        self.assertGreaterEqual(countdown, int(settings.EXTRACTION_RETRY_BACKOFF_SECONDS * 0.5))
+        self.assertLessEqual(countdown, settings.EXTRACTION_RETRY_BACKOFF_SECONDS)
 
     def test_backoff_grows_exponentially_with_attempt_number(self):
         task = self._fake_task(retries=2)
         with self.assertRaises(RuntimeError):
             _handle_recoverable(task, self.job, RecoverableExtractionError('still flaky'))
 
-        expected = settings.EXTRACTION_RETRY_BACKOFF_SECONDS * (2 ** 2)
-        self.assertEqual(task.retry.call_args.kwargs['countdown'], expected)
+        base = settings.EXTRACTION_RETRY_BACKOFF_SECONDS * (2 ** 2)  # third attempt
+        ceiling = min(base, settings.EXTRACTION_RETRY_MAX_BACKOFF_SECONDS)
+        countdown = task.retry.call_args.kwargs['countdown']
+        self.assertGreaterEqual(countdown, int(min(base * 0.5, ceiling)))
+        self.assertLessEqual(countdown, ceiling)
 
     def test_gives_up_once_retries_are_exhausted(self):
         task = self._fake_task(retries=settings.EXTRACTION_MAX_RETRIES)
@@ -757,12 +766,14 @@ class OpenAIExtractionServiceTests(SimpleTestCase):
     @patch('apps.extraction.services.openai_client.OpenAI')
     def test_client_initializes_with_the_configured_api_key(self, mock_openai_cls):
         OpenAIExtractionService(api_key='sk-test', model='gpt-test')
-        mock_openai_cls.assert_called_once_with(api_key='sk-test', base_url=None)
+        mock_openai_cls.assert_called_once_with(api_key='sk-test', base_url=None,
+                                                max_retries=settings.AI_SDK_MAX_RETRIES)
 
     @patch('apps.extraction.services.openai_client.OpenAI')
     def test_custom_base_url_is_passed_to_the_client(self, mock_openai_cls):
         OpenAIExtractionService(api_key='sk-test', model='my-combo', base_url='http://localhost:20128/v1')
-        mock_openai_cls.assert_called_once_with(api_key='sk-test', base_url='http://localhost:20128/v1')
+        mock_openai_cls.assert_called_once_with(api_key='sk-test', base_url='http://localhost:20128/v1',
+                                                max_retries=settings.AI_SDK_MAX_RETRIES)
 
     def test_injected_client_is_used_instead_of_constructing_a_real_one(self):
         fake_client = MagicMock()
@@ -962,7 +973,7 @@ class AnthropicExtractionServiceTests(SimpleTestCase):
     @patch('apps.extraction.services.anthropic_client.Anthropic')
     def test_client_initializes_with_the_configured_api_key(self, mock_anthropic_cls):
         AnthropicExtractionService(api_key='sk-ant-test', model='claude-test')
-        mock_anthropic_cls.assert_called_once_with(api_key='sk-ant-test')
+        mock_anthropic_cls.assert_called_once_with(api_key='sk-ant-test', max_retries=settings.AI_SDK_MAX_RETRIES)
 
     def test_injected_client_is_used_instead_of_constructing_a_real_one(self):
         fake_client = MagicMock()
@@ -1327,7 +1338,7 @@ class PDFPageReaderTests(TestCase):
 
         self.assertTrue(result['pages'][0]['requires_ocr'])
         self.assertEqual(result['pages'][0]['text_source'], 'none')
-        self.assertIn('even after OCR', result['ocr_warnings'][0])
+        self.assertIn('has no readable text, even after', result['ocr_warnings'][0])  # OCR, then vision fallback
 
     def test_default_ocr_provider_never_fabricates_text(self):
         """With no real OCR backend configured, a low-text page stays
@@ -1536,7 +1547,7 @@ class OpenAIFactExtractorTests(TestCase):
         self.assertEqual(fact['value'], 42)
         self.assertEqual(fact['normalized_value'], 42)
         self.assertEqual(fact['pillar'], 'aiqif_c4')
-        self.assertEqual(fact['owner_role'], 'hr_officer')
+        self.assertEqual(fact['owner_role'], 'iqac_coordinator')  # 3-role model: every college role -> IQAC
         self.assertEqual(fact['source_page'], '1')
         self.assertEqual(fact['extraction_method'], 'openai')
 
@@ -1933,10 +1944,10 @@ class OpenAIConflictCheckerTests(TestCase):
         self.assertEqual(conflict['conflict_confidence'], 0.88)
         self.assertIn('faculty headcount', conflict['description'])
 
-    def test_semantic_non_conflict_creates_nothing(self):
-        """The AI can determine the two values don't actually conflict
-        (different populations) -- no gap, and neither fact's own value is
-        touched (never 'silently resolved')."""
+    def test_an_ai_non_conflict_view_is_a_note_never_a_dismissal(self):
+        """The AI may think the two values can both be true (different populations): the deterministic
+        disagreement still becomes a conflict for a person -- with the AI's view as a labelled note and a lower
+        priority -- and neither fact's own value is touched (never 'silently resolved')."""
         fact_a = self._make_fact(self.document_a, value=42, normalized_value=42)
         fact_b = self._make_fact(self.document_b, value=47, normalized_value=47)
         service = self._fake_service(results=[{
@@ -1947,32 +1958,33 @@ class OpenAIConflictCheckerTests(TestCase):
 
         conflicts = checker.check_conflicts(self.document_a, [])
 
-        self.assertEqual(conflicts, [])
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0]['priority'], GapItem.Priority.MEDIUM)
+        self.assertIn('AI-assisted note (not a decision', conflicts[0]['description'])
+        self.assertIn('CS department only', conflicts[0]['description'])
         fact_a.refresh_from_db()
         fact_b.refresh_from_db()
         self.assertEqual(fact_a.value, 42)
         self.assertEqual(fact_b.value, 47)
 
-    def test_invalid_is_conflict_type_is_dropped(self):
+    def _conflict_without_note(self, verdict):
         self._make_fact(self.document_a, value=42, normalized_value=42)
         self._make_fact(self.document_b, value=47, normalized_value=47)
-        service = self._fake_service(results=[{'is_conflict': 'yes', 'confidence': 0.8, 'explanation': 'x'}])
-        checker = OpenAIConflictChecker(openai_service=service)
-        self.assertEqual(checker.check_conflicts(self.document_a, []), [])
+        checker = OpenAIConflictChecker(openai_service=self._fake_service(results=[verdict]))
+        conflicts = checker.check_conflicts(self.document_a, [])
+        self.assertEqual(len(conflicts), 1)  # the disagreement stands
+        self.assertNotIn('AI-assisted note', conflicts[0]['description'])  # an invalid AI answer adds nothing
+        self.assertIsNone(conflicts[0]['conflict_confidence'])
+        self.assertEqual(conflicts[0]['priority'], GapItem.Priority.HIGH)
 
-    def test_confidence_out_of_range_is_dropped(self):
-        self._make_fact(self.document_a, value=42, normalized_value=42)
-        self._make_fact(self.document_b, value=47, normalized_value=47)
-        service = self._fake_service(results=[{'is_conflict': True, 'confidence': 1.4, 'explanation': 'x'}])
-        checker = OpenAIConflictChecker(openai_service=service)
-        self.assertEqual(checker.check_conflicts(self.document_a, []), [])
+    def test_invalid_is_conflict_type_adds_no_note(self):
+        self._conflict_without_note({'is_conflict': 'yes', 'confidence': 0.8, 'explanation': 'x'})
 
-    def test_empty_explanation_is_dropped(self):
-        self._make_fact(self.document_a, value=42, normalized_value=42)
-        self._make_fact(self.document_b, value=47, normalized_value=47)
-        service = self._fake_service(results=[{'is_conflict': True, 'confidence': 0.8, 'explanation': '   '}])
-        checker = OpenAIConflictChecker(openai_service=service)
-        self.assertEqual(checker.check_conflicts(self.document_a, []), [])
+    def test_confidence_out_of_range_adds_no_note(self):
+        self._conflict_without_note({'is_conflict': True, 'confidence': 1.4, 'explanation': 'x'})
+
+    def test_empty_explanation_adds_no_note(self):
+        self._conflict_without_note({'is_conflict': True, 'confidence': 0.8, 'explanation': '   '})
 
     def test_rejected_facts_excluded_from_candidates(self):
         self._make_fact(self.document_a, value=42, normalized_value=42)
@@ -2007,7 +2019,9 @@ class OpenAIConflictCheckerTests(TestCase):
 
         conflicts = checker.check_conflicts(self.document_a, [])
 
-        self.assertEqual(len(conflicts), 1)
+        # Both disagreements are conflicts; only the one the AI answered carries its note.
+        self.assertEqual(len(conflicts), 2)
+        self.assertEqual(sum('AI-assisted note' in c['description'] for c in conflicts), 1)
 
     def test_too_many_pairs_are_capped(self):
         self._make_fact(self.document_a, value=42, normalized_value=42)
@@ -2020,9 +2034,10 @@ class OpenAIConflictCheckerTests(TestCase):
         service = self._fake_service(results=[{'is_conflict': False, 'confidence': 0.5, 'explanation': 'x'}] * 10)
         checker = OpenAIConflictChecker(openai_service=service, max_pairs=2)
 
-        checker.check_conflicts(self.document_a, [])
+        conflicts = checker.check_conflicts(self.document_a, [])
 
-        self.assertEqual(service.extract_structured_data.call_count, 2)
+        self.assertEqual(service.extract_structured_data.call_count, 2)  # the AI note is capped ...
+        self.assertEqual(len(conflicts), 5)  # ... never the conflicts themselves
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
@@ -3435,7 +3450,7 @@ class ExtractionCompletenessTests(ExtractionJobTestBase):
                                   format='multipart')
         self.doc = Document.objects.get(id=upload.data['id'])
         Document.objects.filter(id=self.document.id).update(status=Document.Status.REJECTED)  # only self.doc counts
-        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
 
     def _answer(self, **kwargs):
         content = kwargs.get('user_content', '')
@@ -3470,13 +3485,18 @@ class ExtractionCompletenessTests(ExtractionJobTestBase):
         self.assertEqual((summary['counts']['partial'], summary['counts']['complete']), (1, 0))
         self.assertIn('1 partial', summary['description'])
 
-    def test_chunks_over_the_limit_are_reported_as_skipped(self):
+    def test_chunks_over_the_per_attempt_limit_continue_instead_of_being_skipped(self):
+        # Inside a job the cap is per attempt: the job saves what it read and continues with the rest
+        # (services/chunk_store.py, tasks._handle_continue) -- nothing is cut off.
         self.fail_page_two = False
         with override_settings(OPENAI_FACT_EXTRACTION_MAX_CHUNKS=2):
             job = self._process()
-        self.assertEqual(job.completeness, 'partial')
-        self.assertEqual(job.extraction_warnings[0]['kind'], 'chunks_skipped')
-        self.assertEqual(job.extraction_warnings[0]['chunks'], [3])
+        job.refresh_from_db()
+        self.assertNotIn('chunks_skipped', [w['kind'] for w in job.extraction_warnings])
+        self.assertGreaterEqual(job.continuations, 1)
+        # This attempt read its 2 chunks and is queued to continue with the third (the worker runs it next).
+        self.assertEqual((job.status, job.chunks_completed), (ExtractionJob.Status.RETRYING, 2))
+        self.assertIsNotNone(job.next_retry_at)
 
     def test_retrying_a_partial_document_reuses_its_job_and_never_duplicates_facts(self):
         job = self._process()
@@ -3578,17 +3598,29 @@ class ExtractionCompletenessTests(ExtractionJobTestBase):
         self.assertIn(r.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
 
 
-@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
+AUTO_PAGE = '\n'.join([
+    'The institution has 42 faculty members.', 'There are 7 labs.', 'There are 9 rooms.',
+    'The institution has 45 faculty members.', 'There are 8 labs.',
+    'Percentage of Programs where syllabus revision was carried out.', 'Qualified Doctor (Full time) 12.',
+    'a stipend of Rs 20,000 / month.', 'Rs. 20,000 per student.', 'INR 20,000 was sanctioned.',
+    'a grant of Rs. 50,00,000.'])
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True,
+                   FACT_VERIFICATION_MODE='enforce')
 class AutoConfirmTests(ExtractionJobTestBase):
-    """Facts above FACT_AUTO_CONFIRM_MIN_CONFIDENCE are confirmed by the system at the end of extraction
-    (apps/facts/auto_confirm.py) -- never ones in a conflict or whose number is not in their quote."""
+    """At the end of extraction every fact goes through the shared verification pipeline
+    (apps/facts/verification/); with FACT_VERIFICATION_MODE=enforce a fact is confirmed by the system only when its
+    quote is on the cited page, the quote states the value, every validation passes, no source disagrees and its
+    risk level allows automation. AI confidence alone never confirms (it only sends a fact to a person)."""
 
     def setUp(self):
         super().setUp()
-        on = override_settings(FACT_AUTO_CONFIRM_MIN_CONFIDENCE=0.8)
-        on.enable()
-        self.addCleanup(on.disable)
         self._auth(self.iqac)
+        upload = self.client.post(
+            f'/api/v1/sprints/{self.sprint.id}/upload-file/',
+            {'file': make_pdf('auto.pdf', page_texts=(AUTO_PAGE,)), 'document_type': 'naac_ssr'}, format='multipart')
+        self.document = Document.objects.get(id=upload.data['id'])
 
     def _run(self, *facts):
         self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': list(facts)}
@@ -3596,22 +3628,26 @@ class AutoConfirmTests(ExtractionJobTestBase):
         self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.data)
         return {f.field_key: f for f in self.document.extracted_facts.select_related('reviewed_by')}
 
-    def test_only_facts_strictly_above_the_threshold_are_confirmed_by_the_system(self):
+    def test_only_verified_facts_are_confirmed_by_the_system_never_on_confidence_alone(self):
         from apps.facts.auto_confirm import AUTO_CONFIRM_EMAIL
         facts = self._run(
-            _valid_fact(),  # 0.96, "42" is in its quote
+            _valid_fact(),  # 0.96, quote on page 1 states 42
             _valid_fact(field_key='labs', field_name='Labs', value='7', source_snippet='There are 7 labs.',
                         confidence_score=0.8),
             _valid_fact(field_key='rooms', field_name='Rooms', value='9', source_snippet='There are 9 rooms.',
-                        confidence_score=0.5),
+                        confidence_score=0.5),  # the extractor itself was unsure: a person reviews it
         )
         auto = facts['total_faculty']
         self.assertEqual((auto.status, auto.reviewed_by.email), (ExtractedFact.Status.CONFIRMED, AUTO_CONFIRM_EMAIL))
-        self.assertEqual(auto.review_history.get().reason, 'Auto-confirmed: AI confidence 0.96 is above 0.80.')
-        self.assertEqual((facts['labs'].status, facts['rooms'].status), ('extracted', 'extracted'))
+        row = auto.review_history.get()
+        self.assertEqual(row.decision_source, 'rule')
+        self.assertTrue(row.reason.startswith('Auto-verified: Every required check passed'))
+        self.assertEqual(facts['labs'].status, 'confirmed')  # 0.80 is no threshold any more: the checks decide
+        self.assertEqual((facts['rooms'].status, facts['rooms'].automation_decision), ('extracted', 'review'))
         listed = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/').data
         rows = {f['field_key']: f for f in (listed['results'] if isinstance(listed, dict) else listed)}
-        self.assertEqual((rows['total_faculty']['auto_confirmed'], rows['labs']['auto_confirmed']), (True, False))
+        self.assertEqual((rows['total_faculty']['auto_confirmed'], rows['rooms']['auto_confirmed']), (True, False))
+        self.assertEqual(rows['total_faculty']['verification']['status'], 'verified')
         from apps.scoring.services import run_scoring_engine
         self.assertGreater(run_scoring_engine(self.sprint).evidence_count, 0)  # it counts in the CRI
 
@@ -3624,12 +3660,12 @@ class AutoConfirmTests(ExtractionJobTestBase):
                         source_snippet='Qualified Doctor (Full time) 12', confidence_score=0.95),
         )
         self.assertEqual({f.status for f in facts.values()}, {'extracted'})
+        self.assertEqual({f.grounding_status for f in facts.values()}, {'value_not_in_quote'})
 
-    def test_an_amount_with_a_currency_prefix_is_matched_against_its_quote(self):
+    def test_currency_amounts_are_grounded_but_high_risk_so_a_person_confirms_them(self):
         amounts = {
             'fee_rs': ('Rs 20,000', 'a stipend of Rs 20,000 / month'),
             'fee_rs_dot': ('Rs. 20,000', 'Rs. 20,000 per student'),
-            'fee_rupee': ('₹20,000', 'Fee: ₹20,000'),
             'fee_inr': ('INR 20,000', 'INR 20,000 was sanctioned'),
             'grant_lakhs': ('Rs. 50,00,000', 'a grant of Rs. 50,00,000'),  # Indian digit grouping
             'fee_wrong': ('Rs 30,000', 'a stipend of Rs 20,000 / month'),  # the amount is not in its quote
@@ -3638,36 +3674,24 @@ class AutoConfirmTests(ExtractionJobTestBase):
             _valid_fact(field_key=key, field_name=key, value=value, data_type='currency', source_snippet=quote,
                         confidence_score=0.95)
             for key, (value, quote) in amounts.items()])
-        self.assertEqual({k: f.status for k, f in facts.items()}, {
-            'fee_rs': 'confirmed', 'fee_rs_dot': 'confirmed', 'fee_rupee': 'confirmed', 'fee_inr': 'confirmed',
-            'grant_lakhs': 'confirmed', 'fee_wrong': 'extracted'})
-
-    def test_a_currency_amount_at_the_threshold_or_in_a_conflict_is_left_for_a_person(self):
-        from apps.facts.auto_confirm import auto_confirm
-        from apps.gaps.models import GapItem
-
-        def amount(key, confidence):
-            return ExtractedFact.objects.create(
-                sprint=self.sprint, document=self.document, field_name=key, field_key=key, value='Rs 20,000',
-                normalized_value=20000, data_type='currency', pillar='aiqif_c4', source_page='1',
-                source_snippet='a stipend of Rs 20,000 / month', confidence_score=confidence)
-        at_threshold, conflicted = amount('stipend', 0.8), amount('fee', 0.95)
-        GapItem.objects.create(sprint=self.sprint, gap_type=GapItem.GapType.CONFLICT, title='Two values',
-                               source_fact=conflicted, pillar='aiqif_c4')
-        result = auto_confirm(ExtractedFact.objects.filter(pk__in=[at_threshold.pk, conflicted.pk]))
-        self.assertEqual((result['confirmed'], result['skipped']), ([], {'open conflict': 1}))
+        self.assertEqual({k: f.verification_status for k, f in facts.items()}, {
+            'fee_rs': 'verified', 'fee_rs_dot': 'verified', 'fee_inr': 'verified',
+            'grant_lakhs': 'verified', 'fee_wrong': 'needs_review'})
+        self.assertEqual({f.status for f in facts.values()}, {'extracted'})  # currency: high risk by policy
 
     def test_a_fact_in_an_open_conflict_is_left_for_a_person(self):
         from apps.facts.auto_confirm import auto_confirm
         from apps.gaps.models import GapItem
         fact = ExtractedFact.objects.create(
-            sprint=self.sprint, document=self.document, field_name='Faculty', field_key='faculty', value=42,
-            data_type='number', pillar='aiqif_c4', source_page='1', source_snippet='42 faculty members.',
-            confidence_score=0.95)
+            sprint=self.sprint, document=self.document, source_document=self.document, field_name='Faculty',
+            field_key='faculty', value=42, data_type='number', pillar='aiqif_c4', source_page='1',
+            source_snippet='The institution has 42 faculty members.', confidence_score=0.95)
         GapItem.objects.create(sprint=self.sprint, gap_type=GapItem.GapType.CONFLICT, title='Two values',
                                source_fact=fact, pillar='aiqif_c4')
         result = auto_confirm(ExtractedFact.objects.filter(pk=fact.pk))
-        self.assertEqual((result['confirmed'], result['skipped']), ([], {'open conflict': 1}))
+        self.assertEqual((result['confirmed'], result['skipped']), ([], {'Sources disagree': 1}))
+        fact.refresh_from_db()
+        self.assertEqual(fact.status, 'extracted')
 
     def test_reprocessing_updates_an_auto_confirmed_fact_but_never_a_persons(self):
         first = self._run(_valid_fact(), _valid_fact(field_key='labs', field_name='Labs', value='7',
@@ -3683,13 +3707,15 @@ class AutoConfirmTests(ExtractionJobTestBase):
         auto = again['total_faculty']
         self.assertEqual((auto.id, auto.value, auto.status), (first['total_faculty'].id, 45, 'confirmed'))
         self.assertEqual(auto.review_history.count(), 2)  # confirmed automatically for 42, then again for 45
+        self.assertEqual(auto.original_value, 42)  # the first extraction is kept
         self.assertEqual((again['labs'].value, again['labs'].reviewed_by), (7, self.iqac))  # untouched
         self.assertEqual(self.document.extracted_facts.count(), 2)
 
-    def test_it_can_be_switched_off(self):
-        with override_settings(FACT_AUTO_CONFIRM_MIN_CONFIDENCE=None):
+    def test_shadow_mode_records_what_it_would_do_and_confirms_nothing(self):
+        with override_settings(FACT_VERIFICATION_MODE='shadow'):
             facts = self._run(_valid_fact())
-        self.assertEqual(facts['total_faculty'].status, 'extracted')
+        fact = facts['total_faculty']
+        self.assertEqual((fact.status, fact.automation_decision), ('extracted', 'would_auto_verify'))
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
@@ -3698,8 +3724,8 @@ class GapEvidenceUploadTests(ExtractionJobTestBase):
 
     def setUp(self):
         super().setUp()
-        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
-        self.viewer = self._make_user('viewer@test.edu', User.Role.VIEWER, self.institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
+        self.viewer = self._make_user('viewer@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
         self._auth(self.iqac)
 
     def _facts(self, *facts):
@@ -3807,14 +3833,25 @@ class GapEvidenceUploadTests(ExtractionJobTestBase):
         listed = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/').data
         row = next(f for f in (listed['results'] if isinstance(listed, dict) else listed) if f['id'] == str(new.id))
         self.assertEqual(row['evidence_for_gaps'][0]['id'], str(gap.id))
-        runs = ScoringRun.objects.filter(sprint=self.sprint).count()
+        # 42 (the low-confidence value) and 45 (the new evidence) genuinely disagree: the conflict stays visible --
+        # the AI may not dismiss it -- so confirming the new value alone does not close the low-confidence gap.
+        from apps.gaps.models import GapItem
+        conflict = GapItem.objects.get(gap_type='conflict', status__in=GapItem.ACTIVE_STATUSES,
+                                       source_fact__field_key='total_faculty')
         self._auth(self.admin)
         r = self.client.post(f'/api/v1/facts/{new.id}/confirm', {'reason': 'Signed register.'})
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
         gap.refresh_from_db()
+        self.assertEqual(gap.status, 'in_progress')
+        # The person decides the conflict for the new value: the old value is rejected, both gaps close.
+        runs = ScoringRun.objects.filter(sprint=self.sprint).count()
+        r = self.client.post(f'/api/v1/gaps/{conflict.id}/choose-value', {'fact_id': str(new.id), 'reason': 'Signed.'},
+                             format='json')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        gap.refresh_from_db()
         self.assertEqual(gap.status, 'resolved')
         self.assertIn('Verified from uploaded evidence', gap.resolution)
-        self.assertEqual(ScoringRun.objects.filter(sprint=self.sprint).count(), runs + 1)  # CRI recalculated
+        self.assertGreater(ScoringRun.objects.filter(sprint=self.sprint).count(), runs)  # CRI recalculated
 
     def test_a_conflict_keeps_the_low_confidence_gap_open(self):
         from apps.gaps.models import GapItem
@@ -4060,7 +4097,10 @@ class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
         tags = {m.indicator_code: m for m in fact.aiqif_mappings.all()}
         self.assertEqual(tags['AIQIF-C3.3'].auto_decision, 'accepted_precedent')  # the expert's earlier decision
         self.assertEqual(tags['AIQIF-C6.4'].auto_decision, 'accepted_ai_check')   # another criterion: AI checked it
-        self.assertEqual(checker.extract_structured_data.call_count, 1)           # the precedent needed no AI call
+        # (the vision fallback may read the test's near-empty page with the same mocked AI; only tag checks count)
+        tag_checks = [c for c in checker.extract_structured_data.call_args_list
+                      if c.kwargs.get('schema_name') == 'aiqif_tag_check']
+        self.assertEqual(len(tag_checks), 1)                                      # the precedent needed no AI call
         self.assertEqual(fact.aiqif_mapping_status, 'mapped')
 
     def test_duplicate_facts_across_chunks_keep_both_copies_tags(self):

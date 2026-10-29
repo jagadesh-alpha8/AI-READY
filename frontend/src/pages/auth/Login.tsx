@@ -31,16 +31,8 @@ const DEFAULT_PASSWORD = DEMO_PASSWORD;
 /** Only ever rendered when SHOW_DEMO_PERSONAS is on; see above. */
 const SEEDED_ROLES = [
   { role: 'SUPER_ADMIN', name: 'Super Admin', email: 'superadmin@ingage.ai', desc: 'Full System & Config Control' },
-  { role: 'INGAGE_CONSULTANT', name: 'InGage Lead Consultant', email: 'consultant@ingage.ai', desc: 'Sprint Lead & Scoring Specialist' },
-  { role: 'INSTITUTION_ADMIN', name: 'Dr. N. Ramesh', email: 'principal@mkce.ac.in', desc: 'Principal / Institution Admin' },
-  { role: 'IQAC_COORDINATOR', name: 'Prof. S. Kanthaswamy', email: 'iqac@mkce.ac.in', desc: 'IQAC & AQAR Nodal Officer' },
-  { role: 'REGISTRAR', name: 'Dr. K. Vignesh', email: 'registrar@mkce.ac.in', desc: 'Registrar (Master Records)' },
-  { role: 'HOD', name: 'Dr. C. Vivek', email: 'hod_cs@mkce.ac.in', desc: 'HOD Computer Science' },
-  { role: 'HR_OFFICER', name: 'P. Meenakshi', email: 'hr@mkce.ac.in', desc: 'HR Officer (Faculty Records)' },
-  { role: 'PLACEMENT_OFFICER', name: 'R. Anand', email: 'placement@mkce.ac.in', desc: 'Placement & Industry Head' },
-  { role: 'FACULTY', name: 'R. Priya', email: 'faculty@mkce.ac.in', desc: 'Faculty (Computer Science)' },
-  { role: 'LAB_ADMIN', name: 'S. Karthik', email: 'labadmin@mkce.ac.in', desc: 'Lab & Compute Infrastructure' },
-  { role: 'VIEWER', name: 'Trustee Board', email: 'viewer@mkce.ac.in', desc: 'Approved Reports Viewer' },
+  { role: 'CONSULTANT', name: 'InGage Lead Consultant', email: 'consultant@ingage.ai', desc: 'Sprint Lead & Scoring Specialist' },
+  { role: 'IQAC_COORDINATOR', name: 'Prof. S. Kanthaswamy', email: 'iqac@mkce.ac.in', desc: 'IQAC Coordinator (College Operations)' },
 ];
 
 /** What the platform actually does. Every claim here maps to a module that

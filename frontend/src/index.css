@@ -105,6 +105,81 @@
   ::-webkit-scrollbar-track { @apply bg-transparent; }
 }
 
+/* A small brand highlight makes one circuit around each tour section. */
+@property --tour-ring-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes tour-ring-circuit {
+  from { --tour-ring-angle: 0deg; }
+  to { --tour-ring-angle: 360deg; }
+}
+
+@keyframes tour-ring-fade {
+  0%, 84% { opacity: 1; filter: drop-shadow(0 0 7px rgb(var(--color-brand-500) / 0.9)); }
+  100% { opacity: 0; filter: drop-shadow(0 0 0 rgb(var(--color-brand-500) / 0)); }
+}
+
+@keyframes tour-section-glow {
+  0%, 100% {
+    outline: 0 solid rgb(var(--color-brand-500) / 0);
+    box-shadow: 0 0 0 0 rgb(var(--color-brand-500) / 0);
+  }
+  12%, 72% {
+    outline: 3px solid rgb(var(--color-brand-500) / 0.9);
+    box-shadow: 0 0 0 5px rgb(var(--color-brand-500) / 0.2), 0 0 22px rgb(var(--color-brand-500) / 0.28);
+  }
+}
+
+.tour-ring-run {
+  position: relative;
+  isolation: isolate;
+  animation: tour-section-glow 5s ease-in-out 1;
+}
+
+.tour-ring-run::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  z-index: 1;
+  padding: 3px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--tour-ring-angle),
+    transparent 0deg 235deg,
+    rgb(var(--color-brand-500) / 0.35) 255deg,
+    rgb(var(--color-brand-500) / 0.75) 285deg,
+    rgb(var(--color-brand-500)) 315deg,
+    rgb(var(--color-brand-500) / 0.9) 338deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: tour-ring-circuit 2.5s linear 2, tour-ring-fade 5s ease-out 1 both;
+}
+
+.tour-ring-run-delay::after {
+  animation-delay: 0.2s, 0.2s;
+}
+
+.tour-ring-run-delay {
+  animation-delay: 0.2s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-ring-run::after {
+    display: none;
+  }
+  .tour-ring-run {
+    animation: none;
+  }
+}
+
 @layer components {
   /* ---- Cards ----
      Kept the original class names (glass-card / glass-card-hover) so every

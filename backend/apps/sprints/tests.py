@@ -17,13 +17,13 @@ class RoleAndInstitutionAccessTests(APITestCase):
         self.institution_b = Institution.objects.create(name='College B', city='Coimbatore', state='TN')
 
         self.admin_a = self._make_user(
-            'admin_a@test.edu', User.Role.INSTITUTION_ADMIN, self.institution_a,
+            'admin_a@test.edu', User.Role.IQAC_COORDINATOR, self.institution_a,
         )
         self.viewer_a = self._make_user(
-            'viewer_a@test.edu', User.Role.VIEWER, self.institution_a,
+            'viewer_a@test.edu', User.Role.IQAC_COORDINATOR, self.institution_b,
         )
         self.admin_b = self._make_user(
-            'admin_b@test.edu', User.Role.INSTITUTION_ADMIN, self.institution_b,
+            'admin_b@test.edu', User.Role.IQAC_COORDINATOR, self.institution_b,
         )
         self.super_admin = self._make_user(
             'root@test.edu', User.Role.SUPER_ADMIN, None,
@@ -363,7 +363,7 @@ class SprintCrudTests(APITestCase):
         sprint = self._create_sprint()
         outsider = User.objects.create_user(
             email='outsider@test.edu', username='outsider', password=PASSWORD,
-            role=User.Role.INSTITUTION_ADMIN,
+            role=User.Role.IQAC_COORDINATOR,
             institution=Institution.objects.create(name='Elsewhere', city='X', state='Y'),
         )
         login = self.client.post('/api/v1/auth/login/', {'email': outsider.email, 'password': PASSWORD})

@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 #: Anyone who isn't a read-only viewer can still edit their *own* upload;
 #: deleting someone else's requires one of these roles.
 DOCUMENT_MANAGE_ROLES = {
-    User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.INSTITUTION_ADMIN, User.Role.IQAC_COORDINATOR,
+    User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.IQAC_COORDINATOR,
 }
 
 
@@ -53,7 +53,7 @@ class CanManageDocument(BasePermission):
         is_owner = obj.uploaded_by_id == user.id
         if request.method == 'DELETE':
             return is_owner or user.role in DOCUMENT_MANAGE_ROLES
-        return is_owner or user.role != User.Role.VIEWER
+        return is_owner or user.role in DOCUMENT_MANAGE_ROLES
 
 
 class SprintDocumentListView(generics.ListAPIView):

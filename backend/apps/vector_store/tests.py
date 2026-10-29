@@ -494,9 +494,9 @@ class VectorApiTests(APITestCase):
             status=Document.Status.PROCESSED,
         )
 
-        self.admin = self._user('vs_admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
-        self.viewer = self._user('vs_viewer@test.edu', User.Role.VIEWER, self.institution)
-        self.outsider = self._user('vs_out@test.edu', User.Role.INSTITUTION_ADMIN, self.other_institution)
+        self.admin = self._user('vs_admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
+        self.viewer = self._user('vs_viewer@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
+        self.outsider = self._user('vs_out@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
 
     @staticmethod
     def _user(email, role, institution):
@@ -534,9 +534,9 @@ class VectorApiTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_viewer_can_search_evidence(self):
+    def test_the_college_can_search_evidence(self):
         """Search is a read, so it follows the same rule as reading facts."""
-        self._auth(self.viewer)
+        self._auth(self.admin)
         with mock.patch.object(search, 'search_college_evidence', return_value=[]) as searcher:
             response = self.client.post(
                 f'/api/v1/sprints/{self.sprint.id}/evidence-search',

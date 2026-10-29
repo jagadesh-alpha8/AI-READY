@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .verification_views import FactCorrectionListCreateView, FactVerificationDetailView
 from .views import (
     FactAIQIFMappingAddView,
     FactAIQIFMappingEditView,
@@ -38,4 +39,6 @@ urlpatterns = [
     path('/<uuid:pk>/aiqif-mappings/<str:indicator_code>/reopen', FactAIQIFMappingReopenView.as_view(),
          name='fact-aiqif-mapping-reopen'),
     path('/<uuid:pk>/fact-kind', FactKindView.as_view(), name='fact-kind'),
+    path('/<uuid:pk>/verification', FactVerificationDetailView.as_view(), name='fact-verification'),
+    path('/<uuid:pk>/corrections', FactCorrectionListCreateView.as_view(), name='fact-corrections'),
 ]

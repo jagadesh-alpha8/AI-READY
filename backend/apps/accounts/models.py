@@ -43,15 +43,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     class Role(models.TextChoices):
         SUPER_ADMIN = 'super_admin', 'Super Admin'
         CONSULTANT = 'consultant', 'InGage Consultant'
-        INSTITUTION_ADMIN = 'institution_admin', 'Institution Admin'
         IQAC_COORDINATOR = 'iqac_coordinator', 'IQAC Coordinator'
-        REGISTRAR = 'registrar', 'Registrar'
-        HOD = 'hod', 'Head of Department'
-        HR_OFFICER = 'hr_officer', 'HR Officer'
-        LAB_ADMIN = 'lab_admin', 'Lab Admin'
-        PLACEMENT_OFFICER = 'placement_officer', 'Placement Officer'
-        FACULTY = 'faculty', 'Faculty'
-        VIEWER = 'viewer', 'Viewer'
 
     #: Roles that operate across every institution rather than being scoped
     #: to the one on their profile (platform staff, not campus staff).
@@ -65,7 +57,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     first_name = models.CharField(max_length=150, blank=True)
     last_name = models.CharField(max_length=150, blank=True)
     phone = models.CharField(max_length=20, blank=True, validators=[phone_validator])
-    role = models.CharField(max_length=32, choices=Role.choices, default=Role.VIEWER)
+    role = models.CharField(max_length=32, choices=Role.choices, default=Role.IQAC_COORDINATOR)
     institution = models.ForeignKey(
         'institutions.Institution',
         null=True,
@@ -101,3 +93,56 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def is_cross_institution(self):
         return self.role in self.CROSS_INSTITUTION_ROLES
+
+
+class RoleMigrationAudit(models.Model):
+    """Audit record capturing the consolidation of user roles to the 3-role model."""
+    migrated_at = models.DateTimeField(auto_now_add=True)
+    user_id = models.UUIDField()
+    email = models.CharField(max_length=255)
+    username = models.CharField(max_length=150)
+    original_role = models.CharField(max_length=64)
+    new_role = models.CharField(max_length=64)
+    original_is_active = models.BooleanField()
+    new_is_active = models.BooleanField()
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-migrated_at']
+
+    def __str__(self):
+        return f'{self.email}: {self.original_role} -> {self.new_role} (active={self.new_is_active})'
+
+
+class UserGuideState(models.Model):
+    """Persisted in-app onboarding guide choices for a user.
+
+    Scoped by user, institution, and optionally sprint.
+    Records which steps the user has skipped, and whether the guide card is
+    dismissed. Actual completion is NEVER stored here -- completion is always
+    derived dynamically from the real underlying database records.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='guide_states')
+    institution = models.ForeignKey(
+        'institutions.Institution', on_delete=models.CASCADE, null=True, blank=True, related_name='guide_states'
+    )
+    sprint = models.ForeignKey(
+        'sprints.Sprint', on_delete=models.CASCADE, null=True, blank=True, related_name='guide_states'
+    )
+    skipped_steps = models.JSONField(default=list, blank=True)
+    is_dismissed = models.BooleanField(default=False)
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+    menu_tours = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['user', 'institution', 'sprint']),
+        ]
+
+    def __str__(self):
+        return f'UserGuideState({self.user_id}, inst={self.institution_id}, sprint={self.sprint_id})'
+

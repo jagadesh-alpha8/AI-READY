@@ -51,28 +51,22 @@ export const ConfirmationWorkspace: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="glass-card p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <span className="badge-accent">Signed in as {user?.role?.replace(/_/g, ' ')}</span>
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900 mt-1 flex items-center gap-2">
-              <CheckSquare className="w-5 h-5 text-brand-800" /> Step {step('sprint-confirmation')}: Owner Confirmation Workspace
-            </h1>
-            <p className="text-sm text-ink-500 mt-1">
-              Facts and gaps waiting for a review. Each belongs to an owner role; only that role, an Institution Admin
-              or InGage staff can settle it.
-            </p>
-          </div>
-          <button onClick={() => navigate(`/sprint/${sprintId}/score`)} className="btn-primary shrink-0">
-            <span>Proceed to Live CRI Preview</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
+      {/* Workspace Action Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4" data-tour="owner-workspace-header">
+        <span className="badge-accent">Signed in as {user?.role?.replace(/_/g, ' ')}</span>
+        <button
+          data-tour="owner-proceed-btn"
+          onClick={() => navigate(`/sprint/${sprintId}/score`)}
+          className="btn-primary shrink-0 self-end sm:self-auto"
+        >
+          <span>Proceed to Live CRI Preview</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Sprint-wide readiness: every owner role, whoever is looking. */}
       {summary.error ? <ErrorState message={summary.error} onRetry={summary.refetch} /> : s && (
-        <div className="glass-card p-5 space-y-4">
+        <div className="glass-card p-5 space-y-4" data-tour="owner-readiness-card">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="eyebrow">Sprint readiness for baseline review</h2>
@@ -96,7 +90,7 @@ export const ConfirmationWorkspace: React.FC = () => {
       )}
 
       <div className="glass-card p-5 sm:p-6 space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" data-tour="owner-task-filters">
           <button className={`btn-sm ${view === 'mine' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setView('mine')}>
             My tasks ({mine.length})
           </button>
@@ -126,7 +120,7 @@ export const ConfirmationWorkspace: React.FC = () => {
                 {view === 'mine' ? 'Nothing is waiting on you right now.' : 'No open items match these filters.'}
               </p></div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3" data-tour="owner-task-list">
                 {shown.map((t) => (
                   <OwnerTaskCard key={t.key} task={t} sprintId={sprintId!} coordinator={coordinator}
                     people={people.data || []} onChanged={refresh} />

@@ -40,7 +40,7 @@ const ApprovalHistory: React.FC<{ cycles: Baseline[]; currentId: string }> = ({ 
   if (!cycles.some((c) => c.history.length)) return null;
   const number = (id: string | null) => (id ? cycles.length - cycles.findIndex((c) => c.id === id) : 0);
   return (
-    <div className="glass-card p-5 sm:p-6">
+    <div className="glass-card p-5 sm:p-6" data-tour="approval-history">
       <h2 className="eyebrow mb-4">Approval History ({cycles.length} cycle{cycles.length === 1 ? '' : 's'})</h2>
       <div className="space-y-4">
         {cycles.map((c) => (
@@ -198,22 +198,12 @@ export const BaselineApproval: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="glass-card p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <Lock className="w-5 h-5 text-success" /> Step {step('sprint-approval')}: Baseline Approval
-            </h1>
-            <p className="text-sm text-ink-500 mt-1">
-              Review the CRI baseline's evidence backing, then lock and sign off before improvement recommendations are drafted.
-            </p>
-          </div>
-          <button onClick={() => navigate(`/sprint/${sprintId}/recommendations`)} className="btn-primary shrink-0">
-            <span>Proceed to Recommendations</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
+      {/* Action Bar */}
+      <div className="flex justify-end" data-tour="approval-header">
+        <button onClick={() => navigate(`/sprint/${sprintId}/recommendations`)} className="btn-primary shrink-0">
+          <span>Proceed to Recommendations</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
       </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
@@ -287,7 +277,7 @@ export const BaselineApproval: React.FC = () => {
           )}
 
           {/* Approval Status + Score Summary */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6" data-tour="approval-metrics-card">
             <div className="glass-card p-6 text-center">
               <span className="text-xs font-bold text-brand-800 uppercase tracking-wide">Baseline Raw CRI</span>
               <div className="text-3xl sm:text-4xl font-bold text-ink-900 my-3 tracking-tight tabular-nums">
@@ -367,7 +357,7 @@ export const BaselineApproval: React.FC = () => {
                       />
                     </label>
                   )}
-                  <div className="flex flex-col sm:flex-row items-stretch gap-2">
+                  <div className="flex flex-col sm:flex-row items-stretch gap-2" data-tour="approval-actions">
                     <button
                       onClick={handleApprove}
                       disabled={!canApprove || acting !== null}

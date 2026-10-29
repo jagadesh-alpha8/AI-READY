@@ -1,16 +1,38 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { LogOut, Menu, Moon, Sun } from 'lucide-react';
+import { Compass, LogOut, Menu, Moon, Sparkles, Sun } from 'lucide-react';
 import ingageLogo from '../assets/ingage-logo-mark.png';
 import ingageLogoDark from '../assets/ingage-logo-mark-dark.png';
 
-export const Navbar: React.FC<{ onMenuClick?: () => void }> = ({ onMenuClick }) => {
+export const Navbar: React.FC<{
+  onMenuClick?: () => void;
+  onGuideClick?: () => void;
+  onTourClick?: () => void;
+  guideCompletedCount?: number;
+  guideTotalSteps?: number;
+  guideLoading?: boolean;
+}> = ({ onMenuClick, onGuideClick, onTourClick, guideCompletedCount, guideTotalSteps, guideLoading }) => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const [showTourAttention, setShowTourAttention] = useState(false);
+  const location = useLocation();
+
+  // Draw attention to the learning controls whenever the user lands on a page.
+  useEffect(() => {
+    if (!user?.id) {
+      setShowTourAttention(false);
+      return;
+    }
+
+    setShowTourAttention(true);
+    const timeoutId = window.setTimeout(() => setShowTourAttention(false), 5600);
+    return () => window.clearTimeout(timeoutId);
+  }, [user?.id, location.pathname]);
 
   return (
-    <header className="bg-card border-b border-line-200 px-4 sm:px-6 py-3 flex items-center gap-3 sticky top-0 z-40">
+    <header className="bg-card border-b border-line-200 px-4 sm:px-6 py-3 flex items-center gap-3 shrink-0 relative z-40">
       <button
         type="button"
         onClick={onMenuClick}
@@ -42,6 +64,41 @@ export const Navbar: React.FC<{ onMenuClick?: () => void }> = ({ onMenuClick }) 
       </div>
 
       <div className="flex items-center gap-2 ml-auto">
+        {onTourClick && user && (
+          <button
+            type="button"
+            key={`product-tour:${user.id}:${location.pathname}`}
+            onClick={onTourClick}
+            data-tour="persistent-tour-btn"
+            className={`btn-secondary text-xs flex items-center gap-1.5 px-2.5 py-1.5 ${showTourAttention ? 'tour-ring-run' : ''}`}
+            title="Start Product Tour of platform navigation"
+            aria-label="Start Product Tour of platform navigation"
+          >
+            <Sparkles className="w-4 h-4 text-brand-600 dark:text-brand-400" />
+            <span className="hidden sm:inline font-semibold">Product Tour</span>
+          </button>
+        )}
+
+        {onGuideClick && user && (
+          <button
+            type="button"
+            key={`workflow-guide:${user.id}:${location.pathname}`}
+            onClick={onGuideClick}
+            data-tour="workflow-guide-btn"
+            className={`btn-secondary text-xs flex items-center gap-1.5 px-2.5 py-1.5 ${showTourAttention ? 'tour-ring-run tour-ring-run-delay' : ''}`}
+            title="Open Onboarding Workflow Guide"
+            aria-label="Open Onboarding Workflow Guide"
+          >
+            <Compass className="w-4 h-4 text-brand-600 dark:text-brand-400" />
+            <span className="hidden sm:inline font-semibold">Workflow Guide</span>
+            {guideTotalSteps && !guideLoading ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-line-200 text-ink-500 font-mono">
+                {guideCompletedCount ?? 0}/{guideTotalSteps}
+              </span>
+            ) : null}
+          </button>
+        )}
+
         <button
           type="button"
           onClick={toggleTheme}

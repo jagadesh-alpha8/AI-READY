@@ -40,21 +40,24 @@ const BenchmarkStudioPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        dataTour="studio-header"
         icon={BookOpen}
         title="Benchmark Studio"
         description="The standard benchmark catalogue every college is assessed against: manager-provided sources and indicators, read-only."
         badge={<span className="badge badge-danger">Admin</span>}
       />
 
-      <TabStrip
-        tabs={[
-          { id: 'sources', label: 'Source Library', icon: BookOpen },
-          { id: 'explorer', label: 'Benchmark Library', icon: Search },
-          { id: 'applicability', label: 'Applicability Preview', icon: ShieldCheck },
-        ]}
-        active={tab}
-        onChange={setTab}
-      />
+      <div data-tour="studio-tabs">
+        <TabStrip
+          tabs={[
+            { id: 'sources', label: 'Source Library', icon: BookOpen },
+            { id: 'explorer', label: 'Benchmark Library', icon: Search },
+            { id: 'applicability', label: 'Applicability Preview', icon: ShieldCheck },
+          ]}
+          active={tab}
+          onChange={setTab}
+        />
+      </div>
 
       {tab === 'sources' && <Sources />}
       {tab === 'explorer' && <CatalogueTab />}
@@ -100,7 +103,7 @@ const Sources: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2" data-tour="studio-search">
         <input
           className="input flex-1 min-w-[200px]"
           placeholder="Search title or source code"
@@ -117,7 +120,11 @@ const Sources: React.FC = () => {
       {error && <ErrorState message={error} onRetry={refetch} />}
       {data && data.length === 0 && <EmptyState message="No sources match." />}
 
-      {data && data.length > 0 && <SourcesTable docs={data} />}
+      {data && data.length > 0 && (
+        <div data-tour="studio-table">
+          <SourcesTable docs={data} />
+        </div>
+      )}
     </div>
   );
 };

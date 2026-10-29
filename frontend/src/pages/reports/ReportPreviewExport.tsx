@@ -89,30 +89,23 @@ export const ReportPreviewExport: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="glass-card p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-brand-800" /> Step {step('sprint-report')}: Executive AI Readiness Discovery Report
-            </h1>
-            <p className="text-sm text-ink-500 mt-1">
-              Final executive report preview with PDF/DOCX export and publication control.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <button onClick={() => window.print()} className="btn-secondary">
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print / Save PDF</span>
-            </button>
-            {can('sprint.manage') && (
-              <button onClick={handleGenerate} disabled={generating} className="btn-primary shrink-0">
-                <Globe className="w-4 h-4" />
-                <span>{generating ? 'Generating...' : 'Publish Final Report'}</span>
-              </button>
-            )}
-          </div>
-        </div>
+      {/* Action Bar */}
+      <div className="flex items-center justify-end gap-3 flex-wrap" data-tour="report-header">
+        <button onClick={() => window.print()} className="btn-secondary">
+          <Printer className="w-3.5 h-3.5" />
+          <span>Print / Save PDF</span>
+        </button>
+        {can('sprint.manage') && (
+          <button
+            data-tour="report-generate-btn"
+            onClick={handleGenerate}
+            disabled={generating}
+            className="btn-primary shrink-0"
+          >
+            <Globe className="w-4 h-4" />
+            <span>{generating ? 'Generating...' : 'Publish Final Report'}</span>
+          </button>
+        )}
       </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
@@ -141,7 +134,7 @@ export const ReportPreviewExport: React.FC = () => {
       ) : (
         <>
           {/* Executive Report Document Container */}
-          <div className="bg-card border border-line-200 rounded-xl p-6 sm:p-8 space-y-8 shadow-popover text-ink-700 max-w-4xl mx-auto">
+          <div className="bg-card border border-line-200 rounded-xl p-6 sm:p-8 space-y-8 shadow-popover text-ink-700 max-w-4xl mx-auto" data-tour="report-preview-tabs">
             {/* Report Header */}
             <div className="border-b border-line-200 pb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
@@ -266,7 +259,7 @@ export const ReportPreviewExport: React.FC = () => {
             </div>
 
             {/* Download actions */}
-            <div className="flex items-center gap-3 pt-2 flex-wrap">
+            <div className="flex items-center gap-3 pt-2 flex-wrap" data-tour="report-export-actions">
               <button
                 onClick={() => handleDownload('pdf')}
                 disabled={!report.pdf_available || downloading !== null}

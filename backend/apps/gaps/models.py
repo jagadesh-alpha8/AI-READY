@@ -140,6 +140,8 @@ class GapEvent(models.Model):
         EVIDENCE_UPLOADED = 'evidence_uploaded', 'Evidence uploaded'
         EVIDENCE_PROCESSED = 'evidence_processed', 'Evidence processed'
         EVIDENCE_FAILED = 'evidence_failed', 'Evidence processing failed'
+        #: A conflict's summary was rebuilt because one of its facts changed (verification/conflicts.py).
+        SUMMARY_REFRESHED = 'summary_refreshed', 'Conflict summary refreshed'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     gap = models.ForeignKey(GapItem, on_delete=models.CASCADE, related_name='events')

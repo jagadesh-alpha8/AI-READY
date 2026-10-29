@@ -252,10 +252,17 @@ def analyze_submission(link, *, pages=None, job=None):
             link.analysis_confidence = result['confidence']
             link.analysis_error = ''
             link.analysis_finished_at = timezone.now()
+            # The AI's citation checked deterministically against the pages read (advisory for the reviewer).
+            try:
+                from .verification.engine import verify_evidence_link
+                link.verification = verify_evidence_link(link)
+            except Exception:
+                logger.exception('evidence.analysis.verification_failed evidence_id=%s', link.id)
+                link.verification = {'status': 'error', 'detail': ['The citation could not be checked.']}
             link.save(update_fields=['analysis_status', 'analysis_outcome', 'analysis_summary', 'analysis_quote',
                                      'analysis_page_number', 'analysis_document_reference',
                                      'analysis_suggested_value', 'analysis_confidence', 'analysis_error',
-                                     'analysis_finished_at'])
+                                     'analysis_finished_at', 'verification'])
             _event(request, EvidenceRequestEvent.Action.ANALYSIS_COMPLETED,
                    evidence_id=str(link.id), document_id=str(link.document_id) if link.document_id else None,
                    outcome=result['outcome'], confidence=result['confidence'], summary=result['summary'],

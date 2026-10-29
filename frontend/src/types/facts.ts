@@ -8,7 +8,116 @@ export interface FactReviewHistoryEntry {
   user: string | null;
   user_name: string;
   reason: string;
+  /** Who decided: 'person' (or '' on older rows), 'rule' (verification rules) or 'precedent'. */
+  decision_source?: '' | 'person' | 'rule' | 'precedent';
+  /** The verification behind an automatic decision, the precedent it reused, a proposal id, overrides_auto. */
+  details?: Record<string, unknown>;
   created_at: string;
+}
+
+export type VerificationStatus = 'verified' | 'needs_review' | 'invalid' | 'conflicting';
+
+/** The latest verification of a fact (backend apps/facts/verification/): four results kept apart. */
+export interface FactVerificationSummary {
+  status: VerificationStatus;
+  status_label: string;
+  /** The model's own estimate that it read the value correctly -- never a confirmation. */
+  extraction_confidence: number | null;
+  /** Citation + quote check (deterministic): exact, ocr_variant, not_found, unavailable, page_missing, ... */
+  grounding: string;
+  /** Deterministic checks: pass, warn, fail, not_applicable. */
+  validation: string;
+  /** Comparable sources: agrees, disagrees, in_open_conflict, not_comparable, no_other_source. */
+  cross_source: string;
+  risk_level: '' | 'low' | 'medium' | 'high';
+  /** auto_verified, precedent, would_auto_verify, would_precedent, review, not_applicable. */
+  automation_decision: string;
+  automation_reason: string;
+  verified_at: string | null;
+}
+
+export interface VerificationCheck {
+  code: string;
+  label: string;
+  status: 'pass' | 'fail' | 'warn';
+  detail: string;
+  kind: 'deterministic';
+  formula?: string;
+  inputs?: DerivationInput[];
+}
+
+export interface DerivationInput {
+  label: string;
+  value: string;
+  number: string | null;
+  document_id: string | null;
+  document_name?: string | null;
+  document_version: number | null;
+  source_page: string;
+  source_snippet: string;
+  grounding: { status: string; quote: string; value_support: string; detail: string[] };
+}
+
+/** One full verification run (GET /facts/<id>/verification). */
+export interface FactVerificationRun {
+  id: string;
+  source: string;
+  mode: 'shadow' | 'enforce';
+  outcome: VerificationStatus;
+  reason: string;
+  value: unknown;
+  citation: { document_name: string | null; document_version: number | null; source_page: string; source_snippet: string };
+  extraction_confidence: number | null;
+  grounding: { status: string; citation: string; quote: string; value_support: string; score: number | null;
+    detail: string[]; quote_numbers: string[]; kind: 'deterministic' };
+  validation: { status: string; checks: VerificationCheck[]; kind: 'deterministic' };
+  derivation: { status?: string; formula?: string; computed?: string | null; stated?: string | null;
+    inputs?: DerivationInput[]; includes?: string[]; excludes?: string[]; detail?: string[] };
+  cross_source: { status: string; compared: { fact_id: string; value: unknown; document: string | null;
+    document_version: number | null; page: string; period: string | null; agrees: boolean }[];
+    not_comparable: { fact_id: string; value: unknown; document: string | null; why: string }[] };
+  scope: { period: string; population: string[]; unit: string; includes: string[]; excludes: string[] };
+  ai_assessments: { label: string; detail: string }[];
+  risk_level: string;
+  precedent: { match: 'exact' | 'partial' | 'rejected'; action: string; value: unknown; decided_by_name: string;
+    decided_at: string | null; document_version: number | null; source_page: string; differences: string[] } | null;
+  automation_decision: string;
+  automation_reason: string;
+  blockers: string[];
+  created_at: string;
+}
+
+export interface PendingCorrection {
+  id: string;
+  proposed_value: unknown;
+  reason: string;
+  source_page: string;
+  submitted_by: string | null;
+  submitted_by_name: string;
+  verification_outcome: VerificationStatus | null;
+  /** The current user proposed it (so may withdraw, never approve). */
+  mine: boolean;
+  created_at: string;
+}
+
+export interface CorrectionProposal {
+  id: string;
+  fact: string;
+  field_name: string;
+  value_before: unknown;
+  proposed_value: unknown;
+  reason: string;
+  source_document: string | null;
+  source_document_name: string | null;
+  source_page: string;
+  source_snippet: string;
+  verification: { outcome?: VerificationStatus; reason?: string };
+  status: 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'stale';
+  submitted_by_name: string;
+  reviewed_by_name: string;
+  review_reason: string;
+  created_at: string;
+  can_decide: boolean;
 }
 
 /** Where a fact's AI-QIF category tags stand. 'pending' = not classified yet; 'context' / 'profile' = not AI
@@ -109,6 +218,15 @@ export interface Fact {
   /** Whether the current user may confirm / correct / reject it; when not, who may. The server decides. */
   can_act: boolean | null;
   act_blocked_reason: string;
+  /** How the value came to be, and the value + citation as first recorded (never overwritten). */
+  value_origin?: '' | 'extracted' | 'calculated' | 'submitted' | 'corrected';
+  original_value?: unknown;
+  original_source_page?: string;
+  original_source_snippet?: string;
+  derivation?: Record<string, unknown>;
+  /** The latest verification, or null when never verified. */
+  verification?: FactVerificationSummary | null;
+  pending_correction?: PendingCorrection | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
   created_at: string;

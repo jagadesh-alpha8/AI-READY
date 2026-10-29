@@ -49,15 +49,15 @@ SUPPORT_OFFERING_BY_SOURCE = {
 #: Who owns a whole AI-QIF pillar (a pillar-weakness recommendation has no gap or fact to take an owner from).
 #: Roles are the extraction's owner roles (apps/extraction/services/openai_fact_extractor.FACT_OWNER_ROLE_CHOICES).
 PILLAR_OWNER_ROLE = {
-    'aiqif_c1': 'institution_admin',   # Institutional AI Strategy & Governance
-    'aiqif_c2': 'iqac_coordinator',    # Responsible AI, Risk, Ethics & Compliance
-    'aiqif_c3': 'hod',                 # AI-Ready Curriculum & Learning
-    'aiqif_c4': 'hr_officer',          # Faculty & Institutional Workforce AI Capability
-    'aiqif_c5': 'placement_officer',   # Student AI Readiness, Skills & Employability
-    'aiqif_c6': 'lab_admin',           # AI Infrastructure, Data & Cybersecurity
-    'aiqif_c7': 'hod',                 # AI Research, Innovation & Ecosystem
-    'aiqif_c8': 'registrar',           # AI-Enabled Operations, Industry & Outcomes
-    'aiqif_c9': 'iqac_coordinator',    # AI Assurance, Measurement & Continuous Improvement
+    'aiqif_c1': 'iqac_coordinator',   # Institutional AI Strategy & Governance
+    'aiqif_c2': 'iqac_coordinator',   # Responsible AI, Risk, Ethics & Compliance
+    'aiqif_c3': 'iqac_coordinator',   # AI-Ready Curriculum & Learning
+    'aiqif_c4': 'iqac_coordinator',   # Faculty & Institutional Workforce AI Capability
+    'aiqif_c5': 'iqac_coordinator',   # Student AI Readiness, Skills & Employability
+    'aiqif_c6': 'iqac_coordinator',   # AI Infrastructure, Data & Cybersecurity
+    'aiqif_c7': 'iqac_coordinator',   # AI Research, Innovation & Ecosystem
+    'aiqif_c8': 'iqac_coordinator',   # AI-Enabled Operations, Industry & Outcomes
+    'aiqif_c9': 'iqac_coordinator',   # AI Assurance, Measurement & Continuous Improvement
 }
 
 #: A confirmed/corrected fact below this confidence is "low-confidence

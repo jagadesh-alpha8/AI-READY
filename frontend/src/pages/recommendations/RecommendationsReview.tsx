@@ -96,35 +96,33 @@ export const RecommendationsReview: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="glass-card p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-brand-800" /> Step {step('sprint-recommendations')}: Contextual Improvement Recommendations
-            </h1>
-            <p className="text-sm text-ink-500 mt-1">
-              Data-cited, department-specific recommendations matched from the InGage intervention library based on gaps and scores.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            {can('recommendations.generate') && (
-              <button onClick={handleGenerate} disabled={generating} className="btn-secondary">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{generating ? 'Generating...' : 'Generate Recommendations'}</span>
-              </button>
-            )}
-            <button onClick={() => navigate(`/sprint/${sprintId}/report`)} className="btn-primary shrink-0">
-              <span>Proceed to Executive Report</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+      {/* Action Bar */}
+      <div className="flex items-center justify-end gap-3 flex-wrap" data-tour="recommendations-header">
+        {can('recommendations.generate') && (
+          <button
+            data-tour="recommendations-generate-btn"
+            onClick={handleGenerate}
+            disabled={generating}
+            className="btn-secondary"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>{generating ? 'Generating...' : 'Generate Recommendations'}</span>
+          </button>
+        )}
+        <button
+          data-tour="recommendations-proceed-btn"
+          onClick={() => navigate(`/sprint/${sprintId}/report`)}
+          className="btn-primary shrink-0"
+        >
+          <span>Proceed to Executive Report</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
       </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
 
       {/* Recommendations Cards List */}
-      <div className="space-y-4">
+      <div className="space-y-4" data-tour="recommendations-cards">
         {loading ? (
           <LoadingState message="Loading recommendations..." />
         ) : error ? (
@@ -205,7 +203,11 @@ export const RecommendationsReview: React.FC = () => {
                   {isIn(rec) && <CheckCircle2 className="w-3.5 h-3.5" />}
                   {STATUS_CHIP[rec.status]?.label || rec.status}
                 </span>
-                {can('recommendations.edit') && <div className="flex items-center gap-2 flex-wrap">
+                {can('recommendations.edit') && (
+                  <div
+                    data-tour={rec === recs[0] ? "recommendations-actions" : undefined}
+                    className="flex items-center gap-2 flex-wrap"
+                  >
                   {isIn(rec) ? (
                     <button onClick={() => handleStatusUpdate(rec.id, reopened(rec))} disabled={updatingId === rec.id}
                       className="btn-secondary btn-sm" title="Take it out of the report again">
@@ -234,7 +236,8 @@ export const RecommendationsReview: React.FC = () => {
                   >
                     {rec.status === 'hidden' ? 'Unhide' : 'Hide'}
                   </button>
-                </div>}
+                </div>
+              )}
               </div>
             </div>
           ))}

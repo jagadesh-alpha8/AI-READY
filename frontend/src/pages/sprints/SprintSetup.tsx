@@ -8,6 +8,7 @@ import { InlineError } from '../../components/ApiStates';
 import type { Institution } from '../../types';
 import { Building, Sparkles, ArrowRight, Info } from 'lucide-react';
 import { useAccess } from '../../utils/access';
+import { TakeTourButton } from '../../components/tour/MenuTourOfferBanner';
 
 export const SprintSetup: React.FC = () => {
   const { step } = useAccess();
@@ -76,32 +77,19 @@ export const SprintSetup: React.FC = () => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="glass-card p-5 sm:p-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-brand-500/10 border border-brand-500/30 text-brand-800 shrink-0">
-            <Building className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900">Step {step('sprint-setup')}: Institution &amp; Discovery Sprint Setup</h1>
-            <p className="text-sm text-ink-500">Setup institutional baseline parameters and select sprint audit mode.</p>
-          </div>
-        </div>
-      </div>
-
       {error && <InlineError message={error} onDismiss={() => setError('')} />}
 
       <form onSubmit={handleCreateSprint} className="space-y-6">
         {/* One card, one heading: with the mode picker gone there are only
             three fields left, and splitting them across two headed sections
             made the screen look busier than it is. */}
-        <div className="glass-card p-5 sm:p-6 space-y-4">
+        <div data-tour="sprint-setup-form" className="glass-card p-5 sm:p-6 space-y-4">
           <h2 className="eyebrow flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-brand-800" /> Sprint Settings
           </h2>
 
           {institutions.length > 0 ? (
-            <div>
+            <div data-tour="sprint-setup-institution">
               <label className="label">Select Institution</label>
               <select
                 value={selectedInstId}
@@ -136,7 +124,7 @@ export const SprintSetup: React.FC = () => {
             </div>
           )}
 
-          <div>
+          <div data-tour="sprint-setup-name">
             <label className="label" htmlFor="sprint-name">Sprint Name *</label>
             <input
               id="sprint-name"
@@ -182,7 +170,7 @@ export const SprintSetup: React.FC = () => {
           <button type="button" onClick={() => navigate('/dashboard')} className="btn-secondary">
             Cancel
           </button>
-          <button type="submit" disabled={loading || !selectedInstId} className="btn-primary">
+          <button type="submit" data-tour="sprint-setup-submit" disabled={loading || !selectedInstId} className="btn-primary">
             <span>{loading ? 'Initializing Sprint...' : 'Create Sprint & Upload Pack'}</span>
             <ArrowRight className="w-4 h-4" />
           </button>

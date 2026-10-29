@@ -1,15 +1,7 @@
 export type UserRole =
   | 'super_admin'
   | 'consultant'
-  | 'institution_admin'
-  | 'iqac_coordinator'
-  | 'registrar'
-  | 'hod'
-  | 'hr_officer'
-  | 'lab_admin'
-  | 'placement_officer'
-  | 'faculty'
-  | 'viewer';
+  | 'iqac_coordinator';
 
 export interface User {
   id: string;

@@ -51,8 +51,12 @@ export const BenchmarkAssessments: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      <PageHeader icon={ClipboardList} title="Benchmark Assessment"
-        description="A college's evidence, checked benchmark by benchmark against a published benchmark release, with four separate scores. Separate from the sprint CRI." />
+      <PageHeader
+        dataTour="assessment-header"
+        icon={ClipboardList}
+        title="Benchmark Assessment"
+        description="A college's evidence, checked benchmark by benchmark against a published benchmark release, with four separate scores. Separate from the sprint CRI."
+      />
       <ScorecardsNote here="assessment" sprintId={selectedSprintId || undefined} />
       <div className="glass-card p-3 text-xs text-ink-600 space-y-1">
         <p>
@@ -66,7 +70,12 @@ export const BenchmarkAssessments: React.FC = () => {
       {colleges.error && <ErrorState message={colleges.error} onRetry={colleges.refetch} />}
       {colleges.data && colleges.data.length === 0 && <p className="text-sm text-ink-500">No college is linked to your account.</p>}
       {colleges.data && colleges.data.length > 1 && (
-        <select className="input text-sm w-full md:w-96" value={college} onChange={(e) => setCollege(e.target.value)}>
+        <select
+          data-tour="assessment-college-select"
+          className="input text-sm w-full md:w-96"
+          value={college}
+          onChange={(e) => setCollege(e.target.value)}
+        >
           {colleges.data.map((c) => <option key={c.id} value={c.id}>{c.name}{c.city ? ` (${c.city})` : ''}{c.has_profile ? '' : ' — no profile yet'}</option>)}
         </select>
       )}
@@ -250,7 +259,7 @@ const CyclePanel: React.FC<{ cycleId: string; reference: AssessmentReference; on
           {c.release_hash ? ` (#${c.release_hash.slice(0, 10)})` : ''} · started by {c.created_by}
         </span>
       </div>
-      <div className="flex flex-wrap gap-1">
+      <div className="flex flex-wrap gap-1" data-tour="assessment-stages">
         {STEPS.map((s, i) => (
           <span key={s} className={`px-2 py-0.5 rounded-full border ${i <= stepIndex ? 'border-brand-500 text-brand-700 bg-brand-500/10' : 'border-line-200 text-ink-400'}`}>
             {i + 1}. {STEP_LABEL[s]}
@@ -294,8 +303,10 @@ const CyclePanel: React.FC<{ cycleId: string; reference: AssessmentReference; on
       {showCard && <ScorecardView cycleId={cycleId} />}
       {c.status === 'finalized' && <PlanPanel cycleId={cycleId} staff={staff} canEdit={reference.can_upload} />}
 
-      <p className="font-bold text-ink-900 pt-1">Benchmarks in this assessment ({included.length})</p>
-      <BenchTable rows={included} active={bench} onPick={setBench} showScores={c.scores_visible} />
+      <div data-tour="assessment-scorecard">
+        <p className="font-bold text-ink-900 pt-1">Benchmarks in this assessment ({included.length})</p>
+        <BenchTable rows={included} active={bench} onPick={setBench} showScores={c.scores_visible} />
+      </div>
       {others.length > 0 && (
         <details className="text-ink-600">
           <summary className="cursor-pointer">Not included ({others.length}) — with the reason</summary>

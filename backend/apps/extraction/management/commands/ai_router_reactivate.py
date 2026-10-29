@@ -40,6 +40,14 @@ class Command(BaseCommand):
         for router in chosen:
             was = pool.reactivate(router)
             self.stdout.write(f'{router.label}: {"reactivated" if was else "was not marked out of credit"}.')
+        # The per-key "out of quota / credit" marks other workers check before calling (services/rate_limit.py).
+        from ...services import rate_limit
+        try:
+            cleared = rate_limit.clear_exhausted()
+            if cleared:
+                self.stdout.write(f'Cleared {cleared} shared out-of-credit mark(s).')
+        except Exception as exc:
+            self.stderr.write(f'Could not clear shared out-of-credit marks: {exc}')
         if opts['resume']:
             self.stdout.write(f'Re-queued {self._resume()} document(s) waiting for a router.')
 

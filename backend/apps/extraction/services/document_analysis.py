@@ -26,9 +26,7 @@ from ..usage import usage_scope
 from .ai_service import get_ai_service
 from .openai_classifier import CLASSIFICATION_SCHEMA, ClassificationValidationError, OpenAIDocumentClassifier
 from .openai_classifier import SYSTEM_PROMPT as CLASSIFICATION_PROMPT
-from .openai_fact_extractor import (
-    FACT_ITEM_SCHEMA, FactValidationError, OpenAIFactExtractor, _merge_fact, chunk_failed_issue, completeness_issue,
-)
+from .openai_fact_extractor import FACT_ITEM_SCHEMA, OpenAIFactExtractor, _merge_fact, completeness_issue
 from .openai_fact_extractor import SYSTEM_PROMPT as FACT_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -92,77 +90,82 @@ class DocumentAnalyzer:
                 return FirstPass(classification=self.classifier.classify(document, pages=pages))
 
         self._check_stop(document)
+        store = self.fact_extractor.store
         first_index, first_pages = 1, chunks[0]
-        with usage_scope(stage=AIUsage.Stage.DOCUMENT_ANALYSIS):
-            result = self._get_service().extract_structured_data(
-                system_prompt=SYSTEM_PROMPT,
-                user_content=self._user_content(document, first_pages, first_index, len(chunks)),
-                response_schema=ANALYSIS_SCHEMA,
-                schema_name='document_analysis',
-            )
-        if not isinstance(result, dict):
-            raise AIResponseError(f'Expected an object with classification and facts, got {result!r}.')
-        classification = result.get('classification')
-        if not isinstance(classification, dict):
-            raise ClassificationValidationError(f'classification must be an object, got {classification!r}.')
-        self.classifier.validate(classification)  # same checks as a classification-only answer
+        first = FirstPass(classification=None, chunk_count=len(chunks),
+                          remaining=list(enumerate(chunks[1:], start=2)))
+        report = self.fact_extractor.report
+
+        reused = store.reusable(first_index) if store is not None else None
+        if reused is not None and reused.classification:
+            # A retry / continuation: chunk 1 (classification + facts) is already done -- no AI call.
+            first.classification = reused.classification
+            report['chunks_completed'] += 1
+            for fact in reused.facts:
+                _merge_fact(first.facts_by_key, fact)
+            return first
+
+        if store is not None:
+            store.before_call(first_index)
+        try:
+            with usage_scope(stage=AIUsage.Stage.DOCUMENT_ANALYSIS):
+                result = self._get_service().extract_structured_data(
+                    system_prompt=SYSTEM_PROMPT,
+                    user_content=self._user_content(document, first_pages, first_index, len(chunks)),
+                    response_schema=ANALYSIS_SCHEMA,
+                    schema_name='document_analysis',
+                )
+            if not isinstance(result, dict):
+                raise AIResponseError(f'Expected an object with classification and facts, got {result!r}.')
+            classification = result.get('classification')
+            if not isinstance(classification, dict):
+                raise ClassificationValidationError(f'classification must be an object, got {classification!r}.')
+            self.classifier.validate(classification)  # same checks as a classification-only answer
+        except (RecoverableExtractionError, PermanentExtractionError) as exc:
+            if store is not None:
+                store.failed(first_index, exc)
+            raise
         logger.info(
             'extraction.analysis.classified document_id=%s uploaded_type=%s ai_type=%s confidence=%s',
             document.id, document.document_type, classification.get('document_type'), classification.get('confidence'),
         )
+        first.classification = classification
 
-        first = FirstPass(classification=classification, chunk_count=len(chunks),
-                          remaining=list(enumerate(chunks[1:], start=2)))
         raw_facts = result.get('facts')
-        report = self.fact_extractor.report
         if isinstance(raw_facts, list):
-            self._collect(document, raw_facts, first_pages, first_index, first.facts_by_key)
+            validated = self.fact_extractor.validate_chunk(document, raw_facts, first_pages, first_index)
+            if store is not None:
+                store.completed(first_index, validated, classification=classification)
             report['chunks_completed'] += 1
+            for fact in validated:
+                _merge_fact(first.facts_by_key, fact)
         else:
             # The classification is still good; only this chunk's facts are lost (like a failed chunk).
             logger.error('extraction.analysis.facts_missing document_id=%s value=%r', document.id, raw_facts)
             report['issues'].append(completeness_issue(
                 'chunk_failed', 'Text chunk 1: the AI answer had no facts list, so its facts were not read.', chunk=1))
+            if store is not None:
+                store.failed(first_index, 'The AI answer had no facts list.')
         return first
 
     # -- step 2: the remaining chunks, facts only ------------------------------------------------
 
     def extract_rest(self, document, first):
         facts_by_key = first.facts_by_key
-        for chunk_index, chunk_pages in first.remaining:
-            self._check_stop(document)
-            try:
-                with usage_scope(stage=AIUsage.Stage.FACT_EXTRACTION):
-                    raw_facts = self.fact_extractor._extract_chunk(
-                        self._get_service(), document, chunk_pages, chunk_index, first.chunk_count)
-            except RecoverableExtractionError:
-                raise  # retry the whole job, as before
-            except PermanentExtractionError as exc:
-                logger.error('fact_extractor.chunk_failed document_id=%s chunk=%d/%d error=%s',
-                             document.id, chunk_index, first.chunk_count, exc)
-                self.fact_extractor.report['issues'].append(chunk_failed_issue(chunk_index, chunk_pages, exc))
-                continue
-            self.fact_extractor.report['chunks_completed'] += 1
-            self._collect(document, raw_facts, chunk_pages, chunk_index, facts_by_key)
+        self.fact_extractor.should_stop = self.should_stop
+
+        def request(chunk_index, chunk_pages):
+            with usage_scope(stage=AIUsage.Stage.FACT_EXTRACTION):
+                return self.fact_extractor._extract_chunk(
+                    self._get_service(), document, chunk_pages, chunk_index, first.chunk_count)
+
+        self.fact_extractor.process_chunks(document, first.remaining, first.chunk_count, facts_by_key, request)
         facts = list(facts_by_key.values())
         logger.info('extraction.analysis.complete document_id=%s chunk_count=%d fact_count=%d',
                     document.id, first.chunk_count, len(facts))
         return facts
 
     # -- helpers ---------------------------------------------------------------------------------
-
-    def _collect(self, document, raw_facts, chunk_pages, chunk_index, facts_by_key):
-        valid_page_numbers = {str(page['page_number']) for page in chunk_pages}
-        chunk_text = '\n'.join(page.get('text') or '' for page in chunk_pages)
-        for raw_fact in raw_facts:
-            try:
-                fact = self.fact_extractor._validate_fact(raw_fact, valid_page_numbers, chunk_text)
-            except FactValidationError as exc:
-                logger.warning('fact_extractor.fact_rejected document_id=%s chunk=%d field_key=%r error=%s',
-                               document.id, chunk_index,
-                               raw_fact.get('field_key') if isinstance(raw_fact, dict) else raw_fact, exc)
-                continue
-            _merge_fact(facts_by_key, fact)
 
     @staticmethod
     def _user_content(document, chunk_pages, chunk_index, chunk_count):

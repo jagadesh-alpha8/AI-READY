@@ -60,6 +60,25 @@ class ExtractionJob(models.Model):
     #: waiting (no router left), stopped, reset (processed again). Each attempt's AI calls are billed.
     attempts = models.JSONField(default=list, blank=True)
 
+    #: Set by the worker running this job at every checkpoint (each step, page batch and chunk). A RUNNING job
+    #: whose heartbeat is older than EXTRACTION_STALE_SECONDS lost its worker: only then may another worker
+    #: claim it (tasks._claim), and the periodic recovery re-queue it (services/recovery.py).
+    heartbeat_at = models.DateTimeField(null=True, blank=True)
+    #: The Celery worker (hostname) of the current attempt.
+    worker = models.CharField(max_length=200, blank=True)
+    #: When the job was last handed to the broker (views.dispatch_job / recovery).
+    dispatched_at = models.DateTimeField(null=True, blank=True)
+    #: Continuations of this run (a large document finished over several bounded attempts; tasks.py).
+    continuations = models.PositiveIntegerField(default=0)
+    #: When a scheduled retry is due (status retrying) -- shown on the monitor.
+    next_retry_at = models.DateTimeField(null=True, blank=True)
+    #: Live reading progress, from the document's DocumentPage rows.
+    pages_total = models.PositiveIntegerField(default=0)
+    pages_done = models.PositiveIntegerField(default=0)
+    ocr_pages = models.PositiveIntegerField(default=0)
+    vision_pages = models.PositiveIntegerField(default=0)
+    unreadable_pages = models.PositiveIntegerField(default=0)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -76,6 +95,100 @@ class ExtractionJob(models.Model):
 
     def __str__(self):
         return f'ExtractionJob({self.id}) — {self.status}'
+
+
+class DocumentPage(models.Model):
+    """How one page of one document version was read (services/pdf_reader.py), kept so a retry re-reads only
+    the pages that failed: a page read from its text layer, or OCR'd successfully, is reused as it is; an
+    unreadable page (or one whose OCR failed) is tried again. A document file never changes after upload (a
+    new file is a new Document version), so a page's text stays valid for the document's lifetime."""
+
+    class Source(models.TextChoices):
+        TEXT = 'text', 'PDF text layer'
+        OCR = 'ocr', 'OCR'
+        VISION = 'vision', 'Vision fallback'
+        NONE = 'none', 'No readable text'
+
+    class Status(models.TextChoices):
+        OK = 'ok', 'Read'
+        #: OCR ran and found nothing readable (blank, photo-only or illegible).
+        UNREADABLE = 'unreadable', 'Unreadable'
+        #: The OCR engine raised an error on this page.
+        OCR_FAILED = 'ocr_failed', 'OCR failed'
+        #: The page needs OCR but none is installed / enabled on this server.
+        OCR_UNAVAILABLE = 'ocr_unavailable', 'OCR not available'
+        #: Vision fallback failed on this page.
+        VISION_FAILED = 'vision_failed', 'Vision fallback failed'
+        #: Vision fallback not supported by model or provider.
+        VISION_UNAVAILABLE = 'vision_unavailable', 'Vision fallback unavailable'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document = models.ForeignKey('documents.Document', on_delete=models.CASCADE, related_name='page_reads')
+    page_number = models.PositiveIntegerField()
+    #: The page's text before document-wide cleaning (header/footer removal runs again on every read).
+    text = models.TextField(blank=True)
+    text_source = models.CharField(max_length=10, choices=Source.choices, default=Source.TEXT)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OK)
+    #: Mean recognition confidence of the OCR lines kept (0-1); null when OCR was not used or gave none.
+    ocr_confidence = models.FloatField(null=True, blank=True)
+    ocr_attempts = models.PositiveSmallIntegerField(default=0)
+    warning = models.TextField(blank=True)
+    #: Tables found on the page: [{index, header: [..], rows: [[..]], bbox}] (PyMuPDF find_tables).
+    tables = models.JSONField(default=list, blank=True)
+
+    # Detailed OCR and Vision status tracking
+    ocr_status = models.CharField(max_length=20, blank=True)
+    ocr_error = models.TextField(blank=True)
+    vision_status = models.CharField(max_length=20, blank=True)
+    vision_error = models.TextField(blank=True)
+    vision_attempts = models.PositiveSmallIntegerField(default=0)
+    vision_facts = models.JSONField(default=list, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['document', 'page_number']
+        constraints = [models.UniqueConstraint(fields=['document', 'page_number'], name='one_read_per_document_page')]
+
+    @property
+    def reusable(self):
+        return self.status == self.Status.OK
+
+
+class ExtractionChunk(models.Model):
+    """One text chunk of a job's document and what the AI returned for it (validated facts), so a retry or
+    a continuation reuses every chunk already done and sends only the missing / failed ones to the AI.
+    Identified by the hash of the exact text sent: if a page's text changes (e.g. a page is OCR'd on retry),
+    the chunk is new and is extracted again."""
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        RUNNING = 'running', 'Running'
+        COMPLETED = 'completed', 'Completed'
+        FAILED = 'failed', 'Failed'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    job = models.ForeignKey(ExtractionJob, on_delete=models.CASCADE, related_name='chunks')
+    index = models.PositiveIntegerField()
+    page_start = models.PositiveIntegerField(default=0)
+    page_end = models.PositiveIntegerField(default=0)
+    page_numbers = models.JSONField(default=list, blank=True)
+    content_hash = models.CharField(max_length=64)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    error = models.TextField(blank=True)
+    #: Facts validated by OpenAIFactExtractor._validate_fact, ready for the pipeline's idempotent persistence.
+    facts = models.JSONField(default=list, blank=True)
+    #: Chunk 1 only, when its request also classified the document (services/document_analysis.py).
+    classification = models.JSONField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['job', 'index']
+        constraints = [models.UniqueConstraint(fields=['job', 'content_hash'], name='one_chunk_per_job_text')]
 
 
 class AIUsage(models.Model):
@@ -95,6 +208,7 @@ class AIUsage(models.Model):
         #: (services/document_analysis.py). Its tokens are not split between the two.
         DOCUMENT_ANALYSIS = 'document_analysis', 'Document analysis (classification + facts)'
         FACT_EXTRACTION = 'fact_extraction', 'Fact extraction'
+        VISION_FALLBACK = 'vision_fallback', 'Page vision fallback'
         CONFLICT_CHECK = 'conflict_check', 'Conflict check'
         EVIDENCE_ASSESSMENT = 'evidence_assessment', 'Evidence assessment'
         #: The AI second opinion on AI-QIF tags left for an expert (apps/facts/aiqif_tagging.ai_check_pending).

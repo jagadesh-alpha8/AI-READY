@@ -58,33 +58,27 @@ export const LiveCRIPreview: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="glass-card p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-brand-800" /> Step {step('sprint-score')}: Live Campus Readiness Index Score Preview
-            </h1>
-            <p className="text-sm text-ink-500 mt-1">
-              The sprint's CRI values from its own reviewed facts and open gaps, and the college's Benchmark Assessment
-              apart from them.
-            </p>
-          </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            {can('sprint.manage') && (
-              <button onClick={handleRecalculate} disabled={recalculating} className="btn-secondary">
-                <RefreshCw className={`w-3.5 h-3.5 ${recalculating ? 'animate-spin' : ''}`} />
-                <span>{recalculating ? 'Recalculating...' : 'Recalculate Scores'}</span>
-              </button>
-            )}
-            <button
-              onClick={() => navigate(`/sprint/${sprintId}/${canSee('sprint-approval') ? 'approval' : 'recommendations'}`)}
-              className="btn-primary shrink-0"
-            >
-              <span>{canSee('sprint-approval') ? 'Proceed to Baseline Approval' : 'Proceed to Recommendations'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+      {/* Action Bar */}
+      <div className="flex items-center justify-end gap-3 flex-wrap" data-tour="cri-preview-header">
+        {can('sprint.manage') && (
+          <button
+            data-tour="cri-recalculate-btn"
+            onClick={handleRecalculate}
+            disabled={recalculating}
+            className="btn-secondary"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${recalculating ? 'animate-spin' : ''}`} />
+            <span>{recalculating ? 'Recalculating...' : 'Recalculate Scores'}</span>
+          </button>
+        )}
+        <button
+          data-tour="cri-proceed-btn"
+          onClick={() => navigate(`/sprint/${sprintId}/${canSee('sprint-approval') ? 'approval' : 'recommendations'}`)}
+          className="btn-primary shrink-0"
+        >
+          <span>{canSee('sprint-approval') ? 'Proceed to Baseline Approval' : 'Proceed to Recommendations'}</span>
+          <ArrowRight className="w-4 h-4" />
+        </button>
       </div>
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
@@ -107,7 +101,7 @@ export const LiveCRIPreview: React.FC = () => {
             <span>Calculated {scorecard.calculated_at ? new Date(scorecard.calculated_at).toLocaleString() : '—'}</span>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-6" data-tour="cri-score-tiles">
             {/* 1. Raw / Sprint CRI */}
             <ScoreTile label="1 · Raw / Sprint CRI" tone="brand" value={`${scorecard.raw_cri}`} suffix="/ 100"
               note={rawCriZeroReason(scorecard)}>
@@ -157,7 +151,7 @@ export const LiveCRIPreview: React.FC = () => {
             </p>
           )}
 
-          <section className="glass-card p-5 sm:p-6 space-y-3">
+          <section className="glass-card p-5 sm:p-6 space-y-3" data-tour="cri-criteria-breakdown">
             <h2 className="eyebrow">Raw CRI breakdown: the 9 AI-QIF factors</h2>
             <FactorBreakdown pillars={scorecard.pillar_scores || []} rawCri={scorecard.raw_cri} />
           </section>

@@ -149,7 +149,7 @@ class GapView(APIView):
 
 
 def _can_edit_plan(user):
-    return user.role != User.Role.VIEWER
+    return user.role in {User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.IQAC_COORDINATOR}
 
 
 class InitiativeView(APIView):

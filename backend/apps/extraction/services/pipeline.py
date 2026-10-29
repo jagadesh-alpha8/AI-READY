@@ -7,7 +7,7 @@ from django.utils import timezone
 from apps.documents.constants import normalize_checklist_type
 from apps.documents.models import Document
 
-from ..exceptions import ExtractionCancelled
+from ..exceptions import ExtractionCancelled, ExtractionSuperseded
 from ..models import AIUsage, ExtractionJob
 from ..usage import usage_scope
 from . import stub
@@ -85,8 +85,19 @@ class ExtractionPipeline:
         )
 
         self._advance(job, Step.CLASSIFYING_DOCUMENTS)
+        # Per-chunk results are saved and reused on a retry / continuation (services/chunk_store.py).
+        if hasattr(self.fact_extractor, 'process_chunks'):
+            from .chunk_store import ChunkStore
+            self.fact_extractor.store = ChunkStore(job)
+        # Live page / OCR progress for the monitor, and the job's heartbeat while a long document is read.
+        self.page_reader.on_progress = lambda **counts: _page_progress(job, **counts)
         # The document is read and parsed ONCE; classification and fact extraction both use these pages.
-        pages = self.page_reader.read_pages(document)
+        # Pages read before (a retry) are reused from DocumentPage; only failed / unreadable ones are read again.
+        self.page_reader.job = job
+        pages = self.page_reader.read_pages(document, job=job)
+        if pages.get('vision_pages') is not None:
+            job.vision_pages = pages['vision_pages']
+            job.save(update_fields=['vision_pages', 'updated_at'])
         # Evidence-request assessment reuses this exact OCR/text read instead of running a second OCR pass.
         # The assessment is advisory; failure is recorded on the evidence submission and does not prevent
         # the document's ordinary extraction pipeline from continuing.
@@ -146,6 +157,15 @@ class ExtractionPipeline:
             with usage_scope(job=job, stage=AIUsage.Stage.FACT_EXTRACTION):
                 raw_facts = self.fact_extractor.extract_facts(document, pages)
 
+        # Collect and merge facts extracted during page vision fallback
+        vision_facts = pages.get('vision_facts') or []
+        if vision_facts:
+            from .openai_fact_extractor import _merge_fact
+            facts_by_key = {f['field_key'].strip().lower(): f for f in raw_facts}
+            for vf in vision_facts:
+                _merge_fact(facts_by_key, vf)
+            raw_facts = list(facts_by_key.values())
+
         self._record_completeness(job, document, pages)
 
         self._advance(job, Step.MAPPING_AUDIT_FIELDS)
@@ -161,12 +181,15 @@ class ExtractionPipeline:
         with usage_scope(job=job, stage=AIUsage.Stage.CONFLICT_CHECK):
             conflicts = self.conflict_checker.check_conflicts(document, mapped_facts)
         conflicts_created = self._persist_conflicts(job, conflicts)
-        # After conflicts are recorded, so a fact in an open conflict is left for a person.
-        from apps.facts.auto_confirm import auto_confirm
-        auto_confirmed = auto_confirm(document.extracted_facts.all())
-        if auto_confirmed['confirmed']:
-            logger.info('extraction.pipeline.auto_confirmed job_id=%s facts=%d skipped=%s', job.id,
-                        len(auto_confirmed['confirmed']), auto_confirmed['skipped'])
+        # After conflicts are recorded, so a fact in an open conflict is left for a person. The shared
+        # verification pipeline checks every fact against the pages read in this run (citation, quote, value,
+        # validation, cross-source) and the automation policy decides -- AI confidence alone never confirms.
+        from apps.facts.verification.engine import process_document
+        try:
+            verified = process_document(document, pages=pages, job=job)
+            logger.info('extraction.pipeline.verified job_id=%s %s', job.id, verified)
+        except Exception:
+            logger.exception('extraction.pipeline.verification_failed job_id=%s', job.id)
 
         self._advance(job, Step.PREPARING_REVIEW_WORKSPACE)
         # Catch submissions made while this document was still extracting; the same pages are reused.
@@ -198,7 +221,8 @@ class ExtractionPipeline:
             raise ExtractionCancelled(f'Extraction job {job.id} was stopped by the user.')
         job.current_step = step
         job.progress_percentage = STEP_PROGRESS[step]
-        job.save(update_fields=['current_step', 'progress_percentage', 'updated_at'])
+        job.heartbeat_at = timezone.now()
+        job.save(update_fields=['current_step', 'progress_percentage', 'heartbeat_at', 'updated_at'])
         logger.info('extraction.pipeline.step job_id=%s step=%s', job.id, step)
 
     @staticmethod
@@ -267,10 +291,23 @@ class ExtractionPipeline:
             if report and not report.get('chunks_total') and not unreadable:
                 issues.append({'kind': 'no_text', 'detail': 'No readable text was found in the document, so no facts '
                                                             'could be extracted.'})
-            if unreadable:
-                issues.append({'kind': 'unreadable_pages',
-                               'detail': f'{len(unreadable)} page(s) had no readable text, so nothing was extracted '
-                                         f'from them.', 'pages': unreadable[:50]})
+            by_status = {}
+            for page in pages.get('pages') or []:
+                if page.get('read_status') not in (None, 'ok'):
+                    by_status.setdefault(page['read_status'], []).append(page['page_number'])
+            failed = by_status.pop('ocr_failed', [])
+            if failed:
+                # Kept apart from unreadable pages: an OCR error is retried page by page on "Process again".
+                issues.append({'kind': 'ocr_failed', 'page_numbers': failed[:200],
+                               'detail': f'OCR failed on {len(failed)} page(s) ({_page_list(failed)}); they are read '
+                                         f'again when the document is processed again.',
+                               'pages': [w for w in unreadable if 'OCR failed' in w][:50]})
+            other = [w for w in unreadable if 'OCR failed' not in w]
+            if other:
+                numbers = sorted(n for status, ns in by_status.items() for n in ns)
+                issues.append({'kind': 'unreadable_pages', 'page_numbers': numbers[:200],
+                               'detail': f'{len(other)} page(s) had no readable text, so nothing was extracted '
+                                         f'from them.', 'pages': other[:50]})
         job.extraction_warnings = issues
         job.chunks_total = report.get('chunks_total', 0)
         job.chunks_completed = report.get('chunks_completed', 0)
@@ -323,13 +360,20 @@ class ExtractionPipeline:
                 existing[key] = fact
 
         count = 0
+        refreshed_fields = set()  # fields whose value may have changed: their conflict summaries are rebuilt
         with transaction.atomic():
             for item in mapped_facts:
                 fields = {name: value for name, value in item.items() if name != 'aiqif_mappings'}
                 fact = existing.get(fields['field_key'].strip().lower())
                 if fact is None:
+                    # The value and citation as first recorded are kept apart from the live ones for good.
                     fact = ExtractedFact.objects.create(
                         sprint=job.sprint, document=job.document, source_document=job.document, **fields,
+                        original_value=fields.get('value'), original_source_document=job.document,
+                        original_source_page=fields.get('source_page') or '',
+                        original_source_snippet=fields.get('source_snippet') or '',
+                        value_origin=(ExtractedFact.ValueOrigin.CALCULATED if fields.get('derivation')
+                                      else ExtractedFact.ValueOrigin.EXTRACTED),
                     )
                     existing[fact.field_key.strip().lower()] = fact
                 elif updatable(fact):
@@ -338,9 +382,12 @@ class ExtractionPipeline:
                             continue  # a Super Admin decided the kind
                         setattr(fact, name, value)
                     fact.source_document = job.document
+                    fact.value_origin = (ExtractedFact.ValueOrigin.CALCULATED if fields.get('derivation')
+                                         else ExtractedFact.ValueOrigin.EXTRACTED)
                     if fact.status != ExtractedFact.Status.EXTRACTED:  # auto-confirmed: checked again below
                         fact.status, fact.reviewed_by, fact.reviewed_at = ExtractedFact.Status.EXTRACTED, None, None
                     fact.save()
+                    refreshed_fields.add(fact.field_key)
                 else:
                     # Reviewed: value and review untouched; only its tagging is refreshed.
                     for name in tagging_fields:
@@ -353,6 +400,9 @@ class ExtractionPipeline:
                 if 'aiqif_mappings' in item:
                     ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'], crosswalk, precedents)
                 count += 1
+        from apps.facts.verification.conflicts import refresh_for_field
+        for field_key in refreshed_fields:
+            refresh_for_field(job.sprint_id, field_key)
         return count
 
     @staticmethod
@@ -422,6 +472,29 @@ class ExtractionPipeline:
         return count
 
 
+def _page_list(numbers):
+    shown = ', '.join(str(n) for n in numbers[:10])
+    return f'pages {shown}' + (f' and {len(numbers) - 10} more' if len(numbers) > 10 else '')
+
+
+def _page_progress(job, *, done, total, ocr, unreadable, vision=0):
+    """Live reading progress on the job (a few writes per document, not one per page on a long one)."""
+    if done != total and done % 5:
+        return
+    fields = {'pages_total': total, 'pages_done': done, 'ocr_pages': ocr, 'vision_pages': vision,
+              'unreadable_pages': unreadable, 'heartbeat_at': timezone.now()}
+    ExtractionJob.objects.filter(id=job.id).update(**fields)
+    for name, value in fields.items():
+        setattr(job, name, value)
+
+
 def _is_cancelled(job):
-    """The user pressed Stop for this job (see ExtractionCancelled)."""
-    return ExtractionJob.objects.filter(id=job.id, status=ExtractionJob.Status.CANCELLED).exists()
+    """The user pressed Stop for this job (see ExtractionCancelled). Raises ExtractionSuperseded when the job was
+    handed to another worker meanwhile (recovered after this one went quiet): two workers never both carry on."""
+    row = ExtractionJob.objects.filter(id=job.id).values('status', 'celery_task_id').first()
+    if row is None or row['status'] == ExtractionJob.Status.CANCELLED:
+        return True
+    token = getattr(job, 'task_token', '')
+    if token and row['celery_task_id'] and row['celery_task_id'] != token:
+        raise ExtractionSuperseded(f'Extraction job {job.id} was handed to another worker.')
+    return False

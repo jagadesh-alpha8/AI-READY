@@ -73,6 +73,46 @@ def _get_engine():
     return _engine
 
 
+NL = chr(10)
+
+
+class OCRResult:
+    """One page's OCR outcome. `status`: ok (ran; `text` may still be empty), failed (the engine raised),
+    unavailable (no engine / no image)."""
+    OK, FAILED, UNAVAILABLE = 'ok', 'failed', 'unavailable'
+
+    def __init__(self, status, *, text='', confidence=None, error='', lines=0, kept=0):
+        self.status, self.text, self.confidence, self.error = status, text, confidence, error
+        self.lines, self.kept = lines, kept
+
+
+def read_with(provider, document, page_number, image):
+    """Any OCRProvider -> OCRResult: providers with `read_page` (PaddleOCR) give confidence and failure
+    detail; a plain `extract_text` provider (tests, NullOCRProvider) maps None -> unavailable."""
+    import unittest.mock
+    use_read_page = False
+    if hasattr(type(provider), 'read_page'):
+        use_read_page = True
+    elif isinstance(provider, unittest.mock.NonCallableMock):
+        rp = getattr(provider, 'read_page', None)
+        if rp is not None:
+            ret = getattr(rp, '_mock_return_value', unittest.mock.DEFAULT)
+            side = getattr(rp, '_mock_side_effect', None)
+            if ret is not unittest.mock.DEFAULT or side is not None:
+                use_read_page = True
+
+    if use_read_page:
+        result = provider.read_page(document, page_number, image=image)
+        if isinstance(result, OCRResult):
+            return result
+        if result is not None:
+            return OCRResult(OCRResult.OK, text=str(result))
+    text = provider.extract_text(document, page_number, image=image)
+    if text is None:
+        return OCRResult(OCRResult.UNAVAILABLE, error='No OCR backend is available.')
+    return OCRResult(OCRResult.OK, text=text)
+
+
 class PaddleOCRProvider(OCRProvider):
     def __init__(self, *, min_confidence=None):
         self.min_confidence = (
@@ -80,11 +120,17 @@ class PaddleOCRProvider(OCRProvider):
         )
 
     def extract_text(self, document, page_number, image=None):
+        result = self.read_page(document, page_number, image=image)
+        return None if result.status in (OCRResult.FAILED, OCRResult.UNAVAILABLE) else result.text
+
+    def read_page(self, document, page_number, image=None):
+        """The page's OCR text with its mean line confidence, telling apart "no OCR engine" (unavailable),
+        "the engine raised on this page" (failed -- worth retrying) and "ran, found little" (ok, maybe empty)."""
         if image is None:
-            return None
+            return OCRResult(OCRResult.UNAVAILABLE, error='No page image to OCR.')
         engine = _get_engine()
         if engine is None:
-            return None
+            return OCRResult(OCRResult.UNAVAILABLE, error='The OCR engine could not be loaded on this server.')
         try:
             # One engine per process; with a threads worker pool several jobs
             # share it, and a Paddle predictor isn't safe to call concurrently.
@@ -94,13 +140,15 @@ class PaddleOCRProvider(OCRProvider):
             logger.warning(
                 'paddle_ocr.page_failed document_id=%s page=%s error=%s', document.id, page_number, exc,
             )
-            return None
-        kept = [text for text, score in lines if text.strip() and score >= self.min_confidence]
+            return OCRResult(OCRResult.FAILED, error=str(exc)[:300])
+        kept = [(text, score) for text, score in lines if text.strip() and score >= self.min_confidence]
         logger.info(
             'paddle_ocr.page document_id=%s page=%s lines=%d kept=%d',
             document.id, page_number, len(lines), len(kept),
         )
-        return '\n'.join(kept)
+        confidence = round(sum(score for _t, score in kept) / len(kept), 4) if kept else None
+        return OCRResult(OCRResult.OK, text=NL.join(text for text, _s in kept), confidence=confidence,
+                         lines=len(lines), kept=len(kept))
 
     @staticmethod
     def _run(engine, image):

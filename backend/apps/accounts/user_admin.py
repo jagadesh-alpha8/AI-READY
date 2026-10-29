@@ -36,12 +36,12 @@ from config.pagination import OptionalPageNumberPagination
 
 from .models import User
 
-#: Roles only platform staff may hand out. An institution admin creating one
+#: Roles only platform staff may hand out. An institution coordinator creating one
 #: of these would be granting access to every other college's data.
 PLATFORM_ROLES = frozenset({User.Role.SUPER_ADMIN, User.Role.CONSULTANT})
 
-#: Who may reach this API at all.
-USER_ADMIN_ROLES = frozenset({User.Role.SUPER_ADMIN, User.Role.INSTITUTION_ADMIN})
+#: Who may reach this API at all: Super Admin (platform-wide) and IQAC Coordinator (own college).
+USER_ADMIN_ROLES = frozenset({User.Role.SUPER_ADMIN, User.Role.IQAC_COORDINATOR})
 
 
 class CanAdministerUsers(BasePermission):
@@ -103,16 +103,20 @@ class UserAdminSerializer(serializers.ModelSerializer):
         if actor.role == User.Role.SUPER_ADMIN:
             return attrs
 
-        # --- Everything below applies to an institution admin.
+        # --- Everything below applies to an IQAC coordinator administering their college.
         # Rule 2: cannot grant a platform role.
         role = attrs.get('role', getattr(target, 'role', None))
         if role in PLATFORM_ROLES:
             raise serializers.ValidationError(
                 {'role': 'Only a super admin can assign platform-wide roles.'},
             )
+        if role and role != User.Role.IQAC_COORDINATOR:
+            raise serializers.ValidationError(
+                {'role': 'IQAC Coordinators can only assign the IQAC Coordinator role.'},
+            )
 
         # Rule 1 + 2: the user belongs to the actor's institution, and cannot
-        # be moved out of it. An institution admin with no institution on
+        # be moved out of it. An IQAC coordinator with no institution on
         # their own profile can administer nobody.
         if actor.institution_id is None:
             raise serializers.ValidationError(
@@ -173,10 +177,10 @@ class UserAdminViewSet(viewsets.ModelViewSet):
         qs = User.objects.select_related('institution')
         if actor.role == User.Role.SUPER_ADMIN:
             return qs
-        # An institution admin with no institution administers nobody. Without
+        # An IQAC coordinator with no institution administers nobody. Without
         # this, `filter(institution_id=None)` matches every platform-staff user
         # instead of none of them -- and DELETE never reaches the serializer's
-        # checks, so such an admin could deactivate a super admin.
+        # checks, so such a coordinator could deactivate a super admin.
         if actor.institution_id is None:
             return qs.none()
         # Scoped for EVERY action, not just list: an out-of-scope id must be

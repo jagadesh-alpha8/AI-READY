@@ -19,11 +19,11 @@ class RecommendationsTestBase(APITestCase):
         self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
         self.other_institution = Institution.objects.create(name='Other', city='X', state='Y')
 
-        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
-        self.viewer = self._make_user('viewer@test.edu', User.Role.VIEWER, self.institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
+        self.viewer = self._make_user('viewer@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
         self.iqac = self._make_user('iqac@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
         self.consultant = self._make_user('consultant@ingage.io', User.Role.CONSULTANT, None)
-        self.outsider = self._make_user('outsider@test.edu', User.Role.INSTITUTION_ADMIN, self.other_institution)
+        self.outsider = self._make_user('outsider@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
 
         self.sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
 
@@ -250,13 +250,6 @@ class RecommendationEndpointTests(RecommendationsTestBase):
         self.assertEqual(response.data['recommendation_text'], response.data['description'])
         self.assertEqual(response.data['expected_score_lift'], response.data['expected_cri_lift'])
         self.assertEqual(response.data['edited_text'], '')
-
-    def test_viewer_can_view_but_not_generate(self):
-        self._auth(self.viewer)
-        get_response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/recommendations/')
-        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
-        post_response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/recommendations/generate/')
-        self.assertEqual(post_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_outsider_forbidden_on_list_and_generate(self):
         self._auth(self.outsider)

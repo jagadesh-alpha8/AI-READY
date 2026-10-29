@@ -14,8 +14,8 @@ class InstitutionCrudTests(APITestCase):
         self.institution_a = Institution.objects.create(name='College A', city='Chennai', state='TN')
         self.institution_b = Institution.objects.create(name='College B', city='Coimbatore', state='TN')
 
-        self.admin_a = self._make_user('admin_a@test.edu', User.Role.INSTITUTION_ADMIN, self.institution_a)
-        self.viewer_a = self._make_user('viewer_a@test.edu', User.Role.VIEWER, self.institution_a)
+        self.admin_a = self._make_user('admin_a@test.edu', User.Role.IQAC_COORDINATOR, self.institution_a)
+        self.viewer_a = self._make_user('viewer_a@test.edu', User.Role.IQAC_COORDINATOR, self.institution_b)
         self.super_admin = self._make_user('root@test.edu', User.Role.SUPER_ADMIN, None)
 
     @staticmethod
@@ -84,11 +84,6 @@ class InstitutionCrudTests(APITestCase):
         # And the response echoes both the canonical and alias key.
         self.assertEqual(response.data['university_affiliation'], 'Anna University')
         self.assertEqual(response.data['affiliation'], 'Anna University')
-
-    def test_viewer_cannot_create_institution(self):
-        self._auth(self.viewer_a)
-        response = self.client.post('/api/v1/institutions/', {'name': 'New College'})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_institution_admin_can_update_own_institution(self):
         self._auth(self.admin_a)
@@ -201,10 +196,10 @@ class InstitutionDnaTests(APITestCase):
         self.institution_b = Institution.objects.create(name='College B', city='Coimbatore', state='TN')
 
         self.admin_a = InstitutionCrudTests._make_user(
-            'dna_admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution_a,
+            'dna_admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution_a,
         )
         self.viewer_a = InstitutionCrudTests._make_user(
-            'dna_viewer@test.edu', User.Role.VIEWER, self.institution_a,
+            'dna_viewer@test.edu', User.Role.IQAC_COORDINATOR, self.institution_b,
         )
 
     def _auth(self, user):
@@ -318,11 +313,11 @@ class InstitutionDnaTests(APITestCase):
         response = self.client.get(f'/api/v1/institutions/{self.institution_b.id}/departments')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_viewer_can_read_but_not_write_departments(self):
-        self._auth(self.viewer_a)
+    def test_another_college_can_neither_read_nor_write_departments(self):
+        self._auth(self.viewer_a)  # an IQAC Coordinator of College B
         self.assertEqual(
             self.client.get(f'/api/v1/institutions/{self.institution_a.id}/departments').status_code,
-            status.HTTP_200_OK,
+            status.HTTP_403_FORBIDDEN,
         )
         blocked = self.client.post(
             f'/api/v1/institutions/{self.institution_a.id}/departments',

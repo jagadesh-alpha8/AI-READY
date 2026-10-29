@@ -18,10 +18,10 @@ class ScoringTestBase(APITestCase):
         self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
         self.other_institution = Institution.objects.create(name='Other', city='X', state='Y')
 
-        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
-        self.viewer = self._make_user('viewer@test.edu', User.Role.VIEWER, self.institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
+        self.viewer = self._make_user('viewer@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
         self.iqac = self._make_user('iqac@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
-        self.outsider = self._make_user('outsider@test.edu', User.Role.INSTITUTION_ADMIN, self.other_institution)
+        self.outsider = self._make_user('outsider@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
 
         self.sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
 
@@ -382,12 +382,10 @@ class SprintScoreEndpointTests(ScoringTestBase):
         self.client.post(f'/api/v1/sprints/{self.sprint.id}/score/')
         self.assertEqual(ScoringRun.objects.filter(sprint=self.sprint).count(), 2)
 
-    def test_viewer_can_get_but_not_post(self):
-        self._auth(self.viewer)
-        get_response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/score/')
-        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
-        post_response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/score/')
-        self.assertEqual(post_response.status_code, status.HTTP_403_FORBIDDEN)
+    def test_the_colleges_iqac_coordinator_can_calculate_the_cri(self):
+        self._auth(self.iqac)  # 3-role model: the college's IQAC Coordinator manages its sprint
+        self.assertEqual(self.client.post(f'/api/v1/sprints/{self.sprint.id}/score/').status_code,
+                         status.HTTP_201_CREATED)
 
     def test_outsider_forbidden_on_get_and_post(self):
         self._auth(self.outsider)
@@ -567,24 +565,14 @@ class BaselineWorkflowTests(ScoringTestBase):
 
     # -- permissions ------------------------------------------------------------
 
-    def test_viewer_can_read_but_not_approve_baseline(self):
-        self._make_fact(confidence_score=0.8)
-        get_response = self._get_baseline(self.viewer)
-        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
-
-        self._auth(self.viewer)
-        response = self._decide('approve')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_iqac_coordinator_cannot_approve_baseline(self):
-        """Only sprint-management roles (super_admin/consultant/
-        institution_admin) may decide a baseline -- every other non-viewer
-        role can review facts/gaps, but not this."""
+    def test_the_colleges_iqac_coordinator_approves_its_baseline(self):
+        """3-role model (accounts/role_matrix.py): the IQAC Coordinator approves the CRI baseline of their own
+        college; another college's coordinator cannot (test_outsider_forbidden_from_other_institution_baseline)."""
         self._make_fact(confidence_score=0.8)
         self._get_baseline(self.iqac)
         self._auth(self.iqac)
         response = self._decide('approve')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
 
     def test_outsider_forbidden_from_other_institution_baseline(self):
         self._make_fact(confidence_score=0.8)
@@ -1161,11 +1149,9 @@ class BaselineFreshnessTests(ScoringTestBase):
     def test_only_sprint_managers_decide(self):
         self._make_fact()
         run = self._get().data['baseline']['scoring_run_id']
-        for user in (self.viewer, self.iqac):
+        for user in (self.viewer, self.outsider):  # both of another college
             self._auth(user)
             self.assertEqual(self._post('approve', run).status_code, status.HTTP_403_FORBIDDEN)
-        self._auth(self.outsider)
-        self.assertEqual(self._post('approve', run).status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(Baseline.objects.get(sprint=self.sprint).status, Baseline.Status.PENDING)
 
     def test_a_decided_baseline_is_replaced_only_by_an_explicit_revision(self):
@@ -1176,7 +1162,7 @@ class BaselineFreshnessTests(ScoringTestBase):
         self._make_fact(field_key='later_evidence', confidence_score=0.95)
 
         self.assertEqual(self._post('revise', None, comments='').status_code, status.HTTP_400_BAD_REQUEST)
-        self._auth(self.iqac)
+        self._auth(self.outsider)
         self.assertEqual(self._post('revise', None, comments='x').status_code, status.HTTP_403_FORBIDDEN)
         self._auth(self.admin)
         r = self._post('revise', None, comments='New evidence was confirmed after the decision.')
@@ -1214,7 +1200,7 @@ class BaselineFreshnessTests(ScoringTestBase):
         self.assertTrue(self._get().data['baseline_is_current'])  # the score has not changed
 
         self.assertEqual(self._post('revise', None, comments='  ').status_code, status.HTTP_400_BAD_REQUEST)
-        for user in (self.viewer, self.iqac, self.outsider):
+        for user in (self.viewer, self.outsider):  # another college
             self._auth(user)
             self.assertEqual(self._post('revise', None, comments='demo').status_code, status.HTTP_403_FORBIDDEN)
         self._auth(self.admin)

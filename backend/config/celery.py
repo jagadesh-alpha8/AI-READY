@@ -35,6 +35,22 @@ def log_ai_processing_mode(sender=None, **kwargs):
     except Exception as exc:  # never stop the worker over a log line
         log.error('ai.mode.describe_failed error=%s', exc)
 
+@worker_ready.connect
+def recover_extraction_jobs_after_start(sender=None, **kwargs):
+    """After a deploy or restart, look for extraction jobs a previous worker left behind (services/recovery.py)
+    -- shortly after start, so the ping that finds dead workers sees this one answering too."""
+    from django.conf import settings
+
+    if not settings.EXTRACTION_RECOVERY_ENABLED or getattr(settings, 'CELERY_TASK_ALWAYS_EAGER', False):
+        return
+    try:
+        from apps.extraction.tasks import recover_extraction_jobs
+        recover_extraction_jobs.apply_async(countdown=60)
+    except Exception as exc:  # never stop the worker over this
+        import logging
+        logging.getLogger('apps.extraction.recovery').error('recovery.schedule_failed error=%s', exc)
+
+
 @app.task(bind=True, ignore_result=True)
 def debug_task(self):
     print(f'Request: {self.request!r}')

@@ -115,6 +115,46 @@ class ExtractedFact(models.Model):
     kind_reviewed_at = models.DateTimeField(null=True, blank=True)
     #: What tagging left out and why ([{kind, detail}]) -- dropped tags, a discarded NAAC metric, ...
     tagging_notes = models.JSONField(default=list, blank=True)
+
+    # -- provenance and verification (apps/facts/verification/) ------------------------------------------
+    class ValueOrigin(models.TextChoices):
+        EXTRACTED = 'extracted', 'Read from the document'
+        CALCULATED = 'calculated', 'Calculated from cited inputs'
+        SUBMITTED = 'submitted', 'Submitted as evidence'
+        CORRECTED = 'corrected', 'Corrected by a reviewer'
+
+    class VerificationStatus(models.TextChoices):
+        VERIFIED = 'verified', 'Verified'
+        NEEDS_REVIEW = 'needs_review', 'Needs review'
+        INVALID = 'invalid', 'Invalid'
+        CONFLICTING = 'conflicting', 'Conflicting'
+
+    #: The value and citation as first recorded (set once at creation, never overwritten; null on facts created
+    #: before this existed -- their first FactReviewHistory row's original_value holds it).
+    original_value = models.JSONField(null=True, blank=True)
+    original_source_document = models.ForeignKey(
+        'documents.Document', on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    original_source_page = models.CharField(max_length=50, blank=True)
+    original_source_snippet = models.TextField(blank=True)
+    value_origin = models.CharField(max_length=20, choices=ValueOrigin.choices, blank=True)
+    #: A calculated value's formula, inputs (each with document version, page, quote) and included / excluded
+    #: categories (verification/derived.py). {} = read directly.
+    derivation = models.JSONField(default=dict, blank=True)
+    #: What the value measures as the extractor stated it ({period, population, includes, excludes}); the
+    #: verification reads the deterministic parts itself (verification/scope.py).
+    scope = models.JSONField(default=dict, blank=True)
+    #: The latest verification (a FactVerification row holds each run in full). '' = never verified.
+    verification_status = models.CharField(max_length=20, choices=VerificationStatus.choices, blank=True)
+    grounding_status = models.CharField(max_length=30, blank=True)
+    validation_status = models.CharField(max_length=20, blank=True)
+    cross_source_status = models.CharField(max_length=20, blank=True)
+    risk_level = models.CharField(max_length=10, blank=True)
+    #: What the automation policy did or would do (verification/policy.py): auto_verified, precedent,
+    #: would_auto_verify, would_precedent, review, not_applicable.
+    automation_decision = models.CharField(max_length=20, blank=True)
+    automation_reason = models.TextField(blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -123,6 +163,103 @@ class ExtractedFact(models.Model):
 
     def __str__(self):
         return f'{self.field_key} ({self.status})'
+
+
+class FactVerification(models.Model):
+    """One run of the shared verification pipeline (apps/facts/verification/engine.py) on one fact -- append-only.
+
+    Holds the value and citation exactly as checked, and four separate results that are never blended:
+    `extraction_confidence` (the model's estimate it read the value correctly), `grounding` (whether the citation
+    and quote match the stored page text -- deterministic), `validation` (deterministic type / range / arithmetic
+    checks) and `cross_source` (whether comparable facts agree). `ai_assessments` holds any AI-assisted
+    judgement, labelled as such; it never decides the outcome."""
+
+    class Source(models.TextChoices):
+        EXTRACTION = 'extraction', 'Document extraction'
+        EVIDENCE = 'evidence', 'Evidence submission'
+        CORRECTION = 'correction', 'Correction proposal'
+        REVERIFY = 'reverify', 'Re-verification'
+        CONFLICT = 'conflict', 'Conflict refresh'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    fact = models.ForeignKey(ExtractedFact, on_delete=models.CASCADE, related_name='verifications')
+    sprint = models.ForeignKey('sprints.Sprint', on_delete=models.CASCADE, related_name='fact_verifications')
+    source = models.CharField(max_length=20, choices=Source.choices)
+    mode = models.CharField(max_length=10)
+    outcome = models.CharField(max_length=20, choices=ExtractedFact.VerificationStatus.choices)
+    reason = models.TextField(blank=True)
+    #: Every reason behind the outcome (the first is `reason`).
+    reasons = models.JSONField(default=list, blank=True)
+    value = models.JSONField(null=True, blank=True)
+    citation = models.JSONField(default=dict, blank=True)
+    extraction_confidence = models.FloatField(null=True, blank=True)
+    grounding = models.JSONField(default=dict, blank=True)
+    validation = models.JSONField(default=dict, blank=True)
+    derivation = models.JSONField(default=dict, blank=True)
+    cross_source = models.JSONField(default=dict, blank=True)
+    scope = models.JSONField(default=dict, blank=True)
+    ai_assessments = models.JSONField(default=list, blank=True)
+    risk_level = models.CharField(max_length=10, blank=True)
+    precedent = models.JSONField(null=True, blank=True)
+    automation_decision = models.CharField(max_length=20, blank=True)
+    automation_reason = models.TextField(blank=True)
+    blockers = models.JSONField(default=list, blank=True)
+    policy_version = models.CharField(max_length=40, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['sprint', 'outcome']), models.Index(fields=['fact', '-created_at'])]
+
+    def __str__(self):
+        return f'{self.fact_id} {self.outcome} ({self.source})'
+
+
+class FactCorrectionProposal(models.Model):
+    """A correction to a reviewed fact, submitted by someone allowed to act on it, with a reason and its source.
+    The fact is unchanged until a *different* authorized reviewer approves (apps/facts/verification/corrections.py);
+    every step is a FactReviewHistory row. Only an approved proposal changes the fact, its gaps, and -- at the next
+    recalculation -- the CRI."""
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Awaiting approval'
+        APPROVED = 'approved', 'Approved'
+        REJECTED = 'rejected', 'Rejected'
+        WITHDRAWN = 'withdrawn', 'Withdrawn'
+        STALE = 'stale', 'Superseded (the fact changed)'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    fact = models.ForeignKey(ExtractedFact, on_delete=models.CASCADE, related_name='correction_proposals')
+    sprint = models.ForeignKey('sprints.Sprint', on_delete=models.CASCADE, related_name='fact_corrections')
+    value_before = models.JSONField(null=True, blank=True)
+    status_before = models.CharField(max_length=20, choices=ExtractedFact.Status.choices)
+    proposed_value = models.JSONField(null=True, blank=True)
+    reason = models.TextField()
+    source_document = models.ForeignKey('documents.Document', on_delete=models.PROTECT, null=True, blank=True,
+                                        related_name='+')
+    source_page = models.CharField(max_length=50, blank=True)
+    source_snippet = models.TextField(blank=True)
+    derivation = models.JSONField(default=dict, blank=True)
+    #: The verification of the proposed value against its cited source (advisory for the approver).
+    verification = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+                                     related_name='+')
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['fact'], condition=models.Q(status='pending'),
+                                    name='one_pending_correction_per_fact'),
+        ]
+
+    def __str__(self):
+        return f'Correction of {self.fact_id} ({self.status})'
 
 
 class FactAIQIFMapping(models.Model):
@@ -236,10 +373,23 @@ class FactReviewHistory(models.Model):
         FACT_KIND_CHANGED = 'fact_kind_changed', 'Fact Kind Decided'
         #: Assigned / reassigned / unassigned; new_value = {"from", "to", "due_date"} (ownership.assign).
         ASSIGNED = 'assigned', 'Assigned'
+        #: A correction was proposed / its proposal rejected (FactCorrectionProposal); an approval is CORRECTED.
+        CORRECTION_PROPOSED = 'correction_proposed', 'Correction Proposed'
+        CORRECTION_REJECTED = 'correction_rejected', 'Correction Rejected'
+
+    class DecisionSource(models.TextChoices):
+        """Who decided: '' = a person (and every row from before this existed)."""
+        PERSON = 'person', 'A person'
+        RULE = 'rule', 'Verification rules'
+        PRECEDENT = 'precedent', 'An earlier reviewer decision'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     fact = models.ForeignKey(ExtractedFact, on_delete=models.CASCADE, related_name='review_history')
     action = models.CharField(max_length=20, choices=Action.choices)
+    decision_source = models.CharField(max_length=10, choices=DecisionSource.choices, blank=True)
+    #: Structured detail: the verification behind an automatic decision, the precedent it reused (with who made
+    #: the original decision), a proposal id, or {"overrides_auto": true} when a person reverses the rules.
+    details = models.JSONField(default=dict, blank=True)
     # Both nullable: `original_value` mirrors whatever `fact.value` was at
     # the time (itself nullable -- see ExtractedFact.value), and `new_value`
     # is unset for confirm/reject/evidence-request, or an explicit null for
@@ -367,6 +517,9 @@ class EvidenceRequestDocument(models.Model):
     #: The submission's readable page text as first read ([{page_number, text}]), so a retried AI assessment never
     #: reads / OCRs the document again. Empty for pasted text (submitted_text is the source) and until first read.
     source_pages = models.JSONField(default=list, blank=True)
+    #: Deterministic check of the AI assessment's citation (verification.engine.verify_evidence_link): is the quote
+    #: on the stated page, and does it state the suggested value? Advisory for the reviewer; decides nothing.
+    verification = models.JSONField(default=dict, blank=True)
     #: AI assessment runs started (the first one plus retries), and reviewer-requested retries.
     analysis_attempts = models.PositiveSmallIntegerField(default=0)
     analysis_retry_count = models.PositiveSmallIntegerField(default=0)

@@ -131,6 +131,7 @@ export const CriBenchmarkIntelligence: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        dataTour="benchmark-intel-header"
         icon={Award}
         title="CRI & Benchmark Intelligence"
         description="The institution's readiness score, the gaps behind it, and the roadmap that closes them."
@@ -150,15 +151,17 @@ export const CriBenchmarkIntelligence: React.FC = () => {
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError('')} />}
 
-      <TabStrip
-        tabs={[
-          { id: 'score', label: 'Score card', icon: BarChart3 },
-          { id: 'gaps', label: 'Gaps', icon: AlertTriangle, count: openGaps.length },
-          { id: 'roadmap', label: 'Roadmap', icon: TrendingUp, count: visibleRecommendations.length },
-        ]}
-        active={tab}
-        onChange={setTab}
-      />
+      <div data-tour="benchmark-intel-tabs">
+        <TabStrip
+          tabs={[
+            { id: 'score', label: 'Score card', icon: BarChart3 },
+            { id: 'gaps', label: 'Gaps', icon: AlertTriangle, count: openGaps.length },
+            { id: 'roadmap', label: 'Roadmap', icon: TrendingUp, count: visibleRecommendations.length },
+          ]}
+          active={tab}
+          onChange={setTab}
+        />
+      </div>
 
       {scoreError && <ErrorState message={scoreError} onRetry={refetchScore} />}
       {scoreLoading && <LoadingState message="Loading the score…" />}
@@ -182,7 +185,7 @@ const ScoreCard: React.FC<{ scorecard: Scorecard; sprintId: string }> = ({ score
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="glass-card p-6 flex flex-col items-center justify-center text-center">
+        <div className="glass-card p-6 flex flex-col items-center justify-center text-center" data-tour="benchmark-intel-meter">
           <span className="text-xs font-bold uppercase tracking-wide text-ink-500">
             Campus Readiness Index
           </span>
@@ -238,7 +241,7 @@ const ScoreCard: React.FC<{ scorecard: Scorecard; sprintId: string }> = ({ score
         </div>
       )}
 
-      <div className="glass-card p-6 space-y-4">
+      <div className="glass-card p-6 space-y-4" data-tour="benchmark-intel-pillars">
         <h2 className="eyebrow">Readiness by pillar</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {scorecard.pillar_scores.map((pillar) => (

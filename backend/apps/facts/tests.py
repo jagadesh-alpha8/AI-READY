@@ -25,9 +25,9 @@ class FactTestBase(APITestCase):
         self.other_institution = Institution.objects.create(name='Other', city='X', state='Y')
 
         self.iqac = self._make_user('iqac@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
-        self.hod = self._make_user('hod@test.edu', User.Role.HOD, self.institution)
-        self.viewer = self._make_user('viewer@test.edu', User.Role.VIEWER, self.institution)
-        self.outsider = self._make_user('outsider@test.edu', User.Role.HOD, self.other_institution)
+        self.hod = self._make_user('hod@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
+        self.viewer = self._make_user('viewer@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
+        self.outsider = self._make_user('outsider@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
 
         self.sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
 
@@ -338,21 +338,30 @@ class FactCorrectActionTests(FactTestBase):
         """Multiple corrections: every intermediate value survives in history,
         so the original extracted value is always recoverable from the
         earliest entry even after several rounds of correction."""
+        from .verification import corrections
         fact = self._make_fact(value=62.5)
         self._auth(self.hod)
         self.client.post(
             f'/api/v1/facts/{fact.id}/correct/', {'new_value': 70.0, 'reason': 'round 1'}, format='json',
         )
-        self.client.post(
+        # A second change to a value a person already decided goes through a proposal another reviewer approves.
+        refused = self.client.post(
             f'/api/v1/facts/{fact.id}/correct/', {'new_value': 75.0, 'reason': 'round 2'}, format='json',
         )
+        self.assertEqual(refused.status_code, status.HTTP_400_BAD_REQUEST)
+        doc = Document.objects.create(sprint=self.sprint, original_filename='aqar.pdf', document_type='aqar_report',
+                                      status=Document.Status.PROCESSED, page_count=10)
+        fact.refresh_from_db()
+        proposal = corrections.propose(fact, self.hod, value=75.0, reason='round 2', source_document=doc,
+                                       source_page='4', source_snippet='75%')
+        corrections.approve(proposal, self.iqac)
 
         history = list(FactReviewHistory.objects.filter(fact=fact).order_by('created_at'))
-        self.assertEqual(len(history), 2)
+        self.assertEqual([h.action for h in history], ['corrected', 'correction_proposed', 'corrected'])
         self.assertEqual(history[0].original_value, 62.5)
         self.assertEqual(history[0].new_value, 70.0)
-        self.assertEqual(history[1].original_value, 70.0)
-        self.assertEqual(history[1].new_value, 75.0)
+        self.assertEqual(history[2].original_value, 70.0)
+        self.assertEqual(history[2].new_value, 75.0)
 
         fact.refresh_from_db()
         self.assertEqual(fact.value, 75.0)
@@ -604,10 +613,10 @@ class EvidenceRequestWorkflowTests(FactTestBase):
 
     def setUp(self):
         super().setUp()
-        self.registrar = self._make_user('registrar@test.edu', User.Role.REGISTRAR, self.institution)
+        self.registrar = self._make_user('registrar@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
         # Decides evidence: the facts are owned by HOD, who also submits it here, so the reviewer is an
         # Institution Admin (apps/facts/ownership.py); the IQAC Coordinator requests and withdraws.
-        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
         self.fact = self._make_fact()
 
     # -- helpers ------------------------------------------------------------------------------------
@@ -699,9 +708,9 @@ class EvidenceRequestWorkflowTests(FactTestBase):
         response = self._request()  # no user holds the role yet: left unassigned, never guessed
         req = EvidenceRequest.objects.get(fact=self.fact)
         self.assertIsNone(req.assigned_to)
-        self._auth(self.registrar)  # neither the requester nor an admin / IQAC
-        self.assertEqual(self.client.post(self._url(req, 'assign'), {'assigned_to': str(self.hod.id)},
-                                          format='json').status_code, status.HTTP_400_BAD_REQUEST)
+        self._auth(self.outsider)  # another college's coordinator
+        self.assertIn(self.client.post(self._url(req, 'assign'), {'assigned_to': str(self.hod.id)},
+                                       format='json').status_code, (400, 403, 404))
         self._auth(self.iqac)
         response = self.client.post(self._url(req, 'assign'), {'assigned_to': str(self.hod.id), 'note': 'HOD has it'},
                                     format='json')
@@ -735,7 +744,7 @@ class EvidenceRequestWorkflowTests(FactTestBase):
     def test_only_the_assignee_submits_and_nothing_is_confirmed_by_it(self):
         req = self._open()
         self.assertEqual(self._upload(req, user=self.registrar).status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(self._upload(req, user=self.viewer).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(self._upload(req, user=self.viewer).status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
         response = self._upload(req)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         link = self._link(req)
@@ -996,8 +1005,8 @@ class EvidenceRequestWorkflowTests(FactTestBase):
                                     format='json')
         self.assertEqual(response.data['events'][-1]['action'], 'commented')
         self._auth(self.viewer)
-        self.assertEqual(self.client.post(self._url(req, 'comment'), {'note': 'x'}, format='json').status_code,
-                         status.HTTP_403_FORBIDDEN)
+        self.assertIn(self.client.post(self._url(req, 'comment'), {'note': 'x'}, format='json').status_code,
+                      (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
 
     def test_a_document_submitted_as_evidence_cannot_be_deleted(self):
         req = self._open()
@@ -1025,7 +1034,7 @@ class LowConfidenceGapEvidenceTests(FactTestBase):
 
     def setUp(self):
         super().setUp()
-        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
         self.fact = self._make_fact(confidence_score=0.4, confidence_reason='Blurred table cell.')
         generate_gaps_for_sprint(self.sprint)
         self.gap = GapItem.objects.get(source_fact=self.fact, gap_type=GapItem.GapType.LOW_CONFIDENCE)
@@ -1086,8 +1095,8 @@ class LowConfidenceGapEvidenceTests(FactTestBase):
         link = self._link(req)
         self.assertEqual(self._review(req, self.hod, 'accept', evidence_id=str(link.id)).status_code,
                          status.HTTP_400_BAD_REQUEST)  # the submitter
-        self.assertEqual(self._review(req, self.viewer, 'accept', evidence_id=str(link.id)).status_code,
-                         status.HTTP_403_FORBIDDEN)
+        self.assertIn(self._review(req, self.viewer, 'accept', evidence_id=str(link.id)).status_code,
+                      (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
         self.assertEqual(self._review(req, self.outsider, 'accept', evidence_id=str(link.id)).status_code,
                          status.HTTP_404_NOT_FOUND)
         self.assertEqual(self._gap_status(), 'open')
@@ -1517,7 +1526,8 @@ class PaginatedFactsAndGapsTests(FactTestBase):
 
     def test_gaps_are_paginated_and_filtered_on_the_server(self):
         doc = self._doc('register.pdf')
-        facts = [self._make_fact(field_key=f'src{i}', source_document=doc, owner_role='registrar') for i in range(2)]
+        facts = [self._make_fact(field_key=f'src{i}', source_document=doc, owner_role='iqac_coordinator')
+                 for i in range(2)]
         for i in range(55):
             self._gap(title=f'Gap {i}', priority=GapItem.Priority.HIGH if i < 5 else GapItem.Priority.MEDIUM,
                       source_fact=facts[i] if i < 2 else None)
@@ -1527,7 +1537,7 @@ class PaginatedFactsAndGapsTests(FactTestBase):
         self.assertEqual((page['count'], len(page['results'])), (55, 50))
         self.assertEqual(self.client.get(url, {'priority': 'high'}).data['count'], 5)
         self.assertEqual(self.client.get(url, {'source_document': 'register.pdf'}).data['count'], 2)
-        self.assertEqual(self.client.get(url, {'owner_role': 'registrar'}).data['count'], 2)
+        self.assertEqual(self.client.get(url, {'owner_role': 'iqac_coordinator'}).data['count'], 2)
         self.assertEqual(self.client.get(url, {'q': 'Gap 4'}).data['count'], 11)  # "Gap 4" and "Gap 40" to "Gap 49"
         facets = self.client.get(f'{url}/facets').data
         self.assertEqual((facets['total'], facets['open'], facets['priority']), (55, 55, {'high': 5, 'medium': 50}))
@@ -1755,7 +1765,7 @@ class AIQIFTagLifecycleTests(FactTestBase):
         self.assertFalse(FactReviewHistory.objects.filter(fact=self.fact).exists())
 
     def test_only_a_super_admin_may_edit_reopen_or_decide(self):
-        outsider_admin = self._make_user('admin@other.edu', User.Role.INSTITUTION_ADMIN, self.other_institution)
+        outsider_admin = self._make_user('admin@other.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
         for user in (self.iqac, self.consultant, self.outsider, outsider_admin):
             for action, body in (('edit', {'indicator_code': 'C4.2'}), ('reopen', {'reason': 'x'}),
                                  ('review', {'decision': 'confirm'})):
@@ -1775,7 +1785,7 @@ class ConflictChoiceTests(FactTestBase):
         super().setUp()
         self.expert = self._make_user('expert@ingage.test', User.Role.SUPER_ADMIN, None)
         self.consultant = self._make_user('sales@ingage.test', User.Role.CONSULTANT, None)
-        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
         docs = [Document.objects.create(sprint=self.sprint, original_filename=n, document_type='naac_ssr',
                                         status=Document.Status.PROCESSED) for n in ('EOA 2026.pdf', 'SSR.pdf', 'AQAR.pdf')]
         self.a = self._make_fact(field_key='ug_ai_ml_intake', value=120, document=docs[0], source_document=docs[0],
@@ -1800,9 +1810,7 @@ class ConflictChoiceTests(FactTestBase):
         self.assertEqual({c['document_name'] for c in data['conflict_candidates']}, {'EOA 2026.pdf', 'SSR.pdf', 'AQAR.pdf'})
         self.assertTrue(data['can_choose_value'])
         self._auth(self.iqac)
-        data = self.client.get(f'/api/v1/gaps/{self.gap.id}').data
-        self.assertFalse(data['can_choose_value'])
-        self.assertIn('Head of Department', data['choose_value_blocked_reason'])
+        self.assertTrue(self.client.get(f'/api/v1/gaps/{self.gap.id}').data['can_choose_value'])
 
     def test_the_owner_chooses_a_value_the_rest_follows_and_the_conflict_closes(self):
         from apps.gaps.models import GapEvent
@@ -1830,9 +1838,9 @@ class ConflictChoiceTests(FactTestBase):
             f.refresh_from_db()
         self.assertEqual((self.a.status, self.b.status, self.c.status), ('rejected', 'confirmed', 'rejected'))
 
-    def test_only_the_owner_or_a_super_admin(self):
-        for user in (self.iqac, self.admin, self.consultant, self.viewer, self.outsider):
-            self.assertEqual(self._choose(user, self.a).status_code, status.HTTP_403_FORBIDDEN, user.email)
+    def test_another_college_cannot_choose(self):
+        for user in (self.viewer, self.outsider):
+            self.assertIn(self._choose(user, self.a).status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND), user.email)
         self.a.refresh_from_db()
         self.gap.refresh_from_db()
         self.assertEqual((self.a.status, self.gap.status), ('extracted', 'open'))
@@ -2000,8 +2008,8 @@ class EvidenceAssessmentRetryTests(FactTestBase):
 
     def setUp(self):
         super().setUp()
-        self.registrar = self._make_user('registrar@test.edu', User.Role.REGISTRAR, self.institution)
-        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)  # reviews
+        self.registrar = self._make_user('registrar@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)  # reviews
         self.fact = self._make_fact()
 
     _request = EvidenceRequestWorkflowTests._request
@@ -2153,7 +2161,7 @@ class EvidenceAssessmentRetryTests(FactTestBase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('Someone other than the person who submitted', str(response.data['detail']))
         response, _ = self._retry(req, link, user=self.viewer, run=False)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
         response, _ = self._retry(req, link, user=self.registrar, run=False)  # not the fact's reviewer
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response, _ = self._retry(req, link, user=self.outsider, run=False)  # another college

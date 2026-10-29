@@ -21,7 +21,7 @@ from .tests import ExtractionJobTestBase, _valid_fact, make_pdf
 class SprintScopedProcessingTests(ExtractionJobTestBase):
     def setUp(self):
         super().setUp()
-        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
         self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact()]}
 
     def _bytes(self, document):

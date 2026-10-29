@@ -41,8 +41,7 @@ VALID_PILLARS = {key for key, _label in PILLAR_CHOICES}
 #: sensible choices via the schema `enum` below and so a fact never gets
 #: assigned to a role that couldn't plausibly own institutional evidence.
 FACT_OWNER_ROLE_CHOICES = [
-    'institution_admin', 'iqac_coordinator', 'registrar', 'hod',
-    'hr_officer', 'lab_admin', 'placement_officer', 'faculty',
+    'iqac_coordinator',
 ]
 
 _PILLAR_GUIDE = '\n'.join(
@@ -86,11 +85,14 @@ it yourself; `data_type` tells the caller how to interpret it.
 supports the value -- an explicit, clearly-labeled statement deserves high confidence; something \
 inferred or ambiguously worded deserves lower confidence.
 - `confidence_reason` must briefly explain, in your own words, what in the text grounds your answer.
-- `owner_role` must be whichever of the given roles would realistically confirm this fact on campus: \
-institution_admin (policy/governance), iqac_coordinator (quality assurance, NAAC/AQAR), registrar \
-(approvals, enrolment records), hod (curriculum, department-level), hr_officer (faculty records), \
-lab_admin (lab/compute infrastructure), placement_officer (placements, industry), faculty \
-(course-level AI engagement).
+- `scope` says what the value measures, only as printed next to it: `period` (e.g. "2022-23", "as on \
+31.03.2023"), `population` (e.g. "UG", "Department of CSE", "whole institution"), and the categories the \
+figure `includes` / `excludes` (e.g. "integrated programmes"). Use null / [] for anything not printed.
+- `calculation` is null unless the value is a total or share the page does not print as one number. Then -- \
+and only then -- give the operation ("sum", "difference", "ratio", "percentage"), each input exactly as \
+printed with its page and quote, and what it includes / excludes; `value` is the result. The caller \
+recomputes it: never return a computed value without its `calculation`, and never alter a printed input.
+- `owner_role` must be 'iqac_coordinator' (as the college-side coordinator responsible for institutional evidence review).
 
 `fact_kind` says what the fact is for. Ask: "Does this fact tell us something about AI at this institution?"
 - ai_evidence: yes -- the fact itself is about AI (an AI course or programme, AI lab or compute, AI policy, \
@@ -145,6 +147,41 @@ FACT_ITEM_SCHEMA = {
                         'description': 'The NAAC metric number printed next to the fact, e.g. "2.1.2", or null.'},
         'profile_field': {'type': ['string', 'null'],
                           'enum': ['institution_type', 'autonomous_status', 'approval_body', 'programme', 'other', None]},
+        'scope': {
+            'type': ['object', 'null'],
+            'properties': {
+                'period': {'type': ['string', 'null']},
+                'population': {'type': ['string', 'null']},
+                'includes': {'type': 'array', 'items': {'type': 'string'}},
+                'excludes': {'type': 'array', 'items': {'type': 'string'}},
+            },
+            'required': ['period', 'population', 'includes', 'excludes'],
+            'additionalProperties': False,
+        },
+        'calculation': {
+            'type': ['object', 'null'],
+            'properties': {
+                'operation': {'type': 'string', 'enum': ['sum', 'difference', 'ratio', 'percentage']},
+                'inputs': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'label': {'type': 'string'},
+                            'value': {'type': 'string'},
+                            'source_page': {'type': ['string', 'null']},
+                            'source_snippet': {'type': 'string'},
+                        },
+                        'required': ['label', 'value', 'source_page', 'source_snippet'],
+                        'additionalProperties': False,
+                    },
+                },
+                'includes': {'type': 'array', 'items': {'type': 'string'}},
+                'excludes': {'type': 'array', 'items': {'type': 'string'}},
+            },
+            'required': ['operation', 'inputs', 'includes', 'excludes'],
+            'additionalProperties': False,
+        },
         'aiqif_indicators': {
             'type': 'array',
             'description': 'The AI-QIF key indicators this fact is evidence for; empty if none clearly fits.',
@@ -163,7 +200,7 @@ FACT_ITEM_SCHEMA = {
     'required': [
         'field_name', 'field_key', 'value', 'data_type', 'pillar', 'owner_role',
         'source_page', 'source_snippet', 'confidence_score', 'confidence_reason', 'fact_kind', 'naac_metric',
-        'profile_field', 'aiqif_indicators',
+        'profile_field', 'scope', 'calculation', 'aiqif_indicators',
     ],
     'additionalProperties': False,
 }
@@ -299,17 +336,27 @@ class OpenAIFactExtractor(FactExtractor):
             else settings.OPENAI_FACT_EXTRACTION_MAX_CHUNK_CHARS
         )
         self.max_chunks = max_chunks if max_chunks is not None else settings.OPENAI_FACT_EXTRACTION_MAX_CHUNKS
+        #: services/chunk_store.ChunkStore, set by ExtractionPipeline for a job: per-chunk results are saved and
+        #: reused, and the chunk cap is per attempt (the job continues) instead of cutting the document off.
+        self.store = None
 
     def chunks_for(self, document, pages):
-        """The page chunks this document is analysed in (empty when there is no text), capped at
-        max_chunks. Shared with services/document_analysis.py. Also starts `self.report`, the record of
-        what was actually read (see completeness_issue / services/completeness.py)."""
+        """The page chunks this document is analysed in (empty when there is no text). Shared with
+        services/document_analysis.py. Also starts `self.report`, the record of what was actually read (see
+        completeness_issue / services/completeness.py).
+
+        Inside a job (self.store set) every chunk is kept: OPENAI_FACT_EXTRACTION_MAX_CHUNKS then caps the new AI
+        calls of one attempt and the job continues with the rest (chunk_store.py). Without a store -- a direct
+        call -- chunks over max_chunks are skipped and reported, as before."""
         chunks = _build_chunks(pages.get('pages', []), self.max_chunk_chars)
         self.report = new_report(len(chunks))
         if not chunks:
             logger.info('fact_extractor.no_extractable_text document_id=%s', document.id)
             return []
-        if len(chunks) > self.max_chunks:
+        if self.store is not None:
+            self.store.prepare(chunks)
+            return chunks
+        if self.max_chunks and len(chunks) > self.max_chunks:
             logger.warning(
                 'fact_extractor.too_many_chunks document_id=%s chunk_count=%d max_chunks=%d',
                 document.id, len(chunks), self.max_chunks,
@@ -327,52 +374,80 @@ class OpenAIFactExtractor(FactExtractor):
         if not chunks:
             return []
 
-        service = self._openai_service or get_ai_service()
+        services = []
+
+        def request(chunk_index, chunk_pages):
+            if not services:
+                services.append(self._openai_service or get_ai_service())
+            return self._extract_chunk(services[0], document, chunk_pages, chunk_index, len(chunks))
+
         facts_by_key = {}
-
-        for chunk_index, chunk_pages in enumerate(chunks, start=1):
-            # Set by ExtractionPipeline: stop between AI calls when the user
-            # presses Stop, rather than finishing a long document first.
-            should_stop = getattr(self, 'should_stop', None)
-            if should_stop is not None and should_stop():
-                raise ExtractionCancelled(f'Fact extraction for document {document.id} was stopped by the user.')
-            try:
-                raw_facts = self._extract_chunk(service, document, chunk_pages, chunk_index, len(chunks))
-            except RecoverableExtractionError:
-                # Worth retrying the whole job (consistent with every other
-                # pipeline stage) rather than silently under-extracting --
-                # and a transient failure on this chunk likely affects the
-                # rest too, so there's little point pressing on regardless.
-                raise
-            except PermanentExtractionError as exc:
-                logger.error(
-                    'fact_extractor.chunk_failed document_id=%s chunk=%d/%d error=%s',
-                    document.id, chunk_index, len(chunks), exc,
-                )
-                self.report['issues'].append(chunk_failed_issue(chunk_index, chunk_pages, exc))
-                continue
-            self.report['chunks_completed'] += 1
-
-            valid_page_numbers = {str(page['page_number']) for page in chunk_pages}
-            chunk_text = '\n'.join(page.get('text') or '' for page in chunk_pages)
-            for raw_fact in raw_facts:
-                try:
-                    fact = self._validate_fact(raw_fact, valid_page_numbers, chunk_text)
-                except FactValidationError as exc:
-                    logger.warning(
-                        'fact_extractor.fact_rejected document_id=%s chunk=%d field_key=%r error=%s',
-                        document.id, chunk_index,
-                        raw_fact.get('field_key') if isinstance(raw_fact, dict) else raw_fact, exc,
-                    )
-                    continue
-                _merge_fact(facts_by_key, fact)
-
+        self.process_chunks(document, enumerate(chunks, start=1), len(chunks), facts_by_key, request)
         facts = list(facts_by_key.values())
         logger.info(
             'fact_extractor.complete document_id=%s chunk_count=%d fact_count=%d',
             document.id, len(chunks), len(facts),
         )
         return facts
+
+    def process_chunks(self, document, indexed_chunks, chunk_count, facts_by_key, request):
+        """Extract each (index, pages) chunk with `request(index, pages)` -> raw facts, merging the validated facts
+        into `facts_by_key`. A chunk the store already completed is reused without an AI call. A recoverable
+        error is recorded on the chunk and re-raised (the job retries -- only this and later chunks run again);
+        a permanent one fails just this chunk (the document becomes partial)."""
+        for chunk_index, chunk_pages in indexed_chunks:
+            # Set by ExtractionPipeline: stop between AI calls when the user
+            # presses Stop, rather than finishing a long document first.
+            should_stop = getattr(self, 'should_stop', None)
+            if should_stop is not None and should_stop():
+                raise ExtractionCancelled(f'Fact extraction for document {document.id} was stopped by the user.')
+            reused = self.store.reusable(chunk_index) if self.store is not None else None
+            if reused is not None:
+                self.report['chunks_completed'] += 1
+                for fact in reused.facts:
+                    _merge_fact(facts_by_key, fact)
+                continue
+            if self.store is not None:
+                self.store.before_call(chunk_index)
+            try:
+                raw_facts = request(chunk_index, chunk_pages)
+            except RecoverableExtractionError as exc:
+                # Worth retrying the job (consistent with every other pipeline stage) rather than silently
+                # under-extracting; chunks already done are kept and reused by the retry.
+                if self.store is not None:
+                    self.store.failed(chunk_index, exc)
+                raise
+            except PermanentExtractionError as exc:
+                logger.error(
+                    'fact_extractor.chunk_failed document_id=%s chunk=%d/%d error=%s',
+                    document.id, chunk_index, chunk_count, exc,
+                )
+                self.report['issues'].append(chunk_failed_issue(chunk_index, chunk_pages, exc))
+                if self.store is not None:
+                    self.store.failed(chunk_index, exc)
+                continue
+            validated = self.validate_chunk(document, raw_facts, chunk_pages, chunk_index)
+            if self.store is not None:
+                self.store.completed(chunk_index, validated)
+            self.report['chunks_completed'] += 1
+            for fact in validated:
+                _merge_fact(facts_by_key, fact)
+
+    def validate_chunk(self, document, raw_facts, chunk_pages, chunk_index):
+        """The chunk's facts that pass this app's validation (each rejected one is logged and dropped)."""
+        valid_page_numbers = {str(page['page_number']) for page in chunk_pages}
+        chunk_text = '\n'.join(page.get('text') or '' for page in chunk_pages)
+        out = []
+        for raw_fact in raw_facts:
+            try:
+                out.append(self._validate_fact(raw_fact, valid_page_numbers, chunk_text))
+            except FactValidationError as exc:
+                logger.warning(
+                    'fact_extractor.fact_rejected document_id=%s chunk=%d field_key=%r error=%s',
+                    document.id, chunk_index,
+                    raw_fact.get('field_key') if isinstance(raw_fact, dict) else raw_fact, exc,
+                )
+        return out
 
     @staticmethod
     def _extract_chunk(service, document, chunk_pages, chunk_index, chunk_count):
@@ -420,6 +495,8 @@ class OpenAIFactExtractor(FactExtractor):
             raise FactValidationError(f'pillar must be one of {sorted(VALID_PILLARS)}, got {pillar!r}.')
 
         owner_role = raw_fact.get('owner_role')
+        if owner_role in {'institution_admin', 'iqac_coordinator', 'registrar', 'hod', 'hr_officer', 'lab_admin', 'placement_officer', 'faculty'}:
+            owner_role = 'iqac_coordinator'
         if owner_role not in FACT_OWNER_ROLE_CHOICES:
             raise FactValidationError(
                 f'owner_role must be one of {FACT_OWNER_ROLE_CHOICES}, got {owner_role!r}.'
@@ -458,11 +535,61 @@ class OpenAIFactExtractor(FactExtractor):
             'confidence_reason': confidence_reason,
             'extraction_method': 'openai',
             **_validate_tagging(raw_fact, field_key, chunk_text, notes),
+            'scope': _validate_scope(raw_fact.get('scope')),
+            'derivation': _validate_calculation(raw_fact.get('calculation'), valid_page_numbers, notes),
             'tagging_notes': notes,
             # Not an ExtractedFact field: saved as FactAIQIFMapping rows by
             # ExtractionPipeline._persist_facts (apps/facts/aiqif_tagging.py decides which are used).
             'aiqif_mappings': _validate_aiqif_mappings(raw_fact.get('aiqif_indicators'), field_key, notes),
         }
+
+
+def _clean_text(value, limit):
+    return value.strip()[:limit] if isinstance(value, str) and value.strip() else None
+
+
+def _clean_list(value):
+    if not isinstance(value, list):
+        return []
+    return [item.strip()[:80] for item in value if isinstance(item, str) and item.strip()][:10]
+
+
+def _validate_scope(raw):
+    """What the value measures, as the extractor read it (an AI reading: verification/scope.py uses it only to
+    tell facts apart, never to treat two facts as the same metric). Anything malformed is dropped."""
+    if not isinstance(raw, dict):
+        return {}
+    scope = {'period': _clean_text(raw.get('period'), 120), 'population': _clean_text(raw.get('population'), 120),
+             'includes': _clean_list(raw.get('includes')), 'excludes': _clean_list(raw.get('excludes'))}
+    if not any(scope.values()):
+        return {}
+    return {**scope, 'source': 'extraction'}
+
+
+def _validate_calculation(raw, valid_page_numbers, notes):
+    """A calculated value's inputs, each cited on a page of this chunk -- the verification pipeline recomputes the
+    arithmetic and grounds every input (verification/derived.py). A malformed calculation is dropped with a note,
+    which leaves the value without a derivation (so it must be printed in its own quote to verify)."""
+    if not isinstance(raw, dict):
+        return {}
+    operation = raw.get('operation')
+    inputs = []
+    for item in raw.get('inputs') or []:
+        if not isinstance(item, dict) or not isinstance(item.get('value'), str) or not item['value'].strip():
+            continue
+        page = item.get('source_page')
+        if page is not None and page not in valid_page_numbers:
+            notes.append({'kind': 'calculation_dropped',
+                          'detail': f'A calculation input cites page {page!r}, outside the text it came from.'})
+            return {}
+        inputs.append({'label': str(item.get('label') or '')[:120], 'value': item['value'].strip(),
+                       'source_page': page or '', 'source_snippet': str(item.get('source_snippet') or '')[:1000]})
+    if operation not in ('sum', 'difference', 'ratio', 'percentage') or len(inputs) < 2:
+        notes.append({'kind': 'calculation_dropped',
+                      'detail': 'The calculation had no valid operation or fewer than two inputs.'})
+        return {}
+    return {'operation': operation, 'inputs': inputs, 'includes': _clean_list(raw.get('includes')),
+            'excludes': _clean_list(raw.get('excludes')), 'source': 'extraction'}
 
 
 def _validate_tagging(raw_fact, field_key, chunk_text, notes):
@@ -551,6 +678,8 @@ def _merge_fact(facts_by_key, fact):
         :MAX_AIQIF_MAPPINGS_PER_FACT]
     if not winner.get('naac_metric') and other.get('naac_metric'):
         winner['naac_metric'] = other['naac_metric']
+    if fact.get('extraction_method') == 'vision' or existing.get('extraction_method') == 'vision':
+        winner['extraction_method'] = 'vision'
     facts_by_key[key] = winner
 
 

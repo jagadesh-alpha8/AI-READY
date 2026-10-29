@@ -23,7 +23,7 @@ from .serializers import (
     InstitutionSystemSerializer,
 )
 
-WRITE_INSTITUTION_ROLES = {User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.INSTITUTION_ADMIN}
+WRITE_INSTITUTION_ROLES = {User.Role.SUPER_ADMIN, User.Role.CONSULTANT, User.Role.IQAC_COORDINATOR}
 DELETE_INSTITUTION_ROLES = {User.Role.SUPER_ADMIN, User.Role.CONSULTANT}
 
 

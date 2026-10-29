@@ -19,7 +19,7 @@ class DashboardTestBase(APITestCase):
         self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
         self.other_institution = Institution.objects.create(name='Other', city='X', state='Y')
 
-        self.admin = self._make_user('admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution)
+        self.admin = self._make_user('admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
         self.consultant = self._make_user('consultant@ingage.io', User.Role.CONSULTANT, None)
 
     @staticmethod

@@ -148,7 +148,7 @@ export const EvidenceIntelligence: React.FC = () => {
       <div className="space-y-6">
         <PageHeader
           icon={FileStack}
-          title={`Step ${step('evidence-intelligence')}: Evidence Intelligence`}
+          title="Evidence Intelligence"
           description="Every document this assessment relies on, what state it is in, and what is still missing."
         />
         <EmptyState
@@ -173,23 +173,25 @@ export const EvidenceIntelligence: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        icon={FileStack}
-        title={`Step ${step('evidence-intelligence')}: Evidence Intelligence`}
-        description="Every document this assessment relies on, what state it is in, and what is still missing."
-        actions={
-          activeSprintId && (
-            <button
-              type="button"
-              onClick={() => navigate(`/sprint/${activeSprintId}/upload`)}
-              className="btn-primary btn-sm"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Upload</span>
-            </button>
-          )
-        }
-      />
+      <div data-tour="evidence-header">
+        <PageHeader
+          icon={FileStack}
+          title="Evidence Intelligence"
+          description="Every document this assessment relies on, what state it is in, and what is still missing."
+          actions={
+            activeSprintId && (
+              <button
+                type="button"
+                onClick={() => navigate(`/sprint/${activeSprintId}/upload`)}
+                className="btn-primary btn-sm"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Upload</span>
+              </button>
+            )
+          }
+        />
+      </div>
 
 
       {docsError && <InlineError message={docsError} onDismiss={refetchDocs} />}
@@ -197,7 +199,7 @@ export const EvidenceIntelligence: React.FC = () => {
 
       {!docsLoading && !docsError && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div data-tour="evidence-metrics" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Metric label="Documents" value={docs.length} />
             <Metric label="Processed" value={processed} tone={processed === docs.length && docs.length > 0 ? 'success' : 'default'} />
             <Metric label="Facts extracted" value={totalFacts} />
@@ -219,7 +221,7 @@ export const EvidenceIntelligence: React.FC = () => {
             />
           ) : (
             <>
-              <div className="flex items-center gap-3 flex-wrap">
+              <div data-tour="evidence-filters" className="flex items-center gap-3 flex-wrap">
                 <FilterPills options={filterOptions} active={filter} onChange={setFilter} />
                 {/* The next audit step: review the facts these documents produced. */}
                 <button
@@ -232,7 +234,7 @@ export const EvidenceIntelligence: React.FC = () => {
                 </button>
               </div>
 
-              <div className="space-y-2">
+              <div data-tour="evidence-table" className="space-y-2">
                 {visible.map((doc) => {
                   const factCount = factsByDocument.get(doc.id) ?? 0;
                   const attention = needsAttention(doc, factCount);

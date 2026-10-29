@@ -1,16 +1,15 @@
-"""Real, AI-backed `ConflictChecker`.
+"""Conflict detection between documents: deterministic first, AI only as a labelled note.
 
-Per "do not replace deterministic business rules with AI unnecessarily":
-finding *candidate* conflicts (two facts sharing a field_key with different
-normalized values) is a cheap, deterministic set comparison -- AI (whichever
-provider is configured, see `ai_service.get_ai_service`) is only ever
-consulted to interpret a pair that's already been found to disagree,
-deciding whether they genuinely conflict or could both be true (different
-populations, timeframes, or units). It never picks a winner: the two facts'
-own `value`s are never touched here, only a GapItem describing the
-disagreement is created, for a human to actually resolve.
+Finding a conflict is deterministic (apps/facts/verification/conflicts.py): two facts of the same field in the
+sprint, that measure the same thing (compatible period, population, unit and included / excluded categories --
+verification/scope.py) and state different values once printing differences are removed ("1,234" == 1234).
+Facts of an earlier version of the same file are history, not a second source.
+
+Every such pair becomes a conflict gap for a person. The AI (whichever provider is configured, see
+`ai_service.get_ai_service`) is asked whether the two could both be true; its answer is appended to the gap as an
+"AI-assisted note" and may lower the gap's priority, but it never removes the conflict, never picks a winner, and
+never touches either fact's value -- AI confidence alone never resolves a conflict.
 """
-import json
 import logging
 
 from django.conf import settings
@@ -53,10 +52,6 @@ class ConflictValidationError(PermanentExtractionError):
     drop just this one candidate pair, not the whole document."""
 
 
-def _hashable(value):
-    return json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else value
-
-
 class OpenAIConflictChecker(ConflictChecker):
     def __init__(self, *, openai_service=None, max_pairs=None):
         # Lazy, like the other OpenAI-backed services: no client is built
@@ -69,29 +64,32 @@ class OpenAIConflictChecker(ConflictChecker):
         if not pairs:
             return []
 
+        # Every pair is a conflict; the AI note is only asked for the first max_pairs (cost bound).
         if len(pairs) > self.max_pairs:
             logger.warning(
-                'conflict_checker.too_many_pairs document_id=%s pair_count=%d max_pairs=%d',
+                'conflict_checker.too_many_pairs document_id=%s pair_count=%d max_pairs=%d (rest without AI note)',
                 document.id, len(pairs), self.max_pairs,
             )
-            pairs = pairs[:self.max_pairs]
 
-        service = self._openai_service or get_ai_service()
+        service = None
         conflicts = []
-        for fact_a, fact_b in pairs:
+        for index, (fact_a, fact_b) in enumerate(pairs):
+            if index >= self.max_pairs:
+                conflicts.append(self._build_gap(fact_a, fact_b, None))
+                continue
+            service = service or self._openai_service or get_ai_service()
             try:
                 verdict = self._evaluate_pair(service, document, fact_a, fact_b)
             except RecoverableExtractionError:
                 raise
             except PermanentExtractionError as exc:
+                # The deterministic disagreement stands; only the AI's note is missing.
                 logger.error(
                     'conflict_checker.pair_failed document_id=%s field_key=%s error=%s',
                     document.id, fact_a.field_key, exc,
                 )
-                continue
+                verdict = None
 
-            if verdict is None:
-                continue
             conflicts.append(self._build_gap(fact_a, fact_b, verdict))
 
         logger.info(
@@ -103,20 +101,26 @@ class OpenAIConflictChecker(ConflictChecker):
 
     @staticmethod
     def _candidate_pairs(document):
-        """Deterministic pre-filter: every fact this document contributed,
-        paired with any other active fact in the sprint that shares its
-        field_key but genuinely disagrees on normalized_value. No AI here --
-        just a set comparison."""
+        """Deterministic: every fact this document contributed, paired with each other live fact of the sprint
+        with the same field_key that measures the same thing and states a different value. No AI here."""
+        from apps.facts.verification import conflicts as rules
+        from apps.facts.verification.normalize import same_value
+        from apps.facts.verification.precedent import _lineage
+
         pairs = []
-        for fact_a in document.extracted_facts.exclude(status=ExtractedFact.Status.REJECTED):
+        lineage = set(_lineage(document))
+        for fact_a in rules.live_facts(document.extracted_facts.select_related('source_document', 'document')):
             others = (
                 ExtractedFact.objects.filter(sprint=document.sprint, field_key=fact_a.field_key)
                 .exclude(document=document)
-                .exclude(status=ExtractedFact.Status.REJECTED)
+                .exclude(document_id__in=lineage)  # an earlier version of this same file is history
+                .select_related('source_document', 'document')
             )
-            for fact_b in others:
-                if _hashable(fact_a.normalized_value) == _hashable(fact_b.normalized_value):
-                    continue  # normalized values genuinely match -- nothing to interpret
+            for fact_b in rules.live_facts(others):
+                if same_value(fact_a.value, fact_b.value, fact_a.data_type):
+                    continue  # the same value once printing differences are removed
+                if not rules.comparable_pair(fact_a, fact_b)[0]:
+                    continue  # different period / population / unit / categories: not the same metric
                 pairs.append((fact_a, fact_b))
         return pairs
 
@@ -143,19 +147,33 @@ class OpenAIConflictChecker(ConflictChecker):
 
     @staticmethod
     def _build_gap(fact_a, fact_b, verdict):
+        """The conflict for a person. `verdict` is the AI's view ({'is_conflict', 'confidence', 'explanation'}),
+        or None when it could not be asked -- recorded as a labelled note only."""
+        from apps.facts.verification import conflicts as rules
         title = f'Conflicting values for {fact_a.field_name or fact_a.field_key}'
+        rows = [rules.candidate_row(f) for f in (fact_a, fact_b)]
+        description = (f'Sources report different values for "{fact_a.field_name or fact_a.field_key}": '
+                       + '; '.join(f'{r["value"]!r} ({rules._where(r)})' for r in rows) + '.')
+        priority = GapItem.Priority.HIGH
+        if verdict is not None:
+            view = ('they genuinely conflict' if verdict['is_conflict']
+                    else 'they may both be true')
+            description += (f'\n\nAI-assisted note (not a decision; confidence {verdict["confidence"]:.2f}): '
+                            f'{view} -- {verdict["explanation"]}')
+            if not verdict['is_conflict']:
+                priority = GapItem.Priority.MEDIUM
         return {
             'gap_type': GapItem.GapType.CONFLICT,
             'title': title,
-            'description': verdict['explanation'],
+            'description': description,
             'pillar': fact_a.pillar,
-            'priority': GapItem.Priority.HIGH,
+            'priority': priority,
             'dedup_filter': {'title': title},
             'source_fact': fact_a,
             'conflict_fact_b': fact_b,
             'conflict_value_a': fact_a.value,
             'conflict_value_b': fact_b.value,
-            'conflict_confidence': verdict['confidence'],
+            'conflict_confidence': verdict['confidence'] if verdict is not None else None,
         }
 
 
@@ -177,6 +195,4 @@ def _validate_verdict(result):
     if not isinstance(explanation, str) or not explanation.strip():
         raise ConflictValidationError(f'explanation must be a non-empty string, got {explanation!r}.')
 
-    if not is_conflict:
-        return None
-    return {'confidence': float(confidence), 'explanation': explanation.strip()}
+    return {'is_conflict': is_conflict, 'confidence': float(confidence), 'explanation': explanation.strip()}

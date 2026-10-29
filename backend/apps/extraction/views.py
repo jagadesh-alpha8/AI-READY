@@ -118,6 +118,10 @@ class SprintExtractionJobListCreateView(generics.ListCreateAPIView):
                     retryable = (_RETRYABLE_JOB | Q(status=ExtractionJob.Status.COMPLETED)) if rerun_completed else _RETRYABLE_JOB
                     job = queryset.filter(retryable).order_by('-created_at').first()
                     if job is not None:
+                        if job.status == ExtractionJob.Status.COMPLETED and job.completeness != ExtractionJob.Completeness.PARTIAL:
+                            # "Process again" on a fully read document: a fresh AI pass, not a replay of its saved
+                            # chunks. (A failed / stopped / partial one keeps them: only what is missing runs.)
+                            job.chunks.all().delete()
                         _reset(job)
                         job.save()
                     else:
@@ -134,7 +138,12 @@ def dispatch_job(job):
     """Queue `job` on Celery and record its task id -- shared by a new run and
     by re-processing an existing failed/stopped job."""
     try:
-        result = run_extraction_job.delay(str(job.id))
+        ExtractionJob.objects.filter(id=job.id).update(dispatched_at=timezone.now())
+        # Queues come from CELERY_TASK_ROUTES (settings). With a separate OCR queue the document's pages are read
+        # there first (tasks.read_document_pages), which then queues the extraction itself.
+        from .tasks import read_document_pages, two_phase
+        task = read_document_pages if two_phase() else run_extraction_job
+        result = task.delay(str(job.id))
         job.celery_task_id = result.id
         job.save(update_fields=['celery_task_id'])
         # With CELERY_TASK_ALWAYS_EAGER, the line above just ran the
@@ -201,6 +210,10 @@ def _reset(job):
     job.completeness = ''
     job.extraction_warnings = []
     job.chunks_total = job.chunks_completed = 0
+    job.continuations = 0
+    job.next_retry_at = None
+    job.heartbeat_at = None
+    job.pages_total = job.pages_done = job.ocr_pages = job.unreadable_pages = 0
     # A new run: earlier attempts stay for the record; waits / retries are counted from here.
     from django.utils import timezone as tz
     job.attempts = [*(job.attempts or []), {'at': tz.now().isoformat(), 'router': '', 'outcome': 'reset',

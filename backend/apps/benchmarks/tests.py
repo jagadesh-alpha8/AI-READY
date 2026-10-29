@@ -209,7 +209,7 @@ class SourceLibraryApiTests(APITestCase):
         self.assertEqual(len(self.client.get('/api/v1/benchmarks/sources?q=plagiarism').data), 1)
 
     def test_institution_users_cannot_see_the_library(self):
-        for role in (User.Role.INSTITUTION_ADMIN, User.Role.IQAC_COORDINATOR, User.Role.VIEWER):
+        for role in (User.Role.IQAC_COORDINATOR,):
             self._login(role)
             self.assertEqual(self.client.get('/api/v1/benchmarks/sources').status_code, 403, role)
 
@@ -986,7 +986,7 @@ class AuthoringApiTests(_CataloguePack, APITestCase):
         self.assertEqual(l3['non_examples'], ['Unadopted draft policy'])
 
     def test_staff_only(self):
-        hod = User.objects.create_user(email='hod@x.edu', username='hodx', password=PASSWORD, role='hod')
+        hod = User.objects.create_user(email='hod@x.edu', username='hodx', password=PASSWORD, role='iqac_coordinator')
         token = self.client.post('/api/v1/auth/login/', {'email': hod.email, 'password': PASSWORD}).data['access_token']
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
         self.assertEqual(self.client.put('/api/v1/benchmarks/catalogue/ACA-05/levels/L3', {}, format='json').status_code, 403)
@@ -1394,7 +1394,7 @@ class ReleaseApiTests(_LinkFixture, APITestCase):
         self.assertEqual((reopened.data['status'], reopened.data['version_label']), ('draft', 'v0.2.r1'))
 
     def test_staff_only(self):
-        User.objects.create_user(email='hod@z.edu', username='hodz', password=PASSWORD, role='hod')
+        User.objects.create_user(email='hod@z.edu', username='hodz', password=PASSWORD, role='iqac_coordinator')
         self._login('hod@z.edu')
         self.assertEqual(self.client.get('/api/v1/benchmarks/releases').status_code, 403)
 
@@ -1598,7 +1598,7 @@ class WatcherApiTests(_WatcherFixture, APITestCase):
 
     def test_college_users_cannot_see_the_watcher(self):
         inst = Institution.objects.create(name='MKCE', city='Karur', state='TN')
-        User.objects.create_user(email='c@test.edu', username='c', password=PASSWORD, role='institution_admin',
+        User.objects.create_user(email='c@test.edu', username='c', password=PASSWORD, role='iqac_coordinator',
                                  institution=inst)
         self._login('c@test.edu')
         self.assertEqual(self.client.get('/api/v1/benchmarks/watcher/feeds').status_code, 403)
@@ -1714,7 +1714,7 @@ class CandidateApiTests(_WatcherFixture, APITestCase):
                          'review')
         self.assertEqual(len(self.client.get('/api/v1/benchmarks/benchmark-candidates').data), 1)
         inst = Institution.objects.create(name='C', city='X', state='TN')
-        User.objects.create_user(email='c@college.edu', username='c', password=PASSWORD, role='institution_admin',
+        User.objects.create_user(email='c@college.edu', username='c', password=PASSWORD, role='iqac_coordinator',
                                  institution=inst)
         self._login('c@college.edu')
         self.assertEqual(self.client.get('/api/v1/benchmarks/benchmark-candidates').status_code, 403)
@@ -2066,7 +2066,7 @@ class AddSourceApiTests(APITestCase):
 
     def test_only_ingage_staff_can_add(self):
         college = User.objects.create_user(email='p@college.edu', username='p', password='Str0ng!Pass',
-                                           role='institution_admin')
+                                           role='iqac_coordinator')
         self.client.force_authenticate(college)
         self.assertEqual(self._post().status_code, 403)
         self.assertFalse(SourceDocument.objects.exists())
@@ -2228,7 +2228,7 @@ class BenchmarkConfirmationTests(APITestCase):
         self.assertTrue(self._events('benchmark.confirmed').exists())  # the earlier confirmation stays in history
 
     def test_api_confirm_and_catalogue_shows_it(self):
-        college = User.objects.create_user(email='p@c.edu', username='p', password='Str0ng!Pass', role='institution_admin')
+        college = User.objects.create_user(email='p@c.edu', username='p', password='Str0ng!Pass', role='iqac_coordinator')
         self.client.force_authenticate(college)
         self.assertEqual(self.client.post('/api/v1/benchmarks/catalogue/AIQIF-C1.1/confirm', {}).status_code, 403)
         self.client.force_authenticate(self.staff)
@@ -2300,7 +2300,7 @@ class ReleaseGateTests(_LinkFixture, TestCase):
         evidence_rules.create_rule(self.user, RULE, benchmark=self.aca)
         applicability.create_rule(self.user, {'result': 'applies'}, benchmark=self.aca)
         linking.link(self.aca, self.req, self.user, relationship='primary')
-        college = User.objects.create_user(email='p@c.edu', username='pc', password=PASSWORD, role='institution_admin')
+        college = User.objects.create_user(email='p@c.edu', username='pc', password=PASSWORD, role='iqac_coordinator')
         system = User.objects.create_user(email='bot@system.ingage.local', username='bot', password=PASSWORD,
                                           role='consultant', is_active=False)
         for who in (college, system):
@@ -2527,7 +2527,7 @@ class NewBenchmarkDraftTests(APITestCase):
         self._approve_all()
         inst = Institution.objects.create(name='C', city='X', state='TN')
         outsider = User.objects.create_user(email='c@college.edu', username='c', password=PASSWORD,
-                                            role='institution_admin', institution=inst)
+                                            role='iqac_coordinator', institution=inst)
         self._login(outsider)
         self.assertEqual(self.client.get(f'{self.URL}/{self.cid}/draft-options').status_code, 403)
         self.assertEqual(self._create().status_code, 403)
@@ -2818,7 +2818,7 @@ class StudioAITests(_LinkFixture, APITestCase):
             studio_ai.start('release_notes', 'Release 1.0', self.user)
 
     def test_college_users_cannot_use_studio_ai(self):
-        college = User.objects.create_user(email='c@c.edu', username='cc', password=PASSWORD, role='institution_admin')
+        college = User.objects.create_user(email='c@c.edu', username='cc', password=PASSWORD, role='iqac_coordinator')
         self.client.force_authenticate(college)
         r = self.client.post('/api/v1/benchmarks/ai-jobs', {'kind': 'benchmark_content', 'target_id': 'AIQIF-C1.1'},
                              format='json')
@@ -3201,7 +3201,7 @@ class SourceEditApiTests(APITestCase):
     def test_only_ingage_staff_edit_or_delete(self):
         inst = Institution.objects.create(name='MKCE', city='Karur', state='TN')
         self.client.force_authenticate(User.objects.create_user(email='a@x.edu', username='a', password=PASSWORD,
-                                                                role='institution_admin', institution=inst))
+                                                                role='iqac_coordinator', institution=inst))
         self.assertEqual(self.client.patch(self.url, {'title': 'Changed title'}, format='json').status_code, 403)
         self.assertEqual(self.client.delete(self.url, {'reason': 'x'}, format='json').status_code, 403)
         self.assertTrue(SourceDocument.objects.filter(title='UGC Plagiarism Regulations, 2018').exists())

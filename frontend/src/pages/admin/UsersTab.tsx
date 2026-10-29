@@ -19,24 +19,16 @@ import { confirmDialog } from '../../components/Dialog';
  * form is still refused.
  */
 
-/** The eleven roles on `User.Role`, in the order a person would read them. */
+/** The three target roles on `User.Role`. */
 const ROLES: { value: string; label: string; platform?: boolean }[] = [
   { value: 'super_admin', label: 'Super Admin', platform: true },
   { value: 'consultant', label: 'InGage Consultant', platform: true },
-  { value: 'institution_admin', label: 'Institution Admin' },
   { value: 'iqac_coordinator', label: 'IQAC Coordinator' },
-  { value: 'registrar', label: 'Registrar' },
-  { value: 'hod', label: 'Head of Department' },
-  { value: 'hr_officer', label: 'HR Officer' },
-  { value: 'lab_admin', label: 'Lab Admin' },
-  { value: 'placement_officer', label: 'Placement Officer' },
-  { value: 'faculty', label: 'Faculty' },
-  { value: 'viewer', label: 'Viewer' },
 ];
 
 const BLANK: UserPayload = {
   email: '', username: '', first_name: '', last_name: '', phone: '',
-  role: 'viewer', department_name: '', password: '',
+  role: 'iqac_coordinator', department_name: '', password: '',
 };
 
 type Filter = 'all' | 'active' | 'inactive';
@@ -58,7 +50,7 @@ export const UsersTab: React.FC = () => {
   const [formError, setFormError] = useState('');
   const [listError, setListError] = useState('');
 
-  // An institution admin cannot grant a platform-wide role. The server
+  // An IQAC coordinator cannot grant a platform-wide role. The server
   // refuses it either way; hiding it stops someone picking an option that
   // can only fail.
   const assignableRoles = useMemo(

@@ -86,6 +86,17 @@ export interface ConflictSide {
   page: string | null;
   snippet: string | null;
   confidence_score: number | null;
+  /** What the value measures and how it checked (backend verification/conflicts.candidate_row). */
+  document_version?: number | null;
+  superseded?: boolean;
+  period?: string | null;
+  population?: string[];
+  unit?: string;
+  includes?: string[];
+  excludes?: string[];
+  validation_status?: string | null;
+  grounding_status?: string | null;
+  verification_status?: string | null;
 }
 
 export interface GapEvidenceRequest {

@@ -22,7 +22,7 @@ from config.pagination import DefaultPageNumberPagination, OptionalPageNumberPag
 from .filters import ExtractedFactFilter
 from . import evidence_requests, ownership
 from .evidence_serializers import EvidenceRequestCreateSerializer
-from .models import EvidenceRequest, ExtractedFact, FactAIQIFMapping, FactReviewHistory
+from .models import EvidenceRequest, ExtractedFact, FactAIQIFMapping, FactCorrectionProposal, FactReviewHistory
 from .serializers import (
     BulkFactConfirmSerializer,
     ExtractedFactDetailSerializer,
@@ -58,6 +58,8 @@ class SprintFactListView(generics.ListAPIView):
                          .select_related('assigned_to')),
                 Prefetch('document__evidence_for_gaps', to_attr='prefetched_evidence_gaps',
                          queryset=GapItem.objects.only('id', 'title', 'gap_type', 'status')),
+                Prefetch('correction_proposals', to_attr='pending_corrections',
+                         queryset=FactCorrectionProposal.objects.filter(status='pending').select_related('submitted_by')),
             )
         )
 
@@ -92,6 +94,8 @@ class SprintFactFacetsView(APIView):
             'status': counts('status'),
             'pillar': counts('pillar'),
             'pillars': pillar_facet(counts('pillar')),
+            'verification_status': {k or 'none': v for k, v in counts('verification_status').items()},
+            'automation_decision': {k or 'none': v for k, v in counts('automation_decision').items()},
             # The AI-QIF Category filter: all 36 key indicators in framework order, each with the facts tagged to
             # it (an indicator no fact is tagged to still shows, as 0).
             'aiqif_indicators': [{'value': code, 'code': code, 'label': name, 'count': indicator_counts.get(code, 0)}
@@ -146,6 +150,13 @@ class SprintBulkFactConfirmView(APIView):
                     skip_reason = 'Low-confidence facts need individual review.'
                 elif not (fact.source_snippet or '').strip():
                     skip_reason = 'The source quote is missing; review this fact individually.'
+                elif fact.verification_status in (ExtractedFact.VerificationStatus.INVALID,
+                                                  ExtractedFact.VerificationStatus.CONFLICTING):
+                    skip_reason = (f'Verification found it {fact.get_verification_status_display().lower()}: '
+                                   f'{fact.automation_reason or "review it individually"}')
+                elif body.validated_data.get('only_verified') and (
+                        fact.verification_status != ExtractedFact.VerificationStatus.VERIFIED):
+                    skip_reason = 'Not verified by the checks; review it individually.'
                 elif GapItem.objects.filter(
                     sprint=sprint,
                     gap_type=GapItem.GapType.CONFLICT,
@@ -167,6 +178,8 @@ class SprintBulkFactConfirmView(APIView):
                             original_value=fact.value,
                             user=request.user,
                             reason=reason,
+                            decision_source=FactReviewHistory.DecisionSource.PERSON,
+                            details={'bulk': True, 'verification_status': fact.verification_status or None},
                         )
                         fact.status = ExtractedFact.Status.CONFIRMED
                         fact.reviewed_by = request.user
@@ -224,12 +237,23 @@ class BaseFactActionView(APIView):
             raise ValidationError({'detail': 'This fact has an open evidence request. Decide it on the request '
                                              '(accept, accept with correction, reject or withdraw).'})
 
+        from .auto_confirm import is_auto_confirmed
+        auto = is_auto_confirmed(fact)
+        if (self.changes_value and fact.status in (ExtractedFact.Status.CONFIRMED, ExtractedFact.Status.CORRECTED)
+                and not auto):
+            # A person already decided this value: changing it needs a proposal another reviewer approves.
+            raise ValidationError({'detail': 'This fact was already reviewed by a person. Propose a correction '
+                                             'with its source; another reviewer approves it.',
+                                   'code': 'correction_needs_approval'})
+
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         reason = serializer.resolved_reason()
         if self.new_status == ExtractedFact.Status.REJECTED and not reason.strip():
             raise ValidationError({'detail': 'Say why the fact is rejected; the reason is kept with its gap.'})
         new_value = self.get_new_value(serializer) if self.changes_value else None
+        # A person reversing an automatic confirmation is an override -- counted by verification/metrics.py.
+        overrides_auto = auto and self.new_status != ExtractedFact.Status.CONFIRMED
 
         with transaction.atomic():
             FactReviewHistory.objects.create(
@@ -239,12 +263,16 @@ class BaseFactActionView(APIView):
                 new_value=new_value,
                 user=request.user,
                 reason=reason,
+                decision_source=FactReviewHistory.DecisionSource.PERSON,
+                details={'overrides_auto': True, 'automation_decision': fact.automation_decision or None}
+                if overrides_auto else {},
             )
 
             update_fields = ['status', 'reviewed_by', 'reviewed_at', 'updated_at']
             if self.changes_value:
                 fact.value = new_value
-                update_fields.append('value')
+                fact.value_origin = ExtractedFact.ValueOrigin.CORRECTED
+                update_fields += ['value', 'value_origin']
             fact.status = self.new_status
             fact.reviewed_by = request.user
             fact.reviewed_at = timezone.now()

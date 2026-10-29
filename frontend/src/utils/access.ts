@@ -16,23 +16,33 @@ import type { UserRole } from '../types/auth';
 type Roles = readonly UserRole[] | 'all';
 
 const STAFF = ['super_admin', 'consultant'] as const;                       // InGage's own people
-const SPRINT_MANAGERS = [...STAFF, 'institution_admin'] as const;            // MANAGE_SPRINT_ROLES
-const ALL_EXCEPT_VIEWER: UserRole[] = [
-  'super_admin', 'consultant', 'institution_admin', 'iqac_coordinator', 'registrar', 'hod', 'hr_officer',
-  'lab_admin', 'placement_officer', 'faculty',
-];                                                                           // REVIEW_ROLES
-const QUALITY_LEADS = [...SPRINT_MANAGERS, 'iqac_coordinator'] as const;     // MANAGE_RECOMMENDATION_ROLES
+const ALL_ROLES: readonly UserRole[] = ['super_admin', 'consultant', 'iqac_coordinator'] as const;
+const SPRINT_MANAGERS = ALL_ROLES;                                          // MANAGE_SPRINT_ROLES
+const ALL_EXCEPT_VIEWER = ALL_ROLES;                                        // REVIEW_ROLES
+const QUALITY_LEADS = ALL_ROLES;                                            // MANAGE_RECOMMENDATION_ROLES
 
 /** Display names of the roles (backend User.Role labels). */
 export const ROLE_LABELS: Record<UserRole, string> = {
-  super_admin: 'Super Admin', consultant: 'InGage Consultant', institution_admin: 'Institution Admin',
-  iqac_coordinator: 'IQAC Coordinator', registrar: 'Registrar', hod: 'Head of Department', hr_officer: 'HR Officer',
-  lab_admin: 'Lab Admin', placement_officer: 'Placement Officer', faculty: 'Faculty', viewer: 'Viewer',
+  super_admin: 'Super Admin',
+  consultant: 'InGage Consultant',
+  iqac_coordinator: 'IQAC Coordinator',
+};
+
+/** Historical / legacy role display labels for audit trails. */
+const LEGACY_ROLE_LABELS: Record<string, string> = {
+  institution_admin: 'Institution Admin',
+  registrar: 'Registrar',
+  hod: 'Head of Department',
+  hr_officer: 'HR Officer',
+  lab_admin: 'Lab Admin',
+  placement_officer: 'Placement Officer',
+  faculty: 'Faculty',
+  viewer: 'Viewer',
 };
 
 /** A role's display name; an unknown value is shown as written, '' stays ''. */
 export const roleLabel = (role: string | null | undefined): string =>
-  (role && ROLE_LABELS[role as UserRole]) || (role || '').replace(/_/g, ' ');
+  (role && (ROLE_LABELS[role as UserRole] || LEGACY_ROLE_LABELS[role])) || (role || '').replace(/_/g, ' ');
 
 /** Actions, each matching a server permission. */
 export const ACTION_ROLES = {
@@ -58,8 +68,8 @@ export const ACTION_ROLES = {
   'institution.edit': SPRINT_MANAGERS,
   /** Delete a college (DELETE_INSTITUTION_ROLES); creating one is 'institution.edit'. */
   'institution.delete': STAFF,
-  /** Manage user accounts (USER_ADMIN_ROLES; institution admins only for their own college). */
-  'users.manage': ['super_admin', 'institution_admin'],
+  /** Manage user accounts (USER_ADMIN_ROLES; IQAC coordinators only for their own college). */
+  'users.manage': ['super_admin', 'iqac_coordinator'],
   /** AI usage and billing (IsSuperAdmin | IsConsultant). */
   'ai.usage': STAFF,
   /** The benchmark library (IsInGageStaff). */
@@ -73,9 +83,7 @@ export const ACTION_ROLES = {
 export type Action = keyof typeof ACTION_ROLES;
 
 /**
- * Menus. A key is a sidebar entry (and its route). Read-only pages are open to
- * every role; working screens are hidden from the viewer (trustee board), who
- * sees results, not the work in progress.
+ * Menus. A key is a sidebar entry (and its route).
  */
 export const MENU_ROLES = {
   dashboard: 'all',
@@ -105,9 +113,9 @@ export const MENU_ROLES = {
   'goals-tasks': ALL_EXCEPT_VIEWER,
   'ai-copilot': 'all',
   reminders: ALL_EXCEPT_VIEWER,
-  'compliance-mapping': [...QUALITY_LEADS, 'registrar'],
+  'compliance-mapping': ALL_ROLES,
   'uat-readiness': SPRINT_MANAGERS,
-  'admin-settings': 'all', // everyone has "My account"; the other tabs are per role
+  'admin-settings': 'all', // everyone has "My account" and "Role & Access Matrix"
 } as const satisfies Record<string, Roles>;
 
 export type MenuKey = keyof typeof MENU_ROLES;
@@ -116,6 +124,7 @@ export type MenuKey = keyof typeof MENU_ROLES;
 export const SETTINGS_TAB_ROLES = {
   rubric: QUALITY_LEADS,
   account: 'all',
+  access: 'all',
   users: ACTION_ROLES['users.manage'],
   usage: ACTION_ROLES['ai.usage'],
 } as const satisfies Record<string, Roles>;

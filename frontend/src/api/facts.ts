@@ -1,6 +1,6 @@
 import type { PillarFacet } from '../components/Pagination';
 import api from './client';
-import type { Fact } from '../types';
+import type { CorrectionProposal, Fact, FactVerificationRun } from '../types';
 import { cleanParams, fetchAllPages, type Page } from './pagination';
 
 /** Server-side filters of the sprint facts list (backend apps/facts/filters.py). '' = any. */
@@ -20,6 +20,8 @@ export interface FactQuery {
   document?: string;
   /** Facts with a tag confirmed / rejected / pending an expert decision. */
   tag_review?: string;
+  /** Latest verification outcome: verified / needs_review / invalid / conflicting / none (never verified). */
+  verification_status?: string;
   ordering?: string;
 }
 
@@ -47,6 +49,8 @@ export interface FactFacets {
   owner_role: Record<string, number>;
   source_document: Record<string, number>;
   confidence_band: Record<string, number>;
+  /** Latest verification outcome counts ('none' = never verified). */
+  verification_status?: Record<string, number>;
   aiqif_criterion: { criterion: string; code: string; name: string; count: number }[];
   by_document: Record<string, number>;
   /** Facts with a tag in each review state (the "Tag review" filter). */
@@ -75,11 +79,87 @@ export interface BulkFactConfirmResult {
 }
 
 /** Confirm up to 100 facts in one sprint while preserving backend ownership checks and per-fact audit history. */
-export function bulkConfirmSprintFacts(sprintId: string, factIds: string[], comment = '') {
+export function bulkConfirmSprintFacts(sprintId: string, factIds: string[], comment = '', onlyVerified = false) {
   return api.post<BulkFactConfirmResult>(`/sprints/${sprintId}/facts/bulk-confirm`, {
     fact_ids: factIds,
     comment,
+    only_verified: onlyVerified,
   });
+}
+
+// -- verification and corrections (backend apps/facts/verification/) ----------------------------------
+
+export interface VerificationGroupItem {
+  fact_id: string;
+  field_key: string;
+  field_name: string;
+  value: unknown;
+  pillar: string;
+  risk_level: string;
+  confidence_score: number;
+  status: string;
+  reason: string;
+  impact: number;
+}
+
+export interface VerificationGroup {
+  code: string;
+  label: string;
+  count: number;
+  high_risk: number;
+  items: VerificationGroupItem[];
+}
+
+export interface VerificationWorkload {
+  mode: 'shadow' | 'enforce';
+  facts: number;
+  verified_once: number;
+  outcomes: Record<string, number>;
+  eligible: number;
+  auto_verified: number;
+  auto_by_precedent: number;
+  would_auto_verify: number;
+  sent_to_review: number;
+  reviewer_overrides: number;
+  reversed_automatic_decisions: number;
+  legacy_auto_confirmed: number;
+}
+
+export interface VerificationSummary {
+  mode: 'shadow' | 'enforce';
+  policy_version: string;
+  policy: Record<string, { automate: boolean; allow_precedent: boolean }>;
+  workload: VerificationWorkload;
+  groups: VerificationGroup[];
+}
+
+export function getVerificationSummary(sprintId: string) {
+  return api.get<VerificationSummary>(`/sprints/${sprintId}/verification/summary`);
+}
+
+export function reverifySprint(sprintId: string) {
+  return api.post<{ checked: number; outcomes: Record<string, number>; mode: string }>(
+    `/sprints/${sprintId}/verification/reverify`, {});
+}
+
+export function getFactVerification(id: string) {
+  return api.get<{ fact_id: string; mode: string; latest: FactVerificationRun | null;
+    earlier: { id: string; source: string; outcome: string; reason: string; created_at: string }[];
+    precedent: FactVerificationRun['precedent'] }>(`/facts/${id}/verification`);
+}
+
+export function proposeCorrection(id: string, body: {
+  value: unknown; reason: string; source_document_id: string | null; source_page: string; source_snippet: string;
+}) {
+  return api.post<CorrectionProposal>(`/facts/${id}/corrections`, body);
+}
+
+export function listFactCorrections(id: string) {
+  return api.get<CorrectionProposal[]>(`/facts/${id}/corrections`);
+}
+
+export function decideCorrection(id: string, decision: 'approve' | 'reject' | 'withdraw', reason = '') {
+  return api.post<CorrectionProposal>(`/fact-corrections/${id}/${decision}`, { reason });
 }
 
 export function correctFact(id: string, correctedValue: unknown, comment = 'User correction') {

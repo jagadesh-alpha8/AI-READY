@@ -32,12 +32,12 @@ class DocumentUploadTests(APITestCase):
         self.other_institution = Institution.objects.create(name='Other', city='X', state='Y')
 
         self.iqac = self._make_user('iqac@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
-        self.hod = self._make_user('hod@test.edu', User.Role.HOD, self.institution)
-        self.viewer = self._make_user('viewer@test.edu', User.Role.VIEWER, self.institution)
+        self.hod = self._make_user('hod@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
+        self.viewer = self._make_user('viewer@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
         self.institution_admin = self._make_user(
-            'admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution,
+            'admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution,
         )
-        self.outsider = self._make_user('outsider@test.edu', User.Role.HOD, self.other_institution)
+        self.outsider = self._make_user('outsider@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
 
         self.sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
 
@@ -214,13 +214,13 @@ class DocumentDetailTests(APITestCase):
         self.other_institution = Institution.objects.create(name='Other', city='X', state='Y')
         self.sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
 
-        self.uploader = self._make_user('hod@test.edu', User.Role.HOD, self.institution)
-        self.viewer = self._make_user('viewer@test.edu', User.Role.VIEWER, self.institution)
-        self.other_hod = self._make_user('other_hod@test.edu', User.Role.HOD, self.institution)
+        self.uploader = self._make_user('hod@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
+        self.viewer = self._make_user('viewer@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
+        self.other_hod = self._make_user('other_hod@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
         self.institution_admin = self._make_user(
-            'admin@test.edu', User.Role.INSTITUTION_ADMIN, self.institution,
+            'admin@test.edu', User.Role.IQAC_COORDINATOR, self.institution,
         )
-        self.outsider = self._make_user('outsider@test.edu', User.Role.HOD, self.other_institution)
+        self.outsider = self._make_user('outsider@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
 
         self._auth(self.uploader)
         upload = self.client.post(
@@ -301,10 +301,10 @@ class DocumentDetailTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Document.objects.filter(id=self.document.id).exists())
 
-    def test_unrelated_non_manager_cannot_delete(self):
-        self._auth(self.other_hod)
+    def test_another_college_cannot_delete(self):
+        self._auth(self.outsider)  # 3-role model: any IQAC Coordinator of the college may; another college never
         response = self.client.delete(f'/api/v1/documents/{self.document.id}/')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
         self.assertTrue(Document.objects.filter(id=self.document.id).exists())
 
     def test_institution_admin_can_delete_others_document(self):
@@ -1127,7 +1127,7 @@ class DriveImportJobEndpointTests(APITestCase):
         self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
         self.other_institution = Institution.objects.create(name='Other', city='X', state='Y')
         self.user = self._make_user('iqac@test.edu', User.Role.IQAC_COORDINATOR, self.institution)
-        self.outsider = self._make_user('outsider@test.edu', User.Role.HOD, self.other_institution)
+        self.outsider = self._make_user('outsider@test.edu', User.Role.IQAC_COORDINATOR, self.other_institution)
         self.sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
 
     @staticmethod
@@ -1186,10 +1186,11 @@ class ViewerIsReadOnlyTests(APITestCase):
     _auth = DocumentUploadTests._auth
     _upload = DocumentUploadTests._upload
 
-    def test_viewer_cannot_upload_but_hod_can(self):
-        self._auth(self.viewer)
+    def test_another_college_cannot_upload_or_list_but_the_college_can_upload(self):
+        self._auth(self.viewer)  # an IQAC Coordinator of another college
         self.assertEqual(self._upload().status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(self.client.get(f'/api/v1/sprints/{self.sprint.id}/documents').status_code, status.HTTP_200_OK)
+        self.assertIn(self.client.get(f'/api/v1/sprints/{self.sprint.id}/documents').status_code,
+                      (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
         self._auth(self.hod)
         self.assertEqual(self._upload().status_code, status.HTTP_201_CREATED)
 
@@ -1217,7 +1218,7 @@ class DocumentFileLifecycleTests(APITestCase):
         self.addCleanup(override.disable)
         self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
         self.admin = User.objects.create_user(email='admin@test.edu', username='admin', password=PASSWORD,
-                                              role=User.Role.INSTITUTION_ADMIN, institution=self.institution)
+                                              role=User.Role.IQAC_COORDINATOR, institution=self.institution)
         self.sprint = Sprint.objects.create(institution=self.institution, mode=Sprint.SprintMode.VERIFIED_CRI)
         login = self.client.post('/api/v1/auth/login/', {'email': self.admin.email, 'password': PASSWORD})
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {login.data["access_token"]}')

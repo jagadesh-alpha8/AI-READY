@@ -144,11 +144,13 @@ export const TransformationPlan: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        dataTour="transformation-header"
         icon={Target}
         title="Sprint Transformation Plan"
         description="This sprint's findings and recommendations, sequenced into dated horizons with an owner and an expected score movement. A finalized Benchmark Assessment has its own improvement plan (Benchmark Assessment page)."
         actions={
           <button
+            data-tour="transformation-generate-btn"
             type="button"
             onClick={handleGenerate}
             disabled={generating || !activeSprintId}
@@ -174,7 +176,7 @@ export const TransformationPlan: React.FC = () => {
 
       {!recsLoading && !recsError && visible.length > 0 && (
         <>
-          <div className="glass-card p-6 bg-gradient-to-br from-brand-50 to-card space-y-3">
+          <div className="glass-card p-6 bg-gradient-to-br from-brand-50 to-card space-y-3" data-tour="transformation-horizons">
             <h2 className="text-lg font-bold text-ink-900">Where this plan takes the score</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Figure
@@ -195,7 +197,7 @@ export const TransformationPlan: React.FC = () => {
             </p>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3" data-tour="transformation-initiatives">
             {phases.map((phase, index) => {
               const isOpen = expanded === phase.timeline;
               return (

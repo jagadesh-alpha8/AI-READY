@@ -101,6 +101,7 @@ export const ComplianceMapping: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        dataTour="compliance-header"
         icon={Network}
         title="Compliance Mapping"
         description="Which accreditation evidence this institution holds, and what is missing."
@@ -133,9 +134,9 @@ export const ComplianceMapping: React.FC = () => {
           }}
         />
       ) : (
-        <>
-          {byFramework.map(({ framework, held, missing }) => (
-            <div key={framework} className="glass-card p-5 space-y-3">
+        <div data-tour="compliance-frameworks" className="space-y-4">
+          {byFramework.map(({ framework, held, missing }, index) => (
+            <div key={framework} className="glass-card p-5 space-y-3" data-tour={index === 0 ? "compliance-status" : undefined}>
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <h2 className="eyebrow">{framework}</h2>
                 <div className="flex gap-2">
@@ -185,7 +186,7 @@ export const ComplianceMapping: React.FC = () => {
             <span>See the full evidence register</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
-        </>
+        </div>
       )}
     </div>
   );

@@ -13,6 +13,11 @@ class ExtractionJobSerializer(serializers.ModelSerializer):
     ai_input_tokens = serializers.SerializerMethodField()
     ai_output_tokens = serializers.SerializerMethodField()
     ai_cost_usd = serializers.SerializerMethodField()
+    # What it is doing now, precisely (services/job_phase.py), and where its AI calls go (no key).
+    phase = serializers.SerializerMethodField()
+    phase_label = serializers.SerializerMethodField()
+    processing_mode = serializers.SerializerMethodField()
+    ai_provider = serializers.SerializerMethodField()
 
     class Meta:
         model = ExtractionJob
@@ -21,6 +26,8 @@ class ExtractionJobSerializer(serializers.ModelSerializer):
             'current_step', 'current_step_label', 'progress_percentage',
             'started_at', 'completed_at', 'error_message', 'retry_count', 'ai_router', 'attempts',
             'completeness', 'extraction_warnings', 'chunks_total', 'chunks_completed',
+            'pages_total', 'pages_done', 'ocr_pages', 'vision_pages', 'unreadable_pages', 'continuations', 'heartbeat_at',
+            'next_retry_at', 'phase', 'phase_label', 'processing_mode', 'ai_provider',
             'created_at', 'updated_at', 'ai_input_tokens', 'ai_output_tokens', 'ai_cost_usd',
         ]
         read_only_fields = fields
@@ -41,6 +48,25 @@ class ExtractionJobSerializer(serializers.ModelSerializer):
 
     def get_ai_output_tokens(self, obj):
         return self._usage(obj).ai_output_tokens or 0
+
+    def get_phase(self, obj):
+        from .services.job_phase import phase
+        return phase(obj)
+
+    def get_phase_label(self, obj):
+        from .services.job_phase import phase_label
+        return phase_label(obj)
+
+    def get_processing_mode(self, obj):
+        from .services.router_pool import processing_mode
+        return processing_mode()
+
+    def get_ai_provider(self, obj):
+        from .services.job_phase import provider_label
+        try:
+            return provider_label(obj)
+        except Exception:  # a misconfigured router list must not break the job list
+            return ''
 
     def get_ai_cost_usd(self, obj):
         from .usage import money

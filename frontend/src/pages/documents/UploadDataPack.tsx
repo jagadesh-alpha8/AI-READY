@@ -29,14 +29,14 @@ const POLL_INTERVAL_MS = 3000; // matches AIProcessingMonitor.tsx
 const REQUIRED_CHECKLIST = [
   { type: 'naac_ssr', label: 'NAAC SSR / Latest Self-Study Report', cat: 'Required Core', owner: 'IQAC_COORDINATOR' },
   { type: 'aqar_report', label: 'AQAR / Annual Quality Assurance Report', cat: 'Required Core', owner: 'IQAC_COORDINATOR' },
-  { type: 'aicte_approval', label: 'AICTE Approval / University Affiliation', cat: 'Required Core', owner: 'REGISTRAR' },
-  { type: 'faculty_master', label: 'Faculty Master List & Qualifications', cat: 'Required Core', owner: 'HR_OFFICER' },
-  { type: 'student_strength', label: 'Student Enrolment & Strength Report', cat: 'Required Core', owner: 'REGISTRAR' },
-  { type: 'placement_report', label: 'Placement & Industry Internship Report', cat: 'Required Core', owner: 'PLACEMENT_OFFICER' },
-  { type: 'syllabi_curriculum', label: 'Syllabi & BOS Curriculum Minutes', cat: 'Recommended AI Readiness', owner: 'HOD' },
-  { type: 'lab_inventory', label: 'Lab Infrastructure & Software Inventory', cat: 'Recommended AI Readiness', owner: 'LAB_ADMIN' },
-  { type: 'research_publications', label: 'Research Publications & Patents Log', cat: 'Recommended AI Readiness', owner: 'RESEARCH_CELL' },
-  { type: 'ai_policy_doc', label: 'Institutional AI Strategy & Policy', cat: 'Optional Deep Evidence', owner: 'INSTITUTION_ADMIN' },
+  { type: 'aicte_approval', label: 'AICTE Approval / University Affiliation', cat: 'Required Core', owner: 'IQAC_COORDINATOR' },
+  { type: 'faculty_master', label: 'Faculty Master List & Qualifications', cat: 'Required Core', owner: 'IQAC_COORDINATOR' },
+  { type: 'student_strength', label: 'Student Enrolment & Strength Report', cat: 'Required Core', owner: 'IQAC_COORDINATOR' },
+  { type: 'placement_report', label: 'Placement & Industry Internship Report', cat: 'Required Core', owner: 'IQAC_COORDINATOR' },
+  { type: 'syllabi_curriculum', label: 'Syllabi & BOS Curriculum Minutes', cat: 'Recommended AI Readiness', owner: 'IQAC_COORDINATOR' },
+  { type: 'lab_inventory', label: 'Lab Infrastructure & Software Inventory', cat: 'Recommended AI Readiness', owner: 'IQAC_COORDINATOR' },
+  { type: 'research_publications', label: 'Research Publications & Patents Log', cat: 'Recommended AI Readiness', owner: 'IQAC_COORDINATOR' },
+  { type: 'ai_policy_doc', label: 'Institutional AI Strategy & Policy', cat: 'Optional Deep Evidence', owner: 'IQAC_COORDINATOR' },
 ];
 
 export const UploadDataPack: React.FC = () => {
@@ -232,22 +232,17 @@ export const UploadDataPack: React.FC = () => {
   // Only count ticks for documents that still exist (one may have been deleted).
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="glass-card p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-ink-900 flex items-center gap-2">
-              <Upload className="w-5 h-5 text-brand-800" /> Step {step('sprint-upload')}: Upload Institution Data Pack
-            </h1>
-            <p className="text-sm text-ink-500 mt-1">
-              Upload existing NAAC SSR, AQAR, faculty lists, lab inventory, placement reports, and syllabi for AI processing.
-            </p>
-          </div>
-          <button onClick={handleStartExtraction} disabled={!isRealSprint || documents.length === 0} className="btn-primary shrink-0">
-            <Play className="w-4 h-4 fill-current" />
-            <span>Analyze All Sprint Documents ({documents.length})</span>
-          </button>
-        </div>
+      {/* Action Bar */}
+      <div className="flex justify-end">
+        <button
+          data-tour="upload-start-extraction"
+          onClick={handleStartExtraction}
+          disabled={!isRealSprint || documents.length === 0}
+          className="btn-primary shrink-0"
+        >
+          <Play className="w-4 h-4 fill-current" />
+          <span>Analyze All Sprint Documents ({documents.length})</span>
+        </button>
       </div>
 
       {!isRealSprint && (
@@ -269,7 +264,7 @@ export const UploadDataPack: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left: Document Checklist */}
-        <div className="lg:col-span-5 glass-card p-5 sm:p-6 space-y-4">
+        <div data-tour="upload-checklist" className="lg:col-span-5 glass-card p-5 sm:p-6 space-y-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h2 className="eyebrow">Required Data Pack Checklist</h2>
             <span
@@ -316,17 +311,6 @@ export const UploadDataPack: React.FC = () => {
                       <SlotIcon className={`w-4 h-4 shrink-0 ${SLOT_DISPLAY[slot.state].className}`} />
                       <span className="font-semibold truncate">{item.label}</span>
                     </div>
-                    <p className="text-xs text-ink-500 pl-6">Owner: {item.owner}</p>
-                    {slot.doc && (
-                      <p className="text-xs text-ink-500 pl-6 truncate" title={slot.doc.original_filename}>
-                        {slot.doc.category_confirmed_at
-                          ? `Confirmed by ${slot.doc.category_confirmed_by_name || 'a reviewer'}`
-                          : SLOT_DISPLAY[slot.state].note}
-                        : {slot.doc.original_filename}
-                        {slot.state !== 'awaiting' && !slot.doc.category_confirmed_at && slot.doc.ai_confidence !== null
-                          && ` · ${formatConfidence(slot.doc.ai_confidence)}`}
-                      </p>
-                    )}
                   </div>
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-line-100 text-ink-600 font-mono shrink-0">
                     {item.cat}
@@ -342,7 +326,7 @@ export const UploadDataPack: React.FC = () => {
           {/* The drop box grows to fill the panel's height (it matches the checklist beside it). */}
           <div className="flex-1 flex flex-col">
             <h2 className="eyebrow mb-2">Data Source</h2>
-            <div className="grid grid-cols-2 gap-3 mb-4">
+            <div data-tour="upload-source-toggle" className="grid grid-cols-2 gap-3 mb-4">
               <div
                 onClick={() => setDataSource('drive')}
                 className={`p-3 rounded-xl border-2 cursor-pointer transition-all text-center ${
@@ -367,8 +351,9 @@ export const UploadDataPack: React.FC = () => {
               </div>
             </div>
 
-            {dataSource === 'upload' && (
-              <div className="flex-1 flex flex-col">
+            <div data-tour="upload-dropzone" className="flex-1 flex flex-col">
+              {dataSource === 'upload' && (
+                <div className="flex-1 flex flex-col">
                 <h2 className="eyebrow mb-2">Upload Selected Document</h2>
                 <p className="text-sm text-ink-500 mb-4">
                   Uploading as <span className="font-semibold text-brand-800">{REQUIRED_CHECKLIST.find((c) => c.type === selectedType)?.label}</span> (Owner: <span className="font-semibold text-ink-700">{selectedOwner}</span>).
@@ -426,13 +411,14 @@ export const UploadDataPack: React.FC = () => {
                 driveStopping={driveStopping}
               />
             )}
+            </div>
           </div>
 
         </div>
       </div>
 
       {/* Uploaded Documents Table */}
-      <div className="glass-card p-5 sm:p-6">
+      <div data-tour="upload-documents-table" className="glass-card p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h2 className="eyebrow">Uploaded Document Records</h2>
           {documents.length > 0 && (
@@ -770,11 +756,11 @@ function textCheck(doc: SprintDocument): string {
 
 type SlotState = 'confirmed' | 'review' | 'awaiting' | 'missing';
 
-const SLOT_DISPLAY: Record<SlotState, { icon: typeof CheckCircle2; className: string; note: string }> = {
-  confirmed: { icon: CheckCircle2, className: 'text-success', note: 'Found by AI' },
-  review: { icon: HelpCircle, className: 'text-warning', note: 'Needs review' },
-  awaiting: { icon: Clock, className: 'text-ink-400', note: 'Awaiting AI check' },
-  missing: { icon: AlertCircle, className: 'text-warning', note: '' },
+const SLOT_DISPLAY: Record<SlotState, { icon: typeof CheckCircle2; className: string }> = {
+  confirmed: { icon: CheckCircle2, className: 'text-success' },
+  review: { icon: HelpCircle, className: 'text-warning' },
+  awaiting: { icon: Clock, className: 'text-ink-400' },
+  missing: { icon: AlertCircle, className: 'text-warning' },
 };
 
 /**
@@ -784,16 +770,16 @@ const SLOT_DISPLAY: Record<SlotState, { icon: typeof CheckCircle2; className: st
  * low-confidence AI guess needs review; a document the AI hasn't read yet
  * only counts as "awaiting" on the type it was uploaded/imported as.
  */
-function checklistSlot(type: string, documents: SprintDocument[]): { state: SlotState; doc?: SprintDocument } {
+function checklistSlot(type: string, documents: SprintDocument[]): { state: SlotState } {
   const find = (status: ClassificationStatus, matches: (d: SprintDocument) => boolean) =>
     documents.find((d) => d.classification_status === status && matches(d));
   const confirmed = find('classified', (d) => d.ai_document_type === type && !!d.category_confirmed_at)
     || find('classified', (d) => d.ai_document_type === type);
-  if (confirmed) return { state: 'confirmed', doc: confirmed };
+  if (confirmed) return { state: 'confirmed' };
   const review = find('needs_review', (d) => d.ai_document_type === type);
-  if (review) return { state: 'review', doc: review };
+  if (review) return { state: 'review' };
   const awaiting = find('pending', (d) => d.document_type === type);
-  if (awaiting) return { state: 'awaiting', doc: awaiting };
+  if (awaiting) return { state: 'awaiting' };
   return { state: 'missing' };
 }
 

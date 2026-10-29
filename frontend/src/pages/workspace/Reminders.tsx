@@ -178,6 +178,7 @@ export const Reminders: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
+        dataTour="reminders-header"
         icon={Bell}
         title="Reminders"
         description="What is waiting on someone — computed from the sprint's real state."
@@ -198,18 +199,20 @@ export const Reminders: React.FC = () => {
         <EmptyState message="Nothing needs attention on this sprint." />
       ) : (
         <>
-          <FilterPills
-            options={[
-              { id: 'all', label: 'All', count: alerts.length },
-              ...(['critical', 'high', 'medium'] as Severity[])
-                .map((s) => ({ id: s, label: s, count: alerts.filter((a) => a.severity === s).length }))
-                .filter((o) => o.count > 0),
-            ]}
-            active={filter}
-            onChange={setFilter}
-          />
+          <div data-tour="reminders-filters">
+            <FilterPills
+              options={[
+                { id: 'all', label: 'All', count: alerts.length },
+                ...(['critical', 'high', 'medium'] as Severity[])
+                  .map((s) => ({ id: s, label: s, count: alerts.filter((a) => a.severity === s).length }))
+                  .filter((o) => o.count > 0),
+              ]}
+              active={filter}
+              onChange={setFilter}
+            />
+          </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2" data-tour="reminders-list">
             {visible.map((alert) => {
               const Icon = alert.icon;
               return (
