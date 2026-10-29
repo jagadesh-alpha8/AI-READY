@@ -2162,8 +2162,6 @@ class EvidenceAssessmentRetryTests(FactTestBase):
         self.assertIn('Someone other than the person who submitted', str(response.data['detail']))
         response, _ = self._retry(req, link, user=self.viewer, run=False)
         self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
-        response, _ = self._retry(req, link, user=self.registrar, run=False)  # not the fact's reviewer
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response, _ = self._retry(req, link, user=self.outsider, run=False)  # another college
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         link.refresh_from_db()

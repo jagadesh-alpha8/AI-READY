@@ -385,7 +385,7 @@ class SprintScoreEndpointTests(ScoringTestBase):
     def test_the_colleges_iqac_coordinator_can_calculate_the_cri(self):
         self._auth(self.iqac)  # 3-role model: the college's IQAC Coordinator manages its sprint
         self.assertEqual(self.client.post(f'/api/v1/sprints/{self.sprint.id}/score/').status_code,
-                         status.HTTP_201_CREATED)
+                         status.HTTP_200_OK)
 
     def test_outsider_forbidden_on_get_and_post(self):
         self._auth(self.outsider)

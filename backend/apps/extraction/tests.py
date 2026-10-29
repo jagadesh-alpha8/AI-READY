@@ -3850,7 +3850,7 @@ class GapEvidenceUploadTests(ExtractionJobTestBase):
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
         gap.refresh_from_db()
         self.assertEqual(gap.status, 'resolved')
-        self.assertIn('Verified from uploaded evidence', gap.resolution)
+        self.assertIn('45', gap.resolution)  # closed by the chosen, reviewed value from the evidence
         self.assertGreater(ScoringRun.objects.filter(sprint=self.sprint).count(), runs)  # CRI recalculated
 
     def test_a_conflict_keeps_the_low_confidence_gap_open(self):
