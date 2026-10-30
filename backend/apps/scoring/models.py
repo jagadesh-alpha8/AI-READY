@@ -240,3 +240,61 @@ class BaselineDecisionHistory(models.Model):
 
     def __str__(self):
         return f'{self.baseline_id} — {self.action}'
+
+
+class CapabilityHistoryQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValueError('Capability history cannot be updated.')
+
+    def delete(self):
+        raise ValueError('Capability history cannot be deleted.')
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValueError('Capability history cannot be updated.')
+
+
+class CapabilityRun(models.Model):
+    """Frozen inputs. Status and outputs are append-only CapabilityRunEvent rows.
+
+    Service writes lock this row before appending events. Never reuse legacy CRI rows.
+    Raw SQL bypasses application immutability and is not supported.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.ForeignKey('sprints.Sprint', on_delete=models.PROTECT, related_name='capability_runs')
+    objects = CapabilityHistoryQuerySet.as_manager()
+    inputs = models.JSONField()
+    inputs_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Capability run inputs are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Capability history cannot be deleted.')
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+class CapabilityRunEvent(models.Model):
+    """Append-only checkpoints; a completed event publishes all outputs together."""
+    id = models.BigAutoField(primary_key=True)
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='events')
+    objects = CapabilityHistoryQuerySet.as_manager()
+    state = models.CharField(max_length=16, choices=[(s, s) for s in
+        ('queued', 'running', 'partial', 'completed', 'failed', 'cancelled')])
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Capability events are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Capability history cannot be deleted.')
+
+    class Meta:
+        ordering = ['id']
