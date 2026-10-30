@@ -61,6 +61,7 @@ class FactAIQIFMappingSerializer(serializers.ModelSerializer):
 
 
 class ExtractedFactSerializer(serializers.ModelSerializer):
+    catalogue = serializers.SerializerMethodField()
     sprint_id = serializers.PrimaryKeyRelatedField(source='sprint', read_only=True)
     document_id = serializers.PrimaryKeyRelatedField(source='document', read_only=True)
     source_document_id = serializers.PrimaryKeyRelatedField(source='source_document', read_only=True)
@@ -102,7 +103,7 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExtractedFact
         fields = [
-            'id', 'sprint_id', 'document_id', 'field_name', 'field_key', 'audit_field_id', 'value', 'value_text',
+            'id', 'sprint_id', 'document_id', 'field_name', 'field_key', 'catalogue', 'audit_field_id', 'value', 'value_text',
             'value_json', 'normalized_value', 'data_type', 'pillar', 'pillar_label', 'owner_role',
             'source_document_id', 'source_document_filename', 'source_page', 'source_snippet',
             'confidence_score', 'confidence', 'confidence_reason', 'extraction_method', 'status',
@@ -116,6 +117,29 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
             'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
+
+    def get_catalogue(self, obj):
+        from .catalogue import VERSION, canonical_type, identity
+        from apps.extraction.models import ExtractionSnapshot
+        if 'extraction_presence_cache' not in self.context:
+            from django.db.models import OuterRef, Subquery
+            instances = getattr(self.parent, 'instance', None)
+            instances = instances if instances is not None else [obj]
+            ids = {f.document_id for f in instances}
+            cache = {document_id: None for document_id in ids}
+            latest = ExtractionSnapshot.objects.filter(document_id=OuterRef('document_id')).order_by('-created_at', '-id')
+            rows = ExtractionSnapshot.objects.filter(document_id__in=[i for i in ids if i]).filter(pk=Subquery(latest.values('pk')[:1]))
+            for row in rows:
+                cache[row.document_id] = {identity(f) for f in row.payload['facts']}
+            self.context['extraction_presence_cache'] = cache
+        cache = self.context['extraction_presence_cache']
+        if obj.document_id not in cache:
+            latest = ExtractionSnapshot.objects.filter(document_id=obj.document_id).first() if obj.document_id else None
+            cache[obj.document_id] = ({identity(f) for f in latest.payload['facts']} if latest else None)
+        present = cache[obj.document_id]
+        return {'version': VERSION, 'type': canonical_type(obj.field_key) or 'additional_observation',
+                'latest_extraction_presence': 'not_recorded' if present is None else
+                    'observed' if identity(obj) in present else 'retained_from_earlier_extraction'}
 
     def _check(self, obj):
         request = self.context.get('request')
@@ -253,7 +277,7 @@ class BulkFactConfirmSerializer(serializers.Serializer):
     )
     comment = serializers.CharField(required=False, allow_blank=True, default='')
     #: Confirm only facts the verification found `verified` (the safe bulk action for exception review).
-    only_verified = serializers.BooleanField(required=False, default=False)
+    only_verified = serializers.BooleanField(required=False, default=True)
 
     def validate_fact_ids(self, value):
         # A repeated ID should never create repeated review history entries.

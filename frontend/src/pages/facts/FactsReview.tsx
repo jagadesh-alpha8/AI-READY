@@ -17,13 +17,12 @@ import { FileSearch, ArrowRight } from 'lucide-react';
 import { ScrollableTable } from '../../components/ScrollableTable';
 import { TableFilters } from '../../components/TableFilters';
 import { useAccess } from '../../utils/access';
-import { CriConfidenceTile } from '../scoring/CriConfidenceTile';
-import { RequestEvidenceModal } from './RequestEvidenceModal';
 import { FactVerificationModal, VerificationCell } from './FactVerification';
 import { VerificationPanel } from './VerificationPanel';
 import { PendingCorrectionNote, ProposeCorrectionModal } from './CorrectionProposal';
 import { FactKindBadge } from './AIQIFSummaryBar';
 import { AIQIFTagRow, FactReviewState } from './AIQIFTagRow';
+import { reviewEvidenceRequest } from '../../api/evidenceRequests';
 import { confirmDialog, promptDialog } from '../../components/Dialog';
 import { isRealSprintId } from '../../utils/selectedSprint';
 
@@ -44,6 +43,7 @@ export const FactsReview: React.FC = () => {
   // Filters (server-side, apps/facts/filters.py): only the current page of facts is loaded; filter options and
   // totals come from aggregate counts over the whole sprint (facets).
   const [search, setSearch] = useState('');
+  const [reviewQueue, setReviewQueue] = useState('exceptions');
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [kindFilter, setKindFilter] = useState('');
@@ -52,7 +52,7 @@ export const FactsReview: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState('');
   const q = useDebounced(search.trim());
   const query = {
-    q, status: statusFilter, source_document: sourceFilter, fact_kind: kindFilter,
+    q, review_queue: reviewQueue, status: statusFilter, source_document: sourceFilter, fact_kind: kindFilter,
     pillar: pillarFilter, aiqif_indicator: categoryFilter, verification_status: verificationFilter,
   };
   const queryKey = JSON.stringify(query);
@@ -105,6 +105,17 @@ export const FactsReview: React.FC = () => {
     }
   };
 
+  const withdrawRequest = async (fact: Fact) => {
+    if (!fact.open_evidence_request) return;
+    setActingOnId(fact.id);
+    setActionError('');
+    try {
+      await reviewEvidenceRequest(fact.open_evidence_request.id, { decision: 'withdraw', reason: 'Reviewer closed the request to continue with direct evidence upload and review.' });
+      refetch();
+    } catch (err) { setActionError(getErrorMessage(err, 'Could not close this evidence request.')); }
+    finally { setActingOnId(null); }
+  };
+
   const handleBulkConfirm = async () => {
     if (!sprintId) return;
     setBulkConfirming(true);
@@ -112,8 +123,8 @@ export const FactsReview: React.FC = () => {
     let factIds: string[] = [];
     try {
       // Every page matching the current filters, still unreviewed; the server decides who may act on each.
-      const { data } = await listSprintFacts(sprintId, { ...query, status: 'extracted' });
-      factIds = data.filter((fact) => fact.can_act === true && !fact.open_evidence_request).map((fact) => fact.id);
+      const { data } = await listSprintFacts(sprintId, { ...query, review_queue: 'verified', status: 'extracted', verification_status: 'verified' });
+      factIds = data.filter((fact) => fact.can_act === true && !fact.open_evidence_request && fact.verification?.risk_level !== 'high').map((fact) => fact.id);
     } catch (err) {
       setActionError(getErrorMessage(err, 'Could not list the eligible facts.'));
       setBulkConfirming(false); setBulkProgress('');
@@ -125,7 +136,7 @@ export const FactsReview: React.FC = () => {
       return;
     }
     const accepted = await confirmDialog(
-      `Confirm ${factIds.length} fact(s) from this list? The others need a one-by-one review. `
+      `Accept ${factIds.length} verified fact(s) matching these filters? The others need a one-by-one review. `
       + 'Each confirmation is recorded in the audit history.',
       { title: 'Bulk confirm', confirmLabel: `Confirm ${factIds.length}` },
     );
@@ -143,7 +154,7 @@ export const FactsReview: React.FC = () => {
       for (let offset = 0; offset < factIds.length; offset += batchSize) {
         const batch = factIds.slice(offset, offset + batchSize);
         setBulkProgress(`Confirming ${Math.min(offset + batch.length, factIds.length)} of ${factIds.length}…`);
-        const { data } = await bulkConfirmSprintFacts(sprintId, batch, 'Confirmed by reviewer using Confirm all.');
+        const { data } = await bulkConfirmSprintFacts(sprintId, batch, 'Verified facts accepted in a batch by the reviewer.', true);
         confirmedCount += data.confirmed_count;
         skippedCount += data.skipped_count;
         data.skipped.forEach(({ reason }) => skippedReasons.set(reason, (skippedReasons.get(reason) || 0) + 1));
@@ -196,8 +207,6 @@ export const FactsReview: React.FC = () => {
     }
   };
 
-  // "Request Evidence" opens a form (what, why, who, by when); see RequestEvidenceModal.
-  const [requestingFor, setRequestingFor] = useState<Fact | null>(null);
   // Why a fact was (or was not) verified, and correcting a value a person already reviewed.
   const [verifyingFact, setVerifyingFact] = useState<Fact | null>(null);
   const [proposingFor, setProposingFor] = useState<Fact | null>(null);
@@ -226,24 +235,15 @@ export const FactsReview: React.FC = () => {
           }}
         />
       )}
-      {requestingFor && (
-        <RequestEvidenceModal
-          fact={requestingFor}
-          onClose={() => setRequestingFor(null)}
-          onCreated={() => { setRequestingFor(null); refetch(); }}
-        />
-      )}
       {/* Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="sr-only">Extracted Facts Review</h1>
-          <div data-tour="facts-summary-tile">
-            {isRealSprint && <CriConfidenceTile sprintId={sprintId!} />}
-          </div>
+          <h2 className="text-lg font-bold">Extracted Facts Review</h2>
+          <p className="text-sm text-ink-600 mt-1">Review exceptions first. Model confidence is an estimate, not a verified probability. Fact confirmation does not gate capability assessment.</p>
         </div>
         <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
-          <button onClick={() => navigate(`/sprint/${sprintId}/gaps`)} className="btn-primary shrink-0">
-            <span>Proceed to Gap Dashboard</span>
+          <button onClick={() => navigate(`/sprint/${sprintId}/score`)} className="btn-primary shrink-0">
+            <span>Open assessment</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
@@ -294,6 +294,8 @@ export const FactsReview: React.FC = () => {
               shown={pageData?.count ?? 0}
               total={totalFacts}
               selects={[
+                { key: 'queue', label: 'Review queue', value: reviewQueue, onChange: setReviewQueue,
+                  options: [{ value: 'exceptions', label: 'Exceptions' }, { value: 'verified', label: 'Verified facts' }] },
                 { key: 'verification', label: 'Verification', value: verificationFilter, onChange: setVerificationFilter,
                   options: optionsFromCounts(facets?.verification_status, (v: string) => ({
                     verified: 'Verified', needs_review: 'Needs review', invalid: 'Invalid', conflicting: 'Conflicting',
@@ -301,7 +303,7 @@ export const FactsReview: React.FC = () => {
                 { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
                   options: optionsFromCounts(facets?.status, (v: string) => v.replace(/_/g, ' ')) },
                 // The CRI pillars are the 9 AI-QIF criteria in framework order; one with no facts still shows, as (0).
-                { key: 'pillar', label: 'CRI Pillar', value: pillarFilter, onChange: setPillarFilter,
+                { key: 'pillar', label: 'Evidence pillar', value: pillarFilter, onChange: setPillarFilter,
                   options: pillarOptions(facets?.pillars) },
                 // Facts tagged to one of the 36 AI-QIF key indicators (what the AI-QIF Category column shows).
                 { key: 'category', label: 'AI-QIF Category', value: categoryFilter, onChange: setCategoryFilter,
@@ -322,11 +324,9 @@ export const FactsReview: React.FC = () => {
                 onClick={handleBulkConfirm}
                 disabled={bulkConfirming}
                 className="btn-primary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title={'Confirms every not-yet-reviewed fact in this list (all pages) that you may confirm. Facts that '
-                  + 'need a closer look -- low confidence, in a conflict, missing details, owned by another role, or '
-                  + 'with an open evidence request -- are left for you to review one by one.'}
+                title="Accepts verified, eligible facts matching these filters across all pages. Evidence is rechecked on the server. High-risk facts require individual review."
               >
-                {bulkConfirming ? bulkProgress : `Confirm all listed facts (${pageData?.count ?? 0})`}
+                {bulkConfirming ? bulkProgress : 'Accept verified facts'}
               </button>
             </div>
           )}
@@ -346,10 +346,10 @@ export const FactsReview: React.FC = () => {
                   <th title="The AI-QIF criteria and key indicators this fact is evidence for. A category only: it does not change any score.">
                     AI-QIF Category
                   </th>
-                  <th title="The pillar the CRI scores this fact under once it is confirmed.">CRI Pillar</th>
+                  <th>Evidence pillar</th>
                   <th>Source Document</th>
                   <th>Source Snippet</th>
-                  <th>Confidence</th>
+                  <th title="The model’s own estimate, not a calibrated probability or verification result.">Model confidence</th>
                   <th title="Checked against the cited page: citation, quote, value, validation rules and other sources. Separate from the extraction confidence.">Verification</th>
                   <th>Status</th>
                   <th className="text-right">Actions</th>
@@ -361,6 +361,8 @@ export const FactsReview: React.FC = () => {
                     <td className="text-ink-500 tabular-nums">{(page - 1) * DEFAULT_PAGE_SIZE + index + 1}</td>
                     <td className="font-mono text-xs font-bold text-brand-800">
                       {fact.audit_field_id}
+                      {fact.catalogue && <span className="block text-[11px] font-normal text-ink-500 mt-1">{fact.catalogue.type.replace(/_/g, ' ')} · {fact.catalogue.version}</span>}
+                      {fact.catalogue?.latest_extraction_presence === 'retained_from_earlier_extraction' && <span className="block text-[11px] text-warning mt-1">Current value not present in latest extraction</span>}
                     </td>
                     <td className="font-semibold text-ink-900">
                       {editingFactId === fact.id ? (
@@ -407,7 +409,7 @@ export const FactsReview: React.FC = () => {
                         </div>
                       )}
                     </td>
-                    <td className="font-mono font-semibold text-success tabular-nums">
+                    <td className="font-mono font-semibold text-ink-600 tabular-nums">
                       {(fact.confidence * 100).toFixed(0)}%
                     </td>
                     <td><VerificationCell fact={fact} onOpen={() => setVerifyingFact(fact)} /></td>
@@ -437,16 +439,10 @@ export const FactsReview: React.FC = () => {
                         </span>
                       ) : fact.open_evidence_request ? (
                         // Decided on the request (accept / correct / reject evidence / withdraw), not here.
-                        <Link
-                          to={`/evidence-requests?view=all&id=${fact.open_evidence_request.id}`}
-                          className="inline-block text-left text-xs font-semibold text-accent hover:underline"
-                        >
-                          Evidence request: {fact.open_evidence_request.overdue ? 'overdue' : fact.open_evidence_request.status_label.toLowerCase()}
-                          <span className="block font-normal text-ink-500">
-                            {fact.open_evidence_request.assigned_to_name || 'not assigned yet'}
-                            {fact.open_evidence_request.due_date ? ` · due ${fact.open_evidence_request.due_date}` : ''}
-                          </span>
-                        </Link>
+                        <div className="inline-block text-left text-xs whitespace-normal max-w-xs">
+                          <p>Existing evidence request: {fact.open_evidence_request.status_label}</p>
+                          <button className="btn-secondary btn-sm mt-1" disabled={actingOnId === fact.id} onClick={() => withdrawRequest(fact)}>Close request and review directly</button>
+                        </div>
                       ) : (
                       <>
                       {fact.status !== 'confirmed' && (
@@ -480,13 +476,7 @@ export const FactsReview: React.FC = () => {
                           Correct
                         </button>
                       )}
-                      <button
-                        onClick={() => setRequestingFor(fact)}
-                        disabled={actingOnId === fact.id}
-                        className="px-2.5 py-1 bg-line-200 hover:bg-line-300 text-accent text-xs font-semibold rounded transition-colors disabled:opacity-60"
-                      >
-                        Request Evidence
-                      </button>
+                      <Link to={`/sprint/${sprintId}/upload?fact=${fact.id}`} className="px-2.5 py-1 text-accent text-xs font-semibold">Upload supporting evidence</Link>
                       {fact.status !== 'rejected' && (
                         <button
                           onClick={() => handleReject(fact.id)}

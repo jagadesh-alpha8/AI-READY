@@ -86,6 +86,9 @@ def read_scope(fact, *, stated=None):
         scope['population'] = [str(stated['population']).lower()]
         sources['population'] = 'extraction'
     sources['unit'] = 'deterministic'
+    if isinstance(stated.get('unit'), str) and stated['unit'].strip():
+        scope['unit'] = ' '.join(stated['unit'].lower().split())
+        sources['unit'] = 'extraction'
     if scope['includes'] or scope['excludes']:
         sources['categories'] = stated.get('source', 'extraction')
     scope['sources'] = sources

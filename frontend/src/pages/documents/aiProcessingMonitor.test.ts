@@ -48,7 +48,7 @@ describe('AI Processing Monitor live updates', async () => {
   it('keeps the monitor on screen while a background refresh is loading', () => {
     const html = render({ loading: true });  // data already there, a refresh in flight
     assert.ok(!html.includes('Loading extraction jobs'), 'no full loading screen');
-    for (const t of ['ssr.pdf', '42%', '3 Facts']) assert.ok(html.includes(t), t);
+    for (const t of ['ssr.pdf', '42%', 'Fully processed current documents']) assert.ok(html.includes(t), t);
   });
 
   it('shows Live and an eased progress bar while a document is processing', () => {

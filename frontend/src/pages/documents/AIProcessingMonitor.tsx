@@ -13,7 +13,6 @@ import {
 } from '../../api/extraction';
 import { listSprintDocuments } from '../../api/documents';
 import { getSprintFactFacets, type FactFacets } from '../../api/facts';
-import { getSprintGapFacets, type GapFacets } from '../../api/gaps';
 import { useApiResource } from '../../hooks/useApiResource';
 import { ErrorState, LoadingState } from '../../components/ApiStates';
 import { getErrorMessage, humanizeExtractionError } from '../../utils/errors';
@@ -89,20 +88,12 @@ export const AIProcessingMonitor: React.FC = () => {
     [sprintId],
     isRealSprint,
   );
-  const { data: gapFacets, refresh: refreshGaps } = useApiResource<GapFacets>(
-    () => getSprintGapFacets(sprintId!),
-    [sprintId],
-    isRealSprint,
-  );
   const { data: usage, refresh: refreshUsage } = useApiResource<SprintAIUsage>(
     () => getSprintAIUsage(sprintId!),
     [sprintId],
     isRealSprint && SHOW_AI_USAGE,
   );
   const factCountsByDocument = new Map<string, number>(Object.entries(factFacets?.by_document || {}));
-  const factTotal = factFacets?.total ?? 0;
-  const gapTotal = gapFacets?.total ?? 0;
-  const conflictCount = gapFacets?.gap_type?.conflict ?? 0;
 
   const hasActiveJob = jobs.some((j) => ACTIVE_EXTRACTION_STATUSES.includes(j.status));
   const isPartial = (job?: ExtractionJob) => job?.status === 'completed' && job.completeness === 'partial';
@@ -188,7 +179,7 @@ export const AIProcessingMonitor: React.FC = () => {
     inFlight.current = true;
     try {
       const errors = await Promise.all([refreshJobs(), refreshDocuments(), refreshSummary(), refreshFacts(),
-        refreshGaps(), refreshUsage()]);
+        refreshUsage()]);
       const failed = errors.find(Boolean);
       if (failed) setRefreshError(failed);
       else { setRefreshError(''); setLastUpdated(Date.now()); }
@@ -264,8 +255,8 @@ export const AIProcessingMonitor: React.FC = () => {
             <span>Stop Processing</span>
           </button>
         )}
-        <button data-tour="monitor-proceed-btn" onClick={() => navigate(`/sprint/${sprintId}/facts`)} className="btn-primary shrink-0">
-          <span>Proceed to Extracted Facts</span>
+        <button data-tour="monitor-proceed-btn" onClick={() => navigate(`/sprint/${sprintId}/evidence?tab=review`)} className="btn-primary shrink-0">
+          <span>Open evidence & review</span>
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>
@@ -303,7 +294,7 @@ export const AIProcessingMonitor: React.FC = () => {
           {SHOW_AI_USAGE && usage && usage.calls > 0 && <AIUsagePanel usage={usage} currentTotal={currentTotal} />}
 
           {/* Progress Cards */}
-          <div data-tour="monitor-summary-tiles" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div data-tour="monitor-summary-tiles" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
             <div className="glass-card p-5">
               <div className="flex items-center justify-between text-ink-500">
                 <span className="text-sm font-medium">Fully processed current documents</span>
@@ -316,34 +307,7 @@ export const AIProcessingMonitor: React.FC = () => {
               </span>
             </div>
 
-            <div className="glass-card p-5">
-              <div className="flex items-center justify-between text-ink-500">
-                <span className="text-sm font-medium">Facts Extracted</span>
-                <Cpu className="w-4 h-4 text-brand-800" />
-              </div>
-              <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{factTotal} Facts</p>
-              <span className="text-xs text-brand-800 mt-1 inline-block font-medium">Mapped to Audit Fields</span>
-            </div>
 
-            <div className="glass-card p-5">
-              <div className="flex items-center justify-between text-ink-500">
-                <span className="text-sm font-medium">Gaps Detected</span>
-                <AlertTriangle className="w-4 h-4 text-warning" />
-              </div>
-              <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{gapTotal} Fields</p>
-              <span className="text-xs text-warning mt-1 inline-block font-medium">Assigned to Owners</span>
-            </div>
-
-            <div className="glass-card p-5">
-              <div className="flex items-center justify-between text-ink-500">
-                <span className="text-sm font-medium">Conflicts Detected</span>
-                <Layers className="w-4 h-4 text-accent" />
-              </div>
-              <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">{conflictCount} Conflict{conflictCount === 1 ? '' : 's'}</p>
-              <span className="text-xs text-accent mt-1 inline-block font-medium">
-                {conflictCount > 0 ? 'Review in Gap Dashboard' : 'None detected'}
-              </span>
-            </div>
           </div>
 
           {/* One count per state; only "fully processed" counts as done (review, CRI, baseline and reports say so too). */}

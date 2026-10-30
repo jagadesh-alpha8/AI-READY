@@ -99,6 +99,17 @@ export interface Assessment {
   inputs_hash: string;
 }
 export interface Run extends Job {
+  diagnostics?: {
+    explanation: string;
+    source_documents: number;
+    readable_pages: number;
+    unreadable_or_unavailable_pages: number;
+    state_counts: Record<ConditionState, number>;
+    foundation_blockers: { indicator: string; requirements: string[] }[];
+    validation_issues: { reason: string; count: number }[];
+    indicators_with_bounded_context: number;
+    limitations: string;
+  } | null;
   inputs_hash: string;
   population: string;
   profile: {
@@ -193,7 +204,7 @@ export const updateAction = (
 export async function downloadCapabilityReport(
   sprint: string,
   run: string,
-  format: 'html' | 'json',
+  format: 'html' | 'json' | 'pdf',
   advice?: string,
 ) {
   const response = await api.get(`${path(sprint, run)}/report`, {

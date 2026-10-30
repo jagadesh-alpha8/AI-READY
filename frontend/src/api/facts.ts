@@ -22,6 +22,7 @@ export interface FactQuery {
   tag_review?: string;
   /** Latest verification outcome: verified / needs_review / invalid / conflicting / none (never verified). */
   verification_status?: string;
+  review_queue?: string;
   ordering?: string;
 }
 
@@ -79,7 +80,7 @@ export interface BulkFactConfirmResult {
 }
 
 /** Confirm up to 100 facts in one sprint while preserving backend ownership checks and per-fact audit history. */
-export function bulkConfirmSprintFacts(sprintId: string, factIds: string[], comment = '', onlyVerified = false) {
+export function bulkConfirmSprintFacts(sprintId: string, factIds: string[], comment = '', onlyVerified = true) {
   return api.post<BulkFactConfirmResult>(`/sprints/${sprintId}/facts/bulk-confirm`, {
     fact_ids: factIds,
     comment,

@@ -1714,7 +1714,7 @@ class OpenAIFactExtractorTests(TestCase):
         first_call_content = service.extract_structured_data.call_args_list[0].kwargs['user_content']
         self.assertIn('chunk 1 of 3', first_call_content)
 
-    def test_duplicate_facts_across_chunks_keep_the_strongest_evidence(self):
+    def test_unscoped_observations_on_different_pages_are_preserved(self):
         pages = {'pages': [_page(i, f'Page {i} content. ' * 10) for i in range(1, 3)]}
         service = self._fake_service(results=[
             {'facts': [_valid_fact(source_page='1', confidence_score=0.6, source_snippet='Weaker mention.')]},
@@ -1724,9 +1724,8 @@ class OpenAIFactExtractorTests(TestCase):
 
         facts = extractor.extract_facts(self.document, pages)
 
-        self.assertEqual(len(facts), 1)
-        self.assertEqual(facts[0]['confidence_score'], 0.95)
-        self.assertEqual(facts[0]['source_page'], '2')
+        self.assertEqual(len(facts), 2)
+        self.assertEqual({f['source_page'] for f in facts}, {'1', '2'})
 
     def test_too_many_chunks_are_capped_not_unbounded(self):
         pages = {'pages': [_page(i, f'Page {i} content. ' * 10) for i in range(1, 6)]}
@@ -3291,7 +3290,7 @@ class DocumentAnalyzerTests(TestCase):
             {'classification': dict(FAKE_CLASSIFICATION_RESULT), 'facts': [_valid_fact()]},
             {'facts': [_valid_fact(field_key='total_students', field_name='Total Students', value='900',
                                    source_page='2')]},
-            {'facts': [_valid_fact(value='42', source_page='3', confidence_score=0.99)]},  # same key: merged
+            {'facts': [_valid_fact(value='42', source_page='3', confidence_score=0.99)]},  # same key, unknown scope: preserve its separate page observation
         ])
         first, facts = self._analyze(analyzer, self._pages(text, text, text))
 
@@ -3302,7 +3301,7 @@ class DocumentAnalyzerTests(TestCase):
             ('extracted_facts', 'fact_extraction'),
         ])
         self.classifier.classify.assert_not_called()
-        self.assertEqual(sorted(f['field_key'] for f in facts), ['total_faculty', 'total_students'])
+        self.assertEqual(sorted(f['field_key'] for f in facts), ['total_faculty', 'total_faculty', 'total_students'])
 
     def test_a_document_without_text_asks_for_classification_only(self):
         def classify(document, pages=None):
@@ -4117,10 +4116,10 @@ class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
                              'aiqif_mappings': [tag('AIQIF-C3.1', 0.8)]})
         _merge_fact(merged, {'field_key': 'k', 'confidence_score': 0.9, 'naac_metric': '',
                              'aiqif_mappings': [tag('AIQIF-C3.2', 0.9)]})
-        self.assertEqual(merged['k']['confidence_score'], 0.9)
-        self.assertEqual(sorted(m['indicator_code'] for m in merged['k']['aiqif_mappings']),
+        self.assertEqual(next(iter(merged.values()))['confidence_score'], 0.9)
+        self.assertEqual(sorted(m['indicator_code'] for m in next(iter(merged.values()))['aiqif_mappings']),
                          ['AIQIF-C3.1', 'AIQIF-C3.2'])
-        self.assertEqual(merged['k']['naac_metric'], '1.1.3')
+        self.assertEqual(next(iter(merged.values()))['naac_metric'], '1.1.3')
 
 
 class FailoverRedis(FakeRedis):
@@ -4428,7 +4427,10 @@ class RouterFailoverTaskTests(ExtractionJobTestBase):
         self.assertEqual(self.document.extracted_facts.filter(field_key='total_faculty').count(), 1)
         reviewed.refresh_from_db()
         self.assertEqual((reviewed.value, reviewed.status), (7, 'confirmed'))  # a person's value is kept
-        self.assertEqual(self.document.extracted_facts.count(), 2)
+        # The old reviewed row has no type/page/scope metadata. Do not silently
+        # identify it with the new, typed observation; preserve both and the review.
+        self.assertEqual(self.document.extracted_facts.count(), 3)
+        self.assertTrue(self.document.extracted_facts.filter(field_key='labs', value=9).exists())
         self.assertFalse(FactReviewHistory.objects.filter(fact=reviewed).exists())
 
     @override_settings(AI_PROCESSING_MODE='single')

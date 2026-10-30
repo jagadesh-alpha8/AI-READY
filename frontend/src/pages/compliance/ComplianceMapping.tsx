@@ -88,7 +88,7 @@ export const ComplianceMapping: React.FC = () => {
       <div className="space-y-6">
         <PageHeader
           icon={Network}
-          title="Compliance Mapping"
+          title="Accreditation Evidence"
           description="Which accreditation evidence this institution holds, and what is missing."
         />
         <EmptyState message="No sprints yet. Evidence is gathered during a discovery sprint." />
@@ -103,7 +103,7 @@ export const ComplianceMapping: React.FC = () => {
       <PageHeader
         dataTour="compliance-header"
         icon={Network}
-        title="Compliance Mapping"
+        title="Accreditation Evidence"
         description="Which accreditation evidence this institution holds, and what is missing."
       />
 

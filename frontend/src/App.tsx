@@ -22,31 +22,12 @@ import { ModulePreview } from './pages/previews/ModulePreview';
 import { AdminSettings } from './pages/admin/AdminSettings';
 // Platform modules (originally ported from the InGage prototype; all now read
 // real API data).
-import { EvidenceIntelligence } from './pages/evidence/EvidenceIntelligence';
-import { EvidenceRequests } from './pages/evidence/EvidenceRequests';
-import { CriBenchmarkIntelligence } from './pages/benchmark/CriBenchmarkIntelligence';
 import { BenchmarkStudio } from './pages/benchmark/BenchmarkStudio';
 import { BenchmarkAssessments } from './pages/assessments/BenchmarkAssessments';
-import { TransformationPlan } from './pages/workspace/TransformationPlan';
-import { GoalsTasks } from './pages/workspace/GoalsTasks';
-import { AICopilot } from './pages/chat/AICopilot';
-import { Reminders } from './pages/workspace/Reminders';
-import { ComplianceMapping } from './pages/compliance/ComplianceMapping';
-import { UatReadiness } from './pages/workspace/UatReadiness';
 import { SprintSetup } from './pages/sprints/SprintSetup';
-import { UploadDataPack } from './pages/documents/UploadDataPack';
-import { AIProcessingMonitor } from './pages/documents/AIProcessingMonitor';
-import { FactsReview } from './pages/facts/FactsReview';
 import { AIQIFExpertQueue } from './pages/facts/AIQIFExpertQueue';
-import { ConfirmationWorkspace } from './pages/facts/ConfirmationWorkspace';
-import { GapDashboard } from './pages/gaps/GapDashboard';
-import { LiveCRIPreview } from './pages/scoring/LiveCRIPreview';
-import { BaselineApproval } from './pages/scoring/BaselineApproval';
-import { RecommendationsReview } from './pages/recommendations/RecommendationsReview';
-import { ReportPreviewExport } from './pages/reports/ReportPreviewExport';
+import { EvidenceWorkspace, UploadWorkspace, WorkspaceRedirect } from './pages/evidence/EvidenceWorkspace';
 import { CapabilityWorkspace } from './pages/capability/CapabilityWorkspace';
-
-const Legacy: React.FC<{ children: React.ReactNode }> = ({ children }) => <><div className="panel-muted mb-6"><strong>Legacy CRI workflow</strong><p>These historical scores, recommendations and approvals use the previous methodology. They do not determine current capability scores or block capability reports.</p></div>{children}</>;
 
 /** /login itself, redirecting away if a session is already active. */
 const LoginRoute: React.FC = () => {
@@ -129,47 +110,37 @@ function AppRoutes() {
           Reached by URL. Still requires a session — it names unbuilt work. */}
       <Route path="/status-dashboard" element={<StandaloneRoute><StatusDashboard /></StandaloneRoute>} />
 
-      {/* Ported from the InGage prototype: real screens, demo data. */}
-      <Route path="/evidence" element={<ProtectedLayout menu="evidence-intelligence" sprint="required"><EvidenceIntelligence /></ProtectedLayout>} />
-      <Route path="/evidence-requests" element={<ProtectedLayout menu="evidence-requests"><EvidenceRequests /></ProtectedLayout>} />
+      {/* Canonical workspaces; earlier bookmarks redirect to the matching section. */}
+      <Route path="/evidence" element={<ProtectedLayout menu="evidence-intelligence" sprint="required"><WorkspaceRedirect tab="documents" /></ProtectedLayout>} />
       <Route path="/cri-benchmark" element={<ProtectedLayout menu="cri-benchmark-intelligence" sprint="required"><CapabilityWorkspace /></ProtectedLayout>} />
       <Route path="/benchmark-studio" element={<ProtectedLayout menu="benchmark-studio"><BenchmarkStudio /></ProtectedLayout>} />
       <Route path="/benchmark-assessment" element={<ProtectedLayout menu="benchmark-assessment"><BenchmarkAssessments /></ProtectedLayout>} />
-      <Route path="/transformation-plan" element={<ProtectedLayout menu="transformation-plan" sprint="required"><CapabilityWorkspace mode="actions" /></ProtectedLayout>} />
-      <Route path="/goals-tasks" element={<ProtectedLayout menu="goals-tasks" sprint="required"><CapabilityWorkspace mode="actions" /></ProtectedLayout>} />
-      <Route path="/ai-copilot" element={<ProtectedLayout menu="ai-copilot" sprint="required"><Legacy><AICopilot /></Legacy></ProtectedLayout>} />
-      <Route path="/reminders" element={<ProtectedLayout menu="reminders" sprint="required"><Legacy><Reminders /></Legacy></ProtectedLayout>} />
-      <Route path="/compliance" element={<ProtectedLayout menu="compliance-mapping" sprint="required"><ComplianceMapping /></ProtectedLayout>} />
-      <Route path="/uat-readiness" element={<ProtectedLayout menu="uat-readiness" sprint="required"><Legacy><UatReadiness /></Legacy></ProtectedLayout>} />
+      <Route path="/transformation-plan" element={<ProtectedLayout menu="transformation-plan" sprint="required"><WorkspaceRedirect actions /></ProtectedLayout>} />
+      <Route path="/goals-tasks" element={<ProtectedLayout menu="goals-tasks" sprint="required"><WorkspaceRedirect actions /></ProtectedLayout>} />
+      <Route path="/compliance" element={<ProtectedLayout menu="compliance-mapping" sprint="required"><WorkspaceRedirect tab="accreditation" /></ProtectedLayout>} />
       <Route path="/admin-settings" element={<ProtectedLayout menu="admin-settings"><AdminSettings /></ProtectedLayout>} />
 
       {/* Design previews for the modules with no prototype screen to port.
           Every one of these says so at the top — see ModulePreview. */}
       <Route path="/preview/:moduleKey" element={<ProtectedLayout><ModulePreview /></ProtectedLayout>} />
       <Route path="/sprint/setup" element={<ProtectedLayout menu="sprint-setup"><SprintSetup /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/upload" element={<ProtectedLayout menu="sprint-upload" sprint="show"><UploadDataPack /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/monitor" element={<ProtectedLayout menu="sprint-monitor" sprint="show"><AIProcessingMonitor /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/facts" element={<ProtectedLayout menu="sprint-facts" sprint="show"><FactsReview /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/upload" element={<ProtectedLayout menu="sprint-upload" sprint="show"><UploadWorkspace /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/monitor" element={<ProtectedLayout menu="sprint-monitor" sprint="show"><WorkspaceRedirect upload /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/evidence" element={<ProtectedLayout menu="evidence-intelligence" sprint="show"><EvidenceWorkspace /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/facts" element={<ProtectedLayout menu="sprint-facts" sprint="show"><WorkspaceRedirect tab="review" /></ProtectedLayout>} />
       <Route path="/sprint/:sprintId/aiqif-review" element={<ProtectedLayout menu="sprint-aiqif-review" sprint="show"><AIQIFExpertQueue /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/gaps" element={<ProtectedLayout menu="sprint-gaps" sprint="show"><GapDashboard /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/gaps" element={<ProtectedLayout menu="sprint-gaps" sprint="show"><WorkspaceRedirect tab="gaps" /></ProtectedLayout>} />
       <Route
         path="/sprint/:sprintId/confirmation"
-        element={<ProtectedLayout menu="sprint-confirmation" sprint="show"><ConfirmationWorkspace /></ProtectedLayout>}
+        element={<ProtectedLayout menu="sprint-confirmation" sprint="show"><WorkspaceRedirect tab="review" /></ProtectedLayout>}
       />
       <Route path="/sprint/:sprintId/score" element={<ProtectedLayout menu="sprint-score" sprint="show"><CapabilityWorkspace /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/approval" element={<ProtectedLayout menu="sprint-approval" sprint="show"><Legacy><BaselineApproval /></Legacy></ProtectedLayout>} />
       <Route
         path="/sprint/:sprintId/recommendations"
         element={<ProtectedLayout menu="sprint-recommendations" sprint="show"><CapabilityWorkspace mode="actions" /></ProtectedLayout>}
       />
       <Route path="/sprint/:sprintId/report" element={<ProtectedLayout menu="sprint-report" sprint="show"><CapabilityWorkspace mode="report" /></ProtectedLayout>} />
 
-      <Route path="/sprint/:sprintId/legacy-score" element={<ProtectedLayout menu="sprint-score" sprint="show"><Legacy><LiveCRIPreview /></Legacy></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/legacy-recommendations" element={<ProtectedLayout menu="sprint-recommendations" sprint="show"><Legacy><RecommendationsReview /></Legacy></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/legacy-report" element={<ProtectedLayout menu="sprint-report" sprint="show"><Legacy><ReportPreviewExport /></Legacy></ProtectedLayout>} />
-      <Route path="/legacy-cri-benchmark" element={<ProtectedLayout menu="cri-benchmark-intelligence" sprint="required"><Legacy><CriBenchmarkIntelligence /></Legacy></ProtectedLayout>} />
-      <Route path="/legacy-transformation-plan" element={<ProtectedLayout menu="transformation-plan" sprint="required"><Legacy><TransformationPlan /></Legacy></ProtectedLayout>} />
-      <Route path="/legacy-goals-tasks" element={<ProtectedLayout menu="goals-tasks" sprint="required"><Legacy><GoalsTasks /></Legacy></ProtectedLayout>} />
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

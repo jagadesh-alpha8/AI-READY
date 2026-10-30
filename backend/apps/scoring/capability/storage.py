@@ -52,13 +52,18 @@ def create_run(*, institution_id, sprint_id, population, reference_period, execu
     institution = sprint.institution
     manifest, sources = evidence_snapshot(sprint)
     rubric = release()
+    from .evaluation import PROMPT_VERSION, RETRIEVAL_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA
     inputs = {'institution_id': str(institution.pk), 'sprint_id': str(sprint.pk),
               'profile': {'name': institution.name, 'institution_type': institution.institution_type,
                           'student_count': institution.student_count, 'faculty_count': institution.faculty_count},
               'population': population, 'reference_period': reference_period,
               'carry_over_policy': 'current_sprint_only_explicit_document_lineage',
               'rubric': rubric, 'rubric_snapshot_hash': digest(rubric),
-              'engine_version': ENGINE_VERSION, 'manifest': manifest, 'sources': sources,
+              'engine_version': ENGINE_VERSION,
+              'assessment_protocol': {'prompt_version': PROMPT_VERSION, 'retrieval_version': RETRIEVAL_VERSION,
+                                      'prompt_hash': hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
+                                      'schema_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest()},
+              'manifest': manifest, 'sources': sources,
               'execution_policy': execution_policy or {}}
     run = CapabilityRun.objects.create(sprint=sprint, inputs=inputs, inputs_hash=digest(inputs))
     CapabilityRunEvent.objects.create(run=run, state='queued')
@@ -103,7 +108,9 @@ def publish(*, institution_id, run_id, evaluation, inference):
             raise ValueError('Trace references a source outside this run.')
         for excerpt in trace.get('source_excerpts', []):
             source = frozen.get(excerpt.get('id'))
-            if source is None or not source['text'].startswith(excerpt.get('text', '')):
+            offset = excerpt.get('text_offset', 0)
+            if (source is None or type(offset) is not int or offset < 0
+                    or source['text'][offset:offset + len(excerpt.get('text', ''))] != excerpt.get('text', '')):
                 raise ValueError('Trace excerpt does not match frozen evidence.')
     rubric = run.inputs['rubric']
     rows = evaluation['records']

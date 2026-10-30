@@ -55,8 +55,8 @@ _INDICATOR_GUIDE = '\n'.join(f'- {code}: {name}' for code, (_key, name) in AIQIF
 MAX_AIQIF_MAPPINGS_PER_FACT = 3
 
 SYSTEM_PROMPT = f"""You are extracting structured facts from one institutional audit document for a \
-higher-education AI-readiness audit platform. Extracted facts feed a scoring engine across the nine \
-criteria of the InGage AI-QIF framework. Tag every fact with the ONE `pillar` key whose criterion it is \
+higher-education AI-readiness audit platform. Facts support evidence review; capability assessment \
+evaluates source passages separately against the InGage AI-QIF framework. Tag every fact with the ONE `pillar` key whose criterion it is \
 evidence for:
 {_PILLAR_GUIDE}
 
@@ -124,6 +124,10 @@ plainly supports it too.
 - Never state or imply a maturity level, score or compliance verdict.
 
 Respond only with the requested structured fields."""
+
+from apps.facts.catalogue import extraction_guidance, identity as observation_identity
+
+SYSTEM_PROMPT += extraction_guidance()
 
 FACT_ITEM_SCHEMA = {
     'type': 'object',
@@ -682,11 +686,11 @@ def _validate_aiqif_mappings(raw_mappings, field_key, notes=None):
 
 
 def _merge_fact(facts_by_key, fact):
-    """Duplicate facts across chunks are merged by field_key, keeping
+    """Equivalent scoped observations across chunks are merged, keeping
     whichever has the strongest (highest-confidence) evidence rather than
-    creating more than one database row for the same fact -- with the AI-QIF
+    creating more than one database row for the same observation -- with the AI-QIF
     tags of both copies, so a tag is never lost to the merge."""
-    key = fact['field_key'].strip().lower()
+    key = observation_identity(fact)
     existing = facts_by_key.get(key)
     if existing is None:
         facts_by_key[key] = fact

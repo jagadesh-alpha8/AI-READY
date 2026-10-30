@@ -124,12 +124,15 @@ describe('interactive product tour for every role-accessible menu', async () => 
     // Consultant: both benchmark-studio and sprint-confirmation included
     const consultantTargets = consultantNavTour.steps.map((s: any) => s.tour_target);
     assert.ok(consultantTargets.includes('nav-benchmark-studio'));
-    assert.ok(consultantTargets.includes('nav-sprint-confirmation'));
+    assert.ok(!consultantTargets.includes('nav-sprint-confirmation'));
+    assert.ok(consultantTargets.includes('nav-evidence-intelligence'));
+    assert.ok(!consultantTargets.includes('nav-evidence-requests'));
 
     // IQAC Coordinator: sprint-confirmation included, benchmark-studio excluded
     const iqacTargets = iqacNavTour.steps.map((s: any) => s.tour_target);
     assert.ok(!iqacTargets.includes('nav-benchmark-studio'));
-    assert.ok(iqacTargets.includes('nav-sprint-confirmation'));
+    assert.ok(!iqacTargets.includes('nav-sprint-confirmation'));
+    assert.ok(iqacTargets.includes('nav-evidence-intelligence'));
 
     // Top buttons included in navigation tour
     assert.ok(adminTargets.includes('persistent-tour-btn'));

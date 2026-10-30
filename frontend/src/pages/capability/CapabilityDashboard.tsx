@@ -32,7 +32,7 @@ export function CapabilityDashboard({ sprint }: { sprint: string }) {
         <DashboardRun key={latest.id} sprint={sprint} runId={latest.id} />
       ) : (
         <p className="panel-muted">
-          Not assessed yet. No capability score is inferred from legacy CRI.
+          Not assessed yet. Upload evidence and start an assessment.
         </p>
       )}
       <Link className="btn-primary" to={`/sprint/${sprint}/score`}>

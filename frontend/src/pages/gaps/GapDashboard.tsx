@@ -155,10 +155,10 @@ export const GapDashboard: React.FC = () => {
       <div className="flex justify-end">
         <button
           data-tour="gaps-proceed-btn"
-          onClick={() => navigate(`/sprint/${sprintId}/${canSee('sprint-confirmation') ? 'confirmation' : 'score'}`)}
+          onClick={() => navigate(`/sprint/${sprintId}/score`)}
           className="btn-primary shrink-0"
         >
-          <span>{canSee('sprint-confirmation') ? 'Proceed to Owner Workspace' : 'Proceed to Live CRI Preview'}</span>
+          <span>Open assessment</span>
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>
@@ -307,7 +307,7 @@ export const GapDashboard: React.FC = () => {
                           </div>
                         )}
                         {gap.evidence_request ? (
-                          <Link to={`/evidence-requests?view=all&id=${gap.evidence_request.id}`}
+                          <Link to={`/sprint/${sprintId}/evidence?tab=review`}
                             className="font-semibold text-accent hover:underline">
                             {gap.evidence_request.overdue ? 'Overdue' : gap.evidence_request.status_label}
                             <span className="block font-normal text-ink-500">

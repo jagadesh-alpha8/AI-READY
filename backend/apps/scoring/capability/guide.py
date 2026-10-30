@@ -13,17 +13,17 @@ def capability_guide(data, user):
     for original in data['steps']:
         row = dict(original)
         step = row['id']
-        if step in {'baseline_approval', 'facts_review', 'gaps_evidence'}:
+        if step in {'baseline_approval', 'facts_review', 'gaps_evidence', 'transformation_plan'}:
             continue
         if step == 'institution_dna':
             row.update(purpose='Check the institution profile; unknown counts are preserved as unknown. No profile approval is required.')
         if step in {'live_cri', 'recommendations', 'transformation_plan', 'reports'}:
-            titles = {'live_cri': 'Capability assessment', 'recommendations': 'Grounded recommendations',
+            titles = {'live_cri': 'Capability assessment', 'recommendations': 'Recommendations and action plan',
                       'transformation_plan': 'Capability pathways and actions', 'reports': 'Capability report and export'}
             purposes = {'live_cri': 'Explicitly assess readable evidence for all 36 indicators. Model calls use configured credits; viewing history is free.',
                         'recommendations': 'Review evidence requests, contradictions and documented shortfalls. Tailoring requires an explicit request.',
                         'transformation_plan': 'Review conditional sufficient scenarios. Completing tasks never changes scores without reassessment.',
-                        'reports': 'Export a completed assessment without baseline approval or model calls.'}
+                        'reports': 'Export a pinned completed assessment without model calls.'}
             row.update(title=titles[step], purpose=purposes[step], action_label='Open ' + titles[step].lower(),
                        block_reason=None if sprint else 'Select a sprint first.',
                        details={'workflow': 'capability', 'assessment_status': latest.status if latest else None,
@@ -34,7 +34,7 @@ def capability_guide(data, user):
             elif complete:
                 row['status'] = 'completed' if step == 'recommendations' and advice and advice.status == 'completed' else 'in_progress'
             elif sprint:
-                row['block_reason'] = 'Complete a capability assessment first; no baseline approval is required.'
+                row['block_reason'] = 'Complete a capability assessment first.'
             if original['status'] == 'skipped':
                 row['status'] = 'skipped'
         row['number'] = len(rows) + 1

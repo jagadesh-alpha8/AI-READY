@@ -51,7 +51,7 @@ describe('Extracted Facts Review', async () => {
     ];
     const html = route('/sprint/:sprintId/facts', '/sprint/s1/facts', React.createElement(facts.mod.FactsReview));
     for (const t of ['Extracted Facts Review', '3 facts registered', 'AI-QIF expert queue', 'Search field ID',
-      'Confirm all listed facts', 'Candidate &amp; Extracted Fact Records']) {
+      'Accept verified facts', 'Candidate &amp; Extracted Fact Records']) {
       assert.ok(html.includes(t), t);
     }
     for (const t of [PROFILE, PROCESSING]) assert.ok(!html.includes(t), `no ${t}`);

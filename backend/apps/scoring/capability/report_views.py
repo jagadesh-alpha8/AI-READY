@@ -27,8 +27,8 @@ class CapabilityReportView(RunView):
         if event is None:
             raise ReportUnavailable()
         file_format = request.query_params.get('file', 'html')
-        if file_format not in {'html', 'json'}:
-            raise serializers.ValidationError({'file': 'Choose html or json.'})
+        if file_format not in {'html', 'json', 'pdf'}:
+            raise serializers.ValidationError({'file': 'Choose html, json or pdf.'})
         advice_id = request.query_params.get('recommendation_id')
         recommendation = None
         if advice_id:
@@ -45,10 +45,13 @@ class CapabilityReportView(RunView):
             'run_id': str(run.pk), 'assessment_event_id': event.pk, 'inputs_hash': run.inputs_hash,
             'profile': run.inputs['profile'], 'population': run.inputs['population'], 'rubric': run.inputs['rubric'],
             'reference_period': run.inputs['reference_period'], 'source_manifest': run.inputs['manifest'],
+            'assessment_protocol': run.inputs.get('assessment_protocol'),
             'assessment': event.payload, 'recommendation': recommendation,
             'deterministic_plan': snapshot.inputs if recommendation else build_inputs(run, event, {}),
             'notice': 'Experimental internal methodology, not an external accreditation standard. Unknown evidence is not failure. '
                       'Tier pathways are conditional sufficient scenarios, not optimal or guaranteed. Workflow completion does not change scores; reassessment is required.'}
+        from .diagnostics import explain
+        payload['diagnostics'] = explain(run.inputs, event.payload)
         if file_format == 'json':
             content = json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2)
         else:
@@ -59,9 +62,14 @@ class CapabilityReportView(RunView):
             enriched = {a['condition_id']: a for a in (completed.payload['advice'] if recommendation and completed else [])}
             actions = [{**a, 'advice': enriched.get(a['id'])} for a in plan_actions]
             # Django autoescape handles all institution/source/model text; no raw HTML is marked safe.
-            content = render_to_string('scoring/capability_report.html', {'report': payload,
-                'result': event.payload['result'], 'indicators': indicators, 'actions': actions})
-        response = HttpResponse(content, content_type='application/json; charset=utf-8' if file_format == 'json' else 'text/html; charset=utf-8')
+            if file_format == 'pdf':
+                from .pdf_report import render_pdf
+                content = render_pdf(payload, indicators, actions)
+            else:
+                content = render_to_string('scoring/capability_report.html', {'report': payload,
+                    'result': event.payload['result'], 'indicators': indicators, 'actions': actions})
+        response = HttpResponse(content, content_type={'json': 'application/json; charset=utf-8',
+            'html': 'text/html; charset=utf-8', 'pdf': 'application/pdf'}[file_format])
         response['Content-Disposition'] = f'attachment; filename="capability-{run.pk}.{file_format}"'
         response['Cache-Control'] = 'private, no-store'
         response['X-Content-Type-Options'] = 'nosniff'

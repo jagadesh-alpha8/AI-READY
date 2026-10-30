@@ -312,8 +312,8 @@ export const MENU_TOURS: Record<MenuKey, MenuTourConfig> = {
       {
         id: 'facts-confidence',
         number: 1,
-        title: 'CRI Evidence Confidence',
-        purpose: 'Evaluates empirical confidence based on confirmed facts, source citations, and verified metrics.',
+        title: 'Review exceptions',
+        purpose: 'Model confidence is not verification. Review exceptions without blocking capability assessment.',
         tour_target: 'facts-summary-tile',
         tour_location: 'AI Readiness Audit > Extracted Facts Review',
       },
@@ -329,7 +329,7 @@ export const MENU_TOURS: Record<MenuKey, MenuTourConfig> = {
         id: 'facts-bulk',
         number: 3,
         title: 'Bulk Confirmation',
-        purpose: 'Review and confirm high-confidence facts in batches to speed up audit progression.',
+        purpose: 'Accept only verified, policy-eligible facts in batches; high-risk exceptions require individual review.',
         tour_target: 'facts-bulk-confirm',
         tour_location: 'Facts Review > Action Bar',
       },
@@ -1175,7 +1175,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     {
       key: 'evidence-intelligence',
       title: '4. Evidence Intelligence',
-      purpose: 'Interactive evidence graph linking uploaded institutional documents directly to AI-QIF readiness criteria.',
+      purpose: 'Documents, fact exceptions, missing evidence, conflicts and accreditation evidence in one workspace.',
     },
     {
       key: 'sprint-facts',
@@ -1219,7 +1219,11 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     },
   ];
 
-  for (const item of SPRINT_STEPS) {
+  const visibleSteps = new Set(['sprint-setup', 'sprint-upload', 'evidence-intelligence', 'sprint-score', 'sprint-recommendations', 'sprint-report']);
+  const names: Record<string, string> = { 'sprint-upload': 'Upload & Processing', 'evidence-intelligence': 'Evidence & Review', 'sprint-score': 'Assessment', 'sprint-recommendations': 'Recommendations & Action Plan', 'sprint-report': 'Reports' };
+  let auditNumber = 0;
+  for (const item of SPRINT_STEPS.filter((s) => visibleSteps.has(s.key))) {
+    item.title = `${++auditNumber}. ${names[item.key] || 'Sprint Setup'}`;
     const config = MENU_TOURS[item.key];
     if (config && canRoleAccess(config.roles, role)) {
       steps.push({
@@ -1297,7 +1301,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     },
   ];
 
-  for (const mod of MODULES) {
+  for (const mod of MODULES.filter((m) => ['benchmark-studio', 'benchmark-assessment', 'admin-settings'].includes(m.key))) {
     const config = MENU_TOURS[mod.key];
     if (config && canRoleAccess(config.roles, role)) {
       steps.push({
@@ -1325,7 +1329,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     id: 'nav-tour-workflow-guide-btn',
     number: num++,
     title: 'Workflow Guide (Top Bar)',
-    purpose: 'Open the 11-step audit workflow guide drawer anytime to check real platform progress and next actionable steps.',
+    purpose: 'Open the assessment workflow guide drawer anytime to check real platform progress and next actionable steps.',
     tour_target: 'workflow-guide-btn',
     tour_location: 'Top Navigation Bar',
   });

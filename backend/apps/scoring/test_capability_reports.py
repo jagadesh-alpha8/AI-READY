@@ -53,6 +53,25 @@ class CapabilityReportTests(APITestCase):
         self.institution.name = 'Changed after assessment'; self.institution.save()
         self.assertEqual(json.loads(self.client.get(self.report_url, {'file': 'json'}).content)['profile']['name'], 'College')
 
+    def test_native_pdf_contains_frozen_assessment_and_never_calls_a_model(self):
+        import pymupdf
+        before = CapabilityRunEvent.objects.count()
+        with patch('apps.scoring.tasks.get_ai_service') as factory:
+            response = self.client.get(self.report_url, {'file': 'pdf'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertTrue(response.content.startswith(b'%PDF-'))
+        document = pymupdf.open(stream=response.content, filetype='pdf')
+        text = ''.join(page.get_text() for page in document)
+        self.assertIn(str(self.run.pk), text)
+        self.assertIn(self.run.inputs_hash, text.replace('\n', ''))
+        self.assertIn('Understanding this result', text)
+        for indicator in self.run.inputs['rubric']['indicators']:
+            for condition in indicator['conditions']:
+                self.assertIn(condition['id'], text)
+        self.assertFalse(factory.called)
+        self.assertEqual(CapabilityRunEvent.objects.count(), before)
+
     def test_report_cross_tenant_and_noncompleted_access(self):
         self.user.institution = self.other; self.user.save()
         self.assertEqual(self.client.get(self.report_url).status_code, 403)
@@ -62,7 +81,7 @@ class CapabilityReportTests(APITestCase):
         from .models import CapabilityExecution
         CapabilityExecution.objects.create(run=pending, sprint=self.sprint, idempotency_key='pending', request_hash=pending.inputs_hash)
         self.assertEqual(self.client.get(self.report_url.replace(str(self.run.pk), str(pending.pk))).status_code, 409)
-        self.assertEqual(self.client.get(self.report_url, {'file': 'pdf'}).status_code, 400)
+        self.assertEqual(self.client.get(self.report_url, {'file': 'docx'}).status_code, 400)
         self.assertEqual(self.client.get(self.report_url, {'recommendation_id': 'invalid'}).status_code, 400)
         self.client.force_authenticate(None)
         self.assertEqual(self.client.get(self.report_url).status_code, 401)
@@ -135,7 +154,7 @@ class CapabilityReportTests(APITestCase):
         self.assertNotIn('facts_review', steps)
         self.assertEqual(steps['live_cri']['status'], 'completed')
         self.assertIsNone(steps['reports']['block_reason'])
-        self.assertIn('without baseline approval', steps['reports']['purpose'])
+        self.assertIn('without model calls', steps['reports']['purpose'])
         # Existing clients can still explicitly use the original guide semantics.
         legacy = self.client.get('/api/v1/auth/guide-status', {'sprint_id': str(self.sprint.pk)})
         self.assertIn('baseline_approval', {s['id'] for s in legacy.data['steps']})

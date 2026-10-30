@@ -191,6 +191,34 @@ class ExtractionChunk(models.Model):
         constraints = [models.UniqueConstraint(fields=['job', 'content_hash'], name='one_chunk_per_job_text')]
 
 
+class ExtractionSnapshotQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValueError('Extraction snapshots cannot be updated.')
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValueError('Extraction snapshots cannot be updated.')
+
+
+class ExtractionSnapshot(models.Model):
+    """Append-only observations before mutable fact review; retries never overwrite a snapshot."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    objects = ExtractionSnapshotQuerySet.as_manager()
+    job = models.ForeignKey(ExtractionJob, on_delete=models.CASCADE, related_name='observation_snapshots')
+    document = models.ForeignKey('documents.Document', on_delete=models.CASCADE, related_name='extraction_snapshots')
+    content_hash = models.CharField(max_length=64)
+    payload = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Extraction snapshots are append-only.')
+        return super().save(*args, **kwargs)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        constraints = [models.UniqueConstraint(fields=['job', 'content_hash'], name='one_extraction_snapshot_content')]
+
+
 class AIUsage(models.Model):
     """One AI API call and what it cost -- the basis for knowing (and billing)
     what each sprint / institution uses.

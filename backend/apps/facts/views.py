@@ -154,8 +154,7 @@ class SprintBulkFactConfirmView(APIView):
                                                   ExtractedFact.VerificationStatus.CONFLICTING):
                     skip_reason = (f'Verification found it {fact.get_verification_status_display().lower()}: '
                                    f'{fact.automation_reason or "review it individually"}')
-                elif body.validated_data.get('only_verified') and (
-                        fact.verification_status != ExtractedFact.VerificationStatus.VERIFIED):
+                elif fact.verification_status != ExtractedFact.VerificationStatus.VERIFIED:
                     skip_reason = 'Not verified by the checks; review it individually.'
                 elif GapItem.objects.filter(
                     sprint=sprint,
@@ -169,6 +168,16 @@ class SprintBulkFactConfirmView(APIView):
                     skip_reason = 'This fact has an unresolved conflict.'
                 else:
                     allowed, why = ownership.check_fact(request.user, fact)
+                    if allowed:
+                        # Recheck live evidence, not a possibly stale verified badge. A caller
+                        # cannot bypass this by sending only_verified=false. High-risk facts
+                        # and policy exceptions require an individual, informed decision.
+                        from .verification import engine, policy
+                        result = engine.verify_snapshot(engine.Snapshot.of(fact))
+                        decision = policy.decide(fact, result, current_mode='shadow')
+                        if result.risk_level == 'high' or not decision.eligible:
+                            allowed = False
+                            why = decision.reason if not decision.eligible else 'High-risk facts require individual review.'
                     if not allowed:
                         skip_reason = why
                     else:

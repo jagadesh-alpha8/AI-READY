@@ -97,6 +97,9 @@ export function CapabilitySummary({ result }: { result: Result }) {
               ? 'Bounds reflect unresolved evidence. The upper bound is not demonstrated capability.'
               : 'Exact score under this assessment’s experimental rubric.'}
           </p>
+          {result.lower === 0 && result.exact_score === null && <p className="text-sm text-warning mt-2">
+            Zero demonstrated so far does not establish zero capability. Review the evidence gaps below.
+          </p>}
         </div>
         <div className="glass-card p-5">
           <p className="text-sm text-ink-600">Resolved indicator weight</p>
@@ -500,24 +503,10 @@ function Workspace({ sprint, mode }: { sprint: string; mode: Mode }) {
         <p className="panel-muted">
           {runs.loading
             ? 'Loading assessment history…'
-            : 'No capability assessment exists yet. Upload and process evidence, then start an assessment. No score has been inferred from legacy CRI.'}
+            : 'No capability assessment exists yet. Upload and process evidence, then start an assessment.'}
         </p>
       )}
-      <details className="glass-card p-4">
-        <summary>Legacy CRI records</summary>
-        <p className="text-sm mt-2">
-          Historical CRI and its approval workflow use the previous methodology.
-          They do not determine capability scores or block these reports.
-        </p>
-        <div className="flex gap-3 flex-wrap mt-3">
-          <Link to={`/sprint/${sprint}/legacy-score`}>Legacy score</Link>
-          <Link to={`/sprint/${sprint}/approval`}>Legacy baseline</Link>
-          <Link to={`/sprint/${sprint}/legacy-recommendations`}>
-            Legacy advice
-          </Link>
-          <Link to={`/sprint/${sprint}/legacy-report`}>Legacy reports</Link>
-        </div>
-      </details>
+
     </div>
   );
 }
@@ -622,6 +611,19 @@ function RunWorkspace({
       ) : (
         <>
           <CapabilitySummary result={data.assessment.result} />
+          {data.diagnostics && <section className="glass-card p-5 space-y-3" aria-label="Assessment diagnostics">
+            <h2 className="text-lg font-bold">Understanding this result</h2>
+            <p>{data.diagnostics.explanation}</p>
+            <p className="text-sm">{data.diagnostics.source_documents} documents · {data.diagnostics.readable_pages} readable pages · {data.diagnostics.unreadable_or_unavailable_pages} unavailable pages</p>
+            <div className="flex flex-wrap gap-3 text-sm">{Object.entries(data.diagnostics.state_counts).map(([state, count]) => <span key={state}>{stateLabel(state)}: {count}</span>)}</div>
+            {data.diagnostics.validation_issues.map((issue) => <p key={issue.reason} className="text-sm text-warning">{issue.count} decisions: {issue.reason}</p>)}
+            <details><summary>Foundational requirements not demonstrated ({data.diagnostics.foundation_blockers.length} indicators)</summary>
+              {data.diagnostics.foundation_blockers.map((row) => <p key={row.indicator} className="text-sm mt-2">{row.indicator}: {row.requirements.join(', ')}</p>)}
+            </details>
+            <p className="text-xs text-ink-500">{data.diagnostics.indicators_with_bounded_context} indicators used a subset of the frozen text. {data.diagnostics.limitations}</p>
+            <Link className="btn-secondary btn-sm" to={`/sprint/${sprint}/upload`}>Upload additional evidence</Link>
+            <p className="text-xs">New uploads require a new explicit assessment. This pinned result stays unchanged.</p>
+          </section>}
           <RecommendationWorkspace
             key={runId}
             sprint={sprint}
@@ -998,6 +1000,7 @@ function ActionCard({
       <div className="space-y-3 mt-4">
         <p>{action.requirement}</p>
         <p>{action.suggestion}</p>
+        <Link className="btn-secondary btn-sm" to={`/sprint/${sprint}/upload?run=${encodeURIComponent(runId)}&condition=${encodeURIComponent(action.id)}`}>Upload supporting evidence</Link>
         <p className="text-sm">
           Canonical completion evidence: {action.completion_evidence}
         </p>
@@ -1094,7 +1097,7 @@ function ReportExport({
 }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  async function download(format: 'html' | 'json') {
+  async function download(format: 'html' | 'json' | 'pdf') {
     setBusy(true);
     setError('');
     try {
@@ -1119,13 +1122,15 @@ function ReportExport({
         {recommendation
           ? ', plus this recommendation version and current workflow'
           : ''}
-        . No baseline approval is required.
+        . The selected version is preserved in every export.
       </p>
       <p>
-        Open the downloaded HTML report in your browser, then choose Print →
-        Save as PDF. Exporting does not invoke a model.
+        Download a PDF of this frozen assessment directly. Exporting does not invoke a model.
       </p>
       <div className="flex flex-wrap gap-3">
+        <button className="btn-primary" disabled={busy} onClick={() => download('pdf')}>
+          Download PDF
+        </button>
         <button
           className="btn-primary whitespace-normal max-w-full"
           disabled={busy}

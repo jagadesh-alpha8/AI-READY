@@ -8,7 +8,7 @@ if (!process.argv[2]) throw Error('Supply the synthetic fixture JSON path.');
 (async () => {
   const run = JSON.parse(fs.readFileSync(process.argv[2]));
   const sid = '22222222-2222-4222-8222-222222222222';
-  const browser = await chromium.launch({ headless: true, ...(process.env.CAPABILITY_CHROMIUM_EXECUTABLE ? { executablePath: process.env.CAPABILITY_CHROMIUM_EXECUTABLE, args: ['--no-sandbox', '--single-process', '--no-zygote', '--disable-gpu', '--use-gl=disabled'] } : {}) });
+  const browser = await chromium.launch({ headless: true, ...(process.env.CAPABILITY_CHROMIUM_EXECUTABLE ? { executablePath: process.env.CAPABILITY_CHROMIUM_EXECUTABLE, args: JSON.parse(process.env.CAPABILITY_CHROMIUM_ARGS || '["--no-sandbox","--single-process","--no-zygote","--disable-gpu","--use-gl=disabled"]') } : {}) });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = []; const writes = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -39,7 +39,7 @@ if (!process.argv[2]) throw Error('Supply the synthetic fixture JSON path.');
   if (process.env.CAPABILITY_UI_SCREENSHOTS) await page.screenshot({ path: process.env.CAPABILITY_UI_SCREENSHOTS + '/actions-desktop.png', fullPage: true });
   await page.getByRole('link', { name: 'Report', exact: true }).click();
   await page.getByRole('button', { name: 'Download printable HTML report' }).waitFor();
-  assert.match(await page.locator('main').innerText(), /No baseline approval/);
+  assert.match(await page.locator('main').innerText(), /selected version is preserved/);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(300);
   if (process.env.CAPABILITY_UI_SCREENSHOTS) await page.screenshot({ path: process.env.CAPABILITY_UI_SCREENSHOTS + '/report-mobile.png', fullPage: true });

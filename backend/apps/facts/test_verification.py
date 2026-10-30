@@ -362,6 +362,30 @@ class AutomationTests(VerificationBase):
         self.assertEqual(r.data['confirmed'], [str(good.id)])
         self.assertIn('invalid', r.data['skipped'][0]['reason'])
 
+    def test_bulk_acceptance_cannot_bypass_verification_and_rechecks_stale_values(self):
+        good = self._fact()
+        unverified = self._fact(field_key='unverified', confidence_score=1)
+        stale = self._fact(field_key='stale')
+        engine.verify_fact(good)
+        engine.verify_fact(stale)
+        stale.value = 999; stale.save()
+        self.client.force_authenticate(self.iqac)
+        response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/facts/bulk-confirm',
+            {'fact_ids': [str(good.pk), str(unverified.pk), str(stale.pk)], 'only_verified': False}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['confirmed'], [str(good.pk)])
+        self.assertEqual(response.data['skipped_count'], 2)
+        self.assertEqual(FactReviewHistory.objects.filter(fact__in=[unverified, stale]).count(), 0)
+
+    def test_exception_queue_excludes_verified_low_risk_facts_but_keeps_high_risk(self):
+        good = self._fact()
+        engine.verify_fact(good, apply_policy=True, current_mode='shadow')
+        pending = self._fact(field_key='not_checked')
+        self.client.force_authenticate(self.iqac)
+        response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts', {'review_queue': 'exceptions'})
+        rows = response.data['results'] if isinstance(response.data, dict) else response.data
+        self.assertEqual([row['id'] for row in rows], [str(pending.pk)])
+
     def test_extraction_end_runs_the_pipeline_on_the_document(self):
         self._fact()
         with override_settings(FACT_VERIFICATION_MODE='shadow'):

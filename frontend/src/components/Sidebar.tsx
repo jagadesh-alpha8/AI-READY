@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Gauge, Building2, ShieldCheck, Layers, Target, ListChecks, Bot, Bell,
@@ -7,7 +7,6 @@ import {
   BarChart3, Lock, Sparkles, FileText, X, ClipboardList, FileCheck2,
 } from 'lucide-react';
 
-import { getEvidenceRequestSummary } from '../api/evidenceRequests';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedSprint } from '../context/SelectedSprintContext';
 import { canSeeMenu } from '../utils/access';
@@ -63,20 +62,7 @@ interface NavGroup {
   modules: NavModule[];
 }
 
-/**
- * The platform's module list, matching the approved product plan.
- *
- * Dashboard, Institution DNA and AI Readiness Audit are built. AI Readiness
- * Audit owns the ten-step discovery sprint that used to be the whole sidebar.
- * Evidence Intelligence is the next module in the plan, so it is labelled
- * distinctly from the ones queued behind it.
- *
- * The only badge is Evidence Requests': a real count from the API of the
- * requests waiting on the current user (assigned to them, or their own requests
- * with evidence to review). Nothing else here has a count to show, and a
- * hardcoded number would read as real data — the same "never fabricate a
- * value" stance the extraction and scoring layers take.
- */
+/** The six client workflow steps; operational tools live within their workspace. */
 function buildModules(sprintId: string): NavModule[] {
   // Every sprint step links to the selected sprint -- or nowhere when none is selected.
   const step = (path: string) => sprintStepPath(sprintId, path);
@@ -104,27 +90,12 @@ function buildModules(sprintId: string): NavModule[] {
       childrenCaption: 'Sprint steps',
       children: [
         { key: 'sprint-setup', to: '/sprint/setup', label: 'Sprint Setup', icon: FolderPlus },
-        { key: 'sprint-upload', to: step('upload'), label: 'Upload Data Pack', icon: Upload },
-        { key: 'sprint-monitor', to: step('monitor'), label: 'AI Processing Monitor', icon: Activity },
-        // The selected sprint's evidence position (a sprint page of its own, at /evidence).
-        { key: 'evidence-intelligence', to: '/evidence', label: 'Evidence Intelligence', icon: Layers },
-        { key: 'sprint-facts', to: step('facts'), label: 'Extracted Facts Review', icon: FileSearch },
-        // Evidence asked for while reviewing facts, answered before the gaps are worked through.
-        { key: 'evidence-requests', to: '/evidence-requests', label: 'Evidence Requests', icon: FileCheck2 },
-        { key: 'sprint-gaps', to: step('gaps'), label: 'Gap Dashboard', icon: AlertCircle },
-        { key: 'sprint-confirmation', to: step('confirmation'), label: 'Owner Workspace', icon: CheckSquare },
-        { key: 'sprint-score', to: step('score'), label: 'Capability & Evidence', icon: BarChart3 },
-        { key: 'sprint-approval', to: step('approval'), label: 'Legacy Baseline Approval', icon: Lock },
-        { key: 'sprint-recommendations', to: step('recommendations'), label: 'Recommendations', icon: Sparkles },
-        { key: 'sprint-report', to: step('report'), label: 'Report & Export', icon: FileText },
+        { key: 'sprint-upload', to: step('upload'), label: 'Upload & Processing', icon: Upload },
+        { key: 'evidence-intelligence', to: step('evidence'), label: 'Evidence & Review', icon: FileSearch },
+        { key: 'sprint-score', to: step('score'), label: 'Assessment', icon: BarChart3 },
+        { key: 'sprint-recommendations', to: step('recommendations'), label: 'Recommendations & Action Plan', icon: Sparkles },
+        { key: 'sprint-report', to: step('report'), label: 'Reports', icon: FileText },
       ],
-    },
-    {
-      key: 'cri-benchmark-intelligence',
-      label: 'Capability Intelligence',
-      icon: Award,
-      status: 'live',
-      to: '/cri-benchmark',
     },
     {
       key: 'benchmark-studio',
@@ -140,28 +111,8 @@ function buildModules(sprintId: string): NavModule[] {
       status: 'live',
       to: '/benchmark-assessment',
     },
-    { key: 'transformation-plan', label: 'Sprint Transformation Plan', icon: Target, status: 'live', to: '/transformation-plan' },
-    { key: 'goals-tasks', label: 'Goals & Tasks', icon: ListChecks, status: 'live', to: '/goals-tasks' },
-    { key: 'ai-copilot', label: 'Legacy CRI Copilot', icon: Bot, status: 'live', to: '/ai-copilot' },
-    { key: 'reminders', label: 'Legacy Workflow Reminders', icon: Bell, status: 'live', to: '/reminders' },
-    { key: 'compliance-mapping', label: 'Compliance Mapping', icon: Network, status: 'live', to: '/compliance' },
-    { key: 'uat-readiness', label: 'Legacy Workflow Readiness', icon: ClipboardCheck, status: 'live', to: '/uat-readiness' },
     { key: 'admin-settings', label: 'Settings', icon: Settings, status: 'live', to: '/admin-settings' },
   ];
-}
-
-/** Evidence requests waiting on the current user, refreshed on every navigation (0 when unknown). */
-function useEvidenceTaskCount(enabled: boolean, pathname: string) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!enabled) return;
-    let live = true;
-    getEvidenceRequestSummary()
-      .then(({ data }) => { if (live) setCount(data.assigned_to_me + data.awaiting_my_review); })
-      .catch(() => { /* the badge is a convenience; the page itself shows the list */ });
-    return () => { live = false; };
-  }, [enabled, pathname]);
-  return count;
 }
 
 const ROW_BASE =
@@ -188,7 +139,6 @@ export const Sidebar: React.FC<{
     { heading: 'Platform Modules', modules: visible },
   ];
   const { pathname } = useLocation();
-  const evidenceTasks = useEvidenceTaskCount(canSeeMenu(user?.role, 'evidence-requests'), pathname);
 
   // Only used to highlight the parent module while one of its steps is open.
   // Nothing collapses: every menu entry stays visible at all times.
@@ -371,7 +321,7 @@ export const Sidebar: React.FC<{
                               className="flex items-center gap-2.5 px-2 py-2 rounded-lg text-[13px] font-medium text-ink-500/50 cursor-not-allowed select-none"
                             >
                               <ChildIcon className="w-3.5 h-3.5 shrink-0" />
-                              <span className="truncate">{index + 1}. {child.label}</span>
+                              <span className="min-w-0 leading-snug">{index + 1}. {child.label}</span>
                             </div>
                           );
                         }
@@ -390,12 +340,8 @@ export const Sidebar: React.FC<{
                             }
                           >
                             <ChildIcon className="w-3.5 h-3.5 shrink-0" />
-                            <span className="truncate">{index + 1}. {child.label}</span>
-                            {child.key === 'evidence-requests' && evidenceTasks > 0 && (
-                              <span className="ml-auto shrink-0 badge-accent" title="Evidence requests waiting on you">
-                                {evidenceTasks}
-                              </span>
-                            )}
+                            <span className="min-w-0 leading-snug">{index + 1}. {child.label}</span>
+
                           </NavLink>
                         );
                       })}

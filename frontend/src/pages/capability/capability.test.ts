@@ -203,12 +203,22 @@ describe('capability presentation and explicit spending', () => {
   });
   it('exports without baseline approval or model calls', async () => {
     const ui = await mount('report');
-    assert.match(ui.container.textContent!, /No baseline approval is required/);
+    assert.match(ui.container.textContent!, /selected version is preserved/);
     const button = [...ui.container.querySelectorAll('button')].find(
       (b) => b.textContent === 'Download assessment JSON',
     )!;
     await act(async () => button.click());
     assert.deepEqual(calls, ['downloadCapabilityReport']);
+    await ui.close();
+  });
+  it('downloads the selected assessment directly as PDF', async () => {
+    const ui = await mount('report');
+    let args: unknown[] = [];
+    hooks.downloadCapabilityReport = async (...values) => { args = values; };
+    const button = [...ui.container.querySelectorAll('button')].find((b) => b.textContent === 'Download PDF')!;
+    await act(async () => button.click());
+    assert.deepEqual(args.slice(0, 3), ['sprint1', 'run1', 'pdf']);
+    assert.deepEqual(calls, []);
     await ui.close();
   });
   it('discards late responses after changing assessments', async () => {

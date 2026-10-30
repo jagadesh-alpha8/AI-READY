@@ -4,7 +4,7 @@ import { Search, X } from 'lucide-react';
 export interface FilterOption {
   value: string;
   label: string;
-  count: number;
+  count?: number;
 }
 
 export interface FilterSelect {
@@ -85,7 +85,7 @@ export const TableFilters: React.FC<{
           <option value="">{select.label}: All</option>
           {select.options.map((option) => (
             <option key={option.value} value={option.value}>
-              {option.label} ({option.count})
+              {option.label}{option.count === undefined ? '' : ` (${option.count})`}
             </option>
           ))}
         </select>

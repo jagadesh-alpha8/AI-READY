@@ -161,7 +161,9 @@ class ExtractionPipeline:
         vision_facts = pages.get('vision_facts') or []
         if vision_facts:
             from .openai_fact_extractor import _merge_fact
-            facts_by_key = {f['field_key'].strip().lower(): f for f in raw_facts}
+            facts_by_key = {}
+            for fact in raw_facts:
+                _merge_fact(facts_by_key, fact)
             for vf in vision_facts:
                 _merge_fact(facts_by_key, vf)
             raw_facts = list(facts_by_key.values())
@@ -170,6 +172,8 @@ class ExtractionPipeline:
 
         self._advance(job, Step.MAPPING_AUDIT_FIELDS)
         mapped_facts = self.field_mapper.map_fields(document, raw_facts)
+        from ..observations import freeze
+        freeze(job, mapped_facts)
         facts_created = self._persist_facts(job, mapped_facts)
         self._ai_check_tags(job, document)
 
@@ -317,11 +321,11 @@ class ExtractionPipeline:
 
     @staticmethod
     def _persist_facts(job, mapped_facts):
-        """Save this run's facts for the document, one row per field_key.
+        """Save this run's facts for the document, one row per scoped observation.
 
         Reprocessing a document must not duplicate its facts (or the gaps,
-        conflicts and recommendations that point at them), so a fact the
-        document already has for the same field_key is reused:
+        conflicts and recommendations that point at them), so an unambiguous observation already held by the
+        document is reused:
         - still unreviewed (EXTRACTED): updated in place with the new value,
           keeping its id so everything linked to it stays linked;
         - already reviewed (confirmed/corrected/rejected/evidence requested):
@@ -339,6 +343,7 @@ class ExtractionPipeline:
         from apps.facts.aiqif_tagging import Crosswalk, Precedents
         from apps.facts.auto_confirm import is_auto_confirmed
         from apps.facts.models import ExtractedFact
+        from apps.facts.catalogue import identity as observation_identity
 
         crosswalk = Crosswalk()
         precedents = Precedents()  # earlier expert decisions, applied to this run's tags (aiqif_tagging rule 4)
@@ -351,20 +356,30 @@ class ExtractionPipeline:
             return fact.status == ExtractedFact.Status.EXTRACTED or is_auto_confirmed(fact)
 
         existing = {}
+        by_scope = {}
         # Oldest first, so the newest unreviewed row wins a key -- unless a
         # reviewed row already holds it.
         for fact in ExtractedFact.objects.filter(document=job.document).select_related('reviewed_by').order_by('created_at'):
-            key = fact.field_key.strip().lower()
+            key = observation_identity(fact)
+            by_scope.setdefault(observation_identity(fact, include_value=False), []).append(fact)
             held = existing.get(key)
             if held is None or updatable(held):
                 existing[key] = fact
 
         count = 0
+        from collections import Counter
+        incoming_scopes = Counter(observation_identity(item, include_value=False) for item in mapped_facts)
         refreshed_fields = set()  # fields whose value may have changed: their conflict summaries are rebuilt
         with transaction.atomic():
             for item in mapped_facts:
                 fields = {name: value for name, value in item.items() if name != 'aiqif_mappings'}
-                fact = existing.get(fields['field_key'].strip().lower())
+                fact = existing.get(observation_identity(fields))
+                scoped_key = observation_identity(fields, include_value=False)
+                # Preserve existing IDs and human decisions for an unambiguous update.
+                # Multiple values in the same scope are separate observations, never
+                # winners chosen by confidence. The snapshot preserves every output.
+                if fact is None and incoming_scopes[scoped_key] == 1 and len(by_scope.get(scoped_key, [])) == 1:
+                    fact = by_scope[scoped_key][0]
                 if fact is None:
                     # The value and citation as first recorded are kept apart from the live ones for good.
                     fact = ExtractedFact.objects.create(
@@ -375,7 +390,7 @@ class ExtractionPipeline:
                         value_origin=(ExtractedFact.ValueOrigin.CALCULATED if fields.get('derivation')
                                       else ExtractedFact.ValueOrigin.EXTRACTED),
                     )
-                    existing[fact.field_key.strip().lower()] = fact
+                    existing[observation_identity(fact)] = fact
                 elif updatable(fact):
                     for name, value in fields.items():
                         if name == 'fact_kind' and fact.kind_reviewed_by_id:
