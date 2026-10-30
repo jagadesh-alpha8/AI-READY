@@ -298,3 +298,29 @@ class CapabilityRunEvent(models.Model):
 
     class Meta:
         ordering = ['id']
+
+
+class CapabilityExecution(models.Model):
+    """Mutable dispatch/ownership ledger; evidence and events stay immutable.
+
+    No automatic replay after worker loss: a reserved request might already be billed.
+    Cancel the stranded run and start a new, explicitly budgeted assessment instead.
+    """
+    run = models.OneToOneField(CapabilityRun, on_delete=models.PROTECT, primary_key=True, related_name='execution')
+    sprint = models.ForeignKey('sprints.Sprint', on_delete=models.PROTECT, related_name='capability_executions')
+    idempotency_key = models.CharField(max_length=100)
+    request_hash = models.CharField(max_length=64)
+    task_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    status = models.CharField(max_length=16, default='queued')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    requests_reserved = models.PositiveIntegerField(default=0)
+    usd_reserved = models.DecimalField(max_digits=12, decimal_places=6, default=0)
+    heartbeat_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['sprint', 'idempotency_key'], name='capability_idempotency_per_sprint'),
+            models.UniqueConstraint(fields=['sprint'], condition=models.Q(status__in=['queued', 'running']),
+                                    name='one_active_capability_execution'),
+        ]

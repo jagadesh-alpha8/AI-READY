@@ -128,7 +128,7 @@ def validate_decisions(indicator, response, sources):
     return result
 
 
-def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None):
+def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False):
     rubric = rubric or release()
     if not population.strip() or not reference_period.strip():
         raise ValueError('Institutional population and reporting period are required.')
@@ -151,6 +151,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                     system_prompt=SYSTEM_PROMPT, user_content=payload,
                     response_schema=DECISION_SCHEMA, schema_name='capability_conditions')
             except Exception as exc:
+                if strict_errors:
+                    raise
                 # Do not retain provider error messages, which can contain credentials or confidential text.
                 issue = f'Model evaluation failed ({type(exc).__name__}). Capability is unknown.'
         validated = validate_decisions(indicator, response, context)
@@ -168,6 +170,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                        'context_is_subset': len(context) != len(sources)
                        or any(len(c['text']) < len(s['text']) for c in context for s in sources if c['id'] == s['id']),
                        'error': issue})
+        if on_indicator is not None:
+            on_indicator(validated, traces[-1])
     return {'records': records, 'decisions': {r['condition_id']: r['state'] for r in records},
             'traces': traces, 'indicator_calls': calls,
             'note': 'Citation validation checks grounding; semantic interpretation still requires quality evaluation. '

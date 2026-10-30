@@ -54,7 +54,7 @@ Adapter requirements:
 - Preserve partial/failed/cancelled state and actionable errors. Do not expose raw provider error messages.
 - Decide source carry-over between sprints and explicit replacement for renamed documents.
 
-### 3. Automatic API and task orchestration
+### 3. Automatic API and task orchestration - implemented, mocked validation
 
 Use existing Celery, AI provider abstraction, router leases where configured, and usage accounting. Add
 institution-scoped endpoints to start/read runs and inspect condition evidence/history. Starting an
@@ -133,3 +133,19 @@ provider, authenticated API access, retry/idempotency/cost ceilings, and dispatc
 is an internal service: its institution argument must come from the authorized caller, not untrusted input.
 No live provider calls or production migrations were performed. Run snapshots can be large because exact
 page text is retained; retention/access policy and production concurrency testing remain integration work.
+
+
+## Step 3 checkpoint (2026-10-30)
+
+Added authenticated tenant-scoped capability run start/history/detail/evidence/cancel APIs,
+Celery execution with a unique ownership ledger, per-sprint idempotency and active-run
+constraints, conservative pre-request cost reservations, counted HTTP attempts and bounded
+transient retry. Existing provider/router/usage services are reused; SDK retries are disabled
+only on capability clients. AIUsage rows now link to their capability run. Failed runs keep
+partial decisions; a stopped or duplicate task cannot publish. Empty readable evidence yields
+36 unknown indicators without inference. Live feature defaults off.
+
+See STEP_3_ENGINEER_NOTES.md for exact endpoints, developer enablement, deployment checks,
+budget limitations and worker-loss policy. Real provider, broker and PostgreSQL concurrency
+behaviour remain unverified. The administrator frontend is still legacy; subsequent stages
+are required before calling this a live automatic assessment product.

@@ -235,6 +235,9 @@ class AIUsage(models.Model):
     extraction_job = models.ForeignKey(
         ExtractionJob, on_delete=models.SET_NULL, null=True, blank=True, related_name='ai_usage',
     )
+    capability_run = models.ForeignKey(
+        'scoring.CapabilityRun', on_delete=models.SET_NULL, null=True, blank=True, related_name='ai_usage',
+    )
     stage = models.CharField(max_length=30, choices=Stage.choices, default=Stage.OTHER)
     source = models.CharField(max_length=20, choices=Source.choices, default=Source.RECORDED)
     #: API requests this row stands for: 1 for a recorded call, the dashboard's

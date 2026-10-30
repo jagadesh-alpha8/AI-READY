@@ -45,7 +45,7 @@ def evidence_snapshot(sprint):
 
 
 @transaction.atomic
-def create_run(*, institution_id, sprint_id, population, reference_period):
+def create_run(*, institution_id, sprint_id, population, reference_period, execution_policy=None):
     if not isinstance(population, str) or not population.strip() or not isinstance(reference_period, str) or not reference_period.strip():
         raise ValueError('Population and reference period are required.')
     sprint = Sprint.objects.select_related('institution').get(pk=sprint_id, institution_id=institution_id)
@@ -58,7 +58,8 @@ def create_run(*, institution_id, sprint_id, population, reference_period):
               'population': population, 'reference_period': reference_period,
               'carry_over_policy': 'current_sprint_only_explicit_document_lineage',
               'rubric': rubric, 'rubric_snapshot_hash': digest(rubric),
-              'engine_version': ENGINE_VERSION, 'manifest': manifest, 'sources': sources}
+              'engine_version': ENGINE_VERSION, 'manifest': manifest, 'sources': sources,
+              'execution_policy': execution_policy or {}}
     run = CapabilityRun.objects.create(sprint=sprint, inputs=inputs, inputs_hash=digest(inputs))
     CapabilityRunEvent.objects.create(run=run, state='queued')
     return run
