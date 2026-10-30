@@ -72,3 +72,6 @@ def run_capability_assessment(run_id, task_id):
     finally:
         if pool is not None and lease is not None:
             pool.release(lease)
+
+# Import registers the independent advice task during Celery app discovery.
+from .capability.recommendation_execution import generate_recommendations  # noqa: F401,E402

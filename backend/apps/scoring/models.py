@@ -324,3 +324,75 @@ class CapabilityExecution(models.Model):
             models.UniqueConstraint(fields=['sprint'], condition=models.Q(status__in=['queued', 'running']),
                                     name='one_active_capability_execution'),
         ]
+
+
+class RecommendationSnapshot(models.Model):
+    """Pinned inputs; completed assessment history is never reopened."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='recommendation_snapshots')
+    assessment_event = models.ForeignKey(CapabilityRunEvent, on_delete=models.PROTECT)
+    inputs = models.JSONField()
+    inputs_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    objects = CapabilityHistoryQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Recommendation inputs are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Recommendation history cannot be deleted.')
+
+
+class RecommendationEvent(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    snapshot = models.ForeignKey(RecommendationSnapshot, on_delete=models.PROTECT, related_name='events')
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    objects = CapabilityHistoryQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Recommendation events are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Recommendation history cannot be deleted.')
+
+    class Meta:
+        ordering = ['id']
+
+
+class RecommendationExecution(models.Model):
+    snapshot = models.OneToOneField(RecommendationSnapshot, on_delete=models.PROTECT, primary_key=True, related_name='execution')
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT)
+    idempotency_key = models.CharField(max_length=100)
+    request_hash = models.CharField(max_length=64)
+    task_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    status = models.CharField(max_length=16, default='queued')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    requests_reserved = models.PositiveIntegerField(default=0)
+    usd_reserved = models.DecimalField(max_digits=12, decimal_places=6, default=0)
+    heartbeat_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['run', 'idempotency_key'], name='recommendation_idempotency'),
+            models.UniqueConstraint(fields=['run'], condition=models.Q(status__in=['queued', 'running']), name='one_active_recommendation'),
+        ]
+
+
+class RecommendationActionState(models.Model):
+    """User workflow separate from historical advice and assessment scores."""
+    snapshot = models.ForeignKey(RecommendationSnapshot, on_delete=models.PROTECT, related_name='action_states')
+    condition_id = models.CharField(max_length=64)
+    owner = models.CharField(max_length=200, blank=True)
+    feasibility = models.CharField(max_length=20, default='unreviewed', choices=[(s, s) for s in ('unreviewed', 'feasible', 'blocked')])
+    status = models.CharField(max_length=20, default='proposed', choices=[(s, s) for s in ('proposed', 'in_progress', 'completed', 'dismissed')])
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['snapshot', 'condition_id'], name='recommendation_action_state')]

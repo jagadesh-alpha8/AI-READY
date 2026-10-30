@@ -771,3 +771,8 @@ CAPABILITY_STALE_SECONDS = int(os.getenv('CAPABILITY_STALE_SECONDS', '900'))
 
 if EXTRACTION_QUEUE:
     CELERY_TASK_ROUTES['apps.scoring.tasks.run_capability_assessment'] = {'queue': EXTRACTION_QUEUE}
+
+# Separate explicit opt-in; shares the configured per-execution capability budget ceilings.
+CAPABILITY_RECOMMENDATIONS_ENABLED = os.getenv('CAPABILITY_RECOMMENDATIONS_ENABLED', 'false').lower() == 'true'
+if EXTRACTION_QUEUE:
+    CELERY_TASK_ROUTES['apps.scoring.capability.recommendation_execution.generate_recommendations'] = {'queue': EXTRACTION_QUEUE}

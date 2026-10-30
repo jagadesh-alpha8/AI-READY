@@ -30,14 +30,26 @@ class UsageUnavailable(Exception):
 
 
 class MeteredService:
-    def __init__(self, service, execution):
+    execution_model = CapabilityExecution
+    execution_key = 'run_id'
+
+    def enabled(self):
+        return settings.CAPABILITY_ASSESSMENT_ENABLED
+
+    def event(self, state, payload):
+        return CapabilityRunEvent.objects.create(run_id=self.run_id, state=state, payload=payload)
+
+    def events(self):
+        return CapabilityRunEvent.objects.filter(run_id=self.run_id)
+
+    def __init__(self, service, execution, *, execution_policy=None, ledger_id=None):
         from apps.extraction.services.openai_client import OpenAIExtractionService
         from apps.extraction.services.anthropic_client import AnthropicExtractionService
         if not isinstance(service, (OpenAIExtractionService, AnthropicExtractionService)):
             raise TypeError('Unsupported capability provider client.')
         self.service = service
-        self.run_id = execution.run_id
-        self.policy = execution.run.inputs['execution_policy']
+        self.run_id = ledger_id if ledger_id is not None else execution.run_id
+        self.policy = execution_policy if execution_policy is not None else execution.run.inputs['execution_policy']
         self.limit_breach = False
         self.model = service.model
         self.provider = ('anthropic' if isinstance(service, AnthropicExtractionService)
@@ -86,10 +98,10 @@ class MeteredService:
 
     @transaction.atomic
     def reserve(self, kwargs):
-        execution = CapabilityExecution.objects.select_for_update().get(run_id=self.run_id)
+        execution = self.execution_model.objects.select_for_update().get(**{self.execution_key: self.run_id})
         if self.limit_breach:
             raise BudgetExceeded()
-        if execution.status != 'running' or not settings.CAPABILITY_ASSESSMENT_ENABLED:
+        if execution.status != 'running' or not self.enabled():
             raise ExecutionStopped()
         bound, amount = self.envelope(kwargs)
         if (execution.requests_reserved >= self.policy['max_http_calls']
@@ -99,7 +111,7 @@ class MeteredService:
         execution.usd_reserved += amount
         execution.heartbeat_at = timezone.now()
         execution.save(update_fields=['requests_reserved', 'usd_reserved', 'heartbeat_at'])
-        event = CapabilityRunEvent.objects.create(run_id=self.run_id, state='partial', payload={
+        event = self.event('partial', {
             'kind': 'request_reserved', 'request_number': execution.requests_reserved,
             'provider': self.provider, 'configured_model': self.model, 'input_token_bound': bound,
             'reserved_usd': str(amount), 'request_hash': digest(kwargs),
@@ -144,12 +156,11 @@ class MeteredService:
     def record(self, reservation_id, data):
         # A response received after cancellation still belongs in billing history, but
         # it cannot change the terminal assessment state or publish results.
-        execution = CapabilityExecution.objects.select_for_update().get(run_id=self.run_id)
-        CapabilityRunEvent.objects.create(run_id=self.run_id, state=execution.status,
-            payload={'kind': 'request_outcome', 'reservation_event_id': reservation_id, **data})
+        execution = self.execution_model.objects.select_for_update().get(**{self.execution_key: self.run_id})
+        self.event(execution.status, {'kind': 'request_outcome', 'reservation_event_id': reservation_id, **data})
 
     def metadata(self):
-        events = CapabilityRunEvent.objects.filter(run_id=self.run_id)
+        events = self.events()
         return {'provider': self.provider, 'model': self.model, 'settings': self.policy,
                 'configured_prices': {k: str(v) for k, v in self.rates.items()},
                 'calls': [e.payload for e in events if e.payload.get('kind') in {'request_reserved', 'request_outcome'}]}

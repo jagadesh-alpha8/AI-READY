@@ -1,6 +1,6 @@
 # Capability assessment implementation plan
 
-Branch: **A1 only**. Do not commit to, push to, merge into, or deploy `main` without separate authorization.
+Development branches submit PRs targeting **A1**. Step 4 uses `a1-step4-recommendations`; never push directly to A1, modify main, merge PRs or deploy as part of this work.
 Baseline inspected: `4f170d14eeb3e2b2aca7b9ab13656df76ffd6175`.
 
 ## Product contract
@@ -61,7 +61,7 @@ institution-scoped endpoints to start/read runs and inspect condition evidence/h
 assessment is a permitted institution action, not consultant approval. Do not automatically spend API
 credits from GET requests. Configure retry/cost ceilings and idempotency before enabling inference.
 
-### 4. Grounded tailored recommendations
+### 4. Grounded tailored recommendations — backend implemented, inference defaults off
 
 Use the deterministic selector/scenario engine to identify conditions, then ask the model for contextual
 actions. Validate referenced requirements and evidence. Keep evidence requests, contradictions and
@@ -149,3 +149,5 @@ See STEP_3_ENGINEER_NOTES.md for exact endpoints, developer enablement, deployme
 budget limitations and worker-loss policy. Real provider, broker and PostgreSQL concurrency
 behaviour remain unverified. The administrator frontend is still legacy; subsequent stages
 are required before calling this a live automatic assessment product.
+
+Step 4 audit, implementation details and API: [STEP_4_AUDIT.md](STEP_4_AUDIT.md) and [STEP_4_ENGINEER_NOTES.md](STEP_4_ENGINEER_NOTES.md). Frontend adoption and live quality/integration validation remain Steps 5–6.

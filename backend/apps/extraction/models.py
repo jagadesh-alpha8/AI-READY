@@ -211,6 +211,7 @@ class AIUsage(models.Model):
         VISION_FALLBACK = 'vision_fallback', 'Page vision fallback'
         CONFLICT_CHECK = 'conflict_check', 'Conflict check'
         EVIDENCE_ASSESSMENT = 'evidence_assessment', 'Evidence assessment'
+        CAPABILITY_RECOMMENDATIONS = 'capability_recommendations', 'Capability recommendations'
         #: The AI second opinion on AI-QIF tags left for an expert (apps/facts/aiqif_tagging.ai_check_pending).
         AIQIF_CHECK = 'aiqif_check', 'AI-QIF tag check'
         OTHER = 'other', 'Other'
@@ -235,6 +236,7 @@ class AIUsage(models.Model):
     extraction_job = models.ForeignKey(
         ExtractionJob, on_delete=models.SET_NULL, null=True, blank=True, related_name='ai_usage',
     )
+    recommendation_snapshot = models.ForeignKey('scoring.RecommendationSnapshot', on_delete=models.PROTECT, null=True, blank=True, related_name='ai_usage')
     capability_run = models.ForeignKey(
         'scoring.CapabilityRun', on_delete=models.SET_NULL, null=True, blank=True, related_name='ai_usage',
     )

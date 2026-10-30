@@ -42,6 +42,10 @@ sprint_detail = SprintViewSet.as_view({
 })
 sprint_overview = SprintViewSet.as_view({'get': 'overview'})
 
+from apps.scoring.capability.recommendation_views import (
+    RecommendationsView, RecommendationDetailView, RecommendationCancelView, RecommendationActionView,
+)
+
 urlpatterns = [
     path('/<uuid:sprint_id>/capability-runs', CapabilityRunsView.as_view(), name='capability-runs'),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>', RunView.as_view(), name='capability-run'),
@@ -237,3 +241,13 @@ urlpatterns += [
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/cancel/', CancelRunView.as_view()),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/evidence/', RunEvidenceView.as_view()),
 ]
+
+# Grounded advice is additive to the completed assessment; both slash forms are accepted.
+for suffix in ('', '/'):
+    prefix = '/<uuid:sprint_id>/capability-runs/<uuid:run_id>/recommendations'
+    urlpatterns += [
+        path(prefix + suffix, RecommendationsView.as_view()),
+        path(prefix + '/<uuid:snapshot_id>' + suffix, RecommendationDetailView.as_view()),
+        path(prefix + '/<uuid:snapshot_id>/cancel' + suffix, RecommendationCancelView.as_view()),
+        path(prefix + '/<uuid:snapshot_id>/actions/<str:condition_id>' + suffix, RecommendationActionView.as_view()),
+    ]
