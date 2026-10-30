@@ -759,3 +759,20 @@ AIQIF_AI_CHECK_ENABLED = os.getenv(
 ).strip().lower() not in ('', '0', 'false', 'off')
 AIQIF_AI_CHECK_MIN_CONFIDENCE = float(os.getenv('AIQIF_AI_CHECK_MIN_CONFIDENCE', 0.8))
 AIQIF_AI_CHECK_MAX_PER_DOCUMENT = int(os.getenv('AIQIF_AI_CHECK_MAX_PER_DOCUMENT', 40))
+
+
+# Capability assessments are additive and opt-in until development inference is validated.
+CAPABILITY_ASSESSMENT_ENABLED = os.getenv('CAPABILITY_ASSESSMENT_ENABLED', 'false').lower() == 'true'
+CAPABILITY_MAX_HTTP_CALLS = int(os.getenv('CAPABILITY_MAX_HTTP_CALLS', '72'))
+CAPABILITY_MAX_COST_USD = os.getenv('CAPABILITY_MAX_COST_USD', '2.00')
+CAPABILITY_OUTPUT_TOKENS = int(os.getenv('CAPABILITY_OUTPUT_TOKENS', '3000'))
+CAPABILITY_REQUEST_TIMEOUT_SECONDS = int(os.getenv('CAPABILITY_REQUEST_TIMEOUT_SECONDS', '60'))
+CAPABILITY_STALE_SECONDS = int(os.getenv('CAPABILITY_STALE_SECONDS', '900'))
+
+if EXTRACTION_QUEUE:
+    CELERY_TASK_ROUTES['apps.scoring.tasks.run_capability_assessment'] = {'queue': EXTRACTION_QUEUE}
+
+# Separate explicit opt-in; shares the configured per-execution capability budget ceilings.
+CAPABILITY_RECOMMENDATIONS_ENABLED = os.getenv('CAPABILITY_RECOMMENDATIONS_ENABLED', 'false').lower() == 'true'
+if EXTRACTION_QUEUE:
+    CELERY_TASK_ROUTES['apps.scoring.capability.recommendation_execution.generate_recommendations'] = {'queue': EXTRACTION_QUEUE}

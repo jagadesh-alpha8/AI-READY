@@ -33,6 +33,7 @@ from apps.scoring.views import (
     SprintScoreView,
 )
 
+from apps.scoring.capability.views import CapabilityRunsView, RunView, CancelRunView, RunEvidenceView
 from .views import SprintViewSet
 
 sprint_list = SprintViewSet.as_view({'get': 'list', 'post': 'create'})
@@ -41,7 +42,15 @@ sprint_detail = SprintViewSet.as_view({
 })
 sprint_overview = SprintViewSet.as_view({'get': 'overview'})
 
+from apps.scoring.capability.recommendation_views import (
+    RecommendationsView, RecommendationDetailView, RecommendationCancelView, RecommendationActionView,
+)
+
 urlpatterns = [
+    path('/<uuid:sprint_id>/capability-runs', CapabilityRunsView.as_view(), name='capability-runs'),
+    path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>', RunView.as_view(), name='capability-run'),
+    path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/cancel', CancelRunView.as_view(), name='capability-run-cancel'),
+    path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/evidence', RunEvidenceView.as_view(), name='capability-run-evidence'),
     # Registered with and without a trailing slash for the same reason as
     # apps.institutions.urls: the task spec documents .../sprints/, while
     # APPEND_SLASH=False and this project's existing frontend calls
@@ -224,3 +233,21 @@ urlpatterns = [
         name='sprint-reports-generate-slash',
     ),
 ]
+
+# Match the existing dual registration convention for nested sprint APIs.
+urlpatterns += [
+    path('/<uuid:sprint_id>/capability-runs/', CapabilityRunsView.as_view()),
+    path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/', RunView.as_view()),
+    path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/cancel/', CancelRunView.as_view()),
+    path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/evidence/', RunEvidenceView.as_view()),
+]
+
+# Grounded advice is additive to the completed assessment; both slash forms are accepted.
+for suffix in ('', '/'):
+    prefix = '/<uuid:sprint_id>/capability-runs/<uuid:run_id>/recommendations'
+    urlpatterns += [
+        path(prefix + suffix, RecommendationsView.as_view()),
+        path(prefix + '/<uuid:snapshot_id>' + suffix, RecommendationDetailView.as_view()),
+        path(prefix + '/<uuid:snapshot_id>/cancel' + suffix, RecommendationCancelView.as_view()),
+        path(prefix + '/<uuid:snapshot_id>/actions/<str:condition_id>' + suffix, RecommendationActionView.as_view()),
+    ]

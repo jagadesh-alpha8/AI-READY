@@ -18,7 +18,7 @@ _scope = contextvars.ContextVar('ai_usage_scope', default=None)
 
 
 @contextmanager
-def usage_scope(*, job=None, document=None, sprint=None, stage=None):
+def usage_scope(*, job=None, document=None, sprint=None, stage=None, capability_run=None, recommendation_snapshot=None):
     """Attribute AI calls inside this block. Nested scopes inherit and override
     the outer one's fields (e.g. the pipeline sets the job once, then the stage
     per step)."""
@@ -31,6 +31,10 @@ def usage_scope(*, job=None, document=None, sprint=None, stage=None):
         current['sprint'] = sprint
     if stage is not None:
         current['stage'] = stage
+    if capability_run is not None:
+        current['capability_run'] = capability_run
+    if recommendation_snapshot is not None:
+        current['recommendation_snapshot'] = recommendation_snapshot
     token = _scope.set(current)
     try:
         yield
@@ -57,6 +61,8 @@ def _save(*, provider, model, input_tokens, output_tokens, cache_read_tokens=0, 
             sprint=sprint,
             document=scope.get('document'),
             extraction_job=scope.get('job'),
+            capability_run=scope.get('capability_run'),
+            recommendation_snapshot=scope.get('recommendation_snapshot'),
             stage=scope.get('stage') or AIUsage.Stage.OTHER,
             provider=provider,
             model=model or '',
