@@ -26,6 +26,9 @@ nothing is not an audit trail.
 """
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.apps import apps
+from django.db import IntegrityError, transaction
+from django.db.models.deletion import ProtectedError
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
@@ -34,7 +37,7 @@ from rest_framework.response import Response
 from apps.institutions.models import Institution
 from config.pagination import OptionalPageNumberPagination
 
-from .models import User
+from .models import User, UserDeletionAuditEvent
 
 #: Roles only platform staff may hand out. An institution coordinator creating one
 #: of these would be granting access to every other college's data.
@@ -191,6 +194,10 @@ class UserAdminViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         if instance.pk == self.request.user.pk:
             raise serializers.ValidationError('You cannot deactivate your own account.')
+        if self._is_configured_coordinator(instance):
+            raise serializers.ValidationError(
+                'This user is the institution\'s configured IQAC Coordinator. Change the coordinator in Institution DNA before deactivating the account.',
+            )
         instance.is_active = False
         instance.save(update_fields=['is_active', 'updated_at'])
 
@@ -200,3 +207,113 @@ class UserAdminViewSet(viewsets.ModelViewSet):
         # The row still exists, so return it rather than a bare 204 — the
         # caller's list should show the user as inactive, not drop them.
         return Response(self.get_serializer(instance).data, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _is_configured_coordinator(user):
+        if not user.institution_id:
+            return False
+        institution = user.institution
+        return bool(
+            institution.coordinator_user_id == user.pk
+            or (institution.coordinator_email and institution.coordinator_email.casefold() == user.email.casefold())
+        )
+
+    @staticmethod
+    def _user_dependencies(user):
+        """Return records that must keep this account's identity resolvable.
+
+        User guide state is disposable UI preference and may cascade. Every
+        other concrete FK/one-to-one reference, including nullable SET_NULL
+        audit references, blocks hard deletion so reviewer attribution is not
+        erased.
+        """
+        dependencies = []
+        for model in apps.get_models():
+            if model._meta.label_lower == 'accounts.userguidestate':
+                continue
+            for field in model._meta.get_fields():
+                if not getattr(field, 'concrete', False) or not getattr(field, 'is_relation', False):
+                    continue
+                if not (getattr(field, 'many_to_one', False) or getattr(field, 'one_to_one', False)):
+                    continue
+                if getattr(getattr(field, 'remote_field', None), 'model', None) is not User:
+                    continue
+                count = model._base_manager.filter(**{field.attname: user.pk}).count()
+                if count:
+                    dependencies.append({
+                        'model': model._meta.verbose_name_plural,
+                        'field': field.verbose_name,
+                        'count': count,
+                    })
+        return sorted(dependencies, key=lambda item: (item['model'], item['field']))
+
+    def deletion_preview(self, request, *args, **kwargs):
+        """Super-admin-only dependency preview before permanent deletion."""
+        if request.user.role != User.Role.SUPER_ADMIN:
+            return Response({'detail': 'Only a super admin can permanently delete users.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        user = self.get_object()
+        if user.pk == request.user.pk:
+            return Response({'can_delete': False, 'dependencies': [],
+                             'detail': 'You cannot permanently delete your own account.'},
+                            status=status.HTTP_200_OK)
+        if self._is_configured_coordinator(user):
+            return Response({
+                'can_delete': False,
+                'dependencies': [{'model': 'institution', 'field': 'configured IQAC Coordinator', 'count': 1}],
+                'detail': 'This is the institution\'s configured IQAC Coordinator. Change the coordinator in Institution DNA first.',
+            }, status=status.HTTP_200_OK)
+        dependencies = self._user_dependencies(user)
+        return Response({
+            'can_delete': not dependencies,
+            'dependencies': dependencies,
+            'detail': ('This account has linked records. Deactivate it to preserve their history.'
+                       if dependencies else 'No linked history prevents permanent deletion.'),
+        })
+
+    def permanent_delete(self, request, *args, **kwargs):
+        """Permanently delete only an unreferenced account, with audit snapshot."""
+        if request.user.role != User.Role.SUPER_ADMIN:
+            return Response({'detail': 'Only a super admin can permanently delete users.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        try:
+            with transaction.atomic():
+                user = self.get_queryset().select_for_update().get(pk=kwargs['pk'])
+                if user.pk == request.user.pk:
+                    return Response({'detail': 'You cannot permanently delete your own account.'},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                if self._is_configured_coordinator(user):
+                    return Response({
+                        'detail': 'This is the institution\'s configured IQAC Coordinator. Change the coordinator in Institution DNA first.',
+                        'dependencies': [{'model': 'institution', 'field': 'configured IQAC Coordinator', 'count': 1}],
+                    }, status=status.HTTP_409_CONFLICT)
+                dependencies = self._user_dependencies(user)
+                if dependencies:
+                    return Response({
+                        'detail': 'This account has linked records. Deactivate it to preserve their history.',
+                        'dependencies': dependencies,
+                    }, status=status.HTTP_409_CONFLICT)
+                UserDeletionAuditEvent.objects.create(
+                    actor_user_id=request.user.pk,
+                    actor_email=request.user.email,
+                    target_user_id=user.pk,
+                    target_email=user.email,
+                    target_username=user.username,
+                    target_full_name=user.get_full_name(),
+                    target_role=user.role,
+                    target_institution_id=user.institution_id,
+                    target_institution_name=user.institution.name if user.institution_id else '',
+                    reason=(request.data.get('reason') or '').strip(),
+                )
+                user.delete()
+        except User.DoesNotExist:
+            from django.http import Http404
+            raise Http404
+        except (ProtectedError, IntegrityError):
+            # A concurrent write may have created a reference after preview.
+            return Response({
+                'detail': 'A linked record was added before deletion. The account was not deleted; deactivate it instead.',
+                'dependencies': self._user_dependencies(User.objects.get(pk=kwargs['pk']))
+                if User.objects.filter(pk=kwargs['pk']).exists() else [],
+            }, status=status.HTTP_409_CONFLICT)
+        return Response({'detail': 'User permanently deleted.'}, status=status.HTTP_200_OK)

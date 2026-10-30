@@ -31,6 +31,18 @@ export interface UserPayload {
   password?: string;
 }
 
+export interface UserDeletionDependency {
+  model: string;
+  field: string;
+  count: number;
+}
+
+export interface UserDeletionPreview {
+  can_delete: boolean;
+  dependencies: UserDeletionDependency[];
+  detail: string;
+}
+
 export function listUsers() {
   return api.get<AdminUser[]>('/users');
 }
@@ -47,4 +59,12 @@ export function updateUser(id: string, payload: UserPayload) {
  * this person still resolve. Returns the updated user, not an empty 204. */
 export function deactivateUser(id: string) {
   return api.delete<AdminUser>(`/users/${id}`);
+}
+
+export function previewUserDeletion(id: string) {
+  return api.get<UserDeletionPreview>(`/users/${id}/deletion-preview`);
+}
+
+export function permanentlyDeleteUser(id: string, reason = '') {
+  return api.post<{ detail: string }>(`/users/${id}/permanent-delete`, { reason });
 }

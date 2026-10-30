@@ -36,7 +36,11 @@ export const SprintSetup: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const selectedInstitution = institutions.find((inst) => inst.id === selectedInstId);
+  // Until the effect below picks the first college, show that one (it is what will be selected).
+  const selectedInstitution = institutions.find((inst) => inst.id === (selectedInstId || institutions[0]?.id));
+  // Each college's own coordinator, from the institution list (backend apps/institutions/coordinator.py).
+  const coordinator = selectedInstitution?.coordinator;
+  const missingCoordinator = !!selectedInstitution && !coordinator?.configured;
 
   React.useEffect(() => {
     if (nameEdited || !selectedInstitution) return;
@@ -154,13 +158,25 @@ export const SprintSetup: React.FC = () => {
             </div>
 
             <div>
-              <label className="label">Nodal Officer</label>
+              {/* The selected college's own IQAC Coordinator (Institution DNA) -- never a fixed name. */}
+              <label className="label" htmlFor="nodal-officer">Nodal Officer (IQAC Coordinator)</label>
               <input
+                id="nodal-officer"
                 type="text"
-                value="Prof. S. Kanthaswamy (IQAC Head)"
+                value={coordinator?.configured ? `${coordinator.name} · ${coordinator.email}` : ''}
+                placeholder={selectedInstitution ? 'No IQAC Coordinator yet' : 'Select an institution'}
                 disabled
                 className="input"
               />
+              {coordinator?.configured && coordinator.state !== 'active' && (
+                <p className="mt-1 text-xs text-ink-500">{coordinator.state_label}</p>
+              )}
+              {selectedInstitution && !coordinator?.configured && (
+                <p className="mt-1 text-xs text-danger">
+                  {selectedInstitution.name} has no IQAC Coordinator yet. InGage staff add one in Institution DNA
+                  before a sprint can start.
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -170,7 +186,7 @@ export const SprintSetup: React.FC = () => {
           <button type="button" onClick={() => navigate('/dashboard')} className="btn-secondary">
             Cancel
           </button>
-          <button type="submit" data-tour="sprint-setup-submit" disabled={loading || !selectedInstId} className="btn-primary">
+          <button type="submit" data-tour="sprint-setup-submit" disabled={loading || !selectedInstId || missingCoordinator} className="btn-primary">
             <span>{loading ? 'Initializing Sprint...' : 'Create Sprint & Upload Pack'}</span>
             <ArrowRight className="w-4 h-4" />
           </button>

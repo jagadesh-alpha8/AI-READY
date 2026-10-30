@@ -73,6 +73,34 @@ describe('fact verification', async () => {
   });
 });
 
+describe('value in the document', async () => {
+  const React = (await import('react')).default;
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const ui = await bundleComponent(new URL('./FactVerification.tsx', import.meta.url), {
+    'hooks/useApiResource': 'export const useApiResource = () => globalThis.__resource;',
+    './client': 'const f = () => new Promise(() => {}); export default { get: f, post: f, put: f, patch: f, delete: f };',
+  });
+  after(() => ui.cleanup());
+
+  it('a lost decimal point shows the source text, the reading, the unit, the page and the page figure', () => {
+    const run = { ...RUN, outcome: 'invalid', reason: 'Value in the document: The cited page prints 5638.56, not 563,856.',
+      citation: { ...RUN.citation, source_page: '186' }, derivation: {},
+      validation: { status: 'pass', kind: 'deterministic', checks: [{ code: 'number_format', label: 'Readable as a number',
+        status: 'pass', kind: 'deterministic', detail: 'Reads as 563,856 (format only -- see "Value in the document").' }] },
+      numeric: { status: 'decimal_missing', source_text: '563856', parsed: '563856', unit: 'INR in lakhs',
+        unit_source: 'quote', pages: [], page_shows: '5638.56', kind: 'deterministic',
+        detail: 'The cited page prints 5638.56, not 563,856: the value has lost its decimal point.' } };
+    (globalThis as Record<string, unknown>).__resource = { data: { latest: run, precedent: null, earlier: [] }, loading: false, error: '', refetch() {} };
+    const html = renderToStaticMarkup(React.createElement(ui.mod.FactVerificationModal,
+      { fact: { id: 'f', field_name: 'Infrastructure expenditure', value: 563856 }, onClose() {} }));
+    for (const t of ['Value in the document', 'As extracted', '563856', 'INR in lakhs', '186', 'Decimal point lost',
+      'prints 5638.56', 'Readable as a number', 'format only']) {
+      assert.ok(html.includes(t), t);
+    }
+    assert.ok(!html.includes('Number format'));
+  });
+});
+
 describe('conflict sides show what each value measures', () => {
   it('version, period, population and checks appear when recorded', () => {
     const view = describeSide({

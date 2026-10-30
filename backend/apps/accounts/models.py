@@ -114,6 +114,41 @@ class RoleMigrationAudit(models.Model):
         return f'{self.email}: {self.original_role} -> {self.new_role} (active={self.new_is_active})'
 
 
+class UserDeletionAuditEvent(models.Model):
+    """Append-only identity snapshot for a permanently deleted user.
+
+    User FKs are deliberately avoided: the event must remain after its target
+    account is removed, and should not itself prevent deletion.
+    """
+    actor_user_id = models.UUIDField()
+    actor_email = models.EmailField()
+    target_user_id = models.UUIDField()
+    target_email = models.EmailField()
+    target_username = models.CharField(max_length=150)
+    target_full_name = models.CharField(max_length=300, blank=True)
+    target_role = models.CharField(max_length=32)
+    target_institution_id = models.UUIDField(null=True, blank=True)
+    target_institution_name = models.CharField(max_length=255, blank=True)
+    reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.target_email} permanently deleted by {self.actor_email}'
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            from django.core.exceptions import ValidationError
+            raise ValidationError('User deletion audit events are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        from django.core.exceptions import ValidationError
+        raise ValidationError('User deletion audit events are append-only.')
+
+
 class UserGuideState(models.Model):
     """Persisted in-app onboarding guide choices for a user.
 

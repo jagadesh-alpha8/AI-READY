@@ -35,7 +35,7 @@ from django.utils import timezone
 
 from apps.facts.models import ExtractedFact, FactReviewHistory, FactVerification
 
-from . import derived, grounding, normalize, policy, precedent as precedent_mod, scope as scope_mod, validators
+from . import derived, grounding, normalize, numeric, policy, precedent as precedent_mod, scope as scope_mod, validators
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,8 @@ class Snapshot:
     fact_id: object = None
     document: object = None
     status: str = 'extracted'
+    #: The value exactly as the extractor returned it ('' for older facts and other sources).
+    value_text: str = ''
 
     @classmethod
     def of(cls, fact, **overrides):
@@ -72,7 +74,8 @@ class Snapshot:
             source_page=fact.source_page, source_snippet=fact.source_snippet,
             normalized_value=fact.normalized_value, confidence_score=fact.confidence_score,
             extraction_method=fact.extraction_method, fact_kind=fact.fact_kind, derivation=fact.derivation or {},
-            scope=fact.scope or {}, fact_id=fact.pk, document=fact.document, status=fact.status)
+            scope=fact.scope or {}, fact_id=fact.pk, document=fact.document, status=fact.status,
+            value_text=getattr(fact, 'value_text', '') or '')
         values.update(overrides)
         return cls(**values)
 
@@ -92,13 +95,14 @@ class VerificationResult:
     extraction_confidence: float | None
     passed_summary: list
     ai_assessments: list = field(default_factory=list)
+    numeric: dict = field(default_factory=dict)
 
     def as_dict(self):
         return {'outcome': self.outcome, 'reason': self.reason, 'reasons': self.reasons,
                 'extraction_confidence': self.extraction_confidence, 'grounding': self.grounding,
                 'validation': self.validation, 'derivation': self.derivation, 'cross_source': self.cross_source,
                 'scope': self.scope, 'risk_level': self.risk_level, 'risk_reason': self.risk_reason,
-                'ai_assessments': self.ai_assessments}
+                'ai_assessments': self.ai_assessments, 'numeric': self.numeric}
 
 
 # -- the pipeline ---------------------------------------------------------------------------------------
@@ -190,6 +194,7 @@ def verify_snapshot(snapshot, *, provided_pages=None, exclude_ids=()):
     validation = {'status': validators.summarize(checks), 'checks': checks, 'kind': 'deterministic'}
     xs = cross_source(snapshot, fact_scope, exclude_ids=exclude_ids)
     risk, risk_reason = policy.risk_level(snapshot, snapshot.derivation)
+    num = _numeric(snapshot, g, page_map)
 
     # -- outcome --------------------------------------------------------------------------------------
     invalid = []
@@ -198,6 +203,8 @@ def verify_snapshot(snapshot, *, provided_pages=None, exclude_ids=()):
     if g.value_support == 'conflicts_quote':
         invalid.append(next((d for d in g.detail if 'contradicts' in d), 'The value contradicts its own quote.'))
     invalid += [f'{c["label"]}: {c["detail"]}' for c in checks if c['status'] == 'fail']
+    if num['status'] in numeric.INVALID:
+        invalid.insert(0, f'Value in the document: {num["detail"]}')
     if invalid:
         outcome, reasons = 'invalid', invalid
     elif xs['status'] in ('disagrees', 'in_open_conflict'):
@@ -212,6 +219,8 @@ def verify_snapshot(snapshot, *, provided_pages=None, exclude_ids=()):
                        + f' states {other["value"]!r} for the same metric.']
     else:
         review = []
+        if num['status'] in numeric.REVIEW:  # the most specific reason first
+            review.append(f'Value in the document: {num["detail"]}')
         if g.citation == 'document_missing':
             review.append('No source document is cited, so the value cannot be checked against one.')
         if g.citation == 'no_page':
@@ -239,7 +248,36 @@ def verify_snapshot(snapshot, *, provided_pages=None, exclude_ids=()):
     return VerificationResult(
         outcome=outcome, reason=reason, reasons=reasons, grounding=g.as_dict(), validation=validation,
         derivation=calc if snapshot.derivation else {}, cross_source=xs, scope=fact_scope, risk_level=risk,
-        risk_reason=risk_reason, extraction_confidence=snapshot.confidence_score, passed_summary=passed)
+        risk_reason=risk_reason, extraction_confidence=snapshot.confidence_score, passed_summary=passed,
+        numeric=num)
+
+
+def _numeric(snapshot, g, page_map):
+    """The numeric check (numeric.py) against the cited pages' stored text, and other pages of that document."""
+    document = snapshot.source_document
+    if snapshot.data_type not in numeric.NUMERIC_TYPES:
+        return numeric.check(snapshot, [])
+    texts = []
+    if document is not None and g.citation == 'ok':
+        texts = [grounding.page_text(document, n, page_map) for n in g.pages]
+
+    def other_pages_with(forms):
+        from django.db.models import Q
+
+        from apps.extraction.models import DocumentPage
+        if document is None:
+            return []
+        query = Q()
+        for form in forms:
+            query |= Q(text__contains=form)
+        rows = (DocumentPage.objects.filter(document=document).filter(query).exclude(page_number__in=g.pages)
+                .order_by('page_number').values_list('page_number', 'text')[:20])
+        # Confirm on the printed numbers, not just a substring ("563856" inside "1563856" is not a match).
+        printed = normalize.numbers_in(snapshot.value_text or str(snapshot.value))
+        wanted = printed[0] if len(printed) == 1 else normalize.parse_number(snapshot.value)
+        return [n for n, text in rows if wanted in normalize.numbers_in(text)][:10]
+
+    return numeric.check(snapshot, texts, other_pages_with)
 
 
 # -- stored facts -----------------------------------------------------------------------------------
@@ -270,7 +308,7 @@ def verify_fact(fact, *, source=FactVerification.Source.REVERIFY, provided_pages
         citation=_citation(snapshot),
         extraction_confidence=fact.confidence_score, grounding=result.grounding, validation=result.validation,
         derivation=result.derivation, cross_source=result.cross_source, scope=result.scope,
-        risk_level=result.risk_level, precedent=prec, automation_decision=decision.action,
+        numeric=result.numeric, risk_level=result.risk_level, precedent=prec, automation_decision=decision.action,
         automation_reason=decision.reason, blockers=decision.blockers, policy_version=POLICY_VERSION)
     summary = dict(verification_status=result.outcome, grounding_status=result.grounding['status'],
                    validation_status=result.validation['status'], cross_source_status=result.cross_source['status'],

@@ -63,6 +63,24 @@ def _rejects_response_format(exc):
     return exc.status_code == 400 and 'response_format' in str(exc)
 
 
+#: Base URLs that rejected `temperature` / `seed` with a 400: sent without them for the rest of this process.
+_NO_SAMPLING = set()
+
+
+def _rejects_sampling(exc):
+    return exc.status_code == 400 and any(word in str(exc) for word in ('seed', 'temperature'))
+
+
+def _sampling():
+    """temperature / seed for every request (settings.AI_TEMPERATURE / AI_SEED): the same chunk, the same answer."""
+    out = {}
+    if settings.AI_TEMPERATURE is not None:
+        out['temperature'] = settings.AI_TEMPERATURE
+    if settings.AI_SEED is not None:
+        out['seed'] = settings.AI_SEED
+    return out
+
+
 class OpenAIResponseError(AIResponseError):
     """The request to OpenAI succeeded, but the response wasn't usable --
     empty, truncated, blocked by the content filter, or not valid JSON.
@@ -185,6 +203,8 @@ class OpenAIExtractionService:
         provider = 'openai_compatible' if self.base_url else 'openai'
         try:
             kwargs = {'response_format': response_format} if response_format else {}
+            if self.base_url not in _NO_SAMPLING:
+                kwargs.update(_sampling())
             # Shared per-key request / token limits across every worker (services/rate_limit.py).
             estimate = rate_limit.estimate_tokens(*(m.get('content') or '' for m in messages))
             with rate_limit.throttle(provider, self.model, self.api_key, estimate) as slot:
@@ -225,6 +245,11 @@ class OpenAIExtractionService:
                 logger.warning('openai.request base_url=%s response_format_unsupported resending_without_it', self.base_url)
                 _NO_RESPONSE_FORMAT.add(self.base_url)
                 return self._send(started, messages, None, timeout)
+            if self.base_url not in _NO_SAMPLING and _sampling() and _rejects_sampling(exc):
+                logger.warning('openai.request base_url=%s sampling_params_unsupported resending_without_them',
+                               self.base_url)
+                _NO_SAMPLING.add(self.base_url)
+                return self._send(started, messages, response_format, timeout)
             # Out of quota / credit (400 / 402 / 403 / 429, or a 5xx a router wraps it in): not the request's
             # fault -- the router is taken out of rotation and the document moves on (tasks.py).
             quota = _quota(exc)

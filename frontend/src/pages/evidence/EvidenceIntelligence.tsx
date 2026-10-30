@@ -7,7 +7,7 @@ import {
 import { listSprints } from '../../api/sprints';
 import { SelectSprintPrompt } from '../../components/SprintContextBar';
 import { useSelectedSprint } from '../../context/SelectedSprintContext';
-import { listSprintDocuments } from '../../api/documents';
+import { downloadDocument, listSprintDocuments } from '../../api/documents';
 import { listSprintFacts } from '../../api/facts';
 import { listSprintGaps } from '../../api/gaps';
 import { useApiResource } from '../../hooks/useApiResource';
@@ -71,6 +71,17 @@ export const EvidenceIntelligence: React.FC = () => {
   // The selected sprint is shared by every page (context/SelectedSprintContext.tsx).
   const { sprintId: selectedSprintId } = useSelectedSprint();
   const [filter, setFilter] = useState<Filter>('all');
+  const [downloadError, setDownloadError] = useState('');
+
+  // The download endpoint needs the bearer token: a plain link opens it without one (401).
+  const download = async (doc: SprintDocument) => {
+    setDownloadError('');
+    try {
+      await downloadDocument(doc.id, doc.original_filename || doc.title || 'document');
+    } catch {
+      setDownloadError(`Could not download ${doc.title || doc.original_filename}. Please try again.`);
+    }
+  };
 
   const { data: sprints, loading: sprintsLoading, error: sprintsError, refetch: refetchSprints } =
     useApiResource<Sprint[]>(() => listSprints(), []);
@@ -195,6 +206,7 @@ export const EvidenceIntelligence: React.FC = () => {
 
 
       {docsError && <InlineError message={docsError} onDismiss={refetchDocs} />}
+      {downloadError && <InlineError message={downloadError} onDismiss={() => setDownloadError('')} />}
       {docsLoading && <LoadingState message="Loading evidence…" />}
 
       {!docsLoading && !docsError && (
@@ -271,14 +283,15 @@ export const EvidenceIntelligence: React.FC = () => {
                       </div>
 
                       {doc.download_url && (
-                        <a
-                          href={doc.download_url}
+                        <button
+                          type="button"
+                          onClick={() => download(doc)}
                           className="btn-icon shrink-0"
                           title="Download"
                           aria-label={`Download ${doc.title || doc.original_filename}`}
                         >
                           <Download className="w-4 h-4" />
-                        </a>
+                        </button>
                       )}
 
                       <span className={`badge ${STATUS_BADGE[doc.status]} shrink-0`}>

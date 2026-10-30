@@ -87,9 +87,11 @@ class ExtractedFactFilter(django_filters.FilterSet):
         if not value:
             return queryset
         matching = (ExtractedFact.objects.filter(sprint_id__in=queryset.values('sprint_id'))
-                    .annotate(value_text=Cast('value', output_field=TextField()))
+                    # Not "value_text": that is a model field (the value exactly as extracted), also searched.
+                    .annotate(value_as_text=Cast('value', output_field=TextField()))
                     .filter(Q(field_key__icontains=value) | Q(field_name__icontains=value)
-                            | Q(value_text__icontains=value) | Q(source_snippet__icontains=value)
+                            | Q(value_as_text__icontains=value) | Q(value_text__icontains=value)
+                            | Q(source_snippet__icontains=value)
                             | Q(source_document__original_filename__icontains=value)
                             | Q(aiqif_mappings__indicator_code__icontains=value))
                     .values('id'))

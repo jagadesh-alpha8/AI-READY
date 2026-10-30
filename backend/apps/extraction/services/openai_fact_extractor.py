@@ -86,8 +86,10 @@ supports the value -- an explicit, clearly-labeled statement deserves high confi
 inferred or ambiguously worded deserves lower confidence.
 - `confidence_reason` must briefly explain, in your own words, what in the text grounds your answer.
 - `scope` says what the value measures, only as printed next to it: `period` (e.g. "2022-23", "as on \
-31.03.2023"), `population` (e.g. "UG", "Department of CSE", "whole institution"), and the categories the \
-figure `includes` / `excludes` (e.g. "integrated programmes"). Use null / [] for anything not printed.
+31.03.2023"), `population` (e.g. "UG", "Department of CSE", "whole institution"), the `unit` exactly as printed \
+(e.g. "INR in lakhs", "%", "students"), and the categories the figure `includes` / `excludes` (e.g. \
+"integrated programmes"). Use null / [] for anything not printed. Never convert a value into another unit.
+- `value` keeps every digit and the decimal point exactly as printed ("5638.56" stays "5638.56").
 - `calculation` is null unless the value is a total or share the page does not print as one number. Then -- \
 and only then -- give the operation ("sum", "difference", "ratio", "percentage"), each input exactly as \
 printed with its page and quote, and what it includes / excludes; `value` is the result. The caller \
@@ -152,10 +154,11 @@ FACT_ITEM_SCHEMA = {
             'properties': {
                 'period': {'type': ['string', 'null']},
                 'population': {'type': ['string', 'null']},
+                'unit': {'type': ['string', 'null']},
                 'includes': {'type': 'array', 'items': {'type': 'string'}},
                 'excludes': {'type': 'array', 'items': {'type': 'string'}},
             },
-            'required': ['period', 'population', 'includes', 'excludes'],
+            'required': ['period', 'population', 'unit', 'includes', 'excludes'],
             'additionalProperties': False,
         },
         'calculation': {
@@ -227,10 +230,22 @@ def _require_nonblank_str(value, field):
     return value.strip()
 
 
+class AmbiguousNumber(FactValidationError):
+    """The value reads as a number only by guessing its separators ("5638,56": a decimal comma? "1.234.567"?).
+    The fact is kept with its text as given and flagged for a person -- never dropped, never guessed."""
+
+
 def _parse_number(text, field):
-    cleaned = re.sub(r'[,\s]', '', text)
+    """A number as printed: the dot is the decimal point, commas group thousands (Western 3-digit or Indian
+    2-2-3). Separators are never deleted blindly -- "5638,56" is not 563856 (verification/normalize.py)."""
+    from apps.facts.verification.normalize import separator_issue
+    cleaned = re.sub(r'\s', '', text)
+    # Only digits and separators can be ambiguous; words ("approximately forty-two") are simply not a number.
+    issue = separator_issue(cleaned) if re.fullmatch(r'[-−]?[\d.,]+', cleaned) else ''
+    if issue:
+        raise AmbiguousNumber(f'{field}: {issue}')
     try:
-        number = float(cleaned)
+        number = float(cleaned.replace(',', ''))
     except ValueError as exc:
         raise FactValidationError(f'{field} {text!r} is not a valid number.') from exc
     return int(number) if number.is_integer() else number
@@ -488,7 +503,13 @@ class OpenAIFactExtractor(FactExtractor):
         raw_value = raw_fact.get('value')
         if not isinstance(raw_value, str):
             raise FactValidationError(f'value must be a string, got {raw_value!r}.')
-        value, normalized_value = _parse_and_normalize(raw_value, data_type)
+        notes = []  # what tagging left out and why (ExtractedFact.tagging_notes)
+        try:
+            value, normalized_value = _parse_and_normalize(raw_value, data_type)
+        except AmbiguousNumber as exc:
+            # Kept as the text given, with no parsed number: verification sends it to a person.
+            value, normalized_value = raw_value.strip(), None
+            notes.append({'kind': 'ambiguous_number', 'detail': str(exc)})
 
         pillar = raw_fact.get('pillar')
         if pillar not in VALID_PILLARS:
@@ -519,12 +540,13 @@ class OpenAIFactExtractor(FactExtractor):
             raise FactValidationError(f'confidence_score must be between 0 and 1, got {confidence_score!r}.')
 
         confidence_reason = _require_nonblank_str(raw_fact.get('confidence_reason'), 'confidence_reason')
-        notes = []  # what tagging left out and why (ExtractedFact.tagging_notes)
 
         return {
             'field_name': field_name,
             'field_key': field_key,
             'value': value,
+            # Exactly what the AI returned, kept apart from the parsed value (never reformatted).
+            'value_text': raw_value.strip()[:255],
             'normalized_value': normalized_value,
             'data_type': data_type,
             'pillar': pillar,
@@ -560,6 +582,7 @@ def _validate_scope(raw):
     if not isinstance(raw, dict):
         return {}
     scope = {'period': _clean_text(raw.get('period'), 120), 'population': _clean_text(raw.get('population'), 120),
+             'unit': _clean_text(raw.get('unit'), 80),
              'includes': _clean_list(raw.get('includes')), 'excludes': _clean_list(raw.get('excludes'))}
     if not any(scope.values()):
         return {}

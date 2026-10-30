@@ -3,6 +3,8 @@ from django.urls import path
 from .views import (
     DepartmentDetailView,
     DepartmentListCreateView,
+    InstitutionCoordinatorResendView,
+    InstitutionCoordinatorView,
     InstitutionLeaderDetailView,
     InstitutionLeaderListCreateView,
     InstitutionSystemDetailView,
@@ -14,6 +16,9 @@ institution_list = InstitutionViewSet.as_view({'get': 'list', 'post': 'create'})
 institution_detail = InstitutionViewSet.as_view({
     'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy',
 })
+institution_deletion_preview = InstitutionViewSet.as_view({'get': 'deletion_preview'})
+institution_archive = InstitutionViewSet.as_view({'post': 'archive'})
+institution_unarchive = InstitutionViewSet.as_view({'post': 'unarchive'})
 
 # Registered with and without a trailing slash: the task spec documents these
 # as .../institutions/, but APPEND_SLASH=False (see settings) and this
@@ -29,6 +34,17 @@ urlpatterns = [
     path('/', institution_list, name='institution-list-slash'),
     path('/<uuid:pk>', institution_detail, name='institution-detail'),
     path('/<uuid:pk>/', institution_detail, name='institution-detail-slash'),
+    path('/<uuid:pk>/deletion-preview', institution_deletion_preview, name='institution-deletion-preview'),
+    path('/<uuid:pk>/deletion-preview/', institution_deletion_preview, name='institution-deletion-preview-slash'),
+    path('/<uuid:pk>/delete-preview', institution_deletion_preview, name='institution-delete-preview'),
+    path('/<uuid:pk>/delete-preview/', institution_deletion_preview, name='institution-delete-preview-slash'),
+    path('/<uuid:pk>/archive', institution_archive, name='institution-archive'),
+    path('/<uuid:pk>/archive/', institution_archive, name='institution-archive-slash'),
+    path('/<uuid:pk>/unarchive', institution_unarchive, name='institution-unarchive'),
+    path('/<uuid:pk>/unarchive/', institution_unarchive, name='institution-unarchive-slash'),
+    path('/<uuid:institution_id>/coordinator', InstitutionCoordinatorView.as_view(), name='institution-coordinator'),
+    path('/<uuid:institution_id>/coordinator/resend', InstitutionCoordinatorResendView.as_view(),
+         name='institution-coordinator-resend'),
 
     path(
         '/<uuid:institution_id>/leaders',

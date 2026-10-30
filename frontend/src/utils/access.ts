@@ -66,8 +66,10 @@ export const ACTION_ROLES = {
   'recommendations.edit': STAFF,
   /** Create a college or edit its Institution DNA (WRITE_INSTITUTION_ROLES). */
   'institution.edit': SPRINT_MANAGERS,
-  /** Delete a college (DELETE_INSTITUTION_ROLES); creating one is 'institution.edit'. */
-  'institution.delete': STAFF,
+  /** Create a college and name / invite / change its IQAC Coordinator (backend CREATE_INSTITUTION_ROLES). */
+  'institution.create': STAFF,
+  /** Delete a college (DELETE_INSTITUTION_ROLES); strictly Super Admin on the backend. */
+  'institution.delete': ['super_admin'] as const,
   /** Manage user accounts (USER_ADMIN_ROLES; IQAC coordinators only for their own college). */
   'users.manage': ['super_admin', 'iqac_coordinator'],
   /** AI usage and billing (IsSuperAdmin | IsConsultant). */

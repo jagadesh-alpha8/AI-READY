@@ -10,9 +10,9 @@ these are about administering other people rather than signing in.
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.institutions.models import Institution
+from apps.institutions.models import CoordinatorEvent, Institution
 
-from .models import User
+from .models import User, UserDeletionAuditEvent
 
 PASSWORD = 'Str0ng!DevPassw0rd'
 
@@ -169,6 +169,85 @@ class UserAdministrationTests(APITestCase):
             'email': 'faculty@alpha.edu', 'password': PASSWORD,
         })
         self.assertEqual(login.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_super_admin_can_permanently_delete_an_unreferenced_account_with_audit_snapshot(self):
+        target = User.objects.create_user(
+            email='unused@alpha.edu', username='unused', password=PASSWORD,
+            role=User.Role.IQAC_COORDINATOR, institution=self.alpha,
+            first_name='Unused', last_name='User',
+        )
+        self._auth(self.super_admin)
+        preview = self.client.get(f'/api/v1/users/{target.id}/deletion-preview')
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        self.assertTrue(preview.data['can_delete'])
+        response = self.client.post(f'/api/v1/users/{target.id}/permanent-delete', {
+            'reason': 'Duplicate account created in error.',
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(User.objects.filter(pk=target.pk).exists())
+        event = UserDeletionAuditEvent.objects.get(target_user_id=target.pk)
+        self.assertEqual(event.actor_email, self.super_admin.email)
+        self.assertEqual(event.target_email, 'unused@alpha.edu')
+        self.assertEqual(event.target_institution_name, self.alpha.name)
+        self.assertEqual(event.reason, 'Duplicate account created in error.')
+
+    def test_permanent_delete_is_blocked_when_audit_records_reference_user(self):
+        target = User.objects.create_user(
+            email='iqac-history@alpha.edu', username='iqac_history', password=PASSWORD,
+            role=User.Role.IQAC_COORDINATOR, institution=self.alpha,
+        )
+        CoordinatorEvent.objects.create(
+            institution=self.alpha, user=target, action=CoordinatorEvent.Action.INVITED,
+        )
+        self._auth(self.super_admin)
+        preview = self.client.get(f'/api/v1/users/{target.id}/deletion-preview')
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        self.assertFalse(preview.data['can_delete'])
+        self.assertTrue(any(item['count'] == 1 for item in preview.data['dependencies']))
+        response = self.client.post(f'/api/v1/users/{target.id}/permanent-delete')
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(User.objects.filter(pk=target.pk).exists())
+        self.assertTrue(CoordinatorEvent.objects.filter(user=target).exists())
+
+    def test_only_super_admin_can_preview_or_permanently_delete(self):
+        target = User.objects.create_user(
+            email='unused@alpha.edu', username='unused', password=PASSWORD,
+            role=User.Role.IQAC_COORDINATOR, institution=self.alpha,
+        )
+        self._auth(self.alpha_admin)
+        preview = self.client.get(f'/api/v1/users/{target.id}/deletion-preview')
+        self.assertEqual(preview.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.post(f'/api/v1/users/{target.id}/permanent-delete')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(User.objects.filter(pk=target.pk).exists())
+
+    def test_hod_account_is_not_automatically_removed_by_user_admin_operations(self):
+        hod = User.objects.create_user(
+            email='hod@alpha.edu', username='hod', password=PASSWORD,
+            role=User.Role.IQAC_COORDINATOR, institution=self.alpha,
+            first_name='HOD',
+        )
+        self._auth(self.super_admin)
+        self.client.delete(f'/api/v1/users/{self.alpha_faculty.id}')
+        self.assertTrue(User.objects.filter(pk=hod.pk, is_active=True).exists())
+
+    def test_configured_iqac_coordinator_cannot_be_deactivated_or_permanently_deleted(self):
+        self.alpha.coordinator_name = 'HOD Alpha'
+        self.alpha.coordinator_email = self.alpha_admin.email
+        self.alpha.coordinator_user = self.alpha_admin
+        self.alpha.save(update_fields=['coordinator_name', 'coordinator_email', 'coordinator_user'])
+        self._auth(self.super_admin)
+
+        preview = self.client.get(f'/api/v1/users/{self.alpha_admin.id}/deletion-preview')
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        self.assertFalse(preview.data['can_delete'])
+        self.assertEqual(preview.data['dependencies'][0]['field'], 'configured IQAC Coordinator')
+
+        deactivate = self.client.delete(f'/api/v1/users/{self.alpha_admin.id}')
+        self.assertEqual(deactivate.status_code, status.HTTP_400_BAD_REQUEST)
+        permanent = self.client.post(f'/api/v1/users/{self.alpha_admin.id}/permanent-delete')
+        self.assertEqual(permanent.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(User.objects.filter(pk=self.alpha_admin.pk, is_active=True).exists())
 
     def test_admin_can_reset_a_colleagues_password(self):
         self._auth(self.alpha_admin)

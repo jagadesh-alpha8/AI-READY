@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Check, Plus, RotateCcw, UserCog, UserX, X } from 'lucide-react';
+import { Check, Plus, RotateCcw, Trash2, UserCog, UserX, X } from 'lucide-react';
 
-import { createUser, deactivateUser, listUsers, updateUser } from '../../api/users';
+import {
+  createUser, deactivateUser, listUsers, permanentlyDeleteUser, previewUserDeletion, updateUser,
+} from '../../api/users';
 import type { AdminUser, UserPayload } from '../../api/users';
 import { listInstitutions } from '../../api/institutions';
 import { useApiResource } from '../../hooks/useApiResource';
@@ -10,7 +12,7 @@ import { getErrorMessage } from '../../utils/errors';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import { FilterPills } from '../../components/PageHeader';
 import type { Institution } from '../../types';
-import { confirmDialog } from '../../components/Dialog';
+import { alertDialog, confirmDialog } from '../../components/Dialog';
 
 /**
  * User administration. Mirrors the rules the server enforces in
@@ -113,6 +115,35 @@ export const UsersTab: React.FC = () => {
       await refetch();
     } catch (err) {
       setListError(getErrorMessage(err, 'Could not change that account.'));
+    }
+  };
+
+  const permanentlyDelete = async (u: AdminUser) => {
+    setListError('');
+    try {
+      const preview = (await previewUserDeletion(u.id)).data;
+      if (!preview.can_delete) {
+        const details = preview.dependencies
+          .map((item) => `• ${item.model} — ${item.count}`)
+          .join('\n');
+        await alertDialog(
+          `${preview.detail}\n\nLinked records:\n${details || '• This is your own account.'}\n\n`
+          + 'Use Deactivate instead. Deactivation blocks sign-in and preserves this user’s history.',
+          { title: 'User cannot be permanently deleted' },
+        );
+        return;
+      }
+      const name = u.full_name || u.email;
+      if (!(await confirmDialog(
+        `Permanently delete ${name} (${u.email})? This cannot be undone. `
+        + 'A minimal deletion audit record will remain, but the user account will be removed. '
+        + 'If this is the HOD account you intend to retain, cancel and leave it active.',
+        { title: 'Permanently delete user', confirmLabel: 'Delete permanently', danger: true },
+      ))) return;
+      await permanentlyDeleteUser(u.id);
+      await refetch();
+    } catch (err) {
+      setListError(getErrorMessage(err, 'Could not permanently delete this user.'));
     }
   };
 
@@ -268,6 +299,16 @@ export const UsersTab: React.FC = () => {
                             {u.is_active ? <UserX className="w-4 h-4" /> : <RotateCcw className="w-4 h-4" />}
                           </button>
                         )}
+                        {isSuperAdmin && !isMe && (
+                          <button
+                            type="button" onClick={() => permanentlyDelete(u)}
+                            className="btn-icon hover:text-danger hover:bg-danger-bg"
+                            title="Permanently delete (only if no records depend on this user)"
+                            aria-label={`Permanently delete ${u.email}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                         {isMe && (
                           <span className="badge badge-brand ml-1">
                             <Check className="w-3 h-3" /> You
@@ -285,7 +326,8 @@ export const UsersTab: React.FC = () => {
 
       <p className="text-xs text-ink-500">
         Deactivating keeps the record: fact reviews, baseline decisions and uploaded documents all
-        name their user, and an audit trail that resolves to nothing is not an audit trail.
+        name their user. Super Admins can permanently delete an account only when no records
+        depend on it; linked history must be preserved by deactivating the account instead.
       </p>
     </div>
   );

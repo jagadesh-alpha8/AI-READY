@@ -77,6 +77,9 @@ export interface FactVerificationRun {
     document_version: number | null; page: string; period: string | null; agrees: boolean }[];
     not_comparable: { fact_id: string; value: unknown; document: string | null; why: string }[] };
   scope: { period: string; population: string[]; unit: string; includes: string[]; excludes: string[] };
+  /** The number checked against the cited page text (backend verification/numeric.py). */
+  numeric?: { status: string; source_text: string; parsed: string | null; unit: string; unit_source: string;
+    pages: number[]; page_shows?: string; detail: string; kind: 'deterministic' };
   ai_assessments: { label: string; detail: string }[];
   risk_level: string;
   precedent: { match: 'exact' | 'partial' | 'rejected'; action: string; value: unknown; decided_by_name: string;
@@ -177,6 +180,8 @@ export interface Fact {
   field_key: string;
   audit_field_id: string;
   value: unknown;
+  /** The value exactly as the extractor returned it ('' on older facts). */
+  value_text?: string;
   value_json: unknown;
   normalized_value: unknown;
   data_type: string;

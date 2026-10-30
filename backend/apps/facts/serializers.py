@@ -102,7 +102,7 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExtractedFact
         fields = [
-            'id', 'sprint_id', 'document_id', 'field_name', 'field_key', 'audit_field_id', 'value',
+            'id', 'sprint_id', 'document_id', 'field_name', 'field_key', 'audit_field_id', 'value', 'value_text',
             'value_json', 'normalized_value', 'data_type', 'pillar', 'pillar_label', 'owner_role',
             'source_document_id', 'source_document_filename', 'source_page', 'source_snippet',
             'confidence_score', 'confidence', 'confidence_reason', 'extraction_method', 'status',

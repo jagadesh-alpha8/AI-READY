@@ -54,6 +54,14 @@ export const VerificationCell: React.FC<{ fact: Fact; onOpen: () => void }> = ({
   );
 };
 
+/** The number compared with the cited page text -- distinct from "Readable as a number" (format only). */
+const NUMERIC_LABEL: Record<string, string> = {
+  found: 'Matches the page', decimal_missing: 'Decimal point lost', scale_mismatch: 'Power-of-ten mismatch',
+  other_page: 'On another page', not_found: 'Not on the page', ambiguous: 'Ambiguous separators',
+  page_unavailable: 'Page text not stored',
+};
+const NUMERIC_CLASS: Record<string, string> = { found: 'text-success', decimal_missing: 'text-danger' };
+
 const statusClass = (s: string) => (s === 'pass' ? 'text-success' : s === 'warn' ? 'text-warning' : 'text-danger');
 
 const Section: React.FC<{ title: string; kind: string; children: React.ReactNode }> = ({ title, kind, children }) => (
@@ -109,6 +117,23 @@ const Breakdown: React.FC<{ run: FactVerificationRun; precedent: FactVerificatio
         {run.citation.source_snippet && <blockquote className="text-xs italic text-ink-500 border-l-2 border-line-200 pl-2">“{run.citation.source_snippet}”</blockquote>}
         {run.grounding.detail.map((d) => <p key={d} className="text-xs text-ink-600">{d}</p>)}
       </Section>
+
+      {run.numeric && run.numeric.status !== 'not_applicable' && (
+        <Section title="Value in the document" kind="deterministic">
+          <dl className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div><dt className="text-ink-500">As extracted</dt><dd className="font-mono text-ink-900">{run.numeric.source_text || '—'}</dd></div>
+            <div><dt className="text-ink-500">Read as</dt><dd className="font-mono text-ink-900">{run.numeric.parsed ?? '—'}</dd></div>
+            <div><dt className="text-ink-500">Unit (as printed)</dt><dd className="text-ink-900">{run.numeric.unit || '—'}</dd></div>
+            <div><dt className="text-ink-500">Page</dt><dd className="text-ink-900">{run.citation.source_page || '—'}</dd></div>
+          </dl>
+          <p className="text-xs">
+            <span className={`font-bold uppercase ${NUMERIC_CLASS[run.numeric.status] || 'text-warning'}`}>
+              {NUMERIC_LABEL[run.numeric.status] || run.numeric.status}
+            </span>{' '}
+            <span className="text-ink-700">— {run.numeric.detail}</span>
+          </p>
+        </Section>
+      )}
 
       <Section title="Validation" kind="deterministic">
         <ul className="space-y-0.5">{run.validation.checks.map((c) => <Check key={c.code + c.label} check={c} />)}</ul>

@@ -13,6 +13,7 @@ import type { MenuKey } from './utils/access';
 
 import { Login } from './pages/auth/Login';
 import { ForgotPassword, ResetPassword } from './pages/auth/PasswordReset';
+import { ActivateAccount } from './pages/auth/ActivateAccount';
 import { Dashboard } from './pages/dashboard/Dashboard';
 import { InstitutionList } from './pages/institutions/InstitutionList';
 import { InstitutionDetail } from './pages/institutions/InstitutionDetail';
@@ -113,6 +114,8 @@ function AppRoutes() {
       <Route path="/login" element={<LoginRoute />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      {/* The IQAC Coordinator invitation link (public, single use). */}
+      <Route path="/activate-account" element={<ActivateAccount />} />
 
       <Route path="/dashboard" element={<ProtectedLayout menu="dashboard" sprint="show"><Dashboard /></ProtectedLayout>} />
       <Route path="/institution-dna" element={<ProtectedLayout menu="institution-dna"><InstitutionList /></ProtectedLayout>} />

@@ -155,7 +155,9 @@ class QuoteGroundingTests(VerificationBase):
     def test_a_quote_not_on_the_cited_page_needs_review(self):
         run = engine.verify_fact(self._fact(source_page='3'))  # the quote is on page 7
         self.assertEqual((run.outcome, run.grounding['quote']), ('needs_review', 'not_found'))
-        self.assertIn('not on page 3', run.reason)
+        # The most specific reason first: where the number really is; the quote finding is kept too.
+        self.assertIn('printed on page(s) 7', run.reason)
+        self.assertIn('not on page 3', ' '.join(run.reasons))
 
     def test_ocr_differences_in_letters_still_match(self):
         DocumentPage.objects.filter(document=self.doc, page_number=7).update(

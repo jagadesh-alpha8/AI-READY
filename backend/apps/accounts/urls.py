@@ -1,6 +1,8 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from apps.institutions.views import InvitationAcceptView, InvitationCheckView
+
 from .guide_views import (
     GuideDismissView,
     GuideResetView,
@@ -17,6 +19,9 @@ from .views import ChangePasswordView, LoginView, LogoutView, MeView
 # existing frontend's axios client calls them without a trailing slash
 # (e.g. '/auth/login'). Both forms resolve to the same view.
 urlpatterns = [
+    # IQAC Coordinator invitation link (apps/institutions/coordinator.py).
+    path('invitation', InvitationCheckView.as_view(), name='invitation-check'),
+    path('invitation/accept', InvitationAcceptView.as_view(), name='invitation-accept'),
     path('login', LoginView.as_view(), name='login'),
     path('login/', LoginView.as_view(), name='login-slash'),
     path('refresh', TokenRefreshView.as_view(), name='token-refresh'),

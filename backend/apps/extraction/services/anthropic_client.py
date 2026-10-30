@@ -189,6 +189,8 @@ class AnthropicExtractionService:
             }],
             tool_choice={'type': 'tool', 'name': schema_name, 'disable_parallel_tool_use': True},
             timeout=timeout,
+            # Repeatable extraction (settings.AI_TEMPERATURE); Anthropic has no seed.
+            **({'temperature': settings.AI_TEMPERATURE} if settings.AI_TEMPERATURE is not None else {}),
         )
 
     @staticmethod

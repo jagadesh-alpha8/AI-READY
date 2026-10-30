@@ -22,9 +22,34 @@ export interface Institution {
   priorities: string[];
   digital_maturity_level: number | null;
   current_ai_usage: string;
+  /** The college's IQAC Coordinator and invitation state (backend apps/institutions/coordinator.py). */
+  coordinator?: CoordinatorStatus;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type CoordinatorState =
+  | 'missing' | 'not_invited' | 'not_sent' | 'invited' | 'email_failed' | 'expired' | 'active'
+  /** Staff only: the email belongs to an account that cannot join this college -- no link was created. */
+  | 'account_unavailable'
+  /** What college users see in that case. */
+  | 'pending_setup';
+
+export interface CoordinatorStatus {
+  configured: boolean;
+  name: string;
+  email: string;
+  state: CoordinatorState;
+  state_label: string;
+  can_resend: boolean;
+  last_sent_at?: string | null;
+  send_count?: number;
+  /** Only on the coordinator endpoints. */
+  invitation_email_sent?: boolean | null;
+  /** On a save: false when only the name was corrected (no new invitation). */
+  changed?: boolean;
+  events?: { action: string; label: string; note: string; user_name: string; created_at: string }[];
 }
 
 /**
@@ -82,6 +107,9 @@ export interface InstitutionSystem {
 
 export interface CreateInstitutionPayload {
   name: string;
+  /** Required: the college's IQAC Coordinator, invited by email to activate their account. */
+  coordinator_name: string;
+  coordinator_email: string;
   institution_type?: string;
   city?: string;
   state?: string;

@@ -17,7 +17,10 @@ anthropic>=0.40.0,<1.0.0
 pdfplumber>=0.11.0,<0.12.0
 # PDF reading (apps.extraction.services.pdf_reader): PyMuPDF for the text
 # layer and page rendering; PaddleOCR (requirements/ocr.txt) for scanned pages.
-pymupdf>=1.24.0
+# Pinned: table detection changes between releases, so a different version reads the same PDF into different
+# text -- and different facts (2.0 on live split "2668.31" into "266831 ." on the VELS SSR page 118; 1.28.2 reads it
+# correctly). Upgrade only after comparing a known document's page text across the versions.
+pymupdf==1.28.2
 -r ocr.txt
 # Page images for OCR (pdf_reader); used to arrive only as a PaddleOCR dependency.
 numpy>=1.26

@@ -55,6 +55,16 @@ class Institution(models.Model):
     )
     current_ai_usage = models.TextField(blank=True)
 
+    # -- IQAC Coordinator (apps/institutions/coordinator.py) -----------------------------------------
+    #: The college's named IQAC Coordinator, as entered for THIS institution. Set at creation and changed only
+    #: through the coordinator endpoint (never a plain PATCH), so a change is always an explicit, audited step.
+    coordinator_name = models.CharField(max_length=150, blank=True)
+    coordinator_email = models.EmailField(blank=True)
+    #: The account that accepted the invitation -- set only on acceptance, cleared when the coordinator changes.
+    coordinator_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+',
+    )
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -71,6 +81,92 @@ class Institution(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def has_coordinator(self):
+        return bool(self.coordinator_name.strip() and self.coordinator_email.strip())
+
+
+class CoordinatorInvitation(models.Model):
+    """An invitation for a college's IQAC Coordinator to activate their account (coordinator.py).
+
+    The token itself is never stored: only its SHA-256 hash. A resend rotates the token on this same row (the
+    previous link stops working); acceptance consumes it. At most one pending invitation per institution."""
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Awaiting acceptance'
+        ACCEPTED = 'accepted', 'Accepted'
+        REVOKED = 'revoked', 'Replaced by another coordinator'
+
+    class Delivery(models.TextChoices):
+        NOT_SENT = 'not_sent', 'Not sent yet'
+        SENT = 'sent', 'Email sent'
+        FAILED = 'failed', 'Email could not be sent'
+
+    class AccountState(models.TextChoices):
+        """How the email relates to an account -- internal only, never shown (it would reveal who has an account)."""
+        NEW = 'new', 'A new account, activated by choosing a password'
+        EXISTING = 'existing', 'An existing account of this college (or none), linked on acceptance'
+        UNAVAILABLE = 'unavailable', 'An account that belongs elsewhere: told by email, never moved'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    institution = models.ForeignKey(Institution, on_delete=models.CASCADE, related_name='coordinator_invitations')
+    name = models.CharField(max_length=150)
+    email = models.EmailField()
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                             related_name='+')
+    account_state = models.CharField(max_length=12, choices=AccountState.choices)
+    token_hash = models.CharField(max_length=64, blank=True, db_index=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    delivery = models.CharField(max_length=10, choices=Delivery.choices, default=Delivery.NOT_SENT)
+    #: A short, sanitised reason when the email could not be sent (no addresses, no tokens).
+    delivery_error = models.CharField(max_length=255, blank=True)
+    send_count = models.PositiveSmallIntegerField(default=0)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                                   related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['institution'], condition=models.Q(status='pending'),
+                                    name='one_pending_coordinator_invitation_per_institution'),
+        ]
+
+    def __str__(self):
+        return f'Coordinator invitation for {self.institution_id} ({self.status})'
+
+
+class CoordinatorEvent(models.Model):
+    """Append-only audit history of an institution's IQAC Coordinator: invited, emailed (or failed), resent,
+    activated, changed. Never holds a token."""
+
+    class Action(models.TextChoices):
+        INVITED = 'invited', 'Coordinator invited'
+        EMAIL_SENT = 'email_sent', 'Invitation email sent'
+        EMAIL_FAILED = 'email_failed', 'Invitation email failed'
+        RESENT = 'resent', 'Invitation resent'
+        ACTIVATED = 'activated', 'Invitation accepted, account active'
+        CHANGED = 'changed', 'Coordinator changed'
+        NAME_UPDATED = 'name_updated', 'Coordinator name corrected'
+        REVOKED = 'revoked', 'Pending invitation revoked'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    institution = models.ForeignKey(Institution, on_delete=models.CASCADE, related_name='coordinator_events')
+    invitation = models.ForeignKey(CoordinatorInvitation, null=True, blank=True, on_delete=models.SET_NULL,
+                                   related_name='events')
+    action = models.CharField(max_length=20, choices=Action.choices)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                             related_name='+')
+    note = models.TextField(blank=True)
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
 
 
 class InstitutionLeader(models.Model):

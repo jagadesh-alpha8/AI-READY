@@ -230,9 +230,14 @@ def ground(*, sprint_id, document, source_page, snippet, value, data_type, provi
         else:
             g.quote, g.score = match_quote(snippet, '\n'.join(texts))
             if g.quote == 'not_found':
+                # Name the figures the page does not print -- the usual reason a near-match fails.
+                on_page = set(normalize.numbers_in('\n'.join(texts)))
+                absent = [n for n in normalize.numbers_in(snippet) if n not in on_page]
                 g.detail.append(f'The quote is not on page {source_page} of '
                                 f'{document.original_filename or "the document"} v{document.version_number}'
-                                + (f' (best match {g.score:.0%} of its words).' if g.score else '.'))
+                                + (f' (best match {g.score:.0%} of its words)' if g.score else '')
+                                + (f': the page does not print {", ".join(normalize.format_number(n) for n in absent[:3])}.'
+                                   if absent else '.'))
             elif g.quote == 'ocr_variant':
                 g.detail.append(f'Quote matched with OCR differences ({g.score:.0%} of words; numbers exact).')
     else:

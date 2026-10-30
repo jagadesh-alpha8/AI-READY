@@ -73,8 +73,41 @@ class InstitutionSerializer(serializers.ModelSerializer):
         source='accreditation_details', required=False, allow_blank=True,
     )
 
+    # The college's IQAC Coordinator (apps/institutions/coordinator.py): required when an institution is created,
+    # changed later only through POST /institutions/<id>/coordinator -- never a plain update.
+    coordinator_name = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=150)
+    coordinator_email = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=254)
+    coordinator = serializers.SerializerMethodField()
+
     def get_sprint_count(self, obj):
         return obj.sprints.count()
+
+    def get_coordinator(self, obj):
+        from apps.accounts.models import User
+
+        from .coordinator import status_of
+        request = self.context.get('request')
+        role = getattr(getattr(request, 'user', None), 'role', None)
+        return status_of(obj, for_staff=role in User.CROSS_INSTITUTION_ROLES)
+
+    def validate(self, attrs):
+        from .coordinator import CoordinatorError, clean_email, clean_name
+        attrs = super().validate(attrs)
+        has_input = 'coordinator_name' in self.initial_data or 'coordinator_email' in self.initial_data
+        if self.instance is not None:
+            if has_input:
+                raise serializers.ValidationError({'coordinator': [
+                    'Change the IQAC Coordinator with the coordinator action, not by editing the institution.']})
+            return attrs
+        errors = {}
+        for field, clean in (('coordinator_name', clean_name), ('coordinator_email', clean_email)):
+            try:
+                attrs[field] = clean(attrs.get(field, ''))
+            except CoordinatorError as exc:
+                errors[field] = [str(exc)]
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
 
     def validate_priorities(self, value):
         if not isinstance(value, list):
@@ -96,9 +129,10 @@ class InstitutionSerializer(serializers.ModelSerializer):
             'accreditation_status', 'contact_email', 'contact_phone', 'is_active', 'sprint_count',
             'student_count', 'faculty_count', 'priorities',
             'digital_maturity_level', 'current_ai_usage',
+            'coordinator_name', 'coordinator_email', 'coordinator',
             'created_by', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_by', 'sprint_count', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_by', 'sprint_count', 'coordinator', 'created_at', 'updated_at']
 
 
 class InstitutionDetailSerializer(InstitutionSerializer):

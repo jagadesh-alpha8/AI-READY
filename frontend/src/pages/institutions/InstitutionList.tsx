@@ -1,36 +1,46 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Building2, Plus, Trash2, X } from 'lucide-react';
+import { ArrowRight, Building2, Mail, Plus, RotateCcw, Trash2, User, X } from 'lucide-react';
 
-import { createInstitution, deleteInstitution, listInstitutions } from '../../api/institutions';
+import {
+  createInstitution,
+  listInstitutions,
+  unarchiveInstitution,
+} from '../../api/institutions';
 import { useApiResource } from '../../hooks/useApiResource';
 import { useAuth } from '../../context/AuthContext';
 import { getErrorMessage } from '../../utils/errors';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type { CreateInstitutionPayload, Institution } from '../../types';
 import { canDo } from '../../utils/access';
-import { confirmDialog } from '../../components/Dialog';
+import { InstitutionDeleteModal } from './InstitutionDeleteModal';
 
 // Who may create / delete a college: utils/access.ts ('institution.edit', the
 // backend's WRITE_INSTITUTION_ROLES, and the narrower 'institution.delete' --
 // deleting a college takes every sprint, document, fact, score and report
 // scoped to it down with it).
 
-/** Only `name` is required. The rest are the fields the create endpoint
- * accepts; everything else about an institution — headcounts, priorities,
- * leadership, departments, digital maturity — is edited on its DNA page,
- * which is where this form lands you. */
-const BLANK_FORM: Required<CreateInstitutionPayload> = {
+/** All fields for the "Add new institution" form. coordinator_name and
+ * coordinator_email are required by the backend: the create endpoint atomically
+ * creates the institution AND sends the coordinator an activation email.
+ * The rest of the DNA — headcounts, departments, digital maturity — is filled
+ * in on the Institution DNA page, which is where this form navigates after success. */
+const BLANK_FORM = {
   name: '',
+  coordinator_name: '',
+  coordinator_email: '',
   institution_type: '',
   city: '',
   state: '',
   affiliation: '',
   accreditation_status: '',
   website_url: '',
-};
+} satisfies Required<CreateInstitutionPayload>;
 
 type FormField = keyof typeof BLANK_FORM;
+
+/** Per-field backend validation errors returned by the create endpoint (DRF format). */
+type FieldErrors = Partial<Record<FormField, string>>;
 
 /** Landing page for Institution DNA: pick an institution here before editing
  * anything about it. Creating and deleting both live on this list rather than
@@ -40,31 +50,39 @@ export const InstitutionList: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const canDelete = canDo(user?.role, 'institution.delete');
-  const canCreate = canDo(user?.role, 'institution.edit');
+  // Creating a college names and invites its IQAC Coordinator: InGage staff only (backend CREATE_INSTITUTION_ROLES).
+  // A college's own coordinator edits its basic information on the DNA page, never the coordinator or invitations.
+  const canCreate = canDo(user?.role, 'institution.create');
 
   const { data: institutions, loading, error, refetch } =
     useApiResource<Institution[]>(() => listInstitutions(), []);
 
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteModalInstitution, setDeleteModalInstitution] = useState<Institution | null>(null);
   const [deleteError, setDeleteError] = useState('');
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
-  const setField = (field: FormField, value: string) =>
+  const setField = (field: FormField, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
+    // Clear field-level error as the user corrects the value.
+    if (fieldErrors[field]) setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+  };
 
   const openForm = () => {
     setForm(BLANK_FORM);
     setCreateError('');
+    setFieldErrors({});
     setShowForm(true);
   };
 
   const closeForm = () => {
     setShowForm(false);
     setCreateError('');
+    setFieldErrors({});
   };
 
   const handleCreate = async (event: React.FormEvent) => {
@@ -72,46 +90,79 @@ export const InstitutionList: React.FC = () => {
     const name = form.name.trim();
     if (!name || creating) return;
 
+    // Client-side required-field check for the coordinator fields, so the user
+    // gets instant feedback without a round trip.
+    const clientErrors: FieldErrors = {};
+    if (!form.coordinator_name.trim()) clientErrors.coordinator_name = "Enter the IQAC Coordinator's name.";
+    if (!form.coordinator_email.trim()) clientErrors.coordinator_email = "Enter the IQAC Coordinator's email address.";
+    if (Object.keys(clientErrors).length > 0) {
+      setFieldErrors(clientErrors);
+      return;
+    }
+
     setCreating(true);
     setCreateError('');
+    setFieldErrors({});
     try {
-      // Blank optional fields are left out of the payload rather than posted
-      // as empty strings, so an institution created here is indistinguishable
-      // from one whose optional fields were never typed at all.
-      const payload: CreateInstitutionPayload = { name };
+      // coordinator_name and coordinator_email are always included — they are
+      // required by the backend. Blank optional profile fields are omitted so
+      // they look identical to fields that were never filled in.
+      const payload: CreateInstitutionPayload = {
+        name,
+        coordinator_name: form.coordinator_name.trim(),
+        coordinator_email: form.coordinator_email.trim(),
+      };
       (Object.keys(BLANK_FORM) as FormField[]).forEach((field) => {
+        if (field === 'name' || field === 'coordinator_name' || field === 'coordinator_email') return;
         const value = form[field].trim();
-        if (field !== 'name' && value) payload[field] = value;
+        if (value) payload[field] = value;
       });
 
       const { data } = await createInstitution(payload);
       // Straight into the new institution's DNA: creating one here is always
       // the first step of filling it in, never the end of the task.
       navigate(`/institution-dna/${data.id}`);
-    } catch (err) {
+    } catch (err: unknown) {
+      // DRF returns field errors as { coordinator_name: ["msg"], ... }.
+      // Surface them next to the correct fields instead of as a banner.
+      const resp = (err as { response?: { data?: unknown } })?.response?.data;
+      if (resp && typeof resp === 'object' && !Array.isArray(resp)) {
+        const drfErrors = resp as Record<string, unknown>;
+        const extracted: FieldErrors = {};
+        let hasFieldError = false;
+        (Object.keys(BLANK_FORM) as FormField[]).forEach((field) => {
+          const msgs = drfErrors[field];
+          if (Array.isArray(msgs) && msgs.length > 0) {
+            extracted[field] = String(msgs[0]);
+            hasFieldError = true;
+          } else if (typeof msgs === 'string' && msgs) {
+            extracted[field] = msgs;
+            hasFieldError = true;
+          }
+        });
+        if (hasFieldError) {
+          setFieldErrors(extracted);
+          setCreating(false);
+          return;
+        }
+      }
       setCreateError(getErrorMessage(err, 'Could not create the institution.'));
       setCreating(false);
     }
   };
 
-  const handleDelete = async (inst: Institution) => {
-    if (
-      !(await confirmDialog(
-        `Delete "${inst.name}"? This permanently removes the institution and everything scoped to it — departments, leadership, systems, sprints, uploaded documents, extracted facts, gaps, scores and reports. This cannot be undone.`,
-        { title: 'Delete institution', confirmLabel: 'Delete', danger: true },
-      ))
-    ) {
-      return;
-    }
-    setDeletingId(inst.id);
+  const handleDelete = (inst: Institution) => {
+    setDeleteError('');
+    setDeleteModalInstitution(inst);
+  };
+
+  const handleUnarchive = async (inst: Institution) => {
     setDeleteError('');
     try {
-      await deleteInstitution(inst.id);
+      await unarchiveInstitution(inst.id);
       await refetch();
     } catch (err) {
-      setDeleteError(getErrorMessage(err, `Could not delete "${inst.name}".`));
-    } finally {
-      setDeletingId(null);
+      setDeleteError(getErrorMessage(err, `Could not reactivate "${inst.name}".`));
     }
   };
 
@@ -159,7 +210,9 @@ export const InstitutionList: React.FC = () => {
             <div>
               <h2 className="eyebrow">Add new institution</h2>
               <p className="text-sm text-ink-500 mt-0.5">
-                Only the name is required — the rest of the DNA is filled in on the next screen.
+                Institution name and IQAC Coordinator details are required. The coordinator will
+                receive an email invitation to activate their account. The rest of the DNA is filled
+                in on the next screen.
               </p>
             </div>
             <button type="button" onClick={closeForm} aria-label="Cancel" className="btn-icon shrink-0">
@@ -170,6 +223,7 @@ export const InstitutionList: React.FC = () => {
           {createError && <InlineError message={createError} onDismiss={() => setCreateError('')} />}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Institution name — full width */}
             <div className="sm:col-span-2">
               <label className="label" htmlFor="new-institution-name">
                 Institution name <span className="text-danger">*</span>
@@ -179,12 +233,74 @@ export const InstitutionList: React.FC = () => {
                 type="text"
                 value={form.name}
                 onChange={(e) => setField('name', e.target.value)}
-                className="input"
+                className={`input${fieldErrors.name ? ' border-danger' : ''}`}
                 placeholder="e.g. Sri Venkateswara College of Engineering"
                 autoFocus
                 required
+                aria-describedby={fieldErrors.name ? 'err-name' : undefined}
               />
+              {fieldErrors.name && (
+                <p id="err-name" className="mt-1 text-xs text-danger">{fieldErrors.name}</p>
+              )}
             </div>
+
+            {/* IQAC Coordinator section — required, full width, visually grouped */}
+            <div className="sm:col-span-2">
+              <div className="rounded-lg border border-brand-500/30 bg-brand-500/5 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-ink-700">
+                  <User className="w-4 h-4 text-brand-600 shrink-0" />
+                  <span>IQAC Coordinator <span className="text-danger">*</span></span>
+                  <span className="text-xs font-normal text-ink-400 ml-1">
+                    — invited by email immediately after the institution is created
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="label" htmlFor="new-coordinator-name">
+                      Full name <span className="text-danger">*</span>
+                    </label>
+                    <input
+                      id="new-coordinator-name"
+                      type="text"
+                      value={form.coordinator_name}
+                      onChange={(e) => setField('coordinator_name', e.target.value)}
+                      className={`input${fieldErrors.coordinator_name ? ' border-danger' : ''}`}
+                      placeholder="e.g. Dr. S. Meenakshi"
+                      required
+                      aria-describedby={fieldErrors.coordinator_name ? 'err-coord-name' : undefined}
+                    />
+                    {fieldErrors.coordinator_name && (
+                      <p id="err-coord-name" className="mt-1 text-xs text-danger">
+                        {fieldErrors.coordinator_name}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="new-coordinator-email">
+                      <Mail className="inline w-3.5 h-3.5 mr-1 align-text-bottom text-ink-400" />
+                      Email address <span className="text-danger">*</span>
+                    </label>
+                    <input
+                      id="new-coordinator-email"
+                      type="email"
+                      value={form.coordinator_email}
+                      onChange={(e) => setField('coordinator_email', e.target.value)}
+                      className={`input${fieldErrors.coordinator_email ? ' border-danger' : ''}`}
+                      placeholder="e.g. iqac@college.ac.in"
+                      required
+                      aria-describedby={fieldErrors.coordinator_email ? 'err-coord-email' : undefined}
+                    />
+                    {fieldErrors.coordinator_email && (
+                      <p id="err-coord-email" className="mt-1 text-xs text-danger">
+                        {fieldErrors.coordinator_email}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Optional profile fields */}
             <Field
               label="Type"
               value={form.institution_type}
@@ -215,7 +331,11 @@ export const InstitutionList: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button type="submit" disabled={creating || !form.name.trim()} className="btn-primary btn-sm">
+            <button
+              type="submit"
+              disabled={creating || !form.name.trim() || !form.coordinator_name.trim() || !form.coordinator_email.trim()}
+              className="btn-primary btn-sm"
+            >
               {creating ? 'Creating…' : 'Create institution'}
             </button>
             <button type="button" onClick={closeForm} disabled={creating} className="btn-ghost btn-sm">
@@ -269,13 +389,24 @@ export const InstitutionList: React.FC = () => {
                   )}
                   <td className="text-right">
                     <div className="flex items-center justify-end gap-1">
+                      {!inst.is_active && canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => handleUnarchive(inst)}
+                          aria-label={`Reactivate ${inst.name}`}
+                          title="Reactivate institution"
+                          className="btn-ghost btn-sm text-brand-700 hover:text-brand-900 flex items-center gap-1"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span className="text-xs">Activate</span>
+                        </button>
+                      )}
                       {canDelete && (
                         <button
                           type="button"
                           onClick={() => handleDelete(inst)}
-                          disabled={deletingId === inst.id}
                           aria-label={`Delete ${inst.name}`}
-                          title="Delete institution"
+                          title="Delete or Archive institution"
                           className="btn-icon hover:text-danger hover:bg-danger-bg"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -297,6 +428,14 @@ export const InstitutionList: React.FC = () => {
           </table>
         </div>
       )}
+
+      {/* Dependency Preview and Deletion / Archive Modal */}
+      <InstitutionDeleteModal
+        institution={deleteModalInstitution}
+        isOpen={!!deleteModalInstitution}
+        onClose={() => setDeleteModalInstitution(null)}
+        onSuccess={() => refetch()}
+      />
     </div>
   );
 };

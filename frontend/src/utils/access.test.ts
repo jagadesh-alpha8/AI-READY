@@ -57,9 +57,9 @@ describe('Role and Access Control System (3 Target Roles)', async () => {
     assert.equal(canDo('consultant', 'recommendations.edit'), true);
     assert.equal(canDo('iqac_coordinator', 'recommendations.edit'), false);
 
-    // 5. Institution Deletion: Super Admin & Consultant
+    // 5. Institution Deletion: Super Admin only (enforced on backend)
     assert.equal(canDo('super_admin', 'institution.delete'), true);
-    assert.equal(canDo('consultant', 'institution.delete'), true);
+    assert.equal(canDo('consultant', 'institution.delete'), false);
     assert.equal(canDo('iqac_coordinator', 'institution.delete'), false);
 
     // 6. Sprint management & Baseline approval: All 3 roles within scope

@@ -14,7 +14,7 @@ import ingageLogoDark from '../../assets/ingage-logo-mark-dark.png';
  */
 
 /** Per-field messages from the API, without the "field:" prefix getErrorMessage adds. */
-function apiMessages(err: any, fallback: string): string[] {
+export function apiMessages(err: any, fallback: string): string[] {
   const data = err?.response?.data;
   if (err?.response?.status === 429) return ['Too many attempts. Please wait a while and try again.'];
   if (!data || typeof data !== 'object') return [fallback];
@@ -27,7 +27,7 @@ function apiMessages(err: any, fallback: string): string[] {
   return out.length ? out : [fallback];
 }
 
-const Shell: React.FC<{ title: string; subtitle: string; children: React.ReactNode }> = ({ title, subtitle, children }) => (
+export const Shell: React.FC<{ title: string; subtitle: string; children: React.ReactNode }> = ({ title, subtitle, children }) => (
   <div className="min-h-screen bg-surface flex flex-col justify-center py-10 px-4">
     <div className="max-w-md mx-auto w-full">
       <img src={ingageLogo} alt="InGage" className="h-9 w-auto mb-6 dark:hidden" />
@@ -44,7 +44,7 @@ const Shell: React.FC<{ title: string; subtitle: string; children: React.ReactNo
   </div>
 );
 
-const Errors: React.FC<{ messages: string[] }> = ({ messages }) =>
+export const Errors: React.FC<{ messages: string[] }> = ({ messages }) =>
   messages.length ? (
     <div className="mb-4 p-3 bg-danger-bg border border-danger-line rounded-lg text-sm text-danger space-y-1">
       {messages.map((m) => <p key={m}>{m}</p>)}

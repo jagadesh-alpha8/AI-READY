@@ -53,6 +53,28 @@ def _repair_ocr_digits(text):
     return _DIGITISH.sub(fix, text)
 
 
+# Digit grouping accepted as thousands separators. Anything else with a comma or several dots is ambiguous:
+# "5638,56" may be a decimal comma, "1.234.567" another locale's thousands -- never silently merged.
+_PLAIN = re.compile(r'\d+(?:\.\d+)?')
+_WESTERN = re.compile(r'\d{1,3}(?:,\d{3})+(?:\.\d+)?')
+_INDIAN = re.compile(r'\d{1,2}(?:,\d{2})*,\d{3}(?:\.\d+)?')
+
+
+def separator_issue(token):
+    """'' when `token` ("5,638.56", "56,38,560.50", "5638.56", "1,234") uses separators unambiguously; else why not.
+    The dot is the decimal point, the comma the thousands (Western 3-digit or Indian 2-2-3 grouping)."""
+    t = str(token).strip().lstrip('-−').replace(' ', '')
+    if not t:
+        return ''
+    if any(rx.fullmatch(t) for rx in (_PLAIN, _WESTERN, _INDIAN)):
+        return ''
+    if re.fullmatch(r'\d+,\d{1,2}', t):
+        return f'"{token}" may use a comma as the decimal point ({t.replace(",", ".")}?)'
+    if t.count('.') > 1:
+        return f'"{token}" has several dots -- thousands separators of another locale?'
+    return f'"{token}" has an unusual digit grouping'
+
+
 def _to_decimal(raw):
     raw = raw.strip().rstrip(',').replace('−', '-').replace(',', '')
     try:
@@ -61,15 +83,42 @@ def _to_decimal(raw):
         return None
 
 
-def numbers_in(text):
-    """Every number printed in `text`, in order, as Decimals ("6,910 students and 234" -> [6910, 234])."""
+def printed_numbers(text):
+    """[(Decimal, as printed)] for every number in `text`. A badly grouped token ("5638,56") is read as the
+    separate numbers it shows (5638 and 56), never glued into 563856."""
     text = _repair_ocr_digits(clean_text(text))
     out = []
     for match in _NUMBER.finditer(text):
-        number = _to_decimal(match.group(0))
-        if number is not None:
-            out.append(number)
+        token = match.group(0).rstrip(',')
+        parts = [token] if not separator_issue(token) else [p for p in token.split(',') if p]
+        for part in parts:
+            number = _to_decimal(part)
+            if number is not None:
+                out.append((number, part))
     return out
+
+
+def numbers_in(text):
+    """Every number printed in `text`, in order, as Decimals ("6,910 students and 234" -> [6910, 234])."""
+    return [number for number, _printed in printed_numbers(text)]
+
+
+def number_issue(value):
+    """Why a numeric value's text cannot be read as one number without guessing ('' when it can)."""
+    if value is None or isinstance(value, (bool, int, float, Decimal)):
+        return ''
+    text = clean_text(value)
+    tokens_ = re.findall(r'[-−]?\d[\d,. ]*\d|\d', text)
+    for token in tokens_:
+        issue = separator_issue(token.replace(' ', ''))
+        if issue:
+            return issue
+    return ''
+
+
+def digits_of(number_text):
+    """The digits as printed, without separators or the decimal point: '5,638.56' -> '563856'."""
+    return re.sub(r'\D', '', str(number_text))
 
 
 def parse_number(value):
@@ -167,7 +216,10 @@ def _repair_ocr_letters(text):
 def tokens(text):
     """Lower-case words and numbers for quote matching; a grouped number is one token ("6,910" -> "6910")."""
     text = _repair_ocr_letters(_repair_ocr_digits(clean_text(text))).lower()
-    text = re.sub(r'(?<=\d),(?=\d)', '', text)  # digit grouping, Indian or Western
+    # Digit grouping (Indian or Western) only where it is unambiguous: "6,910" -> 6910, but "5638,56" stays two
+    # numbers -- a dropped decimal point must never look like a match.
+    text = re.sub(r'\d[\d,]*\d', lambda m: m.group(0).replace(',', '') if not separator_issue(m.group(0))
+                  else m.group(0).replace(',', ' '), text)
     return re.findall(r'\d+(?:\.\d+)?|[a-z]+', text)
 
 

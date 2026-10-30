@@ -25,6 +25,18 @@ COUNT_FIELD = re.compile(r'(count|number|no_of|num_|total|students|faculty|staff
 YEAR_FIELD = re.compile(r'(year|established|founded|since)', re.I)
 
 
+#: Says what the check is -- the text parses as a number -- so a PASS is never read as "matches the document".
+FORMAT_LABEL = 'Readable as a number'
+
+
+def _unreadable(value, fact):
+    """A value that is not one number: ambiguous separators need a person ('warn'); anything else is invalid."""
+    issue = normalize.number_issue(getattr(fact, 'value_text', '') or '') or normalize.number_issue(value)
+    if issue:
+        return [check('number_format', FORMAT_LABEL, 'warn', f'{issue} -- a person must read the document.')]
+    return [check('number_format', FORMAT_LABEL, 'fail', f'{value!r} is not one number.')]
+
+
 def check(code, label, status, detail):
     return {'code': code, 'label': label, 'status': status, 'detail': detail, 'kind': 'deterministic'}
 
@@ -37,8 +49,9 @@ def _ranges(field_key):
 def _check_number(value, fact, ctx):
     number = normalize.parse_number(value)
     if number is None:
-        return [check('number_format', 'Number format', 'fail', f'{value!r} is not one number.')]
-    out = [check('number_format', 'Number format', 'pass', f'Reads as {normalize.format_number(number)}.')]
+        return _unreadable(value, fact)
+    out = [check('number_format', FORMAT_LABEL, 'pass',
+                 f'Reads as {normalize.format_number(number)} (format only -- see "Value in the document").')]
     key = f'{fact.field_key} {fact.field_name}'
     if YEAR_FIELD.search(key) and not COUNT_FIELD.search(fact.field_key or ''):
         this_year = date.today().year
@@ -57,7 +70,7 @@ def _check_number(value, fact, ctx):
 def _check_percentage(value, fact, ctx):
     number = normalize.parse_number(value)
     if number is None:
-        return [check('number_format', 'Number format', 'fail', f'{value!r} is not one percentage.')]
+        return _unreadable(value, fact)
     ok = Decimal(0) <= number <= Decimal(100)
     out = [check('percent_range', 'Percentage between 0 and 100', 'pass' if ok else 'fail',
                  f'{normalize.format_number(number)}% ' + ('is within 0–100.' if ok else 'is outside 0–100.'))]
@@ -72,7 +85,7 @@ def _check_percentage(value, fact, ctx):
 def _check_currency(value, fact, ctx):
     number = normalize.parse_number(value)
     if number is None:
-        return [check('number_format', 'Amount format', 'fail', f'{value!r} is not one amount.')]
+        return _unreadable(value, fact)
     out = [check('amount_positive', 'Amount ≥ 0', 'pass' if number >= 0 else 'fail',
                  f'Reads as ₹{normalize.format_number(number)}.')]
     stored = normalize.parse_number(fact.normalized_value) if fact.normalized_value is not None else None

@@ -62,6 +62,12 @@ class SprintViewSet(viewsets.ModelViewSet):
         institution = serializer.validated_data['institution']
         if not user_can_access_institution(self.request.user, institution.id):
             raise PermissionDenied('You cannot create a sprint for an institution you do not belong to.')
+        # After the access check, so nothing about another college is revealed. Every sprint's college-side work
+        # is owned by that college's IQAC Coordinator (apps/institutions/coordinator.py).
+        if not institution.has_coordinator:
+            raise ValidationError({'institution_id': [
+                f'{institution.name} has no IQAC Coordinator yet. Add the coordinator in Institution DNA before '
+                'starting a sprint.']})
         serializer.save(created_by=self.request.user)
 
     def perform_destroy(self, instance):

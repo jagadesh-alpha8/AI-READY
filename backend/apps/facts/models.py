@@ -63,6 +63,9 @@ class ExtractedFact(models.Model):
     # rather than a value -- see FactCorrectSerializer's explicit-null case.
     value = models.JSONField(null=True, blank=True)
     normalized_value = models.JSONField(null=True, blank=True)
+    #: The value exactly as the extractor returned it ("5638.56"), kept apart from the parsed `value`; blank on
+    #: facts extracted before it existed. Verification compares it -- not only the parsed number -- with the page.
+    value_text = models.CharField(max_length=255, blank=True)
     data_type = models.CharField(max_length=20, choices=DataType.choices, default=DataType.STRING)
     pillar = models.CharField(max_length=64, choices=PILLAR_CHOICES, blank=True)
     owner_role = models.CharField(max_length=50, blank=True)
@@ -197,6 +200,9 @@ class FactVerification(models.Model):
     validation = models.JSONField(default=dict, blank=True)
     derivation = models.JSONField(default=dict, blank=True)
     cross_source = models.JSONField(default=dict, blank=True)
+    #: A numeric value checked against the cited page text (verification/numeric.py): source text, parsed number,
+    #: unit as printed, and whether the document shows that number -- separate from grounding and validation.
+    numeric = models.JSONField(default=dict, blank=True)
     scope = models.JSONField(default=dict, blank=True)
     ai_assessments = models.JSONField(default=list, blank=True)
     risk_level = models.CharField(max_length=10, blank=True)

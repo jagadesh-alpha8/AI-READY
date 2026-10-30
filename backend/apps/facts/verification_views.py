@@ -32,7 +32,7 @@ class FactVerificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = FactVerification
         fields = ['id', 'source', 'mode', 'outcome', 'reason', 'value', 'citation', 'extraction_confidence',
-                  'grounding', 'validation', 'derivation', 'cross_source', 'scope', 'ai_assessments', 'risk_level',
+                  'grounding', 'validation', 'derivation', 'cross_source', 'numeric', 'scope', 'ai_assessments', 'risk_level',
                   'precedent', 'automation_decision', 'automation_reason', 'blockers', 'policy_version', 'created_at']
         read_only_fields = fields
 

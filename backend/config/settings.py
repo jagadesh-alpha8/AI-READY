@@ -175,7 +175,7 @@ REST_FRAMEWORK = {
     # through the real endpoint; the throttle tests override these.)
     'DEFAULT_THROTTLE_RATES': (
         {'login': '10000/minute', 'login_email': '10000/minute', 'password_change': '10000/minute',
-         'password_reset': '10000/minute', 'password_reset_email': '10000/minute'}
+         'password_reset': '10000/minute', 'password_reset_email': '10000/minute', 'invitation': '10000/minute'}
         if ((len(sys.argv) > 1 and sys.argv[1] == 'test') or 'pytest' in sys.modules or any('pytest' in arg for arg in sys.argv)) else {
             'login': os.getenv('LOGIN_RATE_PER_IP', '10/minute'),
             'login_email': os.getenv('LOGIN_RATE_PER_EMAIL', '20/hour'),
@@ -183,6 +183,8 @@ REST_FRAMEWORK = {
             # "Forgot password": per client address and per email address.
             'password_reset': '10/hour',
             'password_reset_email': '3/hour',
+            # IQAC Coordinator invitation links (check / activate), per client address.
+            'invitation': '20/hour',
         }
     ),
     # Number of reverse proxies in front of Django (nginx = 1 in production).
@@ -227,6 +229,8 @@ ADMINS = [('Admin', a.strip()) for a in os.getenv('ADMIN_EMAILS', '').split(',')
 FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'http://localhost:3000').rstrip('/')
 # A password-reset link works once and expires after this many seconds.
 PASSWORD_RESET_TIMEOUT = int(os.getenv('PASSWORD_RESET_TIMEOUT', 60 * 60))
+# IQAC Coordinator invitation links (apps/institutions/coordinator.py): single use, valid this many hours.
+COORDINATOR_INVITATION_HOURS = int(os.getenv('COORDINATOR_INVITATION_HOURS', 72))
 
 # Interactive API docs (/api/docs, /api/redoc, /api/schema): on in development,
 # off in production unless API_DOCS_ENABLED=true -- they map every endpoint.
@@ -538,6 +542,11 @@ EXTRACTION_RETRY_MAX_BACKOFF_SECONDS = int(os.getenv('EXTRACTION_RETRY_MAX_BACKO
 # AI_QUOTA_EXHAUSTED_HOLD_SECONDS: after "out of quota / credit", other requests with that key fail at once
 #   (no call, no retry loop) for this long, or until `manage.py ai_router_reactivate` clears it.
 AI_SDK_MAX_RETRIES = int(os.getenv('AI_SDK_MAX_RETRIES', 2))
+# Repeatable extraction: the same document gives the same facts. AI_TEMPERATURE 0 = always the most likely answer;
+# AI_SEED fixes what randomness is left (OpenAI-compatible endpoints only -- Ollama, vLLM, OpenAI; Anthropic has no
+# seed). Empty AI_TEMPERATURE / AI_SEED = the provider's own default.
+AI_TEMPERATURE = float(os.getenv('AI_TEMPERATURE', '0')) if os.getenv('AI_TEMPERATURE', '0').strip() else None
+AI_SEED = int(os.getenv('AI_SEED', '42')) if os.getenv('AI_SEED', '42').strip() else None
 AI_RATE_LIMIT_ENABLED = (os.getenv('AI_RATE_LIMIT_ENABLED', 'false' if _RUNNING_TESTS else 'true').lower()
                          in ('1', 'true', 'yes'))
 AI_RATE_LIMIT_RPM = int(os.getenv('AI_RATE_LIMIT_RPM', 0))

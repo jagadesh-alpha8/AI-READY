@@ -22,6 +22,7 @@ import { useApiResource } from '../../hooks/useApiResource';
 import { useAuth } from '../../context/AuthContext';
 import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { ProfileConfirmPanel } from '../facts/ProfileConfirmPanel';
+import { CoordinatorPanel } from './CoordinatorPanel';
 import { getErrorMessage } from '../../utils/errors';
 import { EmptyState, ErrorState, InlineError, LoadingState } from '../../components/ApiStates';
 import type {
@@ -144,6 +145,10 @@ export const InstitutionDetail: React.FC = () => {
             ))}
           </div>
 
+          {tab === 'profile' && (
+            // Separate from the profile form: a coordinator change may invite a different person (InGage staff only).
+            <CoordinatorPanel institutionId={institution.id} canManage={canDo(user?.role, 'institution.create')} />
+          )}
           {tab === 'profile' && profileSprint && (
             <div className="space-y-1">
               <p className="text-xs text-ink-500">Read from the documents of sprint {profileSprint.sprint_code}.</p>

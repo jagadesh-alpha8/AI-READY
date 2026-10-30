@@ -53,8 +53,21 @@ export function humanizeExtractionError(message: string, willRetry: boolean): st
 export function getErrorMessage(err: any, fallback = 'Something went wrong. Please try again.'): string {
   const data = err?.response?.data;
   if (!data) return err?.message || fallback;
-  if (typeof data === 'string') return data;
+
+  if (typeof data === 'string') {
+    if (data.includes('<!DOCTYPE') || data.includes('<html') || data.includes('<body')) {
+      const match = data.match(/<title>([^<]+)<\/title>/i);
+      if (match && match[1] && !match[1].toLowerCase().includes('server error')) {
+        return match[1].replace(/at \/.*$/i, '').trim();
+      }
+      return fallback;
+    }
+    return data;
+  }
+
+  if (data.block_reason) return data.block_reason;
   if (data.detail) return data.detail;
+  if (data.message) return data.message;
   if (data.non_field_errors?.length) return data.non_field_errors[0];
 
   const firstField = Object.keys(data)[0];

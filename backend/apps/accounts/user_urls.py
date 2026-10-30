@@ -16,10 +16,16 @@ _list = UserAdminViewSet.as_view({'get': 'list', 'post': 'create'})
 _detail = UserAdminViewSet.as_view({
     'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy',
 })
+_deletion_preview = UserAdminViewSet.as_view({'get': 'deletion_preview'})
+_permanent_delete = UserAdminViewSet.as_view({'post': 'permanent_delete'})
 
 urlpatterns = [
     path('', _list, name='user-list'),
     path('/', _list, name='user-list-slash'),
     path('/<uuid:pk>', _detail, name='user-detail'),
     path('/<uuid:pk>/', _detail, name='user-detail-slash'),
+    path('/<uuid:pk>/deletion-preview', _deletion_preview, name='user-deletion-preview'),
+    path('/<uuid:pk>/deletion-preview/', _deletion_preview, name='user-deletion-preview-slash'),
+    path('/<uuid:pk>/permanent-delete', _permanent_delete, name='user-permanent-delete'),
+    path('/<uuid:pk>/permanent-delete/', _permanent_delete, name='user-permanent-delete-slash'),
 ]

@@ -34,11 +34,10 @@ export const GapDashboard: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [ownerFilter, setOwnerFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [pillarFilter, setPillarFilter] = useState('');
   const q = useDebounced(search.trim());
-  const query = { q, gap_type: typeFilter, priority: priorityFilter, status: statusFilter, owner_role: ownerFilter,
+  const query = { q, gap_type: typeFilter, priority: priorityFilter, status: statusFilter,
     source_document: sourceFilter, pillar: pillarFilter };
   const queryKey = JSON.stringify(query);
   // The page belongs to its filters: a new filter starts at page 1 in the same render (never a request for
@@ -213,8 +212,6 @@ export const GapDashboard: React.FC = () => {
                   options: pillarOptions(facets?.pillars) },
                 { key: 'status', label: 'Status', value: statusFilter, onChange: setStatusFilter,
                   options: optionsFromCounts(facets?.status, (v: string) => v.replace(/_/g, ' ')) },
-                { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
-                  options: optionsFromCounts(facets?.owner_role) },
                 { key: 'source', label: 'Source', value: sourceFilter, onChange: setSourceFilter,
                   options: optionsFromCounts(facets?.source_document) },
               ]}
@@ -235,7 +232,6 @@ export const GapDashboard: React.FC = () => {
                     <th>Gap Type</th>
                     <th>Priority</th>
                     <th title="The CRI pillar whose score this gap's penalty is taken from while it is open.">CRI Pillar</th>
-                    <th title="The role that owns this data -- not a named person">Owner Role</th>
                     <th>Title</th>
                     <th>Source</th>
                     <th title="The linked fact's snippet and page; both sources for a conflict">Source Snippet</th>
@@ -261,14 +257,16 @@ export const GapDashboard: React.FC = () => {
                       <td>
                         <span className="badge-neutral">{gap.pillar_label || gap.pillar || '—'}</span>
                       </td>
-                      <td className="text-ink-900">
-                        <span className="font-semibold">{gap.owner_role || '—'}</span>
-                        <span className="block text-[11px] text-ink-500">
-                          {gap.assigned_to_name ? `→ ${gap.assigned_to_name}` : 'unassigned'}
-                          {gap.due_date ? ` · due ${gap.due_date}` : ''}
-                        </span>
+                      <td className="text-ink-600">
+                        {gap.title}
+                        {/* Who it is assigned to (every owner is the college's IQAC Coordinator, so no Owner column). */}
+                        {(gap.assigned_to_name || gap.due_date) && (
+                          <span className="block text-[11px] text-ink-500">
+                            {gap.assigned_to_name ? `→ ${gap.assigned_to_name}` : ''}
+                            {gap.due_date ? `${gap.assigned_to_name ? ' · ' : ''}due ${gap.due_date}` : ''}
+                          </span>
+                        )}
                       </td>
-                      <td className="text-ink-600">{gap.title}</td>
                       <td
                         className="text-ink-600 max-w-[14rem] truncate"
                         title={gap.source_document_filename || undefined}

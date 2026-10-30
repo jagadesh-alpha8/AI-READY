@@ -45,7 +45,6 @@ export const FactsReview: React.FC = () => {
   // totals come from aggregate counts over the whole sprint (facets).
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [ownerFilter, setOwnerFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [kindFilter, setKindFilter] = useState('');
   const [pillarFilter, setPillarFilter] = useState('');
@@ -53,7 +52,7 @@ export const FactsReview: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState('');
   const q = useDebounced(search.trim());
   const query = {
-    q, status: statusFilter, owner_role: ownerFilter, source_document: sourceFilter, fact_kind: kindFilter,
+    q, status: statusFilter, source_document: sourceFilter, fact_kind: kindFilter,
     pillar: pillarFilter, aiqif_indicator: categoryFilter, verification_status: verificationFilter,
   };
   const queryKey = JSON.stringify(query);
@@ -309,8 +308,6 @@ export const FactsReview: React.FC = () => {
                   options: pillarOptions(facets?.aiqif_indicators) },
                 { key: 'kind', label: 'Fact kind', value: kindFilter, onChange: setKindFilter,
                   options: optionsFromCounts(facets?.fact_kind, (v: string) => KIND_LABELS[v === 'none' ? '' : v] || v) },
-                { key: 'owner', label: 'Owner', value: ownerFilter, onChange: setOwnerFilter,
-                  options: optionsFromCounts(facets?.owner_role) },
                 { key: 'source', label: 'Source document', value: sourceFilter, onChange: setSourceFilter,
                   options: optionsFromCounts(facets?.source_document) },
               ]}
@@ -353,7 +350,6 @@ export const FactsReview: React.FC = () => {
                   <th>Source Document</th>
                   <th>Source Snippet</th>
                   <th>Confidence</th>
-                  <th>Owner</th>
                   <th title="Checked against the cited page: citation, quote, value, validation rules and other sources. Separate from the extraction confidence.">Verification</th>
                   <th>Status</th>
                   <th className="text-right">Actions</th>
@@ -414,7 +410,6 @@ export const FactsReview: React.FC = () => {
                     <td className="font-mono font-semibold text-success tabular-nums">
                       {(fact.confidence * 100).toFixed(0)}%
                     </td>
-                    <td className="text-ink-700 font-medium">{fact.owner_role || 'IQAC'}</td>
                     <td><VerificationCell fact={fact} onOpen={() => setVerifyingFact(fact)} /></td>
                     <td>
                       <span className={statusBadgeClass(fact.status)}>{fact.status}</span>

@@ -86,6 +86,14 @@ class PasswordResetRequestView(APIView):
         if not email or '@' not in email:
             return Response({'email': ['Enter your email address.']}, status=status.HTTP_400_BAD_REQUEST)
         user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if user is None:
+            # An IQAC Coordinator who was invited but never activated (no password yet): a new activation link,
+            # to that address only, instead of a reset link. Same reply either way.
+            from apps.institutions.coordinator import resend_for_email
+            try:
+                resend_for_email(email)
+            except Exception as exc:  # never reveal more, never 500 -- but do log it
+                logger.error('accounts.password_reset.invitation_resend_failed error=%s', type(exc).__name__)
         if user is not None:
             try:
                 send_reset_email(user)

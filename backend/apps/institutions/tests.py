@@ -4,7 +4,7 @@ from rest_framework.test import APITestCase
 from apps.accounts.models import User
 from apps.sprints.models import Sprint
 
-from .models import Department, Institution, InstitutionLeader
+from .models import Department, Institution, InstitutionLeader, InstitutionSystem
 
 PASSWORD = 'Str0ng!DevPassw0rd'
 
@@ -17,6 +17,7 @@ class InstitutionCrudTests(APITestCase):
         self.admin_a = self._make_user('admin_a@test.edu', User.Role.IQAC_COORDINATOR, self.institution_a)
         self.viewer_a = self._make_user('viewer_a@test.edu', User.Role.IQAC_COORDINATOR, self.institution_b)
         self.super_admin = self._make_user('root@test.edu', User.Role.SUPER_ADMIN, None)
+        self.consultant = self._make_user('consultant@test.edu', User.Role.CONSULTANT, None)
 
     @staticmethod
     def _make_user(email, role, institution):
@@ -57,21 +58,25 @@ class InstitutionCrudTests(APITestCase):
 
     # -- create / update role gating -----------------------------------------
 
-    def test_institution_admin_can_create_institution(self):
+    def test_only_ingage_staff_create_institutions(self):
+        # Creating a college names and invites its IQAC Coordinator (apps/institutions/coordinator.py).
+        body = {'name': 'New College', 'short_name': 'NC', 'city': 'Madurai', 'state': 'TN',
+                'coordinator_name': 'New Coordinator', 'coordinator_email': 'iqac@newcollege.ac.in'}
         self._auth(self.admin_a)
-        response = self.client.post('/api/v1/institutions/', {
-            'name': 'New College', 'short_name': 'NC', 'city': 'Madurai', 'state': 'TN',
-        })
+        self.assertEqual(self.client.post('/api/v1/institutions/', body).status_code, status.HTTP_403_FORBIDDEN)
+        self._auth(self.super_admin)
+        response = self.client.post('/api/v1/institutions/', body)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(str(response.data['created_by']), str(self.admin_a.id))
+        self.assertEqual(str(response.data['created_by']), str(self.super_admin.id))
 
     def test_create_accepts_frontend_field_names(self):
         """SprintSetup.tsx (existing, unmodified) posts `affiliation`,
         `accreditation_status`, and `website_url` -- confirm they land on
         the real columns instead of being silently dropped."""
-        self._auth(self.admin_a)
+        self._auth(self.super_admin)
         response = self.client.post('/api/v1/institutions/', {
             'name': 'New College', 'city': 'Madurai', 'state': 'TN',
+            'coordinator_name': 'New Coordinator', 'coordinator_email': 'iqac@newcollege.ac.in',
             'affiliation': 'Anna University',
             'accreditation_status': 'NAAC A+ / NBA Accredited',
             'website_url': 'https://newcollege.ac.in',
@@ -134,11 +139,9 @@ class InstitutionCrudTests(APITestCase):
         self.assertIsNone(self.admin_a.institution)
 
     def test_delete_removes_a_baseline_approved_sprint(self):
-        """Regression: Baseline.scoring_run is on_delete=PROTECT. A naive
-        cascade delete of the institution would cascade-delete the sprint's
-        ScoringRun rows and hit ProtectedError on their still-present
-        Baseline rows, even though those Baseline rows are also
-        cascade-deleted via the same sprint -- see perform_destroy."""
+        """Regression / Policy: An institution with an approved baseline and sprint contains
+        protected assessment evidence and audit history. Deletion must be blocked with 409 Conflict,
+        not silently cascaded."""
         from apps.scoring.models import Baseline, ScoringRun
 
         sprint = Sprint.objects.create(institution=self.institution_a)
@@ -148,10 +151,136 @@ class InstitutionCrudTests(APITestCase):
         self._auth(self.super_admin)
         response = self.client.delete(f'/api/v1/institutions/{self.institution_a.id}/')
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(Sprint.objects.filter(id=sprint.id).exists())
-        self.assertFalse(ScoringRun.objects.filter(id=scoring_run.id).exists())
-        self.assertFalse(Baseline.objects.filter(id=baseline.id).exists())
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data['error_code'], 'INSTITUTION_DELETE_BLOCKED')
+        self.assertFalse(response.data['can_delete'])
+        self.assertTrue(Institution.objects.filter(id=self.institution_a.id).exists())
+        self.assertTrue(Sprint.objects.filter(id=sprint.id).exists())
+        self.assertTrue(Baseline.objects.filter(id=baseline.id).exists())
+
+    def test_deletion_preview_and_blocked_delete_for_institution_with_sprints(self):
+        sprint = Sprint.objects.create(institution=self.institution_a, name='Sprint Alpha')
+        self._auth(self.super_admin)
+
+        # 1. Preview
+        preview_res = self.client.get(f'/api/v1/institutions/{self.institution_a.id}/deletion-preview/')
+        self.assertEqual(preview_res.status_code, status.HTTP_200_OK)
+        self.assertFalse(preview_res.data['can_delete'])
+        self.assertTrue(preview_res.data['is_blocked'])
+        self.assertIn('sprint', preview_res.data['block_reason'].lower())
+        self.assertEqual(preview_res.data['dependencies']['sprints'], 1)
+        self.assertEqual(preview_res.data['recommended_action'], 'archive')
+
+        # 2. Blocked delete
+        del_res = self.client.delete(f'/api/v1/institutions/{self.institution_a.id}/')
+        self.assertEqual(del_res.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(del_res.data['error_code'], 'INSTITUTION_DELETE_BLOCKED')
+        self.assertTrue(Institution.objects.filter(id=self.institution_a.id).exists())
+
+    def test_deletion_preview_and_blocked_delete_with_evidence_submission_dependency(self):
+        from apps.documents.models import Document
+        from apps.facts.models import ExtractedFact, EvidenceRequest, EvidenceRequestDocument
+
+        sprint = Sprint.objects.create(institution=self.institution_a, name='Sprint Evidence')
+        doc = Document.objects.create(sprint=sprint, original_filename='audit_report.pdf', file_size=2048)
+        fact = ExtractedFact.objects.create(sprint=sprint, document=doc, field_name='Student Count', value='1500')
+        req = EvidenceRequest.objects.create(sprint=sprint, fact=fact)
+        sub = EvidenceRequestDocument.objects.create(request=req, document=doc)
+
+        self._auth(self.super_admin)
+
+        # Preview reflects evidence submission dependency
+        preview_res = self.client.get(f'/api/v1/institutions/{self.institution_a.id}/deletion-preview/')
+        self.assertEqual(preview_res.status_code, status.HTTP_200_OK)
+        self.assertFalse(preview_res.data['can_delete'])
+        self.assertEqual(preview_res.data['dependencies']['evidence_submissions'], 1)
+        self.assertEqual(preview_res.data['dependencies']['documents'], 1)
+        self.assertEqual(preview_res.data['dependencies']['facts'], 1)
+
+        # Attempt delete -> 409 Conflict, preserving evidence and document lineage
+        del_res = self.client.delete(f'/api/v1/institutions/{self.institution_a.id}/')
+        self.assertEqual(del_res.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(Institution.objects.filter(id=self.institution_a.id).exists())
+        self.assertTrue(EvidenceRequestDocument.objects.filter(id=sub.id).exists())
+        self.assertTrue(Document.objects.filter(id=doc.id).exists())
+
+    def test_deletable_institution_with_no_protected_records(self):
+        clean_inst = Institution.objects.create(name='Clean University', city='Pune', state='MH')
+        dept = Department.objects.create(institution=clean_inst, name='Mathematics')
+        leader = InstitutionLeader.objects.create(institution=clean_inst, name='Dr. Sharma', role='Director')
+        system = InstitutionSystem.objects.create(institution=clean_inst, name='Moodle LMS')
+
+        self._auth(self.super_admin)
+
+        # Preview indicates safe to delete
+        preview_res = self.client.get(f'/api/v1/institutions/{clean_inst.id}/deletion-preview/')
+        self.assertEqual(preview_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(preview_res.data['can_delete'])
+        self.assertFalse(preview_res.data['is_blocked'])
+        self.assertIsNone(preview_res.data['block_reason'])
+        self.assertEqual(preview_res.data['recommended_action'], 'delete')
+        self.assertEqual(preview_res.data['dependencies']['sprints'], 0)
+        self.assertEqual(preview_res.data['dependencies']['departments'], 1)
+
+        # Delete succeeds transactionally with 204
+        del_res = self.client.delete(f'/api/v1/institutions/{clean_inst.id}/')
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Institution.objects.filter(id=clean_inst.id).exists())
+        self.assertFalse(Department.objects.filter(id=dept.id).exists())
+        self.assertFalse(InstitutionLeader.objects.filter(id=leader.id).exists())
+        self.assertFalse(InstitutionSystem.objects.filter(id=system.id).exists())
+
+    def test_permission_denial_on_institution_deletion(self):
+        # 1. Consultant is denied permanent deletion (only Super Admin)
+        self._auth(self.consultant)
+        del_res = self.client.delete(f'/api/v1/institutions/{self.institution_a.id}/')
+        self.assertEqual(del_res.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 2. IQAC Coordinator is denied
+        self._auth(self.admin_a)
+        del_res = self.client.delete(f'/api/v1/institutions/{self.institution_a.id}/')
+        self.assertEqual(del_res.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. Unauthenticated is denied
+        self.client.credentials()
+        del_res = self.client.delete(f'/api/v1/institutions/{self.institution_a.id}/')
+        self.assertEqual(del_res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        self.assertTrue(Institution.objects.filter(id=self.institution_a.id).exists())
+
+    def test_race_condition_dependency_appearing_between_preview_and_deletion(self):
+        clean_inst = Institution.objects.create(name='Race Test College', city='Jaipur', state='RJ')
+        self._auth(self.super_admin)
+
+        # Initial preview says safe to delete
+        preview_res = self.client.get(f'/api/v1/institutions/{clean_inst.id}/deletion-preview/')
+        self.assertEqual(preview_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(preview_res.data['can_delete'])
+
+        # Concurrent action adds a sprint before user clicks final delete
+        Sprint.objects.create(institution=clean_inst, name='Concurrent Sprint')
+
+        # DELETE catches the newly added protected dependency and returns 409
+        del_res = self.client.delete(f'/api/v1/institutions/{clean_inst.id}/')
+        self.assertEqual(del_res.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(del_res.data['error_code'], 'INSTITUTION_DELETE_BLOCKED')
+        self.assertTrue(Institution.objects.filter(id=clean_inst.id).exists())
+
+    def test_archive_and_unarchive_institution(self):
+        self._auth(self.super_admin)
+        self.assertTrue(self.institution_a.is_active)
+
+        # Archive
+        arc_res = self.client.post(f'/api/v1/institutions/{self.institution_a.id}/archive/')
+        self.assertEqual(arc_res.status_code, status.HTTP_200_OK)
+        self.institution_a.refresh_from_db()
+        self.assertFalse(self.institution_a.is_active)
+
+        # Unarchive
+        unarc_res = self.client.post(f'/api/v1/institutions/{self.institution_a.id}/unarchive/')
+        self.assertEqual(unarc_res.status_code, status.HTTP_200_OK)
+        self.institution_a.refresh_from_db()
+        self.assertTrue(self.institution_a.is_active)
 
     # -- filtering / ordering / pagination -----------------------------------
 

@@ -13,8 +13,8 @@ class RoleAndInstitutionAccessTests(APITestCase):
     """Role-gated writes, institution-scoped reads."""
 
     def setUp(self):
-        self.institution_a = Institution.objects.create(name='College A', city='Chennai', state='TN')
-        self.institution_b = Institution.objects.create(name='College B', city='Coimbatore', state='TN')
+        self.institution_a = Institution.objects.create(name='College A', city='Chennai', state='TN', coordinator_name='Test Coordinator', coordinator_email='coordinator@college.edu')
+        self.institution_b = Institution.objects.create(name='College B', city='Coimbatore', state='TN', coordinator_name='Test Coordinator', coordinator_email='coordinator@college.edu')
 
         self.admin_a = self._make_user(
             'admin_a@test.edu', User.Role.IQAC_COORDINATOR, self.institution_a,
@@ -145,7 +145,7 @@ class SprintCrudTests(APITestCase):
     """CRUD, pagination, filtering, ordering, state transitions, deletion guard, overview."""
 
     def setUp(self):
-        self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN')
+        self.institution = Institution.objects.create(name='MKCE', city='Karur', state='TN', coordinator_name='Test Coordinator', coordinator_email='coordinator@college.edu')
         self.consultant = User.objects.create_user(
             email='consultant@test.edu', username='consultant', password=PASSWORD,
             first_name='Con', last_name='Sultant', role=User.Role.CONSULTANT,
