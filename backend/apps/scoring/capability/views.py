@@ -70,7 +70,9 @@ class RunView(APIView):
         completed = execution.run.events.filter(state='completed', payload__result__isnull=False).last()
         terminal = execution.run.events.filter(state__in=['failed', 'cancelled'], payload__error_code__isnull=False).last()
         indicators = execution.run.events.filter(payload__kind='indicator')
-        return Response({**summary(execution), 'inputs_hash': execution.run.inputs_hash,
+        from .recommendations import build_inputs
+        plan = build_inputs(execution.run, completed, {}) if completed else None
+        return Response({**summary(execution), 'deterministic_plan': plan, 'inputs_hash': execution.run.inputs_hash,
             'population': execution.run.inputs['population'], 'profile': execution.run.inputs['profile'],
             'source_manifest': execution.run.inputs['manifest'],
             'assessment': completed.payload if completed else None,

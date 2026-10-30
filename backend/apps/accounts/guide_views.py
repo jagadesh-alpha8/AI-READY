@@ -12,6 +12,14 @@ from .guide_service import (
     update_menu_tour,
 )
 
+def project_guide(request, data):
+    workflow = request.query_params.get('workflow') if request.method == 'GET' else request.data.get('workflow')
+    if workflow == 'capability':
+        from apps.scoring.capability.guide import capability_guide
+        return capability_guide(data, request.user)
+    return data
+
+
 VALID_STEP_IDS = {cfg['id'] for cfg in STEP_CONFIGS}
 
 
@@ -38,7 +46,7 @@ class GuideStatusView(APIView):
         sprint_id = request.query_params.get('sprint_id') or None
         institution_id = request.query_params.get('institution_id') or None
         data = get_guide_status(request.user, sprint_id=sprint_id, institution_id=institution_id)
-        return Response(data, status=status.HTTP_200_OK)
+        return Response(project_guide(request, data), status=status.HTTP_200_OK)
 
 
 class GuideSkipView(APIView):
@@ -69,7 +77,7 @@ class GuideSkipView(APIView):
             institution_id=institution_id,
             skipped=skipped,
         )
-        return Response(data, status=status.HTTP_200_OK)
+        return Response(project_guide(request, data), status=status.HTTP_200_OK)
 
 
 class GuideDismissView(APIView):
@@ -91,7 +99,7 @@ class GuideDismissView(APIView):
             sprint_id=sprint_id,
             institution_id=institution_id,
         )
-        return Response(data, status=status.HTTP_200_OK)
+        return Response(project_guide(request, data), status=status.HTTP_200_OK)
 
 
 class GuideResetView(APIView):
@@ -111,7 +119,7 @@ class GuideResetView(APIView):
             sprint_id=sprint_id,
             institution_id=institution_id,
         )
-        return Response(data, status=status.HTTP_200_OK)
+        return Response(project_guide(request, data), status=status.HTTP_200_OK)
 
 
 class MenuTourUpdateView(APIView):
@@ -144,4 +152,4 @@ class MenuTourUpdateView(APIView):
             sprint_id=sprint_id,
             institution_id=institution_id,
         )
-        return Response(data, status=status.HTTP_200_OK)
+        return Response(project_guide(request, data), status=status.HTTP_200_OK)

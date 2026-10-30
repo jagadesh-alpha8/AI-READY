@@ -1,4 +1,5 @@
 import React from 'react';
+import { CapabilityDashboard } from '../capability/CapabilityDashboard';
 import { useNavigate } from 'react-router-dom';
 import { listSprints, deleteSprint, archiveSprint } from '../../api/sprints';
 import { getDashboard } from '../../api/dashboard';
@@ -10,14 +11,6 @@ import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { Building, Plus, Play, CheckCircle2, ArrowRight, ShieldCheck, Trash2, Archive } from 'lucide-react';
 import { useAccess } from '../../utils/access';
 import { alertDialog, confirmDialog } from '../../components/Dialog';
-
-/** Average of the non-null values in `values`, or null if none are scored
- * yet -- never a fabricated number standing in for "not measured". */
-function average(values: (number | null)[]): number | null {
-  const known = values.filter((v): v is number => v !== null && v !== undefined);
-  if (known.length === 0) return null;
-  return known.reduce((sum, v) => sum + v, 0) / known.length;
-}
 
 export const Dashboard: React.FC = () => {
   const { can, canSee } = useAccess();
@@ -84,12 +77,6 @@ export const Dashboard: React.FC = () => {
   const loading = sprintsLoading || dashboardLoading;
   const error = dashboardError || sprintsError;
   const sprints = sprintsList || [];
-  const dashboardSprints = Array.isArray(dashboard?.sprints)
-    ? dashboard!.sprints
-    : dashboard?.sprints?.results || [];
-
-  const avgCri = average(dashboardSprints.map((s) => s.cri));
-  const avgConfidence = average(dashboardSprints.map((s) => s.confidence));
 
   return (
     <div className="space-y-6">
@@ -114,8 +101,10 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Metrics Row */}
-      <div data-tour="dashboard-metrics" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {selectedSprintId && <CapabilityDashboard key={selectedSprintId} sprint={selectedSprintId} />}
+
+      {/* Platform counts; capability is shown only for a pinned selected institution. */}
+      <div data-tour="dashboard-metrics" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
         <div className="glass-card p-5">
           <div className="flex items-center justify-between text-ink-500">
             <span className="text-sm font-medium">Active Sprints</span>
@@ -134,31 +123,7 @@ export const Dashboard: React.FC = () => {
           <span className="text-xs text-info mt-1 inline-block font-medium">Autonomous & Affiliated</span>
         </div>
 
-        <div className="glass-card p-5">
-          <div className="flex items-center justify-between text-ink-500">
-            <span className="text-sm font-medium">Average CRI Score</span>
-            <ShieldCheck className="w-4 h-4 text-success" />
-          </div>
-          <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">
-            {avgCri !== null ? avgCri.toFixed(1) : 'N/A'} <span className="text-sm text-ink-500 font-normal">/ 100</span>
-          </p>
-          <span className="text-xs text-success mt-1 inline-block font-medium">
-            {avgCri !== null ? 'Across scored sprints' : 'No sprints scored yet'}
-          </span>
-        </div>
 
-        <div className="glass-card p-5">
-          <div className="flex items-center justify-between text-ink-500">
-            <span className="text-sm font-medium">Data Confidence</span>
-            <CheckCircle2 className="w-4 h-4 text-warning" />
-          </div>
-          <p className="text-2xl font-bold text-ink-900 mt-2 tabular-nums">
-            {avgConfidence !== null ? `${(avgConfidence * 100).toFixed(0)}%` : 'N/A'}
-          </p>
-          <span className="text-xs text-warning mt-1 inline-block font-medium">
-            {avgConfidence !== null ? 'Verified Evidence' : 'No sprints scored yet'}
-          </span>
-        </div>
       </div>
 
       {/* Sprints List Table */}

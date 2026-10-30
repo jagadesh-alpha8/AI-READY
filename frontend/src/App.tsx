@@ -44,6 +44,9 @@ import { LiveCRIPreview } from './pages/scoring/LiveCRIPreview';
 import { BaselineApproval } from './pages/scoring/BaselineApproval';
 import { RecommendationsReview } from './pages/recommendations/RecommendationsReview';
 import { ReportPreviewExport } from './pages/reports/ReportPreviewExport';
+import { CapabilityWorkspace } from './pages/capability/CapabilityWorkspace';
+
+const Legacy: React.FC<{ children: React.ReactNode }> = ({ children }) => <><div className="panel-muted mb-6"><strong>Legacy CRI workflow</strong><p>These historical scores, recommendations and approvals use the previous methodology. They do not determine current capability scores or block capability reports.</p></div>{children}</>;
 
 /** /login itself, redirecting away if a session is already active. */
 const LoginRoute: React.FC = () => {
@@ -129,15 +132,15 @@ function AppRoutes() {
       {/* Ported from the InGage prototype: real screens, demo data. */}
       <Route path="/evidence" element={<ProtectedLayout menu="evidence-intelligence" sprint="required"><EvidenceIntelligence /></ProtectedLayout>} />
       <Route path="/evidence-requests" element={<ProtectedLayout menu="evidence-requests"><EvidenceRequests /></ProtectedLayout>} />
-      <Route path="/cri-benchmark" element={<ProtectedLayout menu="cri-benchmark-intelligence" sprint="required"><CriBenchmarkIntelligence /></ProtectedLayout>} />
+      <Route path="/cri-benchmark" element={<ProtectedLayout menu="cri-benchmark-intelligence" sprint="required"><CapabilityWorkspace /></ProtectedLayout>} />
       <Route path="/benchmark-studio" element={<ProtectedLayout menu="benchmark-studio"><BenchmarkStudio /></ProtectedLayout>} />
       <Route path="/benchmark-assessment" element={<ProtectedLayout menu="benchmark-assessment"><BenchmarkAssessments /></ProtectedLayout>} />
-      <Route path="/transformation-plan" element={<ProtectedLayout menu="transformation-plan" sprint="required"><TransformationPlan /></ProtectedLayout>} />
-      <Route path="/goals-tasks" element={<ProtectedLayout menu="goals-tasks" sprint="required"><GoalsTasks /></ProtectedLayout>} />
-      <Route path="/ai-copilot" element={<ProtectedLayout menu="ai-copilot" sprint="required"><AICopilot /></ProtectedLayout>} />
-      <Route path="/reminders" element={<ProtectedLayout menu="reminders" sprint="required"><Reminders /></ProtectedLayout>} />
+      <Route path="/transformation-plan" element={<ProtectedLayout menu="transformation-plan" sprint="required"><CapabilityWorkspace mode="actions" /></ProtectedLayout>} />
+      <Route path="/goals-tasks" element={<ProtectedLayout menu="goals-tasks" sprint="required"><CapabilityWorkspace mode="actions" /></ProtectedLayout>} />
+      <Route path="/ai-copilot" element={<ProtectedLayout menu="ai-copilot" sprint="required"><Legacy><AICopilot /></Legacy></ProtectedLayout>} />
+      <Route path="/reminders" element={<ProtectedLayout menu="reminders" sprint="required"><Legacy><Reminders /></Legacy></ProtectedLayout>} />
       <Route path="/compliance" element={<ProtectedLayout menu="compliance-mapping" sprint="required"><ComplianceMapping /></ProtectedLayout>} />
-      <Route path="/uat-readiness" element={<ProtectedLayout menu="uat-readiness" sprint="required"><UatReadiness /></ProtectedLayout>} />
+      <Route path="/uat-readiness" element={<ProtectedLayout menu="uat-readiness" sprint="required"><Legacy><UatReadiness /></Legacy></ProtectedLayout>} />
       <Route path="/admin-settings" element={<ProtectedLayout menu="admin-settings"><AdminSettings /></ProtectedLayout>} />
 
       {/* Design previews for the modules with no prototype screen to port.
@@ -153,13 +156,20 @@ function AppRoutes() {
         path="/sprint/:sprintId/confirmation"
         element={<ProtectedLayout menu="sprint-confirmation" sprint="show"><ConfirmationWorkspace /></ProtectedLayout>}
       />
-      <Route path="/sprint/:sprintId/score" element={<ProtectedLayout menu="sprint-score" sprint="show"><LiveCRIPreview /></ProtectedLayout>} />
-      <Route path="/sprint/:sprintId/approval" element={<ProtectedLayout menu="sprint-approval" sprint="show"><BaselineApproval /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/score" element={<ProtectedLayout menu="sprint-score" sprint="show"><CapabilityWorkspace /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/approval" element={<ProtectedLayout menu="sprint-approval" sprint="show"><Legacy><BaselineApproval /></Legacy></ProtectedLayout>} />
       <Route
         path="/sprint/:sprintId/recommendations"
-        element={<ProtectedLayout menu="sprint-recommendations" sprint="show"><RecommendationsReview /></ProtectedLayout>}
+        element={<ProtectedLayout menu="sprint-recommendations" sprint="show"><CapabilityWorkspace mode="actions" /></ProtectedLayout>}
       />
-      <Route path="/sprint/:sprintId/report" element={<ProtectedLayout menu="sprint-report" sprint="show"><ReportPreviewExport /></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/report" element={<ProtectedLayout menu="sprint-report" sprint="show"><CapabilityWorkspace mode="report" /></ProtectedLayout>} />
+
+      <Route path="/sprint/:sprintId/legacy-score" element={<ProtectedLayout menu="sprint-score" sprint="show"><Legacy><LiveCRIPreview /></Legacy></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/legacy-recommendations" element={<ProtectedLayout menu="sprint-recommendations" sprint="show"><Legacy><RecommendationsReview /></Legacy></ProtectedLayout>} />
+      <Route path="/sprint/:sprintId/legacy-report" element={<ProtectedLayout menu="sprint-report" sprint="show"><Legacy><ReportPreviewExport /></Legacy></ProtectedLayout>} />
+      <Route path="/legacy-cri-benchmark" element={<ProtectedLayout menu="cri-benchmark-intelligence" sprint="required"><Legacy><CriBenchmarkIntelligence /></Legacy></ProtectedLayout>} />
+      <Route path="/legacy-transformation-plan" element={<ProtectedLayout menu="transformation-plan" sprint="required"><Legacy><TransformationPlan /></Legacy></ProtectedLayout>} />
+      <Route path="/legacy-goals-tasks" element={<ProtectedLayout menu="goals-tasks" sprint="required"><Legacy><GoalsTasks /></Legacy></ProtectedLayout>} />
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
