@@ -251,3 +251,7 @@ for suffix in ('', '/'):
         path(prefix + '/<uuid:snapshot_id>/cancel' + suffix, RecommendationCancelView.as_view()),
         path(prefix + '/<uuid:snapshot_id>/actions/<str:condition_id>' + suffix, RecommendationActionView.as_view()),
     ]
+
+from apps.scoring.capability.report_views import CapabilityReportView
+for suffix in ('', '/'):
+    urlpatterns.append(path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/report' + suffix, CapabilityReportView.as_view()))

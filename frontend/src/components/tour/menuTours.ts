@@ -1091,6 +1091,21 @@ export const MENU_TOURS: Record<MenuKey, MenuTourConfig> = {
   },
 };
 
+// Capability routes replace the historical CRI/approval sequence for the administrator experience.
+for (const key of ['sprint-score', 'sprint-recommendations', 'sprint-report', 'cri-benchmark-intelligence', 'transformation-plan', 'goals-tasks'] as MenuKey[]) {
+  MENU_TOURS[key] = {
+    menuKey: key, menuTitle: key === 'sprint-report' ? 'Capability Report & Export' : 'Institutional AI Capability',
+    menuPurpose: 'Frozen evidence, capability bounds and grounded conditional pathways without a baseline approval gate.',
+    roles: 'all', steps: [
+      { id: `${key}-history`, number: 1, title: 'Select an assessment', purpose: 'Select a frozen assessment and reference period. Failed or cancelled runs do not publish scores.', tour_target: 'capability-history', tour_location: 'Capability > History' },
+      { id: `${key}-start`, number: 2, title: 'Explicit assessment start', purpose: 'Confirm scope and period before starting. Model calls use configured credits; reading and refreshing do not.', tour_target: 'capability-start', tour_location: 'Capability > Start assessment' },
+      { id: `${key}-standing`, number: 3, title: 'Evidence and capability are separate', purpose: 'Capability bounds preserve unresolved evidence. Experimental tiers are not accreditation standards.', tour_target: 'capability-header', tour_location: 'Capability > Standing' },
+    ],
+  };
+}
+MENU_TOURS.dashboard.steps = MENU_TOURS.dashboard.steps.map(step => step.id === 'dashboard-metrics' ? { ...step, purpose: 'Platform counts and the selected institution’s frozen capability assessment; no averaged legacy CRI headline.' } : step);
+MENU_TOURS['sprint-approval'].menuTitle = 'Legacy Baseline Approval';
+
 export const ALL_MENU_TOURS: MenuTourConfig[] = Object.values(MENU_TOURS);
 
 function canRoleAccess(roles?: readonly UserRole[] | readonly string[] | 'all', role?: UserRole): boolean {
@@ -1112,7 +1127,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
       id: 'nav-tour-dashboard',
       number: num++,
       title: 'Dashboard',
-      purpose: 'Central executive cockpit showing CRI score health, audit progress, and sprint metrics.',
+      purpose: 'Selected institution capability, evidence resolution and sprint metrics.',
       tour_target: 'nav-dashboard',
       tour_location: 'Main Navigation > Cockpit',
     });
@@ -1175,7 +1190,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     {
       key: 'sprint-gaps',
       title: '7. Gap Dashboard',
-      purpose: 'Identify readiness gaps where required evidence is missing, and see their exact point deductions on the CRI score.',
+      purpose: 'Inspect legacy fact-review gaps. Capability evidence distinguishes missing evidence from documented shortfalls.',
     },
     {
       key: 'sprint-confirmation',
@@ -1184,13 +1199,13 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     },
     {
       key: 'sprint-score',
-      title: '9. Live CRI Preview',
-      purpose: 'Real-time preview of the College Readiness Index across all 9 evaluation criteria as facts and gaps are settled.',
+      title: '9. Capability & Evidence',
+      purpose: 'Frozen capability bounds and evidence decisions for all 36 indicators. New evidence needs a new explicit assessment.',
     },
     {
       key: 'sprint-approval',
-      title: '10. Baseline Approval',
-      purpose: 'Formal sign-off and baseline freeze by InGage consultants and college leadership before final recommendations.',
+      title: '10. Legacy Baseline Approval',
+      purpose: 'Historical CRI approval only. Capability recommendations and report export do not require this step.',
     },
     {
       key: 'sprint-recommendations',

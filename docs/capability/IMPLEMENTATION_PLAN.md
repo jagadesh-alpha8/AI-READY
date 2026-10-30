@@ -1,6 +1,6 @@
 # Capability assessment implementation plan
 
-Development branches submit PRs targeting **A1**. Step 4 uses `a1-step4-recommendations`; never push directly to A1, modify main, merge PRs or deploy as part of this work.
+Development branches submit PRs targeting **A1**. Step 4 used `a1-step4-recommendations`; Steps 5–6 use `a1-step5-6-experience`; never push directly to A1, modify main, merge PRs or deploy as part of this work.
 Baseline inspected: `4f170d14eeb3e2b2aca7b9ab13656df76ffd6175`.
 
 ## Product contract
@@ -69,14 +69,14 @@ capability development distinct. Completing a task does not change a score until
 Maintain ownership, feasibility and action status independently. Derive the next overall threshold from
 an explicitly configured policy; a 10-point threshold remains proposed.
 
-### 5. Administrator UI and report integration
+### 5. Administrator UI and report integration — implemented, local validation
 
 Make capability the new product headline, with bounds and evidence completeness. Explicitly label legacy
 CRI. Update all dashboard, score, report and recommendation consumers together; do not merely place a new
 number beside the old headline. Show all 36 indicators, three tier pathways, source references and
 unresolved items. Allow report export without baseline approval in the new automatic path.
 
-### 6. End-to-end validation and demo preparation
+### 6. End-to-end validation and demo preparation — automated/offline checks implemented; live acceptance outstanding
 
 Select the actual institutional corpus and working provider. Measure live condition accuracy and cold-run
 agreement separately from exact numerical replay. Test source updates, tenancy, failed formats, partial
@@ -151,3 +151,5 @@ behaviour remain unverified. The administrator frontend is still legacy; subsequ
 are required before calling this a live automatic assessment product.
 
 Step 4 audit, implementation details and API: [STEP_4_AUDIT.md](STEP_4_AUDIT.md) and [STEP_4_ENGINEER_NOTES.md](STEP_4_ENGINEER_NOTES.md). Frontend adoption and live quality/integration validation remain Steps 5–6.
+
+Steps 5–6 implementation and validation: [STEP_5_6_ENGINEER_NOTES.md](STEP_5_6_ENGINEER_NOTES.md). Remaining live acceptance: [STEP_6_ACCEPTANCE.md](STEP_6_ACCEPTANCE.md). Step 5 provides printable HTML/JSON exports; native capability PDF/Word is not implemented.
