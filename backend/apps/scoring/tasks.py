@@ -41,7 +41,7 @@ def run_capability_assessment(run_id, task_id):
             with usage_scope(sprint=execution.sprint, stage='evidence_assessment', capability_run=execution.run):
                 evaluation = evaluate(execution.run.inputs['sources'], service=service,
                     population=execution.run.inputs['population'], reference_period=execution.run.inputs['reference_period'],
-                    rubric=execution.run.inputs['rubric'], strict_errors=True,
+                    rubric=execution.run.inputs['rubric'], strict_errors=True, scope=inputs.get('scope'),
                     on_indicator=lambda rows, trace: progress(run_id, rows, trace))
             # Same lock order as cancellation; completion and ledger become visible atomically.
             with transaction.atomic():
@@ -75,3 +75,4 @@ def run_capability_assessment(run_id, task_id):
 
 # Import registers the independent advice task during Celery app discovery.
 from .capability.recommendation_execution import generate_recommendations  # noqa: F401,E402
+from .capability.plan_execution import evaluate_institutional_plan  # noqa: F401,E402

@@ -46,21 +46,33 @@ def policy():
 
 
 @transaction.atomic
-def start(*, sprint, user, idempotency_key, population, reference_period):
+def start(*, sprint, user, idempotency_key, population=None, reference_period=None, scope_mode=None, refines_run_id=None):
     # Serializes competing keys as well as repeated requests for this sprint (PostgreSQL).
     Sprint.objects.select_for_update().get(pk=sprint.pk)
-    signature = digest({'population': population, 'reference_period': reference_period})
+    from .scope import intent
+    from rest_framework.exceptions import ValidationError
+    try:
+        mode, requested = intent(population, reference_period, scope_mode, refines_run_id)
+    except ValueError as exc:
+        raise ValidationError(str(exc))
+    signature = digest(requested)
     existing = CapabilityExecution.objects.filter(sprint=sprint, idempotency_key=idempotency_key).first()
     if existing:
         if existing.request_hash != signature:
             raise AssessmentConflict('This idempotency key was already used for different assessment inputs.')
         return existing, False
+    if refines_run_id:
+        from apps.scoring.models import CapabilityRun
+        prior = CapabilityRun.objects.filter(pk=refines_run_id, sprint=sprint).first()
+        if prior is None or not prior.events.filter(state='completed', payload__result__isnull=False).exists():
+            raise ValidationError('Refinement requires a completed assessment in this sprint.')
     if not settings.CAPABILITY_ASSESSMENT_ENABLED:
         raise AssessmentDisabled()
     if CapabilityExecution.objects.filter(sprint=sprint, status__in=['queued', 'running']).exists():
         raise AssessmentConflict()
     run = create_run(institution_id=sprint.institution_id, sprint_id=sprint.pk,
-                     population=population, reference_period=reference_period, execution_policy=policy())
+                     population=population, reference_period=reference_period, scope_mode=mode,
+                     refines_run_id=refines_run_id, execution_policy=policy())
     execution = CapabilityExecution.objects.create(run=run, sprint=sprint, requested_by=user,
         idempotency_key=idempotency_key, request_hash=signature)
     # Never dispatch before the frozen evidence and idempotency record commit.

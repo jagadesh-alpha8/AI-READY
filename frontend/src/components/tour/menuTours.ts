@@ -1098,7 +1098,7 @@ for (const key of ['sprint-score', 'sprint-recommendations', 'sprint-report', 'c
     menuPurpose: 'Frozen evidence, capability bounds and grounded conditional pathways without a baseline approval gate.',
     roles: 'all', steps: [
       { id: `${key}-history`, number: 1, title: 'Select an assessment', purpose: 'Select a frozen assessment and reference period. Failed or cancelled runs do not publish scores.', tour_target: 'capability-history', tour_location: 'Capability > History' },
-      { id: `${key}-start`, number: 2, title: 'Explicit assessment start', purpose: 'Confirm scope and period before starting. Model calls use configured credits; reading and refreshing do not.', tour_target: 'capability-start', tour_location: 'Capability > Start assessment' },
+      { id: `${key}-start`, number: 2, title: 'Explicit assessment start', purpose: 'Start an institutional overview from source-supported scope. Optionally refine scope below the result. Model calls use configured credits; reading and refreshing do not.', tour_target: 'capability-start', tour_location: 'Capability > Start assessment' },
       { id: `${key}-standing`, number: 3, title: 'Evidence and capability are separate', purpose: 'Capability bounds preserve unresolved evidence. Experimental tiers are not accreditation standards.', tour_target: 'capability-header', tour_location: 'Capability > Standing' },
     ],
   };
@@ -1160,7 +1160,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     {
       key: 'sprint-setup',
       title: '1. Sprint Setup',
-      purpose: 'Configure a new discovery sprint, select evaluation academic years, and define audit scope.',
+      purpose: 'Create an institutional workspace. Its year label is optional; evidence scope is established when assessment starts.',
     },
     {
       key: 'sprint-upload',
@@ -1210,7 +1210,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     {
       key: 'sprint-recommendations',
       title: '11. Recommendations',
-      purpose: 'Explore AI-recommended transformation initiatives and interventions customized for your institution.',
+      purpose: 'Review saved guidance and optionally evaluate an institutional plan. Tailored advice and conditional plan review require explicit requests.',
     },
     {
       key: 'sprint-report',

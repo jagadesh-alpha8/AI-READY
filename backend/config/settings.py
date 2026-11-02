@@ -776,3 +776,6 @@ if EXTRACTION_QUEUE:
 CAPABILITY_RECOMMENDATIONS_ENABLED = os.getenv('CAPABILITY_RECOMMENDATIONS_ENABLED', 'false').lower() == 'true'
 if EXTRACTION_QUEUE:
     CELERY_TASK_ROUTES['apps.scoring.capability.recommendation_execution.generate_recommendations'] = {'queue': EXTRACTION_QUEUE}
+
+# Experimental, explicit plan interpretation; shares configured request/cost caps.
+CAPABILITY_PLANS_ENABLED = os.getenv('CAPABILITY_PLANS_ENABLED', 'false').lower() == 'true'

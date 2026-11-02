@@ -255,3 +255,15 @@ for suffix in ('', '/'):
 from apps.scoring.capability.report_views import CapabilityReportView
 for suffix in ('', '/'):
     urlpatterns.append(path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/report' + suffix, CapabilityReportView.as_view()))
+
+from apps.scoring.capability.plan_views import (
+    PlanEvaluationsView, PlanEvaluationView, CancelPlanEvaluationView, PlanEvaluationReportView,
+)
+for suffix in ('', '/'):
+    prefix = '/<uuid:sprint_id>/capability-runs/<uuid:run_id>/plan-evaluations'
+    urlpatterns += [
+        path(prefix + suffix, PlanEvaluationsView.as_view()),
+        path(prefix + '/<uuid:scenario_id>' + suffix, PlanEvaluationView.as_view()),
+        path(prefix + '/<uuid:scenario_id>/cancel' + suffix, CancelPlanEvaluationView.as_view()),
+        path(prefix + '/<uuid:scenario_id>/report' + suffix, PlanEvaluationReportView.as_view()),
+    ]

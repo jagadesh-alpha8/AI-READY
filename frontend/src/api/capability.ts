@@ -6,7 +6,16 @@ export type JobStatus =
   | 'completed'
   | 'failed'
   | 'cancelled';
+export interface AssessmentScope {
+  mode: 'default' | 'custom';
+  version: string;
+  questions: { code: string; message: string }[];
+  source_declarations: { kind: string; value: string; source_id: string }[];
+  limitations: string;
+}
 export interface Job {
+  scope?: AssessmentScope;
+  refines_run_id?: string | null;
   id: string;
   status: JobStatus;
   created_at: string;
@@ -171,7 +180,7 @@ export const getRun = (sprint: string, run: string) =>
   api.get<Run>(path(sprint, run));
 export const startRun = (
   sprint: string,
-  body: { population: string; reference_period: string },
+  body: { scope_mode?: 'default' | 'custom'; population?: string; reference_period?: string; refines_run_id?: string },
   key: string,
 ) => api.post<Job>(root(sprint), body, { headers: { 'Idempotency-Key': key } });
 export const cancelRun = (sprint: string, run: string) =>
@@ -220,4 +229,53 @@ export async function downloadCapabilityReport(
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+export interface PlanMapping {
+  condition_id: string;
+  phase: 'implementation' | 'results';
+  rationale: string;
+  assumptions: string[];
+}
+export interface PlanEvaluation {
+  text: string;
+  evaluation: {
+    baseline: Result;
+    accepted: PlanMapping[];
+    rejected: { mapping: PlanMapping; reason: string }[];
+    scenarios: Record<'implementation' | 'results', { result: Result; paired_change: { lower: number; upper: number; basis: string } }>;
+    note: string;
+  };
+}
+export interface PlanComparison extends Job {
+  original_text: string;
+  inputs_hash: string;
+  completed_stages: string[];
+  actual_assessment_changed: false;
+  error: { error_code: string; next_action: string } | null;
+  comparison: {
+    original: PlanEvaluation;
+    improved: PlanEvaluation;
+    comparison_basis: string;
+    limitations: string[];
+    improvement: {
+      constraint_note: string;
+      changes: { operation: string; original_action_ids: string[]; action: string; why: string; suggested_owner: string; dependencies: string[]; completion_evidence: string; resource_note: string }[];
+    };
+  } | null;
+}
+export const listPlanEvaluations = (sprint: string, run: string, page = 1) =>
+  api.get<Page<Job>>(`${path(sprint, run)}/plan-evaluations`, { params: { page } });
+export const getPlanEvaluation = (sprint: string, run: string, scenario: string) =>
+  api.get<PlanComparison>(`${path(sprint, run)}/plan-evaluations/${scenario}`);
+export const startPlanEvaluation = (sprint: string, run: string, plan_text: string, key: string) =>
+  api.post<Job>(`${path(sprint, run)}/plan-evaluations`, { plan_text }, { headers: { 'Idempotency-Key': key } });
+export const cancelPlanEvaluation = (sprint: string, run: string, scenario: string) =>
+  api.post<Job>(`${path(sprint, run)}/plan-evaluations/${scenario}/cancel`);
+export async function downloadPlanReport(sprint: string, run: string, scenario: string, format: 'html' | 'json') {
+  const response = await api.get(`${path(sprint, run)}/plan-evaluations/${scenario}/report`, { params: { file: format }, responseType: 'blob' });
+  const url = URL.createObjectURL(response.data);
+  const a = document.createElement('a');
+  a.href = url; a.download = `plan-comparison-${scenario}.${format}`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }

@@ -1,0 +1,87 @@
+"""Versioned, conservative scope resolution at explicit assessment start only.
+
+The page adapter inventories explicit declarations, not inferred universal coverage.
+Dates remain verbatim and typed; filenames and upload times never establish currency.
+"""
+import re
+
+VERSION = 'source-local-scope-0.1'
+DEFAULT_POPULATION = 'Institutional overview; coverage established separately for each finding'
+DEFAULT_PERIOD = 'Source-specific evidence periods; currency not presumed'
+PATTERNS = {
+    'population': r'(?im)^\s*(?:population|cohort|programme|program|beneficiaries)\s*:\s*([^\n]{1,250})',
+    'activity_period': r'(?im)^\s*(?:activity period|academic year|reporting period)\s*:\s*([^\n]{1,150})',
+    'policy_interval': r'(?im)^\s*(?:policy effective|effective from|effective period)\s*:\s*([^\n]{1,150})',
+    'curriculum_regulation': r'(?im)^\s*(?:curriculum regulation|regulation year)\s*:\s*([^\n]{1,150})',
+    'institution_identity': r'(?im)^\s*(?:institution name|name of (?:the )?institution)\s*:\s*([^\n]{1,250})',
+}
+
+
+def intent(population=None, reference_period=None, scope_mode=None, refines_run_id=None):
+    """Normalize legacy explicit inputs without changing their historical request digest."""
+    population = population.strip() if isinstance(population, str) else ''
+    reference_period = reference_period.strip() if isinstance(reference_period, str) else ''
+    mode = scope_mode or ('custom' if population or reference_period else 'default')
+    if mode not in {'default', 'custom'}:
+        raise ValueError('Choose default or custom scope.')
+    if mode == 'custom' and (not population or not reference_period):
+        raise ValueError('Custom scope needs both a population and reference period.')
+    if mode == 'default' and (population or reference_period):
+        raise ValueError('Default scope does not accept population or reference period overrides.')
+    if len(population) > 2000 or len(reference_period) > 200:
+        raise ValueError('Scope input is too long.')
+    value = {'population': population, 'reference_period': reference_period}
+    if mode == 'default':
+        value = {'scope_mode': 'default'}
+    if refines_run_id:
+        value['refines_run_id'] = str(refines_run_id)
+    return mode, value
+
+
+def resolve(*, profile, sources, requested, mode):
+    declarations, questions = [], []
+    for source in sources:
+        for kind, pattern in PATTERNS.items():
+            for match in re.finditer(pattern, source['text']):
+                declarations.append({'kind': kind, 'value': match.group(1).strip(),
+                    'source_id': source['id'], 'start': match.start(1), 'end': match.end(1),
+                    'quote': match.group(1), 'interpretation': 'explicit_label_candidate_unverified'})
+    identity = [d for d in declarations if d['kind'] == 'institution_identity']
+    normalize = lambda name: ' '.join(re.findall(r'\w+', name.casefold()))
+    mismatches = [d for d in identity if normalize(d['value']) != normalize(profile['name'])]
+    if mismatches:
+        questions.append({'code': 'institution_identity_mismatch', 'severity': 'review',
+            'message': 'A labelled source institution differs from the saved profile. Confirm ownership before relying on it.',
+            'source_ids': sorted({d['source_id'] for d in mismatches})})
+    if not identity:
+        questions.append({'code': 'institution_identity_unconfirmed', 'severity': 'review',
+            'message': 'Source institution identity is not confirmed by this conservative adapter.', 'source_ids': []})
+    periods = {d['value'] for d in declarations if d['kind'] == 'activity_period'}
+    questions.append({'code': 'finding_scope_and_currency_required', 'severity': 'limitation',
+        'message': 'Each finding must establish its own beneficiaries and applicable dates. Source mentions do not establish universal coverage or present operation.',
+        'source_ids': []})
+    default = mode == 'default'
+    return {'version': VERSION, 'mode': mode, 'requested_intent': requested,
+        'institution': {'name': profile['name'], 'basis': 'saved_profile_not_source_verified',
+                        'identity_status': 'mismatch_requires_review' if mismatches else 'unconfirmed'},
+        'population_label': DEFAULT_POPULATION if default else requested['population'],
+        'period_label': ('Mixed source periods; no common reporting year established' if len(periods) > 1
+                         else DEFAULT_PERIOD) if default else requested['reference_period'],
+        'coverage_policy': 'source_specific_no_universal_or_current_inference',
+        'rubric_scope_policy': 'original_requirement_scope_unchanged_even_for_custom_cohort',
+        'source_declarations': declarations, 'questions': questions,
+        'source_ids': [s['id'] for s in sources],
+        'user_override': None if default else {'population': requested['population'], 'reference_period': requested['reference_period']},
+        'limitations': 'Conservative explicit-label inventory, not a complete semantic extraction or reviewed-fact adapter. Dates are verbatim source claims, not validated currency.'}
+
+
+def context_scope(scope, sources):
+    """Keep provider scope context bounded to its already-selected source windows."""
+    if scope is None:
+        return None
+    ids = {s['id'] for s in sources}
+    return {**{k: scope[k] for k in ('version', 'mode', 'institution', 'population_label', 'period_label',
+                                    'coverage_policy', 'rubric_scope_policy', 'limitations')},
+            'questions': [{k: q[k] for k in ('code', 'message')} for q in scope['questions']],
+            'source_declarations': [d for d in scope['source_declarations'] if d['source_id'] in ids][:100],
+            'declarations_are_subset': True}

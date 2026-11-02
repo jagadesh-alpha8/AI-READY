@@ -16,8 +16,18 @@ from .execution import finish, start
 
 
 class StartSerializer(serializers.Serializer):
-    population = serializers.CharField(max_length=2000)
-    reference_period = serializers.CharField(max_length=200)
+    population = serializers.CharField(max_length=2000, required=False)
+    reference_period = serializers.CharField(max_length=200, required=False)
+    scope_mode = serializers.ChoiceField(choices=['default', 'custom'], required=False)
+    refines_run_id = serializers.UUIDField(required=False)
+
+    def validate(self, attrs):
+        from .scope import intent
+        try:
+            intent(**attrs)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+        return attrs
 
 
 def summary(execution):
@@ -29,7 +39,9 @@ def summary(execution):
             'stalled': execution.status in {'queued', 'running'} and execution.heartbeat_at < (
                 timezone.now() - timedelta(seconds=settings.CAPABILITY_STALE_SECONDS)),
             'rubric_version': execution.run.inputs['rubric'].get('version'),
-            'reference_period': execution.run.inputs['reference_period']}
+            'reference_period': execution.run.inputs['reference_period'],
+            'scope': execution.run.inputs.get('scope'),
+            'refines_run_id': execution.run.inputs.get('refines_run_id')}
 
 
 class CapabilityRunsView(APIView):

@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Institutional plan comparison</title>
+<style>body{font:16px/1.55 system-ui,sans-serif;color:#17302f;max-width:1000px;margin:40px auto;padding:0 24px}h1,h2,h3{line-height:1.2}section,article{border-top:1px solid #cbd9d6;padding:20px 0}pre{white-space:pre-wrap;font:inherit}table{border-collapse:collapse;width:100%;table-layout:fixed}p,pre,td,th{overflow-wrap:anywhere}th,td{padding:12px;text-align:left;border-bottom:1px solid #cbd9d6}.note{background:#eef5f2;padding:16px}details{margin:16px 0}@media(max-width:600px){body{margin:20px auto;padding:0 16px}th,td{padding:8px;font-size:14px}}@media print{details{display:block}body{margin:0}section{break-inside:avoid}}</style></head><body>
+<h1>{{ report.profile.name }} · Proposed plan review</h1>
+<p class="note">Conditional scenarios under the recorded experimental method. These are not actual scores or predictions of success. The actual assessment is unchanged.</p>
+<p>Baseline {{ report.baseline_run_id }} · {{ report.population }} · {{ report.reference_period }}</p>
+{% if report.comparison %}
+<p>{{ report.comparison.comparison_basis }}</p>
+<table><thead><tr><th>Version</th><th>Delivery only</th><th>With results assumptions</th></tr></thead><tbody>
+<tr><th>Original plan</th><td>{{ report.comparison.original.evaluation.scenarios.implementation.result.lower }}–{{ report.comparison.original.evaluation.scenarios.implementation.result.upper }} / 100</td><td>{{ report.comparison.original.evaluation.scenarios.results.result.lower }}–{{ report.comparison.original.evaluation.scenarios.results.result.upper }} / 100</td></tr>
+<tr><th>Suggested revision</th><td>{{ report.comparison.improved.evaluation.scenarios.implementation.result.lower }}–{{ report.comparison.improved.evaluation.scenarios.implementation.result.upper }} / 100</td><td>{{ report.comparison.improved.evaluation.scenarios.results.result.lower }}–{{ report.comparison.improved.evaluation.scenarios.results.result.upper }} / 100</td></tr>
+</tbody></table>
+<p>Actual baseline: {{ report.comparison.original.evaluation.baseline.lower }}–{{ report.comparison.original.evaluation.baseline.upper }} / 100. Ranges retain unresolved evidence. Differences between range endpoints are not guaranteed gains.</p>
+<section><h2>Your original plan</h2><pre>{{ report.original_text }}</pre></section>
+<section><h2>Suggested improved plan</h2><pre>{{ report.comparison.improved.text }}</pre><p>{{ report.comparison.improvement.constraint_note }}</p>
+{% for change in report.comparison.improvement.changes %}<article><h3>{{ change.operation|title }}: {{ change.action }}</h3><p>{{ change.why }}</p><p>Suggested owner: {{ change.suggested_owner }}</p><p>Completion evidence: {{ change.completion_evidence }}</p><p>Dependencies: {{ change.dependencies|join:'; ' }}</p><p>{{ change.resource_note }}</p><p>Original actions: {{ change.original_action_ids|join:', ' }}</p></article>{% endfor %}</section>
+{% for key, plan in report.comparison.items %}{% if key == 'original' or key == 'improved' %}<section><h2>{{ key|title }} plan: conditions and limits</h2>
+<p>{{ plan.evaluation.note }}</p>{% for m in plan.evaluation.accepted %}<p><strong>{{ m.title }}</strong> · {{ m.phase }} · {{ m.rationale }}<br>Assumptions: {{ m.assumptions|join:'; ' }}</p>{% empty %}<p>No complete conditional requirement mappings established. Qualitative review remains available.</p>{% endfor %}
+{% for r in plan.evaluation.rejected %}<p>Not credited: {{ r.mapping.condition_id }} · {{ r.reason }}</p>{% endfor %}
+<section><h3>Area-level conditional results</h3>{% for phase, scenario in plan.evaluation.scenarios.items %}<h3>{{ phase|title }}</h3>{% for p in scenario.result.pillars %}<p>{{ p.title }}: {{ p.lower }}–{{ p.upper }}</p>{% endfor %}<p>Paired conditional change: {{ scenario.paired_change.lower }}–{{ scenario.paired_change.upper }}. {{ scenario.paired_change.basis }}</p>{% endfor %}</section></section>{% endif %}{% endfor %}
+{% for note in report.comparison.limitations %}<p class="note">{{ note }}</p>{% endfor %}
+{% else %}<p>Evaluation {{ report.status }}. No complete comparison is available.</p>{% endif %}
+<p>Frozen scenario {{ report.id }} · inputs {{ report.inputs_hash }}</p></body></html>
