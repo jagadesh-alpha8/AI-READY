@@ -109,6 +109,12 @@ export interface Assessment {
 }
 export interface Run extends Job {
   diagnostics?: {
+    cause_audit?: {
+      validator_affected_conditions: number;
+      evaluation_unavailable_conditions: number;
+      unknown_without_validator_issue: number;
+      foundation_blockers: { indicator: string; blockers: { condition_id: string; requirement: string; state: ConditionState; reason: string; kind: string }[] }[];
+    };
     explanation: string;
     source_documents: number;
     readable_pages: number;

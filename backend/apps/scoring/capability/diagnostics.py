@@ -1,11 +1,12 @@
 """Read-only explanations of frozen results; never reinterpret or change a score."""
 from collections import Counter
+from .assessment_audit import diagnose, issue_for
 
 
 def explain(inputs, assessment):
     records = assessment['records']
     counts = Counter(r['state'] for r in records)
-    issues = Counter(r.get('validation_issue') for r in records if r.get('validation_issue'))
+    issues = Counter(issue_for(r) for r in records if issue_for(r))
     decisions = {r['condition_id']: r['state'] for r in records}
     blocked = []
     for indicator in inputs['rubric']['indicators']:
@@ -28,7 +29,8 @@ def explain(inputs, assessment):
     else:
         explanation = ('The lower bound counts demonstrated capability; the upper bound includes unresolved possibilities. '
                        'Both use the same fixed prerequisite rules.')
-    return {'version': 'capability-diagnostics-0.1', 'state_counts': {s: counts[s] for s in (
+    return {'version': 'capability-diagnostics-0.2',
+            'cause_audit': diagnose(assessment, rubric=inputs['rubric'], manifest=manifest), 'state_counts': {s: counts[s] for s in (
                 'met', 'not_met', 'unknown', 'conflicting')},
             'source_documents': len(manifest), 'readable_pages': readable,
             'unreadable_or_unavailable_pages': sum(max(d.get('expected_pages') or 0, len(d['pages']))

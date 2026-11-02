@@ -202,5 +202,7 @@ def build_report_view(report, actions):
         ] + [q['message'] for q in scope_notices] + ([scope['limitations']] if scope.get('limitations') else []) + (['Some source pages were unreadable or unavailable. Check the supporting evidence inventory.']
              if diagnostics['unreadable_or_unavailable_pages'] else []) +
             (['Some requirement decisions could not be validated and remain unresolved. See the supporting evidence.']
-             if diagnostics['validation_issues'] else []),
+             if diagnostics['validation_issues'] else []) +
+            ([f"{diagnostics['indicators_with_bounded_context']} assessment areas used selected subsets of source passages. This is not a complete page-by-page review; missing support in a selected passage does not prove absence from all documents."]
+             if diagnostics.get('indicators_with_bounded_context') else []),
     }

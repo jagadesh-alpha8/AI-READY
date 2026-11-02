@@ -76,6 +76,13 @@ class ReadableProjectionTests(SimpleTestCase):
         self.assertIn('different institution', first_page)
         self.assertIn('Universal coverage', first_page)
 
+    def test_bounded_passage_review_is_not_presented_as_exhaustive_document_reading(self):
+        report, actions = report_fixture()
+        report['diagnostics']['indicators_with_bounded_context'] = 36
+        view = build_report_view(report, actions)
+        self.assertTrue(any('not a complete page-by-page review' in line for line in view['limitations']))
+        self.assertEqual(report['assessment']['result']['upper'], 100)
+
     def test_sparse_evidence_is_unknown_and_never_a_zero_score(self):
         report, actions = report_fixture()
         original = deepcopy(report)
