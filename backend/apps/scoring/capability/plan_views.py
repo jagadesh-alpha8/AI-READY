@@ -11,6 +11,8 @@ from config.pagination import DefaultPageNumberPagination
 from apps.scoring.models import PlanScenarioExecution
 from .views import RunView
 from .plan_execution import enabled, start, finish, summary, validate_identity
+from .storage import digest
+from .execution import AssessmentConflict
 
 
 class PlanSerializer(serializers.Serializer):
@@ -55,6 +57,16 @@ class PlanEvaluationView(RunView):
         completed = scenario.events.filter(payload__kind='completed').last()
         validate_identity(scenario, completed)
         terminal = scenario.events.filter(payload__kind='terminal').last()
+        original_event = scenario.events.filter(payload__kind='stage', payload__stage='original_evaluation').last()
+        original_review = completed.payload['comparison']['original'] if completed else None
+        if original_review is None and original_event:
+            value = original_event.payload['value']
+            if (original_event.payload.get('value_hash') != digest(value)
+                    or value.get('text') != scenario.plan.text
+                    or value.get('text_hash') != scenario.plan.text_hash
+                    or value.get('evaluation', {}).get('baseline') != scenario.assessment_event.payload['result']):
+                raise AssessmentConflict('The saved original plan review failed its identity check.')
+            original_review = value
         return {**summary(execution), 'inputs_hash': scenario.inputs_hash,
             'baseline_run_id': str(scenario.run_id), 'baseline_inputs_hash': scenario.run.inputs_hash,
             'assessment_event_id': scenario.assessment_event_id,
@@ -63,6 +75,7 @@ class PlanEvaluationView(RunView):
             'plan_id': str(scenario.plan_id), 'original_text': scenario.plan.text,
             'completed_stages': list(scenario.events.filter(payload__kind='stage').values_list('payload__stage', flat=True)),
             'comparison': completed.payload['comparison'] if completed else None,
+            'original_review': original_review,
             'improved_plan_id': completed.payload['improved_plan_id'] if completed else None,
             'inference': completed.payload['inference'] if completed else None,
             'error': terminal.payload if terminal else None,
@@ -92,14 +105,15 @@ class PlanEvaluationReportView(PlanEvaluationView):
         else:
             from .report_projection import PILLARS, readable
             presentation = deepcopy(payload)
-            if presentation['comparison']:
-                for version in ('original', 'improved'):
-                    evaluation = presentation['comparison'][version]['evaluation']
-                    for scenario in evaluation['scenarios'].values():
-                        for pillar in scenario['result']['pillars']:
-                            pillar['title'] = PILLARS.get(pillar['code'], pillar['code'])
-                    for mapping in evaluation['accepted']:
-                        mapping['title'] = readable(mapping['condition_id'])
+            reviews = ([presentation['comparison'][version] for version in ('original', 'improved')]
+                       if presentation['comparison'] else ([presentation['original_review']] if presentation['original_review'] else []))
+            for review in reviews:
+                evaluation = review['evaluation']
+                for scenario in evaluation['scenarios'].values():
+                    for pillar in scenario['result']['pillars']:
+                        pillar['title'] = PILLARS.get(pillar['code'], pillar['code'])
+                for mapping in evaluation['accepted']:
+                    mapping['title'] = readable(mapping['condition_id'])
             content = render_to_string('scoring/plan_comparison.html', {'report': presentation})
         response = HttpResponse(content, content_type='application/json' if fmt == 'json' else 'text/html; charset=utf-8')
         response['Content-Disposition'] = f'attachment; filename="plan-comparison-{scenario_id}.{fmt}"'

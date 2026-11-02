@@ -75,17 +75,34 @@ function SavedPlan({ sprint, run, id, refreshHistory }: { sprint: string; run: s
   return <div className="space-y-4">
     {(saved.error || error) && <p role="alert">{saved.error || error}</p>}
     {!data ? <button className="btn-secondary" onClick={saved.reload}>Retry plan evaluation</button> : <>
-      <p>Evaluation: {data.status} · {data.completed_stages.length} interpretation stages saved</p>
+      <p>Evaluation: {data.status} · {data.completed_stages.length} processing stages saved</p>
       {data.stalled && <p role="alert">This evaluation may be stalled. Cancel it before requesting a new version.</p>}
       {active(data) && can('sprint.manage') && <button className="btn-secondary" disabled={busy} onClick={() => action(async () => { await api.cancelPlanEvaluation(sprint, run, id); saved.reload(); refreshHistory(); })}>Cancel evaluation</button>}
       {data.error && <p role="alert">Plan review could not be completed. {data.error.next_action}</p>}
       {data.comparison && <PlanComparisonView data={data} />}
+      {!data.comparison && data.original_review && <OriginalPlanReview plan={data.original_review} />}
       <details><summary>Original submitted plan</summary><p className="whitespace-pre-wrap">{data.original_text}</p></details>
       <div className="flex gap-3"><button className="btn-secondary" disabled={busy} onClick={() => action(() => api.downloadPlanReport(sprint, run, id, 'html'))}>Download printable plan comparison</button>
       <button className="btn-secondary" disabled={busy} onClick={() => action(() => api.downloadPlanReport(sprint, run, id, 'json'))}>Download plan evidence JSON</button></div>
     </>}
   </div>;
 }
+export function OriginalPlanReview({ plan }: { plan: PlanEvaluation }) {
+  return <section className="space-y-3" aria-label="Saved original plan review">
+    <h3 className="font-bold">Saved original plan review</h3>
+    <p>The original review completed before the later comparison stopped. No improved plan is established.</p>
+    <p>Current assessed standing: {scoreLabel(plan.evaluation.baseline)}</p>
+    <p className="panel-muted">{plan.evaluation.note} An unresolved range is not a predicted score or guaranteed gain.</p>
+    {(['implementation', 'results'] as const).map((phase) => <div key={phase}>
+      <h4 className="font-semibold">{phase === 'implementation' ? 'Delivery only' : 'With results assumptions'}: {scoreLabel(plan.evaluation.scenarios[phase].result)}</h4>
+      <details><summary>Area results</summary>{plan.evaluation.scenarios[phase].result.pillars.map((p) => <p key={p.code}>{areaNames[p.code] || p.code}: {p.lower}–{p.upper} / 100</p>)}</details>
+    </div>)}
+    {plan.evaluation.accepted.map((m) => <p key={m.condition_id}>{m.rationale}. Assumptions: {m.assumptions.join('; ')}</p>)}
+    {!plan.evaluation.accepted.length && <p>No complete conditional requirement mappings were established.</p>}
+    {plan.evaluation.rejected.map((r, n) => <p key={n}>Not credited: {r.reason}</p>)}
+  </section>;
+}
+
 export function PlanComparisonView({ data }: { data: PlanComparison }) {
   const comparison = data.comparison!;
   return <div className="space-y-4">

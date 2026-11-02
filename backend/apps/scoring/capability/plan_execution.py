@@ -165,7 +165,7 @@ def stage(scenario_id, label, value):
     execution = PlanScenarioExecution.objects.select_for_update().get(scenario_id=scenario_id)
     if execution.status != 'running' or not enabled():
         raise ExecutionStopped()
-    PlanScenarioEvent.objects.create(scenario_id=scenario_id, payload={'kind': 'stage', 'stage': label, 'value': value})
+    PlanScenarioEvent.objects.create(scenario_id=scenario_id, payload={'kind': 'stage', 'stage': label, 'value': value, 'value_hash': digest(value)})
     execution.heartbeat_at = timezone.now()
     execution.save(update_fields=['heartbeat_at'])
 

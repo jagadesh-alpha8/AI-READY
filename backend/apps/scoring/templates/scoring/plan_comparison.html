@@ -3,6 +3,7 @@
 <h1>{{ report.profile.name }} · Proposed plan review</h1>
 <p class="note">Conditional scenarios under the recorded experimental method. These are not actual scores or predictions of success. The actual assessment is unchanged.</p>
 <p>Baseline {{ report.baseline_run_id }} · {{ report.population }} · {{ report.reference_period }}</p>
+{% for question in report.scope.questions %}<p class="note">Scope and evidence: {{ question.message }}</p>{% endfor %}
 {% if report.comparison %}
 <p>{{ report.comparison.comparison_basis }}</p>
 <table><thead><tr><th>Version</th><th>Delivery only</th><th>With results assumptions</th></tr></thead><tbody>
@@ -18,5 +19,12 @@
 {% for r in plan.evaluation.rejected %}<p>Not credited: {{ r.mapping.condition_id }} · {{ r.reason }}</p>{% endfor %}
 <section><h3>Area-level conditional results</h3>{% for phase, scenario in plan.evaluation.scenarios.items %}<h3>{{ phase|title }}</h3>{% for p in scenario.result.pillars %}<p>{{ p.title }}: {{ p.lower }}–{{ p.upper }}</p>{% endfor %}<p>Paired conditional change: {{ scenario.paired_change.lower }}–{{ scenario.paired_change.upper }}. {{ scenario.paired_change.basis }}</p>{% endfor %}</section></section>{% endif %}{% endfor %}
 {% for note in report.comparison.limitations %}<p class="note">{{ note }}</p>{% endfor %}
-{% else %}<p>Evaluation {{ report.status }}. No complete comparison is available.</p>{% endif %}
+{% else %}<p>Evaluation {{ report.status }}. No complete comparison is available.</p>
+{% if report.original_review %}<section><h2>Saved original plan review</h2>
+<p>The original review completed before the later comparison stopped. No improved plan is established.</p>
+<p>Current assessed standing: {{ report.original_review.evaluation.baseline.lower }}–{{ report.original_review.evaluation.baseline.upper }} / 100</p>
+{% for phase, scenario in report.original_review.evaluation.scenarios.items %}<h3>{{ phase|title }}: conditional scenario</h3><p>{{ scenario.result.lower }}–{{ scenario.result.upper }} / 100</p>{% for p in scenario.result.pillars %}<p>{{ p.title }}: {{ p.lower }}–{{ p.upper }} / 100</p>{% endfor %}{% endfor %}
+<p>{{ report.original_review.evaluation.note }}</p>
+{% for m in report.original_review.evaluation.accepted %}<p>{{ m.title }} · {{ m.rationale }}. Assumptions: {{ m.assumptions|join:'; ' }}</p>{% empty %}<p>No complete conditional requirement mappings were established.</p>{% endfor %}
+{% for r in report.original_review.evaluation.rejected %}<p>Not credited: {{ r.reason }}</p>{% endfor %}</section>{% endif %}{% endif %}
 <p>Frozen scenario {{ report.id }} · inputs {{ report.inputs_hash }}</p></body></html>

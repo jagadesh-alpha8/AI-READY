@@ -252,6 +252,7 @@ export interface PlanComparison extends Job {
   inputs_hash: string;
   completed_stages: string[];
   actual_assessment_changed: false;
+  original_review?: PlanEvaluation | null;
   error: { error_code: string; next_action: string } | null;
   comparison: {
     original: PlanEvaluation;

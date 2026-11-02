@@ -76,6 +76,20 @@ class PlanInterpretationTests(SimpleTestCase):
         self.assertEqual(inputs, frozen)
         self.assertIn('assess', result['improvement']['changes'][0]['action'])
 
+    def test_model_context_includes_pinned_baseline_and_original_arithmetic(self):
+        service = FixtureService()
+        inputs = self.inputs()
+        first = next(iter(inputs['baseline_decisions']))
+        inputs['baseline_decisions'][first] = 'met'
+        run_pipeline(inputs, service)
+        for stage, payload in service.calls:
+            if stage != 'parse':
+                self.assertEqual(payload['assessed_baseline']['condition_decisions'], inputs['baseline_decisions'])
+                self.assertEqual(payload['assessed_baseline']['standing']['methodology'], inputs['rubric']['version'])
+        improve_payload = next(p for stage, p in service.calls if stage == 'improve')
+        self.assertIn('conditional_results', improve_payload['original'])
+        self.assertIn('implementation', improve_payload['original']['conditional_results'])
+
     def test_input_without_actions_does_not_invent_a_replacement(self):
         class NoActions(FixtureService):
             def extract_structured_data(self, **kwargs):
@@ -248,6 +262,39 @@ class PlanAPITests(APITestCase):
         self.assertEqual(execution.requests_reserved, 1)
         self.assertFalse(execution.scenario.events.filter(payload__kind='completed').exists())
         self.assertEqual(InstitutionalPlanVersion.objects.count(), 1)
+
+    @override_settings(CAPABILITY_MAX_HTTP_CALLS=3)
+    def test_completed_original_review_survives_later_budget_failure(self):
+        frozen = deepcopy(self.event.payload)
+        execution = self.execute(self.start())
+        self.assertEqual(execution.status, 'failed')
+        self.assertEqual(execution.requests_reserved, 3)
+        url = self.url + '/' + str(execution.scenario_id)
+        detail = self.client.get(url)
+        self.assertEqual(detail.status_code, 200, detail.data)
+        self.assertIsNone(detail.data['comparison'])
+        self.assertEqual(detail.data['original_review']['text'], TEXT)
+        self.assertEqual(detail.data['original_review']['evaluation']['baseline'], frozen['result'])
+        self.assertFalse(detail.data['actual_assessment_changed'])
+        self.assertIsNone(detail.data['improved_plan_id'])
+        exported = self.client.get(url + '/report')
+        self.assertContains(exported, 'Saved original plan review')
+        self.assertContains(exported, 'No improved plan is established')
+        self.assertContains(exported, 'Faculty and staff')
+        self.assertEqual(self.sdk.chat.completions.create.call_count, 3)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.payload, frozen)
+
+    @override_settings(CAPABILITY_MAX_HTTP_CALLS=3)
+    def test_partial_original_review_rejects_corrupted_saved_content(self):
+        execution = self.execute(self.start())
+        saved = execution.scenario.events.get(payload__stage='original_evaluation')
+        tampered = deepcopy(saved.payload)
+        tampered['value']['text'] = 'A different plan'
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute('UPDATE scoring_planscenarioevent SET payload = %s WHERE id = %s', [json.dumps(tampered), saved.pk])
+        self.assertEqual(self.client.get(self.url + '/' + str(execution.scenario_id)).status_code, 409)
 
     def test_immutable_plan_scenario_and_export_integrity(self):
         execution = self.execute(self.start())

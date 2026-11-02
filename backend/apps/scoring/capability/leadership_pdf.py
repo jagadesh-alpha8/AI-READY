@@ -44,6 +44,9 @@ def render_leadership_pdf(view):
     pdf.section(view['assessment_state'])
     pdf.paragraph(view['advisory']['label'], heading=True)
     pdf.paragraph(view['advisory']['explanation'])
+    for notice in view.get('scope_notices', []):
+        pdf.paragraph('Scope needs review' if notice['severity'] == 'review' else 'Scope and interpretation', heading=True)
+        pdf.paragraph(notice['message'])
     if pdf.will_page_break(55):
         pdf.add_page()
     pdf.section('Overall capability result')
