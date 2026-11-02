@@ -121,3 +121,9 @@ class LiveReadinessTests(TestCase):
         self.assertFalse(result_dependent(conditions['AIQIF-C5.1.A1']))
         self.assertTrue(result_dependent(conditions['AIQIF-C4.1.A1']))
         self.assertTrue(result_dependent(conditions['AIQIF-C5.1.O1']))
+
+    def test_live_metadata_does_not_restore_removed_universal_or_product_gates(self):
+        items = {i['code']: i for i in self.rubric['indicators']}
+        self.assertNotIn('CRI', items['AIQIF-C9.1']['name'])
+        self.assertNotIn('Universal', items['AIQIF-C5.1']['name'])
+        self.assertTrue(all('independently' in i['capability'] for i in items.values()))
