@@ -23,6 +23,8 @@ import {
   attempt,
 } from './presentation';
 
+import { PlanWorkspace } from './PlanWorkspace';
+
 type Mode = 'standing' | 'actions' | 'report';
 
 /** Only GET loaders belong here. Cleanup prevents responses from a previous selection being displayed. */
@@ -315,8 +317,6 @@ function Workspace({ sprint, mode }: { sprint: string; mode: Mode }) {
     [sprint, page],
   );
   const runId = query.get('run') || runs.data?.results[0]?.id;
-  const [population, setPopulation] = useState('');
-  const [period, setPeriod] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const pending = useRef<{ signature: string; key: string } | null>(null);
@@ -330,10 +330,7 @@ function Workspace({ sprint, mode }: { sprint: string; mode: Mode }) {
     event.preventDefault();
     setBusy(true);
     setError('');
-    const body = {
-      population: population.trim(),
-      reference_period: period.trim(),
-    };
+    const body = { scope_mode: 'default' as const };
     pending.current = attempt(pending.current, JSON.stringify(body), () =>
       crypto.randomUUID(),
     );
@@ -448,31 +445,11 @@ function Workspace({ sprint, mode }: { sprint: string; mode: Mode }) {
               limits. Refreshing and viewing history do not. New uploads are
               assessed only by a new run.
             </p>
-            <label className="block">
-              Population to assess
-              <input
-                required
-                maxLength={2000}
-                className="input block w-full mt-1"
-                value={population}
-                onChange={(e) => setPopulation(e.target.value)}
-                placeholder="All faculty and students across the institution"
-              />
-            </label>
-            <label className="block">
-              Reference period
-              <input
-                required
-                maxLength={200}
-                className="input block w-full mt-1"
-                value={period}
-                onChange={(e) => setPeriod(e.target.value)}
-                placeholder="2025–26"
-              />
-            </label>
+            <p>Start with an institutional overview using the populations and periods supported by each source.
+              You can refine the scope below the results. This does not presume institution-wide coverage or current-year activity.</p>
             <p className="text-sm">
               {runs.data?.enabled
-                ? 'Inference enabled. Confirm the scope and period before starting.'
+                ? 'Inference enabled. Source coverage and uncertainties will be saved with this assessment.'
                 : 'Assessment inference is disabled by the deployment administrator.'}
             </p>
             <button
@@ -480,9 +457,7 @@ function Workspace({ sprint, mode }: { sprint: string; mode: Mode }) {
               disabled={
                 busy ||
                 !runs.data?.enabled ||
-                runs.data.results.some(active) ||
-                !population.trim() ||
-                !period.trim()
+                runs.data.results.some(active)
               }
             >
               {busy ? 'Starting…' : 'Start assessment (uses model credits)'}
@@ -498,6 +473,7 @@ function Workspace({ sprint, mode }: { sprint: string; mode: Mode }) {
           runId={runId}
           mode={mode}
           refreshHistory={runs.reload}
+          onStarted={choose}
         />
       ) : (
         <p className="panel-muted">
@@ -515,11 +491,13 @@ function RunWorkspace({
   runId,
   mode,
   refreshHistory,
+  onStarted,
 }: {
   sprint: string;
   runId: string;
   mode: Mode;
   refreshHistory: () => void;
+  onStarted: (id: string) => void;
 }) {
   const { can } = useAccess();
   const run = useCapabilityRead(
@@ -566,6 +544,7 @@ function RunWorkspace({
         <p>
           {data.population} · {data.reference_period} · {data.status}
         </p>
+        {data.scope?.questions.filter((q) => q.code === 'institution_identity_mismatch').map((q) => <p key={q.code} role="alert" className="panel-muted border border-danger-line">{q.message} The profile has not been renamed.</p>)}
         <p className="text-sm">
           Requests reserved: {data.requests_reserved}; conservative cost
           reserved: ${data.reserved_cost_usd}.
@@ -630,12 +609,55 @@ function RunWorkspace({
             run={data}
             mode={mode}
           />
+          <PlanWorkspace key={`plan:${runId}`} sprint={sprint} run={data} />
+          <ScopeRefinement key={runId} sprint={sprint} run={data} onStarted={(id) => { onStarted(id); refreshHistory(); }} />
           {mode === 'standing' && <CapabilityEvidence run={data} />}
         </>
       )}
     </div>
   );
 }
+export function ScopeRefinement({ sprint, run, onStarted }: { sprint: string; run: Run; onStarted: (id: string) => void }) {
+  const { can } = useAccess();
+  const [population, setPopulation] = useState('');
+  const [period, setPeriod] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const pending = useRef<{ signature: string; key: string } | null>(null);
+  async function refine(event: React.FormEvent) {
+    event.preventDefault();
+    const body = { scope_mode: 'custom' as const, population: population.trim(), reference_period: period.trim(), refines_run_id: run.id };
+    pending.current = attempt(pending.current, JSON.stringify(body), () => crypto.randomUUID());
+    setBusy(true); setError('');
+    try {
+      const response = await api.startRun(sprint, body, pending.current.key);
+      pending.current = null;
+      onStarted(response.data.id);
+    } catch (e) { setError(getErrorMessage(e)); }
+    finally { setBusy(false); }
+  }
+  return <section className="glass-card p-5 space-y-3" aria-label="Refine this assessment">
+    <h2 className="text-xl font-bold">Refine this assessment</h2>
+    <p>{run.population} · {run.reference_period}</p>
+    {run.refines_run_id && <p>This is a new scope version. A scope change can change the result without institutional improvement.</p>}
+    {run.scope?.questions.map((q) => <p key={q.code} className="text-sm">{q.message}</p>)}
+    <details><summary>How this scope was established</summary>
+      <p className="text-sm">{run.scope?.limitations || 'Explicit scope saved with this earlier assessment.'}</p>
+      {run.scope?.source_declarations.map((d, n) => <p className="text-sm" key={n}>{d.kind.replace(/_/g, ' ')}: {d.value} · source {d.source_id}</p>)}
+    </details>
+    {can('sprint.manage') && <details><summary>Change the population or reference period (optional)</summary>
+      <form onSubmit={refine} className="space-y-3 mt-3">
+        <p>A new assessment uses model credits. This result and its recommendations stay intact.
+          A narrower cohort does not satisfy a universal institutional requirement.</p>
+        <label className="block">Population to assess<input required maxLength={2000} className="input block w-full" value={population} onChange={(e) => setPopulation(e.target.value)} /></label>
+        <label className="block">Reference period<input required maxLength={200} className="input block w-full" value={period} onChange={(e) => setPeriod(e.target.value)} /></label>
+        <button className="btn-secondary" disabled={busy || !population.trim() || !period.trim()}>{busy ? 'Starting…' : 'Create refined assessment (uses model credits)'}</button>
+        <ErrorMessage message={error} />
+      </form>
+    </details>}
+  </section>;
+}
+
 function RecommendationWorkspace({
   sprint,
   run,

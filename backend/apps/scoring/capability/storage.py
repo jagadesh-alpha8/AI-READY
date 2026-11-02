@@ -46,18 +46,26 @@ def evidence_snapshot(sprint):
 
 
 @transaction.atomic
-def create_run(*, institution_id, sprint_id, population, reference_period, execution_policy=None):
-    if not isinstance(population, str) or not population.strip() or not isinstance(reference_period, str) or not reference_period.strip():
-        raise ValueError('Population and reference period are required.')
+def create_run(*, institution_id, sprint_id, population=None, reference_period=None, execution_policy=None,
+               scope_mode=None, refines_run_id=None):
+    from .scope import intent, resolve
+    mode, requested = intent(population, reference_period, scope_mode, refines_run_id)
     sprint = Sprint.objects.select_related('institution').get(pk=sprint_id, institution_id=institution_id)
     institution = sprint.institution
     manifest, sources = evidence_snapshot(sprint)
+    profile = {'name': institution.name, 'institution_type': institution.institution_type,
+               'student_count': institution.student_count, 'faculty_count': institution.faculty_count}
+    scope = resolve(profile=profile, sources=sources, requested=requested, mode=mode)
+    if refines_run_id:
+        prior = CapabilityRun.objects.get(pk=refines_run_id, sprint=sprint)
+        if not prior.events.filter(state='completed', payload__result__isnull=False).exists():
+            raise ValueError('Refinement requires a completed assessment in this sprint.')
     rubric = release()
     from .evaluation import PROMPT_VERSION, RETRIEVAL_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA
     inputs = {'institution_id': str(institution.pk), 'sprint_id': str(sprint.pk),
-              'profile': {'name': institution.name, 'institution_type': institution.institution_type,
-                          'student_count': institution.student_count, 'faculty_count': institution.faculty_count},
-              'population': population, 'reference_period': reference_period,
+              'profile': profile, 'scope': scope,
+              'refines_run_id': str(refines_run_id) if refines_run_id else None,
+              'population': scope['population_label'], 'reference_period': scope['period_label'],
               'carry_over_policy': 'current_sprint_only_explicit_document_lineage',
               'rubric': rubric, 'rubric_snapshot_hash': digest(rubric),
               'engine_version': ENGINE_VERSION,

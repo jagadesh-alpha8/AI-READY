@@ -73,6 +73,11 @@ let dom: JSDOM;
 let calls: string[];
 let hooks: Record<string, (...args: any[]) => any>;
 const names = [
+  'listPlanEvaluations',
+  'getPlanEvaluation',
+  'startPlanEvaluation',
+  'cancelPlanEvaluation',
+  'downloadPlanReport',
   'listRuns',
   'getRun',
   'startRun',
@@ -123,6 +128,7 @@ function defaults() {
       },
     }),
     getRun: async (_s, id) => ({ data: { ...run, id } }),
+    listPlanEvaluations: async () => ({ data: { results: [], next: null, previous: null, enabled: true } }),
     listAdvice: async () => ({
       data: { results: [], next: null, previous: null, enabled: true },
     }),
@@ -230,6 +236,28 @@ describe('capability presentation and explicit spending', () => {
     await act(async () => button.click());
     assert.deepEqual(args.slice(0, 3), ['sprint1', 'run1', 'pdf']);
     assert.equal(args[4], 'evidence');
+    await ui.close();
+  });
+  it('starts the overview with no compulsory scope inputs', async () => {
+    const ui = await mount();
+    let args: any[] = [];
+    hooks.startRun = async (...values) => { args = values; return { data: run }; };
+    const form = ui.container.querySelector('[data-tour="capability-start"] form')!;
+    assert.equal(form.querySelectorAll('input[required]').length, 0);
+    await act(async () => form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+    assert.deepEqual(args[1], { scope_mode: 'default' });
+    assert.ok(args[2]);
+    assert.deepEqual(calls, []);
+    await ui.close();
+  });
+  it('puts refinement and plan entry after the assessment', async () => {
+    const ui = await mount();
+    const content = ui.container.textContent!;
+    assert.ok(content.indexOf('Refine this assessment') > content.indexOf('Next improvements'));
+    assert.ok(content.indexOf('Evaluate your institution’s plan') > content.indexOf('Institutional AI capability'));
+    const scope = ui.container.querySelector('section[aria-label="Refine this assessment"]')!;
+    assert.equal(scope.querySelectorAll('input[required]').length, 2);
+    assert.deepEqual(calls, []);
     await ui.close();
   });
   it('discards late responses after changing assessments', async () => {

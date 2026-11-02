@@ -240,6 +240,7 @@ class AIUsage(models.Model):
         CONFLICT_CHECK = 'conflict_check', 'Conflict check'
         EVIDENCE_ASSESSMENT = 'evidence_assessment', 'Evidence assessment'
         CAPABILITY_RECOMMENDATIONS = 'capability_recommendations', 'Capability recommendations'
+        PLAN_EVALUATION = 'institutional_plan_evaluation', 'Institutional plan evaluation'
         #: The AI second opinion on AI-QIF tags left for an expert (apps/facts/aiqif_tagging.ai_check_pending).
         AIQIF_CHECK = 'aiqif_check', 'AI-QIF tag check'
         OTHER = 'other', 'Other'
@@ -268,6 +269,7 @@ class AIUsage(models.Model):
     capability_run = models.ForeignKey(
         'scoring.CapabilityRun', on_delete=models.SET_NULL, null=True, blank=True, related_name='ai_usage',
     )
+    plan_scenario = models.ForeignKey('scoring.PlanScenario', on_delete=models.PROTECT, null=True, blank=True, related_name='ai_usage')
     stage = models.CharField(max_length=30, choices=Stage.choices, default=Stage.OTHER)
     source = models.CharField(max_length=20, choices=Source.choices, default=Source.RECORDED)
     #: API requests this row stands for: 1 for a recorded call, the dashboard's
