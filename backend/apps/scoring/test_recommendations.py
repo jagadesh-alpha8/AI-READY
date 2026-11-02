@@ -102,6 +102,38 @@ class RecommendationTests(APITestCase):
         self.execute(ex)
         self.assertEqual(self.sdk.chat.completions.create.call_count, 36)
 
+    def test_unknown_checks_receive_verified_strengths_without_changing_baseline(self):
+        self.run = create_run(institution_id=self.institution.pk, sprint_id=self.sprint.pk,
+                              population='All faculty and students', reference_period='2025-26')
+        checkpoint(institution_id=self.institution.pk, run_id=self.run.pk, state='running')
+        evaluation = evaluate([], service=None, population='All', reference_period='2025-26')
+        known = next(r for r in evaluation['records'] if r['condition_id'] == 'AIQIF-C6.1.F1')
+        known.update(state='met', reason='Synthetic dated computing access.', validation_issue='',
+                     scope_supported=True, period_supported=True,
+                     citations=[{'source_id': str(self.page.pk), 'quote': self.page.text}])
+        publish(institution_id=self.institution.pk, run_id=self.run.pk, evaluation=evaluation,
+                inference={'provider': 'none', 'model': 'none', 'settings': {}, 'calls': []})
+        self.original_events = list(self.run.events.values_list('id', 'payload'))
+        self.url = f'/api/v1/sprints/{self.sprint.pk}/capability-runs/{self.run.pk}/recommendations'
+        captured = []
+        original_response = self.response
+        def respond(**kwargs):
+            payload = json.loads(kwargs['messages'][1]['content'])
+            captured.append(payload)
+            return original_response(**kwargs)
+        self.sdk.chat.completions.create.side_effect = respond
+        ex = self.execute(self.start())
+        self.assertEqual(ex.status, 'completed')
+        self.assertEqual(len(captured), 36)
+        self.assertTrue(all(p['established_strengths'][0]['condition_id'] == known['condition_id'] for p in captured))
+        self.assertTrue(all(p['foundation_goals'] for p in captured))
+        self.assertTrue(all(a['operation'] == 'gather_evidence' for p in captured for a in p['actions']))
+        data = self.detail(ex)
+        foundation = data['plan']['foundation_plan']
+        self.assertTrue(all(known['condition_id'] not in g['target_condition_ids'] for g in foundation['goals']))
+        self.assertEqual(len(data['tailoring']['advice']), 215)
+        self.unchanged()
+
     def test_reads_replays_and_new_versions(self):
         self.assertEqual(self.client.get(self.url).status_code, 200)
         self.assertEqual(RecommendationSnapshot.objects.count(), 0)

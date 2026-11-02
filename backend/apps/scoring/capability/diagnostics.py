@@ -36,7 +36,9 @@ def explain(inputs, assessment):
         if not counts['met']:
             explanation = ('No positive assertion has been established for this scope and period. '
                            'This is not a finding of zero capability. Check identity, dates, retrieval and validation reasons; unknown is not absence.')
-    return {'version': 'capability-diagnostics-0.3',
+    from .foundation_plan import baseline_review
+    return {'version': 'capability-diagnostics-0.4',
+            'baseline_review': baseline_review(records, result),
             'cause_audit': diagnose(assessment, rubric=inputs['rubric'], manifest=manifest), 'state_counts': {s: counts[s] for s in (
                 'met', 'not_met', 'unknown', 'conflicting')},
             'source_documents': len(manifest), 'readable_pages': readable,

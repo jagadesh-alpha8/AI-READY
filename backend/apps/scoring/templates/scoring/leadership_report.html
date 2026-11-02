@@ -12,6 +12,9 @@ body{font:15px/1.6 system-ui,sans-serif;color:#19323c;max-width:1050px;margin:40
 <h2>Overall capability result</h2>
 <p class="score">{{ view.score }}</p><p>{{ view.score_explanation }}</p>
 <p>{{ view.evidence_summary }}</p><p class="muted">{{ view.methodology_notice }}</p>
+{% if view.foundation_plan %}<h2>Proposed foundation pathway</h2><p>{{ view.foundation_plan.destination }}. Current achievement level is not verified; this does not award Silver.</p>
+<table><thead><tr><th>Pace</th><th>Indicative duration</th><th>Assumptions</th></tr></thead><tbody>{% for route in view.foundation_plan.routes %}<tr><td>{{ route.name }}</td><td>{{ route.indicative_duration }}</td><td>{{ route.assumptions|join:" " }}</td></tr>{% endfor %}</tbody></table>
+<p>These routes contain the same remaining goals. No price or delivery date is promised.</p>{% endif %}
 <h2>Results across nine readiness areas</h2>
 <table class="pillars"><thead><tr><th>Area</th><th>Result</th><th>Useful next step</th></tr></thead><tbody>
 {% for pillar in view.pillars %}<tr><td><strong>{{ pillar.title }}</strong></td><td>{{ pillar.score }}<p class="scope">{{ pillar.score_explanation }}</p></td><td>{{ pillar.next_step }}</td></tr>{% endfor %}

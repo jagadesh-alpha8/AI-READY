@@ -110,6 +110,21 @@ def save_batch(snapshot_id, indicator, advice):
     execution.save(update_fields=['heartbeat_at'])
 
 
+
+def bounded_strengths(assets):
+    """Keep cross-capability grounding within a small explicit request budget."""
+    result, used = [], 0
+    for asset in sorted(assets, key=lambda a: ('FAO'.index(a['condition_id'].rsplit('.', 1)[-1][0]), a['condition_id'])):
+        basis = asset.get('basis', [])
+        size = sum(len(c.get('quote', '')) for c in basis)
+        if not basis or len(basis) > 2 or size > 1600 or used + size > 6000:
+            continue
+        result.append({**asset, 'reason': asset.get('reason', '')[:500]})
+        used += size
+        if len(result) == 8:
+            break
+    return result
+
 @shared_task(acks_late=True, max_retries=0, reject_on_worker_lost=False)
 def generate_recommendations(snapshot_id, task_id):
     try:
@@ -127,21 +142,24 @@ def generate_recommendations(snapshot_id, task_id):
                 or digest(snapshot.assessment_event.payload) != inputs['assessment_hash']):
             finish(snapshot_id, 'failed', 'snapshot_or_methodology_mismatch')
             return
-        # With no source grounding there is nothing to tailor safely; deterministic evidence requests suffice.
-        model_actions = [a for a in inputs['actions'] if a['state'] != 'unknown']
+        # Verified strengths can ground tailored evidence checks without asserting that unknown capability is absent.
+        foundation = inputs.get('foundation_plan') or {}
+        strengths = bounded_strengths(foundation.get('existing_strengths', []))
+        model_actions = [a for a in inputs['actions'] if a['state'] != 'unknown' or strengths]
         needs_model = bool(model_actions and snapshot.run.inputs['sources'])
         if needs_model:
             pool = get_router_pool()
             if pool is not None:
                 lease = pool.acquire()
-        # Missing evidence never authorizes a model-generated intervention. Render scoped
-        # requests from frozen requirements; preserve development advice for proven shortfalls.
+        # Unknown actions remain evidence checks. Grounded conditional foundation proposals
+        # are separate from verified baseline changes and from mandatory development advice.
+        model_ids = {a['id'] for a in model_actions}
         advice = [{'condition_id': a['id'], 'operation': a['operation'],
                    'steps': [f"Request evidence for {a['requirement']} covering {inputs['population']} in {inputs['reference_period']}."],
                    'suggested_role': 'Evidence coordinator (suggested)', 'effort': 'unknown',
                    'dependencies': [], 'completion_evidence': a['completion_evidence'],
                    'basis': a['citations'], 'origin': 'deterministic_evidence_request'}
-                  for a in inputs['actions'] if a['state'] == 'unknown']
+                  for a in inputs['actions'] if a['state'] == 'unknown' and a['id'] not in model_ids]
         with use_lease(lease):
             service = RecommendationMeter(get_ai_service(), execution) if needs_model else None
             with usage_scope(sprint=snapshot.run.sprint, stage='capability_recommendations',
@@ -151,9 +169,13 @@ def generate_recommendations(snapshot_id, task_id):
                         actions = [a for a in model_actions if a['indicator'] == indicator]
                         payload = {k: inputs[k] for k in ('profile', 'population', 'reference_period')}
                         payload['actions'] = actions
+                        payload['established_strengths'] = strengths
+                        payload['foundation_goals'] = [{k: g[k] for k in ('id', 'title', 'depends_on', 'status', 'conditional')} for g in foundation.get('goals', [])]
+                        scope = inputs.get('scope') or {}
+                        payload['scope'] = {k: scope[k] for k in ('institution', 'mode', 'population_label', 'period_label', 'limitations') if k in scope}
                         response = service.extract_structured_data(system_prompt=PROMPT, user_content=json.dumps(payload),
                             response_schema=SCHEMA, schema_name='capability_advice')
-                        batch = validate_advice(response, actions)
+                        batch = validate_advice(response, actions, established_strengths=strengths)
                         save_batch(snapshot_id, indicator, batch)
                         advice.extend(batch)
             with transaction.atomic():
