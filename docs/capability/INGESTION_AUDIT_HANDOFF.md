@@ -74,6 +74,17 @@ material only. The app does not load them and no scoring release is activated.
 CI now includes pull requests targeting A1. Image publication and deployment remain restricted
 to pushes on main by the existing workflow conditions. Merging this PR into A1 does not deploy it.
 
+### PostgreSQL CI follow-up
+
+The first A1 PostgreSQL run exposed three account-deletion errors in an existing query:
+`select_related('institution')` adds a nullable outer join, and unrestricted `FOR UPDATE`
+tries to lock its nullable side. Permanent deletion now locks only the account row using
+`select_for_update(of=('self',))`. Coordinator protection, dependency checks and the deletion
+audit snapshot remain in the same transaction. Existing deletion tests cover the three failed
+paths; an added regression also covers an account without an institution. No migration is needed.
+The service health check now names its actual `ai_ready` database to avoid unrelated missing-`ci`
+database messages. The PR checks record the new PostgreSQL verification result.
+
 ## Validation
 
 Local SQLite and injected Drive/provider responses; no production inference or complete corpus
