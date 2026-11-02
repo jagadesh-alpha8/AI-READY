@@ -6,7 +6,7 @@ from .capability.scenarios import evaluate_plan
 
 class ScenarioTests(SimpleTestCase):
     def setUp(self):
-        self.rubric = release()
+        self.rubric = release('AIQIF-CAP-0.2')
         self.ids = [c['id'] for c in self.rubric['indicators'][0]['conditions']]
         self.base = {c['id']: 'unknown' for i in self.rubric['indicators'] for c in i['conditions']}
 

@@ -203,6 +203,6 @@ class CandidateReviewTests(TestCase):
 
     def test_source_text_mapping_preserves_original_release(self):
         from .capability.engine import release
-        source = {c['id']: c['text'] for i in release()['indicators'] for c in i['conditions']}
+        source = {c['id']: c['text'] for i in release('AIQIF-CAP-0.2')['indicators'] for c in i['conditions']}
         self.assertEqual({r['source_condition_id']: r['source_requirement']
                           for r in self.candidate['requirements']}, source)

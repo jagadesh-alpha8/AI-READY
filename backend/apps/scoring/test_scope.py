@@ -113,3 +113,43 @@ class ScopeAPITests(APITestCase):
         response = self.client.post(url, {'scope_mode': 'custom', 'population': 'All', 'reference_period': '2025',
             'refines_run_id': first.data['id']}, format='json', HTTP_IDEMPOTENCY_KEY='foreign')
         self.assertEqual(response.status_code, 400)
+
+    def test_identity_mismatch_is_reviewed_before_model_dispatch_or_run_creation(self):
+        self.page.text = 'Self Study Report of Synthetic University\nReporting period: 2023-24'
+        self.page.save()
+        with patch('apps.scoring.capability.execution.dispatch') as send:
+            response = self.client.post(self.url, {}, format='json', HTTP_IDEMPOTENCY_KEY='identity')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['code'], 'source_identity_confirmation_required')
+        self.assertEqual(response.data['source_institutions'], ['Synthetic University'])
+        self.assertFalse(send.called)
+        self.assertFalse(CapabilityExecution.objects.exists())
+        response = self.post({'confirmed_source_institution': 'Synthetic University'}, key='identity-confirmed')
+        self.assertEqual(response.status_code, 202, response.data)
+        self.assertEqual(response.data['scope']['institution']['identity_status'], 'user_confirmed_for_this_run')
+        self.assertEqual(response.data['scope']['institution']['assessed_name'], 'Synthetic University')
+        self.institution.refresh_from_db()
+        self.assertEqual(self.institution.name, 'College')
+        retry = self.post({'confirmed_source_institution': 'Synthetic University'}, key='identity-confirmed')
+        self.assertEqual(retry.status_code, 200)
+        self.assertTrue(retry.data['reused'])
+        changed = self.post({}, key='identity-confirmed')
+        self.assertEqual(changed.status_code, 409)
+
+    def test_confirmation_cannot_name_an_institution_absent_from_sources(self):
+        response = self.post({'confirmed_source_institution': 'Invented institution'})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(CapabilityExecution.objects.exists())
+
+    def test_report_timestamp_is_not_promoted_to_an_activity_year(self):
+        text = 'Self Study Report of College\nComputing resources are available.\nPage 4/80\n03-04-2024 11:12:13\n'
+        scope = resolve(profile={'name': 'College'}, mode='default', requested={'scope_mode': 'default'},
+                        sources=[{'id': 'p1', 'text': text}])
+        dates = [d for d in scope['source_declarations'] if d['kind'] == 'report_claim_date']
+        self.assertEqual(len(dates), 1)
+        self.assertEqual(dates[0]['interpretation'], 'report_timestamp_only_not_activity_or_current_operation')
+        self.assertFalse(any(d['kind'] == 'activity_period' for d in scope['source_declarations']))
+        self.assertNotIn('2024', scope['period_label'])
+        unrelated = resolve(profile={'name': 'College'}, mode='default', requested={'scope_mode': 'default'},
+                            sources=[{'id': 'p1', 'text': 'Event log\n03-04-2024 11:12:13\n'}])
+        self.assertFalse(any(d['kind'] == 'report_claim_date' for d in unrelated['source_declarations']))

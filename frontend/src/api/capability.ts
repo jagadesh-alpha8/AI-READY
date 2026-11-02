@@ -7,6 +7,7 @@ export type JobStatus =
   | 'failed'
   | 'cancelled';
 export interface AssessmentScope {
+  institution?: { assessed_name?: string; identity_status?: string };
   mode: 'default' | 'custom';
   version: string;
   questions: { code: string; message: string }[];
@@ -25,6 +26,7 @@ export interface Job {
   reserved_cost_usd: string;
   completed_indicators?: number;
   rubric_version?: string;
+  current_rubric_version?: string;
   reference_period?: string;
 }
 export interface Page<T> {
@@ -63,6 +65,9 @@ export interface Indicator {
   conditions: Condition[];
 }
 export interface Result {
+  aggregation?: string;
+  badge_policy?: string;
+  scoring_note?: string;
   lower: number;
   upper: number;
   exact_score: number | null;
@@ -75,8 +80,8 @@ export interface Result {
   tiers: {
     name: string;
     eligibility: string;
-    threshold: number;
-    pillar_floor: string;
+    threshold: number | null;
+    pillar_floor: string | null;
     gates: Record<string, number>;
   }[];
 }
@@ -186,7 +191,7 @@ export const getRun = (sprint: string, run: string) =>
   api.get<Run>(path(sprint, run));
 export const startRun = (
   sprint: string,
-  body: { scope_mode?: 'default' | 'custom'; population?: string; reference_period?: string; refines_run_id?: string },
+  body: { confirmed_source_institution?: string; scope_mode?: 'default' | 'custom'; population?: string; reference_period?: string; refines_run_id?: string },
   key: string,
 ) => api.post<Job>(root(sprint), body, { headers: { 'Idempotency-Key': key } });
 export const cancelRun = (sprint: string, run: string) =>

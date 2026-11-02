@@ -1,8 +1,8 @@
 """Pure capability arithmetic. No database, inference, confidence weights or approval gates.
 
 All comparisons use Fraction (including 100/3 boundaries). Rounding is presentation only.
-An unresolved condition permits either outcome; advanced evidence never supplies a missing
-foundational prerequisite. Related-capability links have no scoring effect.
+An unresolved assertion permits either outcome. Frozen 0.2 rubrics retain cumulative gates;
+0.3 counts supported assertions independently. Related-capability links have no scoring effect.
 """
 import hashlib
 import json
@@ -12,18 +12,23 @@ from pathlib import Path
 
 STATES = frozenset({'met', 'not_met', 'unknown', 'conflicting'})
 LEVELS = ('F', 'A', 'O')
-ENGINE_VERSION = 'capability-engine-0.2.0'
+DEFAULT_METHODOLOGY = 'AIQIF-CAP-0.3'
+ENGINE_VERSION = 'capability-engine-0.3.0'
+LEGACY_ENGINE_VERSION = 'capability-engine-0.2.0'
 
 
 @lru_cache(maxsize=1)
-def _release_text():
-    return Path(__file__).with_name('rubric_v0_2.json').read_text()
+def _release_text(version):
+    files = {'AIQIF-CAP-0.2': 'rubric_v0_2.json', 'AIQIF-CAP-0.3': 'rubric_v0_3.json'}
+    if version not in files:
+        raise ValueError('Unsupported capability release.')
+    return Path(__file__).with_name(files[version]).read_text()
 
 
-def release():
+def release(version=DEFAULT_METHODOLOGY):
     # Return a fresh copy: callers must never mutate the cached release.
-    value = json.loads(_release_text())
-    value['content_hash'] = hashlib.sha256(_release_text().encode()).hexdigest()
+    value = json.loads(_release_text(version))
+    value['content_hash'] = hashlib.sha256(_release_text(version).encode()).hexdigest()
     validate_release(value)
     return value
 
@@ -36,9 +41,16 @@ def validate_release(rubric):
         raise ValueError('A capability release must contain 36 unique indicators.')
     if sum(Fraction(str(i['weight_units'])) for i in items) != 1000:
         raise ValueError('Indicator weights must total 1000.')
+    independent = rubric.get('aggregation') == 'independent_conditions'
+    if rubric.get('aggregation') not in (None, 'independent_conditions'):
+        raise ValueError('Unsupported aggregation method.')
+    if independent and (rubric.get('engine_version') != ENGINE_VERSION or rubric.get('badge_policy') != 'not_calibrated'):
+        raise ValueError('Independent release requires its matching engine and explicit badge policy.')
     pillars, conditions = {}, set()
     for item in items:
         pillars[item['pillar']] = pillars.get(item['pillar'], 0) + 1
+        if (item.get('scoring_mode') == 'independent_conditions') != independent:
+            raise ValueError('Mixed indicator arithmetic is not supported.')
         if Fraction(str(item['weight_units'])) <= 0:
             raise ValueError('Indicator weights must be positive.')
         expected = {f'{item["code"]}.{level}{n}' for level in LEVELS for n in (1, 2)}
@@ -55,8 +67,25 @@ def validate_release(rubric):
             raise ValueError('Hard prerequisites are not defined in methodology v0.2.')
     if len(pillars) != 9 or any(n != 4 for n in pillars.values()):
         raise ValueError('The framework requires nine pillars, each with four indicators.')
+    if independent:
+        from .credit_groups import SHARED_GROUPS
+        groups, group_counts = {}, {}
+        for item in items:
+            group = SHARED_GROUPS.get(item['code'], item['code'])
+            if item.get('credit_group') != group:
+                raise ValueError('Invalid readiness credit group.')
+            groups[group] = groups.get(group, Fraction()) + Fraction(str(item['weight_units']))
+            group_counts[group] = group_counts.get(group, 0) + 1
+        if len(groups) != 32 or any(weight != Fraction(1000, 32) for weight in groups.values()):
+            raise ValueError('Readiness groups require exactly one equal shared budget each.')
+        if any(Fraction(str(i['weight_units'])) != Fraction(1000, 32 * group_counts[i['credit_group']]) for i in items):
+            raise ValueError('Shared group members must split their budget equally.')
     if [t['name'] for t in rubric['tiers']] != ['Silver', 'Gold', 'Platinum']:
         raise ValueError('Expected three ordered institutional tiers.')
+    if independent:
+        if any(t['threshold'] is not None or t['pillar_floor'] is not None or t['gates'] for t in rubric['tiers']):
+            raise ValueError('Uncalibrated readiness release cannot declare numeric badge thresholds.')
+        return
     previous_threshold = previous_floor = Fraction(-1)
     for tier in rubric['tiers']:
         threshold, floor = Fraction(str(tier['threshold'])), Fraction(str(tier['pillar_floor']))
@@ -74,6 +103,12 @@ def number(value):
 
 
 def indicator_bounds(indicator, decisions):
+    if indicator.get('scoring_mode') == 'independent_conditions':
+        states = [decisions.get(c['id'], 'unknown') for c in indicator['conditions']]
+        if any(state not in STATES for state in states):
+            raise ValueError('Unsupported condition state.')
+        return (Fraction(states.count('met'), 2),
+                Fraction(len(states) - states.count('not_met'), 2))
     lower = upper = 0
     for index, level in enumerate(LEVELS, 1):
         required = [c for c in indicator['conditions'] if LEVELS.index(c['level']) < index]
@@ -90,7 +125,7 @@ def indicator_bounds(indicator, decisions):
 def _totals(rubric, levels):
     overall, pillars = Fraction(), {}
     for item in rubric['indicators']:
-        score = Fraction(100 * levels[item['code']], 3)
+        score = Fraction(100, 3) * Fraction(str(levels[item['code']]))
         weight = Fraction(str(item['weight_units']))
         overall += score * weight / 1000
         total, denominator = pillars.get(item['pillar'], (Fraction(), Fraction()))
@@ -121,33 +156,40 @@ def assess(decisions, rubric=None):
             coverage += Fraction(str(item['weight_units'])) / 1000
         indicators.append({
             'code': code, 'name': item['name'], 'pillar': item['pillar'],
-            'weight_units': item['weight_units'], 'lower_level': low, 'upper_level': high,
+            'weight_units': item['weight_units'], 'lower_level': number(low) if rubric.get('aggregation') else low,
+            'upper_level': number(high) if rubric.get('aggregation') else high,
             'lower': number(Fraction(100 * low, 3)), 'upper': number(Fraction(100 * high, 3)),
             'resolved': low == high,
             'conditions': [{**c, 'state': decisions.get(c['id'], 'unknown')} for c in item['conditions']],
         })
     lower, p_lower = _totals(rubric, lo)
     upper, p_upper = _totals(rubric, hi)
-    tiers = []
-    # Higher tiers inherit every lower tier's rules, even if future gate lists omit them.
-    passed_low = passed_high = True
-    for tier in rubric['tiers']:
-        passed_low = passed_low and _tier_pass(tier, lower, p_lower, lo)
-        passed_high = passed_high and _tier_pass(tier, upper, p_upper, hi)
-        tiers.append({'name': tier['name'], 'threshold': tier['threshold'],
-                      'pillar_floor': str(tier['pillar_floor']), 'gates': tier['gates'],
-                      'eligibility': 'demonstrated' if passed_low else 'requirements_unmet' if not passed_high
-                      else 'unresolved'})
+    if rubric.get('badge_policy') == 'not_calibrated':
+        tiers = [{'name': t['name'], 'threshold': None, 'pillar_floor': None, 'gates': {},
+                  'eligibility': 'unresolved'} for t in rubric['tiers']]
+    else:
+        tiers = []
+        # Higher tiers inherit every lower tier's rules, even if future gate lists omit them.
+        passed_low = passed_high = True
+        for tier in rubric['tiers']:
+            passed_low = passed_low and _tier_pass(tier, lower, p_lower, lo)
+            passed_high = passed_high and _tier_pass(tier, upper, p_upper, hi)
+            tiers.append({'name': tier['name'], 'threshold': tier['threshold'],
+                          'pillar_floor': str(tier['pillar_floor']), 'gates': tier['gates'],
+                          'eligibility': 'demonstrated' if passed_low else 'requirements_unmet' if not passed_high
+                          else 'unresolved'})
     demonstrated = [t['name'] for t in tiers if t['eligibility'] == 'demonstrated']
     unresolved = [t for t in tiers if t['eligibility'] == 'unresolved']
     return {
-        'engine_version': ENGINE_VERSION,
+        'engine_version': rubric.get('engine_version', LEGACY_ENGINE_VERSION),
         'methodology': rubric['version'], 'rubric_hash': rubric['content_hash'],
         'methodology_status': rubric['status'], 'lower': number(lower), 'upper': number(upper),
         'exact_score': number(lower) if lower == upper else None,
         'assessment_coverage': number(coverage * 100),
         'condition_decision_coverage': number(Fraction(sum(decisions.get(c) in ('met', 'not_met')
                                                      for c in condition_ids), len(condition_ids)) * 100),
+        **({'aggregation': rubric['aggregation'], 'badge_policy': rubric['badge_policy'],
+            'scoring_note': rubric['release_note']} if rubric.get('aggregation') == 'independent_conditions' else {}),
         'highest_demonstrated_tier': demonstrated[-1] if demonstrated else None,
         'tier_is_certain': not unresolved, 'tiers': tiers, 'indicators': indicators,
         'pillars': [{'code': key, 'lower': number(p_lower[key]), 'upper': number(p_upper[key])}

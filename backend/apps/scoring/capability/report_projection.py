@@ -29,13 +29,13 @@ AREA_TITLES = {
     'AIQIF-C4.3': 'AI in academic work', 'AIQIF-C4.4': 'Staff development and support',
     'AIQIF-C5.1': 'Student AI literacy and access', 'AIQIF-C5.2': 'Advanced student skills',
     'AIQIF-C5.3': 'Student projects and portfolios', 'AIQIF-C5.4': 'Internships and career progression',
-    'AIQIF-C6.1': 'Suitable computing and software', 'AIQIF-C6.2': 'Usable institutional data',
+    'AIQIF-C6.1': 'Computing access and AI suitability', 'AIQIF-C6.2': 'Usable institutional data',
     'AIQIF-C6.3': 'Security and recovery', 'AIQIF-C6.4': 'Accessible AI learning environments',
     'AIQIF-C7.1': 'AI research and applied inquiry', 'AIQIF-C7.2': 'Innovation and mentoring support',
     'AIQIF-C7.3': 'Funding, intellectual property and enterprise', 'AIQIF-C7.4': 'Research collaboration and public benefit',
-    'AIQIF-C8.1': 'AI in institutional services', 'AIQIF-C8.2': 'Industry collaboration',
+    'AIQIF-C8.1': 'Digital services and AI operations', 'AIQIF-C8.2': 'Industry collaboration',
     'AIQIF-C8.3': 'Employment and enterprise pathways', 'AIQIF-C8.4': 'Measuring educational and business benefits',
-    'AIQIF-C9.1': 'Measuring AI readiness', 'AIQIF-C9.2': 'Traceable institutional evidence',
+    'AIQIF-C9.1': 'Institutional measurement and review', 'AIQIF-C9.2': 'Traceable institutional evidence',
     'AIQIF-C9.3': 'Keeping assessments up to date', 'AIQIF-C9.4': 'Testing, feedback and improvement',
 }
 STAGES = {'F': 'Starting capability', 'A': 'Repeated use', 'O': 'Results and review'}
@@ -178,11 +178,11 @@ def build_report_view(report, actions):
             'message': 'This is a refined assessment scope. A result change from an earlier scope does not by itself show institutional improvement.'})
     needs_scope_review = any(q['severity'] == 'review' for q in scope_notices)
     return {
-        'version': 'readable-assessment-0.2', 'institution': report['profile']['name'],
+        'version': 'readable-assessment-0.2', 'institution': scope.get('institution', {}).get('assessed_name') or report['profile']['name'],
         'population': report['population'], 'period': report['reference_period'],
         'scope_notices': scope_notices,
         'methodology': result['methodology'], 'methodology_status': result['methodology_status'],
-        'methodology_notice': 'This report uses the recorded capability method. The revised readiness methodology is not activated. Experimental results do not constitute accreditation.',
+        'methodology_notice': ('This report uses independent assertion credit under the experimental readiness method. Source-period findings do not prove current operation. Achievement levels are not calibrated.' if result.get('aggregation') == 'independent_conditions' else 'This report uses its recorded historical capability method. Start a new assessment to use the revised readiness method. Experimental results do not constitute accreditation.'),
         'score': score_label(result['lower'], result['upper']),
         'score_explanation': bounds_note(result['lower'], result['upper']),
         'assessment_state': 'Provisional findings' if counts['unknown'] or counts['conflicting'] or needs_scope_review else 'Assessment completed',

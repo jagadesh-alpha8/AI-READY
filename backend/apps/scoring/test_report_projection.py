@@ -117,7 +117,8 @@ class ReadableProjectionTests(SimpleTestCase):
         view = build_report_view(report, actions)
         known = next(a for a in view['areas'] if a['key'] == 'AIQIF-C4.1')
         unknown = next(a for a in view['areas'] if a['key'] == 'AIQIF-C4.2')
-        self.assertEqual(known['score'], '0 / 100')
+        self.assertEqual(known['score'], 'Not established')
+        self.assertIn('83.33', known['score_explanation'])
         self.assertIn('documented shortfall', known['finding'])
         self.assertEqual(unknown['score'], 'Not established')
 

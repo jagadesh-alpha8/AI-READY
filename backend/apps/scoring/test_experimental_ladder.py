@@ -64,7 +64,7 @@ class IndependentComponentTests(TestCase):
         root = Path(__file__).resolve().parents[3]
         candidate = json.loads((root / 'docs/capability/ladder_foundations_candidate_v0_1.json').read_text())
         rows = candidate['foundations']
-        expected = {c['id'] for i in release()['indicators'] for c in i['conditions'] if c['level'] == 'F'}
+        expected = {c['id'] for i in release('AIQIF-CAP-0.2')['indicators'] for c in i['conditions'] if c['level'] == 'F'}
         self.assertEqual(len(rows), 72)
         self.assertEqual({r['source_condition_id'] for r in rows}, expected)
         self.assertEqual(len({r['candidate_id'] for r in rows}), 72)
@@ -72,7 +72,7 @@ class IndependentComponentTests(TestCase):
         self.assertTrue(all(r['candidate_id'] != r['source_condition_id'] for r in rows))
 
     def test_source_engine_is_unchanged_and_difference_is_explicit(self):
-        rubric = release()
+        rubric = release('AIQIF-CAP-0.2')
         item = rubric['indicators'][0]
         decision = {item['conditions'][0]['id']: 'met'}
         original = assess(decision, rubric)
@@ -84,7 +84,7 @@ class IndependentComponentTests(TestCase):
 
     def test_source_comparison_rejects_missing_or_duplicate_decisions(self):
         from .capability.experimental_ladder import compare_source_export
-        rubric = release()
+        rubric = release('AIQIF-CAP-0.2')
         records = [{'condition_id': c['id'], 'state': 'unknown'}
                    for i in rubric['indicators'] for c in i['conditions']]
         report = {'rubric': rubric, 'assessment': {'records': records, 'result': assess({}, rubric)}}

@@ -29,7 +29,14 @@ def explain(inputs, assessment):
     else:
         explanation = ('The lower bound counts demonstrated capability; the upper bound includes unresolved possibilities. '
                        'Both use the same fixed prerequisite rules.')
-    return {'version': 'capability-diagnostics-0.2',
+    if inputs['rubric'].get('aggregation') == 'independent_conditions':
+        explanation = ('Each supported assertion contributes independently to the lower bound; unresolved assertions expand the upper bound. '
+                       'A missing foundation does not erase other demonstrated capability. '
+                       'Default findings may describe the period reported by a source, rather than current operation.')
+        if not counts['met']:
+            explanation = ('No positive assertion has been established for this scope and period. '
+                           'This is not a finding of zero capability. Check identity, dates, retrieval and validation reasons; unknown is not absence.')
+    return {'version': 'capability-diagnostics-0.3',
             'cause_audit': diagnose(assessment, rubric=inputs['rubric'], manifest=manifest), 'state_counts': {s: counts[s] for s in (
                 'met', 'not_met', 'unknown', 'conflicting')},
             'source_documents': len(manifest), 'readable_pages': readable,

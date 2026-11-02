@@ -5,7 +5,7 @@ Dates remain verbatim and typed; filenames and upload times never establish curr
 """
 import re
 
-VERSION = 'source-local-scope-0.3'
+VERSION = 'source-local-scope-0.4'
 DEFAULT_POPULATION = 'Institutional overview; coverage established separately for each finding'
 DEFAULT_PERIOD = 'Source-specific evidence periods; currency not presumed'
 PATTERNS = {
@@ -13,11 +13,12 @@ PATTERNS = {
     'activity_period': r'(?im)^[ \t]*(?:activity period|academic year|reporting period)[ \t]*:[ \t]*([^\r\n]{1,150})',
     'policy_interval': r'(?im)^[ \t]*(?:policy effective|effective from|effective period)[ \t]*:[ \t]*([^\r\n]{1,150})',
     'curriculum_regulation': r'(?im)^[ \t]*(?:curriculum regulation|regulation year)[ \t]*:[ \t]*([^\r\n]{1,150})',
+    'report_claim_date': r'(?im)^[ \t]*(?:report generated(?: on)?|publication date|report date)[ \t]*:[ \t]*([^\r\n]{1,150})',
     'institution_identity': r'(?im)^[ \t]*(?:(?:institution name|name of (?:the )?institution)[ \t]*:[ \t]*|self[ \t]+study[ \t]+report[ \t]+of[ \t]+)([^\r\n]{1,250})',
 }
 
 
-def intent(population=None, reference_period=None, scope_mode=None, refines_run_id=None):
+def intent(population=None, reference_period=None, scope_mode=None, refines_run_id=None, confirmed_source_institution=None):
     """Normalize legacy explicit inputs without changing their historical request digest."""
     population = population.strip() if isinstance(population, str) else ''
     reference_period = reference_period.strip() if isinstance(reference_period, str) else ''
@@ -35,6 +36,10 @@ def intent(population=None, reference_period=None, scope_mode=None, refines_run_
         value = {'scope_mode': 'default'}
     if refines_run_id:
         value['refines_run_id'] = str(refines_run_id)
+    if confirmed_source_institution is not None:
+        if not isinstance(confirmed_source_institution, str) or not confirmed_source_institution.strip() or len(confirmed_source_institution) > 250:
+            raise ValueError('Choose an explicit source institution to confirm.')
+        value['confirmed_source_institution'] = confirmed_source_institution.strip()
     return mode, value
 
 
@@ -48,10 +53,26 @@ def resolve(*, profile, sources, requested, mode):
                 declarations.append({'kind': kind, 'value': match.group(1).strip(),
                     'source_id': source['id'], 'start': match.start(1), 'end': match.end(1),
                     'quote': match.group(1), 'interpretation': 'explicit_label_candidate_unverified'})
+    # The standard SSR footer dates the report's claim only, never the activity itself.
+    # Other bare timestamps are not interpreted as report dates.
+    for source in sources:
+        if (re.search(r'(?i)self\s+study\s+report\s+of', source['text'])
+                and re.search(r'(?i)Page\s+\d+\s*/\s*\d+', source['text'])):
+            for match in re.finditer(r'(?m)^[ \t]*(\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2})[ \t]*$', source['text']):
+                declarations.append({'kind': 'report_claim_date', 'value': match.group(1),
+                    'source_id': source['id'], 'start': match.start(1), 'end': match.end(1),
+                    'quote': match.group(1), 'interpretation': 'report_timestamp_only_not_activity_or_current_operation'})
     identity = [d for d in declarations if d['kind'] == 'institution_identity']
     normalize = lambda name: ' '.join(re.findall(r'\w+', name.casefold()))
     mismatches = [d for d in identity if normalize(d['value']) != normalize(profile['name'])]
-    if mismatches:
+    confirmed = requested.get('confirmed_source_institution')
+    if confirmed and normalize(confirmed) not in {normalize(d['value']) for d in identity}:
+        raise ValueError('Confirmed institution must match a name declared in the current source documents.')
+    if confirmed:
+        questions.append({'code': 'source_identity_confirmed', 'severity': 'limitation',
+            'message': f'The user confirmed that this assessment concerns the source institution: {confirmed}. The saved profile name is unchanged.',
+            'source_ids': sorted({d['source_id'] for d in identity if normalize(d['value']) == normalize(confirmed)})})
+    if mismatches and not confirmed:
         questions.append({'code': 'institution_identity_mismatch', 'severity': 'review',
             'message': 'A labelled source institution differs from the saved profile. Confirm ownership before relying on it.',
             'source_ids': sorted({d['source_id'] for d in mismatches})})
@@ -64,8 +85,9 @@ def resolve(*, profile, sources, requested, mode):
         'source_ids': []})
     default = mode == 'default'
     return {'version': VERSION, 'mode': mode, 'requested_intent': requested,
-        'institution': {'name': profile['name'], 'basis': 'saved_profile_not_source_verified',
-                        'identity_status': 'mismatch_requires_review' if mismatches else 'source_label_matches_profile_unverified' if identity else 'unconfirmed'},
+        'institution': {'name': profile['name'], 'basis': 'explicit_user_identity_confirmation' if confirmed else 'saved_profile_not_source_verified',
+                        'assessed_name': confirmed or profile['name'],
+                        'identity_status': 'user_confirmed_for_this_run' if confirmed else 'mismatch_requires_review' if mismatches else 'source_label_matches_profile_unverified' if identity else 'unconfirmed'},
         'population_label': DEFAULT_POPULATION if default else requested['population'],
         'period_label': ('Mixed source periods; no common reporting year established' if len(periods) > 1
                          else DEFAULT_PERIOD) if default else requested['reference_period'],

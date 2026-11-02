@@ -3,7 +3,7 @@ import json
 from fractions import Fraction
 from pathlib import Path
 
-from .engine import LEVELS, _totals, number
+from .engine import LEVELS, _totals, number, assess, indicator_bounds
 from .planning import roadmap
 from .storage import digest
 
@@ -41,6 +41,23 @@ def threshold_plan(result, rubric, policy):
     threshold = next((t for t in policy['thresholds'] if Fraction(str(t)) > lower), None)
     if threshold is None:
         return {'target': None, 'requirement_ids': [], 'scenario_sufficient': True, 'policy': policy}
+    if rubric.get('aggregation') == 'independent_conditions':
+        states = {c['id']: c['state'] for i in result['indicators'] for c in i['conditions']}
+        ids = []
+        projected = lower
+        for item in sorted(rubric['indicators'], key=lambda i: (-i['weight_units'], i['code'])):
+            for condition in item['conditions']:
+                if projected >= threshold:
+                    break
+                cid = condition['id']
+                if states[cid] == 'met':
+                    continue
+                ids.append(cid)
+                states[cid] = 'met'
+                projected = _totals(rubric, {i['code']: indicator_bounds(i, states)[0] for i in rubric['indicators']})[0]
+        return {'target': threshold, 'requirement_ids': ids, 'scenario_sufficient': projected >= threshold,
+                'projected_minimum': number(projected), 'policy': policy,
+                'note': 'Conditional assertion-level scenario; every listed assertion must be evidenced. Not a badge or guaranteed gain.'}
     levels = {i['code']: i['lower_level'] for i in result['indicators']}
     ordered = sorted(rubric['indicators'], key=lambda i: (-i['weight_units'], i['code']))
     for _ in range(len(ordered) * 3):

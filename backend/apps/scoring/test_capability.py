@@ -15,7 +15,7 @@ from .capability.evaluation import evaluate, select_context, validate_decisions
 class CapabilityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.rubric = release()
+        cls.rubric = release('AIQIF-CAP-0.2')
         cls.ids = [c['id'] for item in cls.rubric['indicators'] for c in item['conditions']]
 
     def decisions_at(self, level):
@@ -118,9 +118,9 @@ class CapabilityTests(unittest.TestCase):
             mutate(bad)
             with self.assertRaises(ValueError):
                 validate_release(bad)
-        fresh = release()
+        fresh = release('AIQIF-CAP-0.2')
         fresh['indicators'].clear()
-        self.assertEqual(len(release()['indicators']), 36)
+        self.assertEqual(len(release('AIQIF-CAP-0.2')['indicators']), 36)
 
     def test_condition_progress_and_score_resolution_are_separate(self):
         result = assess({self.ids[0]: 'not_met'}, self.rubric)
@@ -167,7 +167,7 @@ class CapabilityTests(unittest.TestCase):
 
 class EvaluationTests(unittest.TestCase):
     def setUp(self):
-        self.item = release()['indicators'][0]
+        self.item = release('AIQIF-CAP-0.2')['indicators'][0]
         self.sources = [{'id': 'document-a:1', 'text': 'The institution approved an AI strategy for the current academic year.'}]
         self.row = {'condition_id': self.item['conditions'][0]['id'], 'state': 'met',
                     'reason': 'Scoped current evidence supplied.', 'scope_supported': True,

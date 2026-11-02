@@ -12,7 +12,7 @@ from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
 from apps.scoring.models import (CapabilityRun, InstitutionalPlanVersion, PlanScenario,
                                   PlanScenarioEvent, PlanScenarioExecution)
-from .engine import ENGINE_VERSION, assess, validate_release
+from .engine import ENGINE_VERSION, LEGACY_ENGINE_VERSION, assess, validate_release
 from .evaluation import select_context
 from .execution import policy, AssessmentConflict, AssessmentDisabled, BudgetExceeded, ExecutionStopped
 from .provider import MeteredService, UnpricedModel, UsageUnavailable
@@ -29,7 +29,7 @@ def validate_baseline(run, event):
     inputs = run.inputs
     if (digest(inputs) != run.inputs_hash or event.run_id != run.pk
             or event.payload.get('inputs_hash') != run.inputs_hash
-            or inputs.get('engine_version') != ENGINE_VERSION
+            or inputs.get('engine_version') != inputs['rubric'].get('engine_version', LEGACY_ENGINE_VERSION)
             or inputs.get('rubric_snapshot_hash') != digest(inputs['rubric'])):
         raise AssessmentConflict('The saved baseline failed its identity or method check.')
     validate_release(inputs['rubric'])

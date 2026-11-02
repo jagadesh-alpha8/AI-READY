@@ -9,12 +9,8 @@ VERSION = 'grouped-candidate-bounds-0.2'
 CONTEXT_FLAGS = frozenset(('scope_verified', 'currency_verified', 'coverage_verified',
                            'consequential_ai_use'))
 CONTEXT_KEYS = CONTEXT_FLAGS | {'critical_risks'}
-SHARED_GROUPS = {
-    'AIQIF-C3.2': 'literacy_provision', 'AIQIF-C5.1': 'literacy_provision',
-    'AIQIF-C3.4': 'student_ai_projects', 'AIQIF-C5.3': 'student_ai_projects',
-    'AIQIF-C6.1': 'learning_compute', 'AIQIF-C6.4': 'learning_compute',
-    'AIQIF-C5.4': 'career_pathways', 'AIQIF-C8.3': 'career_pathways',
-}
+from .credit_groups import SHARED_GROUPS
+
 
 
 def digest(value):
