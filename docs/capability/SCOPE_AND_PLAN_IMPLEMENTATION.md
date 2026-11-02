@@ -135,3 +135,17 @@ limits and UI behavior; they do not measure real model interpretation accuracy. 
 enablement, review examples covering vague plans, complete delivery commitments, measured outcomes,
 shared prerequisites, contradictory/withdrawal actions, scoped cohorts, historical evidence,
 prompt injection, named budgets and asset reuse. Also run a business-reader review of the advice.
+
+
+## Verification checkpoint
+
+- Full local backend run: 1,492 tests, one skipped, passed with the same `DEBUG=True` test
+  environment used by CI. Later focused runs cover the final no-action input handling,
+  cross-baseline isolation and readable plan-export labels.
+- New scope/scenario/plan checks: 25 in total across the focused runs.
+- Frontend: all 160 tests and the production build pass. Migration drift, Django system
+  configuration and whitespace checks pass; the expected unconfigured AI-key warning remains.
+- PR #5 targets A1 as a draft depending on PR #4. GitHub backend/PostgreSQL checks are pending
+  at this checkpoint; frontend CI has passed. Neither PR is merged or deployed.
+- The workspace had no installed browser executable, so browser visual QA could not be
+  performed. Automated rendering/escaping checks are not described as visual verification.

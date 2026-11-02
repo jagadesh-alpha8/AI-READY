@@ -1,5 +1,6 @@
 """Tenant-scoped explicit plan requests and inference-free reads/exports."""
 import json
+from copy import deepcopy
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -86,8 +87,20 @@ class PlanEvaluationReportView(PlanEvaluationView):
         fmt = request.query_params.get('file', 'html')
         if fmt not in {'html', 'json'}:
             raise serializers.ValidationError({'file': 'Choose html or json.'})
-        content = (json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2) if fmt == 'json'
-                   else render_to_string('scoring/plan_comparison.html', {'report': payload}))
+        if fmt == 'json':
+            content = json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2)
+        else:
+            from .report_projection import PILLARS, readable
+            presentation = deepcopy(payload)
+            if presentation['comparison']:
+                for version in ('original', 'improved'):
+                    evaluation = presentation['comparison'][version]['evaluation']
+                    for scenario in evaluation['scenarios'].values():
+                        for pillar in scenario['result']['pillars']:
+                            pillar['title'] = PILLARS.get(pillar['code'], pillar['code'])
+                    for mapping in evaluation['accepted']:
+                        mapping['title'] = readable(mapping['condition_id'])
+            content = render_to_string('scoring/plan_comparison.html', {'report': presentation})
         response = HttpResponse(content, content_type='application/json' if fmt == 'json' else 'text/html; charset=utf-8')
         response['Content-Disposition'] = f'attachment; filename="plan-comparison-{scenario_id}.{fmt}"'
         response['Cache-Control'] = 'private, no-store'

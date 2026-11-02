@@ -199,6 +199,7 @@ class PlanAPITests(APITestCase):
             self.assertEqual(detail.status_code, 200, detail.data)
             self.assertEqual(report.status_code, 200)
             self.assertIn(b'Conditional scenarios', report.content)
+            self.assertIn(b'Faculty and staff', report.content)
             self.assertFalse(json.loads(exported.content)['actual_assessment_changed'])
             self.assertEqual(report['Cache-Control'], 'private, no-store')
             self.assertFalse(send.called)
