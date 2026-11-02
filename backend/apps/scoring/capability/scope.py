@@ -58,7 +58,7 @@ def resolve(*, profile, sources, requested, mode):
     for source in sources:
         if (re.search(r'(?i)self\s+study\s+report\s+of', source['text'])
                 and re.search(r'(?i)Page\s+\d+\s*/\s*\d+', source['text'])):
-            for match in re.finditer(r'(?m)^[ \t]*(\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2})[ \t]*$', source['text']):
+            for match in re.finditer(r'(?im)^[ \t]*(?:Page[ \t]+\d+[ \t]*/[ \t]*\d+[ \t]+)?(\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2})[ \t]*$', source['text']):
                 declarations.append({'kind': 'report_claim_date', 'value': match.group(1),
                     'source_id': source['id'], 'start': match.start(1), 'end': match.end(1),
                     'quote': match.group(1), 'interpretation': 'report_timestamp_only_not_activity_or_current_operation'})

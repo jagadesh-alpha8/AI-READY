@@ -150,6 +150,12 @@ class ScopeAPITests(APITestCase):
         self.assertEqual(dates[0]['interpretation'], 'report_timestamp_only_not_activity_or_current_operation')
         self.assertFalse(any(d['kind'] == 'activity_period' for d in scope['source_declarations']))
         self.assertNotIn('2024', scope['period_label'])
+        inline = text.replace('Page 4/80\n03-04-2024', 'Page 4/80                 03-04-2024')
+        inline_scope = resolve(profile={'name': 'College'}, mode='default', requested={'scope_mode': 'default'},
+                               sources=[{'id': 'p1', 'text': inline}])
+        inline_date = next(d for d in inline_scope['source_declarations'] if d['kind'] == 'report_claim_date')
+        self.assertEqual(inline_date['value'], dates[0]['value'])
+        self.assertEqual(inline[inline_date['start']:inline_date['end']], inline_date['quote'])
         unrelated = resolve(profile={'name': 'College'}, mode='default', requested={'scope_mode': 'default'},
                             sources=[{'id': 'p1', 'text': 'Event log\n03-04-2024 11:12:13\n'}])
         self.assertFalse(any(d['kind'] == 'report_claim_date' for d in unrelated['source_declarations']))
