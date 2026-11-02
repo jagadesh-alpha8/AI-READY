@@ -176,19 +176,41 @@ def build_report_view(report, actions):
     if report.get('refines_run_id'):
         scope_notices.append({'code': 'scope_refinement', 'severity': 'limitation',
             'message': 'This is a refined assessment scope. A result change from an earlier scope does not by itself show institutional improvement.'})
+    foundation = report.get('deterministic_plan', {}).get('foundation_plan')
+    priorities = followups[:5]
+    if foundation:
+        priorities = []
+        for goal in foundation['goals'][:5]:
+            goal_actions = [action_by_id[cid] for cid in goal['target_condition_ids'] if cid in action_by_id]
+            advice_steps = [readable(step) for a in goal_actions if a.get('advice') for step in a['advice']['steps']][:3]
+            basis = []
+            for action in goal_actions:
+                for cite in action.get('citations', []):
+                    if cite not in basis:
+                        basis.append(cite)
+            for asset in goal['existing_strengths']:
+                for cite in asset['basis']:
+                    if cite not in basis:
+                        basis.append(cite)
+            priorities.append({'title': goal['title'], 'area_key': goal['target_condition_ids'][0].rsplit('.', 1)[0],
+                'reason': ('Verify unresolved practices before implementation; they are not presumed absent.' if goal['conditional'] else 'The recorded requirements identify a documented development need.'),
+                'steps': advice_steps + goal['steps'], 'suggested_role': goal['suggested_role'] + ' (suggested)',
+                'effort': 'Confirm for the chosen route', 'completion': '; '.join(dict.fromkeys(goal['completion_evidence'])),
+                'dependencies': goal['depends_on'], 'sources': [{'label': source_labels.get(str(c['source_id']), 'Saved source reference'), 'quote': c['quote']} for c in basis[:3]],
+                'guidance': 'Proposed foundation goal; current achievement is not verified'})
     needs_scope_review = any(q['severity'] == 'review' for q in scope_notices)
     return {
-        'version': 'readable-assessment-0.2', 'institution': scope.get('institution', {}).get('assessed_name') or report['profile']['name'],
+        'version': 'readable-assessment-0.3', 'institution': scope.get('institution', {}).get('assessed_name') or report['profile']['name'],
         'population': report['population'], 'period': report['reference_period'],
         'scope_notices': scope_notices,
         'methodology': result['methodology'], 'methodology_status': result['methodology_status'],
         'methodology_notice': ('This report uses independent assertion credit under the experimental readiness method. Source-period findings do not prove current operation. Achievement levels are not calibrated.' if result.get('aggregation') == 'independent_conditions' else 'This report uses its recorded historical capability method. Start a new assessment to use the revised readiness method. Experimental results do not constitute accreditation.'),
         'score': score_label(result['lower'], result['upper']),
         'score_explanation': bounds_note(result['lower'], result['upper']),
-        'assessment_state': 'Provisional findings' if counts['unknown'] or counts['conflicting'] or needs_scope_review else 'Assessment completed',
-        'advisory': state, 'pillars': pillars, 'areas': areas, 'priorities': followups[:5],
+        'assessment_state': 'Evidence review required — readiness baseline not established' if foundation and foundation['baseline']['status'] == 'needs_evidence_review' else 'Provisional findings' if counts['unknown'] or counts['conflicting'] or needs_scope_review else 'Assessment completed',
+        'advisory': state, 'pillars': pillars, 'areas': areas, 'priorities': priorities, 'foundation_plan': foundation,
         'followup_count': len(followups),
-        'priority_note': 'These starting points use the earliest unresolved capability steps, with contradictions first within each step. Institutional benefit, cost and feasibility have not been assessed. All areas remain available in the detail.',
+        'priority_note': ('Foundation goals reuse verified strengths and separate evidence checks from conditional development. Timing is illustrative; no achievement is awarded.' if foundation else 'These starting points use the earliest unresolved capability steps, with contradictions first within each step. Institutional benefit, cost and feasibility have not been assessed. All areas remain available in the detail.'),
         'evidence_summary': (f"{diagnostics['source_documents']} source "
                              f"{'document' if diagnostics['source_documents'] == 1 else 'documents'} and "
                              f"{diagnostics['readable_pages']} readable "

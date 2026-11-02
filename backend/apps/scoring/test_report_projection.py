@@ -40,6 +40,27 @@ def report_fixture(overrides=None, default='unknown'):
 
 
 class ReadableProjectionTests(SimpleTestCase):
+    def test_foundation_proposal_reaches_html_and_pdf_without_claiming_achievement(self):
+        import pymupdf
+        from django.template.loader import render_to_string
+        from .capability.foundation_plan import build_foundation_plan
+        from .capability.leadership_pdf import render_leadership_pdf
+        report, actions = report_fixture({'AIQIF-C6.1.F1': 'met'})
+        foundation = build_foundation_plan(release(), report['assessment']['records'], report['assessment']['result'])
+        report['deterministic_plan'] = {'foundation_plan': foundation}
+        before = deepcopy(report)
+        view = build_report_view(report, actions)
+        self.assertEqual(view['priorities'][0]['title'], foundation['goals'][0]['title'])
+        self.assertEqual(view['foundation_plan']['current_level'], 'not_verified')
+        html = render_to_string('scoring/leadership_report.html', {'view': view, 'report': report})
+        self.assertIn('Proposed Silver foundation goals', html)
+        self.assertIn('Gradual', html)
+        document = pymupdf.open(stream=render_leadership_pdf(view), filetype='pdf')
+        text = ''.join(page.get_text() for page in document)
+        self.assertIn('Proposed Silver foundation goals', text)
+        self.assertIn('Progressive', text)
+        self.assertEqual(report, before)
+
     def test_pdf_handles_supported_long_scope_and_institution_names(self):
         import pymupdf
         from .capability.leadership_pdf import render_leadership_pdf

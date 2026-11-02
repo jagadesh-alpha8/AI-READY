@@ -115,6 +115,7 @@ def finish(run_id, state, error_code):
     execution.save(update_fields=['status', 'heartbeat_at'])
     # Fixed internal codes only, never exceptions or provider response bodies.
     actions = {
+        'snapshot_or_methodology_mismatch': 'Update and restart both web and assessment workers to the same A1 version, then start a fresh assessment.',
         'dispatch_failed': 'Check the broker and worker configuration, then start a new assessment.',
         'inference_disabled': 'Enable configured capability inference before starting a new assessment.',
         'model_pricing_required': 'Configure valid input/output model prices, then start a new assessment.',

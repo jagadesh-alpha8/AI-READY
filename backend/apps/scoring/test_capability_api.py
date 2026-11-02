@@ -79,6 +79,20 @@ class CapabilityAPITests(APITestCase):
         self.client.force_authenticate(None)
         self.assertEqual(self.client.get(self.url).status_code, 401)
 
+    def test_worker_rejects_a_different_retrieval_protocol_before_provider_use(self):
+        execution = self.start()
+        with patch('apps.scoring.tasks.RETRIEVAL_VERSION', 'synthetic-different-worker'):
+            self.execute(execution)
+        execution.refresh_from_db()
+        self.assertEqual(execution.status, 'failed')
+        self.assertEqual(self.sdk.chat.completions.create.call_count, 0)
+        detail = self.client.get(f'{self.url}/{execution.run_id}').data
+        self.assertEqual(detail['error']['error_code'], 'snapshot_or_methodology_mismatch')
+        self.assertIn('worker', detail['error']['next_action'])
+        with patch('apps.scoring.capability.views.RETRIEVAL_VERSION', 'synthetic-different-web'):
+            detail = self.client.get(f'{self.url}/{execution.run_id}').data
+        self.assertFalse(detail['assessment_protocol_current'])
+
     def test_idempotent_start_and_conflicting_inputs_and_active_run(self):
         execution = self.start()
         with patch('apps.scoring.capability.execution.dispatch') as send:

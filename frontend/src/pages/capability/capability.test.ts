@@ -191,6 +191,27 @@ describe('capability presentation and explicit spending', () => {
     assert.match(html, /Experimental internal criteria/);
     assert.doesNotMatch(html, /100% confidence/);
   });
+  it('flags an entirely undecided independent baseline', () => {
+    const html = renderToStaticMarkup(React.createElement(bundle.mod.CapabilitySummary,
+      { result: { ...result, aggregation: 'independent_conditions' } }));
+    assert.match(html, /Evidence review required/);
+  });
+  it('shows proposed foundation goals and equal outcomes at three paces', () => {
+    const goal = { id: 'resources', target_condition_ids: ['pending'], title: 'Reuse existing resources', status: 'verify_before_implementation',
+      suggested_role: 'IT lead', existing_strengths: [{ condition_id: 'known', reason: 'Verified access <script>bad()</script>' }],
+      steps: ['Check suitability before conditional development.'], depends_on: [] };
+    const plan = { destination: 'Proposed Silver foundation goals', baseline: { message: 'Review the unresolved baseline.' },
+      routes: ['Immediate', 'Progressive', 'Gradual'].map(name => ({ name, indicative_duration: 'Illustrative duration',
+        outcomes: ['resources'], assumptions: ['Confirm capacity first.'] })), goals: [goal], review_questions: [],
+      other_unresolved_requirements: 10, limitations: ['Completion changes no score.'] };
+    const html = renderToStaticMarkup(React.createElement(bundle.mod.FoundationPathway, { plan, advice: [{ condition_id: 'pending', steps: ['Inspect the verified facility for this workload.'], basis: [] }] }));
+    assert.equal((html.match(/The same 1 remaining goals/g) || []).length, 3);
+    assert.match(html, /Existing findings to build on/);
+    assert.match(html, /proposal, not a badge assessment/);
+    assert.doesNotMatch(html, /<script>/);
+    assert.match(html, /Check suitability/);
+    assert.match(html, /Inspect the verified facility/);
+  });
   it('loads all 36 indicators read-only and escapes profile text', async () => {
     const ui = await mount();
     assert.equal(
@@ -298,6 +319,16 @@ describe('capability presentation and explicit spending', () => {
     await flush();
     assert.match(ui.container.textContent!, /saved assessment uses the earlier scoring method/);
     assert.match(ui.container.textContent!, /AIQIF-CAP-0.3/);
+    await ui.close();
+  });
+  it('flags an older protocol even when the rubric version matches', async () => {
+    const ui = await mount();
+    hooks.getRun = async () => ({ data: { ...run, rubric_version: 'AIQIF-CAP-0.3',
+      current_rubric_version: 'AIQIF-CAP-0.3', assessment_protocol_current: false } });
+    const select = ui.container.querySelector('select[aria-label="Assessment history"]') as HTMLSelectElement;
+    await act(async () => { select.value = 'run2'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
+    await flush();
+    assert.match(ui.container.textContent!, /evaluation protocol/);
     await ui.close();
   });
   it('puts refinement and plan entry after the assessment', async () => {

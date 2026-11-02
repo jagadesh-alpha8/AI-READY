@@ -10,6 +10,7 @@ import type {
   Result,
   Run,
   Recommendation,
+  FoundationPlan,
 } from '../../api/capability';
 import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { useAccess } from '../../utils/access';
@@ -92,7 +93,7 @@ export function CapabilitySummary({ result }: { result: Result }) {
         <div className="glass-card p-5">
           <p className="text-sm text-ink-600">Institutional AI capability</p>
           <p className="text-3xl font-bold text-brand-800 mt-2">
-            {scoreLabel(result)}
+            {result.aggregation === 'independent_conditions' && result.condition_decision_coverage === 0 ? 'Evidence review required' : scoreLabel(result)}
           </p>
           <p className="text-sm mt-2">
             {result.exact_score === null
@@ -247,6 +248,8 @@ export function CapabilityPathways({
   plan?: Recommendation['plan'];
 }) {
   const next = recommendation?.plan.next_overall || plan?.next_overall;
+  const foundation = recommendation?.plan.foundation_plan || plan?.foundation_plan;
+  if (foundation) return <FoundationPathway plan={foundation} advice={recommendation?.tailoring?.advice || []} />;
   return (
     <section className="space-y-3">
       <h2 className="text-xl font-bold">Next improvements and tier pathways</h2>
@@ -294,6 +297,37 @@ export function CapabilityPathways({
       </div>
     </section>
   );
+}
+
+
+export function FoundationPathway({ plan, advice = [] }: { plan: FoundationPlan; advice?: Advice[] }) {
+  return <section className="space-y-4" aria-label="Foundation pathway">
+    <h2 className="text-xl font-bold">Next improvements — foundation pathway</h2>
+    <p>{plan.destination}. Current achievement level is not verified; this is a proposal, not a badge assessment.</p>
+    <p className="panel-muted">{plan.baseline.message}</p>
+    <div className="grid md:grid-cols-3 gap-3">{plan.routes.map((route) => <article key={route.name} className="glass-card p-4 space-y-2">
+      <h3 className="font-semibold">{route.name}</h3><p>{route.indicative_duration} — illustrative</p>
+      <p className="text-sm">The same {route.outcomes.length} remaining goals, with different sequencing.</p>
+      <p className="text-sm">{route.assumptions.join(' ')}</p>
+    </article>)}</div>
+    {plan.goals.map((goal) => <article key={goal.id} className="glass-card p-4 space-y-3">
+      <h3 className="font-semibold">{goal.title}</h3>
+      <p className="text-sm">{goal.status === 'verify_before_implementation' ? 'Establish what already exists before conditional implementation.' : 'Address the documented shortfall.'} Suggested lead: {goal.suggested_role}.</p>
+      {goal.existing_strengths.length > 0 && <div><h4 className="font-semibold text-sm">Existing findings to build on</h4>{goal.existing_strengths.slice(0, 3).map((asset) => <p key={asset.condition_id} className="text-sm">{asset.reason || asset.requirement}</p>)}</div>}
+      {advice.filter((row) => goal.target_condition_ids.includes(row.condition_id)).slice(0, 3).map((row) => <div key={row.condition_id} className="text-sm">
+        <h4 className="font-semibold">Assessment-specific follow-up</h4>
+        <ul className="list-disc pl-5">{row.steps.map((step, n) => <li key={n}>{step}</li>)}</ul>
+        {row.basis.map((cite, n) => <blockquote key={n} className="border-l-2 pl-3 mt-2">{cite.quote}</blockquote>)}
+      </div>)}
+      <ol className="list-decimal pl-5">{goal.steps.map((step, n) => <li key={n}>{step}</li>)}</ol>
+      {goal.depends_on.length > 0 && <p className="text-sm">Prerequisites: {goal.depends_on.map((id) => plan.goals.find((g) => g.id === id)?.title || id).join('; ')}.</p>}
+    </article>)}
+    {plan.review_questions.length > 0 && <details className="glass-card p-4"><summary className="font-semibold">{plan.review_questions.length} grouped evidence checks before implementation</summary>
+      {plan.review_questions.map((question) => <article className="mt-4" key={question.id}><h4 className="font-semibold">{question.title}</h4><p>{question.question}</p><ul className="list-disc pl-5">{question.requirements.map((text, i) => <li key={i}>{text}</li>)}</ul><p className="text-sm">{question.answer_policy}</p></article>)}
+      <p className="text-sm mt-3">{plan.other_unresolved_requirements} other unresolved requirements remain outside these prioritised checks.</p>
+    </details>}
+    <p className="text-sm">{plan.limitations.join(' ')}</p>
+  </section>;
 }
 
 export function CapabilityWorkspace({ mode = 'standing' }: { mode?: Mode }) {
@@ -553,7 +587,7 @@ function RunWorkspace({
     <div className="space-y-6">
       <section className="glass-card p-4">
         <h2 className="font-bold">{data.scope?.institution?.assessed_name || data.profile.name}</h2>
-        {data.current_rubric_version && data.rubric_version !== data.current_rubric_version && <p role="status" className="panel-muted border border-warning mt-3">This saved assessment uses the earlier scoring method ({data.rubric_version}). Start a new evidence assessment above to use {data.current_rubric_version}. This historical result stays unchanged.</p>}
+        {data.current_rubric_version && (data.rubric_version !== data.current_rubric_version || data.assessment_protocol_current === false) && <p role="status" className="panel-muted border border-warning mt-3">This saved assessment uses the earlier scoring method or evaluation protocol ({data.rubric_version}). Start a new evidence assessment above to use {data.current_rubric_version} with the current retrieval and prompts. This historical result stays unchanged.</p>}
         <p>
           {data.population} · {data.reference_period} · {data.status}
         </p>
@@ -651,7 +685,7 @@ export function ScopeRefinement({ sprint, run, onStarted }: { sprint: string; ru
   const pending = useRef<{ signature: string; key: string } | null>(null);
   async function refine(event: React.FormEvent) {
     event.preventDefault();
-    const body = { scope_mode: 'custom' as const, population: population.trim(), reference_period: period.trim(), refines_run_id: run.id };
+    const body = { scope_mode: 'custom' as const, population: population.trim(), reference_period: period.trim(), refines_run_id: run.id, ...(run.scope?.institution?.identity_status === 'user_confirmed_for_this_run' && run.scope.institution.assessed_name ? { confirmed_source_institution: run.scope.institution.assessed_name } : {}) };
     pending.current = attempt(pending.current, JSON.stringify(body), () => crypto.randomUUID());
     setBusy(true); setError('');
     try {
@@ -732,8 +766,7 @@ function RecommendationWorkspace({
         <h2 className="font-bold">Recommendation versions</h2>
         <p>
           Deterministic plans are available immediately. Tailoring uses model
-          credits only when you explicitly request it. Missing evidence gets
-          evidence requests, not development prescriptions.
+          credits only when you explicitly request it. Verified strengths can ground specific evidence checks. The foundation pathway separates those checks from conditional development proposals.
         </p>
         <label className="block">
           Version{' '}

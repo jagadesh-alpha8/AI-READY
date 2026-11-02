@@ -27,6 +27,8 @@ export interface Job {
   completed_indicators?: number;
   rubric_version?: string;
   current_rubric_version?: string;
+  assessment_protocol_current?: boolean;
+  current_assessment_protocol?: { engine_version: string; prompt_version: string; retrieval_version: string };
   reference_period?: string;
 }
 export interface Page<T> {
@@ -165,8 +167,17 @@ export interface ActionState {
   feasibility: 'unreviewed' | 'feasible' | 'blocked';
   status: 'proposed' | 'in_progress' | 'completed' | 'dismissed';
 }
+export interface FoundationPlan {
+  version: string; destination: string; current_level: string;
+  baseline: { status: string; message: string };
+  goals: { id: string; title: string; target_condition_ids: string[]; depends_on: string[]; suggested_role: string; status: string; steps: string[]; existing_strengths: { condition_id: string; requirement: string; reason: string; basis: Citation[] }[] }[];
+  routes: { name: string; indicative_duration: string; batches: string[][]; assumptions: string[]; outcomes: string[] }[];
+  review_questions: { id: string; title: string; question: string; requirements: string[]; condition_ids: string[]; answer_policy: string }[];
+  other_unresolved_requirements: number; limitations: string[];
+}
 export interface Recommendation extends Job {
   plan: {
+    foundation_plan?: FoundationPlan | null;
     version: string;
     actions: Action[];
     next_improvements: string[];

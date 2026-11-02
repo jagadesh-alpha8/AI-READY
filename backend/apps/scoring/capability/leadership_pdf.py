@@ -59,6 +59,12 @@ def render_leadership_pdf(view):
     pdf.set_y(max(pdf.get_y(), panel_y + 39))
     pdf.paragraph(view['evidence_summary'])
     pdf.paragraph(view['methodology_notice'])
+    foundation = view.get('foundation_plan')
+    if foundation:
+        pdf.section('Proposed foundation pathway')
+        pdf.paragraph(foundation['destination'] + '. Current achievement level is not verified; no badge is awarded.')
+        for route in foundation['routes']:
+            pdf.paragraph(route['name'] + ': ' + route['indicative_duration'] + ' (illustrative). ' + ' '.join(route['assumptions']))
     pdf.section('Where to begin')
     for i, item in enumerate(view['priorities'], 1):
         pdf.paragraph(f"{i}. {item['title']}")

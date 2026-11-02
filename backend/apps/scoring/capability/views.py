@@ -13,7 +13,8 @@ from apps.scoring.models import CapabilityExecution
 from apps.sprints.access import get_authorized_sprint
 from config.pagination import DefaultPageNumberPagination
 from .execution import finish, start
-from .engine import DEFAULT_METHODOLOGY
+from .engine import DEFAULT_METHODOLOGY, ENGINE_VERSION
+from .evaluation import PROMPT_VERSION, RETRIEVAL_VERSION
 
 
 class StartSerializer(serializers.Serializer):
@@ -42,6 +43,10 @@ def summary(execution):
                 timezone.now() - timedelta(seconds=settings.CAPABILITY_STALE_SECONDS)),
             'rubric_version': execution.run.inputs['rubric'].get('version'),
             'current_rubric_version': DEFAULT_METHODOLOGY,
+            'current_assessment_protocol': {'engine_version': ENGINE_VERSION, 'prompt_version': PROMPT_VERSION, 'retrieval_version': RETRIEVAL_VERSION},
+            'assessment_protocol_current': (execution.run.inputs.get('engine_version') == ENGINE_VERSION
+                and execution.run.inputs.get('assessment_protocol', {}).get('prompt_version') == PROMPT_VERSION
+                and execution.run.inputs.get('assessment_protocol', {}).get('retrieval_version') == RETRIEVAL_VERSION),
             'reference_period': execution.run.inputs['reference_period'],
             'scope': execution.run.inputs.get('scope'),
             'refines_run_id': execution.run.inputs.get('refines_run_id')}

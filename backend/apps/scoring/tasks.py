@@ -7,7 +7,7 @@ from apps.extraction.exceptions import ProviderQuotaExhausted
 from apps.extraction.services.ai_service import get_ai_service
 from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
-from .capability.evaluation import evaluate, SYSTEM_PROMPT, DECISION_SCHEMA
+from .capability.evaluation import evaluate, SYSTEM_PROMPT, DECISION_SCHEMA, RETRIEVAL_VERSION
 from .capability.engine import ENGINE_VERSION
 from .capability.execution import BudgetExceeded, ExecutionStopped, claim, finish, progress
 from .capability.provider import MeteredService, UnpricedModel, UsageUnavailable
@@ -28,6 +28,7 @@ def run_capability_assessment(run_id, task_id):
         inputs = execution.run.inputs
         policy = inputs['execution_policy']
         if (digest(inputs) != execution.run.inputs_hash or inputs['engine_version'] != ENGINE_VERSION
+                or inputs.get('assessment_protocol', {}).get('retrieval_version') != RETRIEVAL_VERSION
                 or policy['prompt_hash'] != digest(SYSTEM_PROMPT) or policy['schema_hash'] != digest(DECISION_SCHEMA)):
             finish(run_id, 'failed', 'snapshot_or_methodology_mismatch')
             return
