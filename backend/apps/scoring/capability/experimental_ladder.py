@@ -77,17 +77,53 @@ def compare_source_export(report):
                     for i in rubric['indicators'] for c in i['conditions']]
     alternative = component_bounds(requirements, decisions,
                                    methodology_id='source-wording-arithmetic-only:' + snapshot_hash)
+    from .assessment_audit import issue_for, VALIDATION_REASONS
+    affected = sorted(r['condition_id'] for r in records
+                      if r['state'] == 'unknown' and issue_for(r) in VALIDATION_REASONS)
+    optimistic = dict(decisions)
+    optimistic.update({cid: 'met' for cid in affected})
+    optimistic_source = assess(optimistic, rubric)
+    optimistic_components = component_bounds(requirements, optimistic,
+                                             methodology_id='source-wording-arithmetic-only:' + snapshot_hash)
+    foundations = [c['id'] for i in rubric['indicators'] for c in i['conditions'] if c['level'] == 'F']
+    per_indicator = []
+    for item, saved in zip(rubric['indicators'], original['indicators']):
+        subset = [{**c, 'stage': c['level']} for c in item['conditions']]
+        ids = {c['id'] for c in subset}
+        local = component_bounds(subset, {k: v for k, v in decisions.items() if k in ids},
+                                 methodology_id='source-wording-arithmetic-only:' + snapshot_hash)
+        per_indicator.append({'indicator': item['code'],
+                              'source_bounds': {'lower': saved['lower'], 'upper': saved['upper']},
+                              'independent_components': local['components']})
     return {
+        'comparison_version': 'range-replay-0.2',
         'purpose': 'Arithmetic sensitivity only; original wording and decisions unchanged.',
         'run_id': report.get('run_id'),
         'source_rubric_snapshot_hash': snapshot_hash,
         'source_replay_matches_saved': original == report['assessment']['result'],
         'source_bounds': {'lower': original['lower'], 'upper': original['upper']},
         'independent_components': alternative,
+        'source_range_diagnostics': {
+            'decision_states': {state: sum(value == state for value in decisions.values()) for state in sorted(STATES)},
+            'zero_lower_indicators': sum(i['lower'] == 0 for i in original['indicators']),
+            'full_width_indicators': sum(i['lower'] == 0 and i['upper'] == 100 for i in original['indicators']),
+            'foundation_states': {state: sum(decisions[cid] == state for cid in foundations) for state in sorted(STATES)},
+            'negative_decisions': sum(state == 'not_met' for state in decisions.values()),
+        },
+        'per_indicator_arithmetic': per_indicator,
+        'optimistic_validator_counterfactual': {
+            'status': 'diagnostic_only_not_evidence_or_a_repaired_assessment',
+            'assumption': 'Set every unknown validator-affected finding to met, without asserting that its evidence supports it.',
+            'changed_condition_ids': affected,
+            'source_bounds': {'lower': optimistic_source['lower'], 'upper': optimistic_source['upper']},
+            'independent_components': optimistic_components['components'],
+        },
         'candidate_rubric_rescored': False,
+        'candidate_retrieval_revalidation_required': True,
         'limitations': [
             'Does not validate source evidence interpretation or retrieval completeness.',
             'Source indicator weights and tier gates are not used in independent components.',
             'Revised requirements need new adjudication; old decisions cannot be relabelled.',
+            'Old passage selections targeted old requirements; candidate retrieval needs separate validation.',
         ],
     }
