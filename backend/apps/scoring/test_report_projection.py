@@ -40,6 +40,19 @@ def report_fixture(overrides=None, default='unknown'):
 
 
 class ReadableProjectionTests(SimpleTestCase):
+    def test_pdf_handles_supported_long_scope_and_institution_names(self):
+        import pymupdf
+        from .capability.leadership_pdf import render_leadership_pdf
+        report, actions = report_fixture()
+        view = build_report_view(report, actions)
+        view['institution'] = 'W' * 255
+        view['population'] = 'W' * 2000
+        document = pymupdf.open(stream=render_leadership_pdf(view), filetype='pdf')
+        self.assertIn('Not established', ''.join(page.get_text() for page in document))
+        for page in document:
+            for block in page.get_text('blocks'):
+                self.assertLess(block[3], page.rect.height - 10)
+
     def test_sparse_evidence_is_unknown_and_never_a_zero_score(self):
         report, actions = report_fixture()
         original = deepcopy(report)

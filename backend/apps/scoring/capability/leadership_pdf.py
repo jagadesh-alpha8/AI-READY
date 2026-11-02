@@ -44,6 +44,8 @@ def render_leadership_pdf(view):
     pdf.section(view['assessment_state'])
     pdf.paragraph(view['advisory']['label'], heading=True)
     pdf.paragraph(view['advisory']['explanation'])
+    if pdf.will_page_break(55):
+        pdf.add_page()
     pdf.section('Overall capability result')
     panel_y = pdf.get_y()
     pdf.set_fill_color(235, 245, 245)
