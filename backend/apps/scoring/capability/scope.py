@@ -5,7 +5,7 @@ Dates remain verbatim and typed; filenames and upload times never establish curr
 """
 import re
 
-VERSION = 'source-local-scope-0.2'
+VERSION = 'source-local-scope-0.3'
 DEFAULT_POPULATION = 'Institutional overview; coverage established separately for each finding'
 DEFAULT_PERIOD = 'Source-specific evidence periods; currency not presumed'
 PATTERNS = {
@@ -13,7 +13,7 @@ PATTERNS = {
     'activity_period': r'(?im)^[ \t]*(?:activity period|academic year|reporting period)[ \t]*:[ \t]*([^\r\n]{1,150})',
     'policy_interval': r'(?im)^[ \t]*(?:policy effective|effective from|effective period)[ \t]*:[ \t]*([^\r\n]{1,150})',
     'curriculum_regulation': r'(?im)^[ \t]*(?:curriculum regulation|regulation year)[ \t]*:[ \t]*([^\r\n]{1,150})',
-    'institution_identity': r'(?im)^[ \t]*(?:institution name|name of (?:the )?institution)[ \t]*:[ \t]*([^\r\n]{1,250})',
+    'institution_identity': r'(?im)^[ \t]*(?:(?:institution name|name of (?:the )?institution)[ \t]*:[ \t]*|self[ \t]+study[ \t]+report[ \t]+of[ \t]+)([^\r\n]{1,250})',
 }
 
 

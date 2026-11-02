@@ -207,6 +207,23 @@ describe('capability presentation and explicit spending', () => {
     assert.deepEqual(calls, []);
     await ui.close();
   });
+  it('separates response defects from unresolved evidence without changing the score', async () => {
+    (run as any).diagnostics = { explanation: 'No indicator has both foundations demonstrated.', source_documents: 1, readable_pages: 187,
+      unreadable_or_unavailable_pages: 0, state_counts: { met: 1, not_met: 0, unknown: 215, conflicting: 0 },
+      validation_issues: [], foundation_blockers: [], indicators_with_bounded_context: 36, limitations: 'Saved decisions only.',
+      cause_audit: { validator_affected_conditions: 5, evaluation_unavailable_conditions: 0, unknown_without_validator_issue: 210,
+        foundation_blockers: [{ indicator: 'C1', blockers: [{ condition_id: 'C1.F1', requirement: 'Named AI strategy owner', state: 'unknown', reason: 'No named owner established in the supplied passage.', kind: 'unresolved_evidence' }] }] } };
+    try {
+      const ui = await mount();
+      const panel = ui.container.querySelector('[aria-label="Why the range remains unresolved"]')!;
+      assert.match(panel.textContent!, /5 requirement decisions could not be validated/);
+      assert.match(panel.textContent!, /210 requirements have an unknown decision/);
+      assert.match(panel.textContent!, /does not prove the full documents lack the evidence/);
+      assert.match(panel.textContent!, /Named AI strategy owner/);
+      assert.deepEqual(calls, []);
+      await ui.close();
+    } finally { delete (run as any).diagnostics; }
+  });
   it('exports without baseline approval or model calls', async () => {
     const ui = await mount('report');
     assert.match(ui.container.textContent!, /selected version is preserved/);

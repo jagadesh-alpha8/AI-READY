@@ -37,6 +37,16 @@ class ScopeContractTests(SimpleTestCase):
             [('activity_period', '2024-25'), ('curriculum_regulation', '2020')])
         self.assertEqual(scope['institution']['identity_status'], 'unconfirmed')
 
+    def test_standard_ssr_header_is_an_identity_claim_not_an_automatic_profile_rename(self):
+        source = {'id': 'page1', 'text': '   Self Study Report of SYNTHETIC UNIVERSITY\nOther ordinary text.'}
+        scope = resolve(profile={'name': 'Placeholder College'}, mode='default', requested={'scope_mode': 'default'}, sources=[source])
+        self.assertEqual(scope['institution']['name'], 'Placeholder College')
+        self.assertEqual(scope['institution']['identity_status'], 'mismatch_requires_review')
+        self.assertTrue(any(q['code'] == 'institution_identity_mismatch' for q in scope['questions']))
+        declaration = next(d for d in scope['source_declarations'] if d['kind'] == 'institution_identity')
+        self.assertEqual(declaration['value'], 'SYNTHETIC UNIVERSITY')
+        self.assertEqual(source['text'][declaration['start']:declaration['end']], declaration['quote'])
+
     def test_intent_rejects_partial_and_preserves_legacy_digest(self):
         self.assertEqual(intent('All', '2025-26')[1], {'population': 'All', 'reference_period': '2025-26'})
         for args in [('BBA', None, None), ('All', '2025', 'default'), (None, None, 'custom')]:

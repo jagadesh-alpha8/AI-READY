@@ -593,6 +593,18 @@ function RunWorkspace({
           {data.diagnostics && <section className="glass-card p-5 space-y-3" aria-label="Assessment diagnostics">
             <h2 className="text-lg font-bold">Understanding this result</h2>
             <p>{data.diagnostics.explanation}</p>
+            {data.diagnostics.cause_audit && <div className="panel-muted space-y-2" aria-label="Why the range remains unresolved">
+              <h3 className="font-semibold">Why the range remains unresolved</h3>
+              <p>{data.diagnostics.cause_audit.validator_affected_conditions} requirement decisions could not be validated. These are response problems, not findings that the institution lacks capability.</p>
+              <p>{data.diagnostics.cause_audit.unknown_without_validator_issue} requirements have an unknown decision without a recorded validation error. The selected passages did not establish those requirements; this does not prove the full documents lack the evidence.</p>
+              {!!data.diagnostics.cause_audit.evaluation_unavailable_conditions && <p>{data.diagnostics.cause_audit.evaluation_unavailable_conditions} decisions record an evidence-context or execution problem. Check their reasons below.</p>}
+              <details><summary>Foundational requirements keeping the lower bound unresolved</summary>
+                {data.diagnostics.cause_audit.foundation_blockers.map((row) => <article key={row.indicator} className="mt-3">
+                  <h4 className="font-semibold">{data.assessment!.result.indicators.find((i) => i.code === row.indicator)?.name || row.indicator}</h4>
+                  {row.blockers.map((b) => <p key={b.condition_id} className="text-sm mt-2">{b.requirement} · {stateLabel(b.state)}. {b.reason}</p>)}
+                </article>)}
+              </details>
+            </div>}
             <p className="text-sm">{data.diagnostics.source_documents} documents · {data.diagnostics.readable_pages} readable pages · {data.diagnostics.unreadable_or_unavailable_pages} unavailable pages</p>
             <div className="flex flex-wrap gap-3 text-sm">{Object.entries(data.diagnostics.state_counts).map(([state, count]) => <span key={state}>{stateLabel(state)}: {count}</span>)}</div>
             {data.diagnostics.validation_issues.map((issue) => <p key={issue.reason} className="text-sm text-warning">{issue.count} decisions: {issue.reason}</p>)}

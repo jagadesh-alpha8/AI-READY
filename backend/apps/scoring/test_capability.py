@@ -207,6 +207,7 @@ class EvaluationTests(unittest.TestCase):
         result = evaluate([], service=NoCalls(), population='All institution programmes', reference_period='2025-26')
         self.assertEqual(len(result['records']), 216)
         self.assertEqual(result['indicator_calls'], 0)
+        self.assertTrue(all(not t['model_call_attempted'] for t in result['traces']))
         self.assertEqual(set(result['decisions'].values()), {'unknown'})
 
     def test_call_budget_and_provider_failure_keep_remaining_unknown(self):
