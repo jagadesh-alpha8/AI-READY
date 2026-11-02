@@ -47,15 +47,24 @@ def evidence_snapshot(sprint):
 
 @transaction.atomic
 def create_run(*, institution_id, sprint_id, population=None, reference_period=None, execution_policy=None,
-               scope_mode=None, refines_run_id=None):
+               scope_mode=None, refines_run_id=None, confirmed_source_institution=None):
     from .scope import intent, resolve
-    mode, requested = intent(population, reference_period, scope_mode, refines_run_id)
+    mode, requested = intent(population, reference_period, scope_mode, refines_run_id, confirmed_source_institution)
     sprint = Sprint.objects.select_related('institution').get(pk=sprint_id, institution_id=institution_id)
     institution = sprint.institution
     manifest, sources = evidence_snapshot(sprint)
     profile = {'name': institution.name, 'institution_type': institution.institution_type,
                'student_count': institution.student_count, 'faculty_count': institution.faculty_count}
-    scope = resolve(profile=profile, sources=sources, requested=requested, mode=mode)
+    try:
+        scope = resolve(profile=profile, sources=sources, requested=requested, mode=mode)
+    except ValueError as exc:
+        from rest_framework.exceptions import ValidationError
+        raise ValidationError(str(exc))
+    if scope['institution']['identity_status'] == 'mismatch_requires_review':
+        from rest_framework.exceptions import ValidationError
+        raise ValidationError({'code': 'source_identity_confirmation_required',
+            'detail': 'The source institution differs from the profile. Confirm which source institution this assessment concerns before using model credits.',
+            'source_institutions': sorted({d['value'] for d in scope['source_declarations'] if d['kind'] == 'institution_identity'})})
     if refines_run_id:
         prior = CapabilityRun.objects.get(pk=refines_run_id, sprint=sprint)
         if not prior.events.filter(state='completed', payload__result__isnull=False).exists():
@@ -144,7 +153,7 @@ def publish(*, institution_id, run_id, evaluation, inference):
     payload = {'records': validated, 'result': result, 'actions': actions_for(result),
                'pathways': [roadmap(decisions, t['name'], rubric) for t in rubric['tiers']],
                'inference': inference, 'traces': evaluation.get('traces', []),
-               'inputs_hash': run.inputs_hash, 'engine_version': ENGINE_VERSION}
+               'inputs_hash': run.inputs_hash, 'engine_version': result['engine_version']}
     return CapabilityRunEvent.objects.create(run=run, state='completed', payload=payload)
 
 

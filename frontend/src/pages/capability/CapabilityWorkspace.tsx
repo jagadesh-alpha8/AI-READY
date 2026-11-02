@@ -127,7 +127,7 @@ export function CapabilitySummary({ result }: { result: Result }) {
         not external accreditation standards. Evidence resolution is not model
         confidence.
       </div>
-      <div className="grid sm:grid-cols-3 gap-4">
+      {result.badge_policy === 'not_calibrated' ? <p className="panel-muted text-sm">Silver, Gold and Platinum standards are being calibrated. A readiness score alone does not award a maturity badge.</p> : <div className="grid sm:grid-cols-3 gap-4">
         {result.tiers.map((t) => (
           <div className="glass-card p-5" key={t.name}>
             <h3 className="font-bold">{t.name}</h3>
@@ -138,7 +138,7 @@ export function CapabilitySummary({ result }: { result: Result }) {
             </p>
           </div>
         ))}
-      </div>
+      </div>}
       <details className="glass-card p-4">
         <summary className="cursor-pointer font-semibold">
           Nine pillar bounds
@@ -195,7 +195,7 @@ export function CapabilityEvidence({ run }: { run: Run }) {
           <summary className="cursor-pointer font-semibold">
             {i.code} · {i.name}{' '}
             <span className="font-normal">
-              — level {i.lower_level}–{i.upper_level} · {i.lower}–{i.upper} /
+              — {i.lower}–{i.upper} /
               100
             </span>
           </summary>
@@ -319,6 +319,8 @@ function Workspace({ sprint, mode }: { sprint: string; mode: Mode }) {
   const runId = query.get('run') || runs.data?.results[0]?.id;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [identityChoices, setIdentityChoices] = useState<string[]>([]);
+  const [confirmedSource, setConfirmedSource] = useState<string>();
   const pending = useRef<{ signature: string; key: string } | null>(null);
   const choose = (id: string) => {
     const q = new URLSearchParams(query);
@@ -326,21 +328,27 @@ function Workspace({ sprint, mode }: { sprint: string; mode: Mode }) {
     q.delete('advice');
     setQuery(q);
   };
-  async function start(event: React.FormEvent) {
+  async function start(event: React.SyntheticEvent, confirmation = confirmedSource) {
     event.preventDefault();
     setBusy(true);
     setError('');
-    const body = { scope_mode: 'default' as const };
+    const body = { scope_mode: 'default' as const, ...(confirmation ? { confirmed_source_institution: confirmation } : {}) };
     pending.current = attempt(pending.current, JSON.stringify(body), () =>
       crypto.randomUUID(),
     );
     try {
       const response = await api.startRun(sprint, body, pending.current.key);
       pending.current = null;
+      setIdentityChoices([]);
+      setConfirmedSource(confirmation);
       choose(response.data.id);
       runs.reload();
     } catch (e) {
-      setError(
+      const detail = (e as { response?: { data?: { code?: string; source_institutions?: string[]; detail?: string } } }).response?.data;
+      if (detail?.code === 'source_identity_confirmation_required' && Array.isArray(detail.source_institutions)) {
+        setIdentityChoices(detail.source_institutions.filter((name) => typeof name === 'string'));
+        setError(detail.detail || 'Confirm which institution these source records describe.');
+      } else setError(
         getErrorMessage(
           e,
           'Start failed. Retry with the same inputs to reuse this request safely.',
@@ -463,6 +471,10 @@ function Workspace({ sprint, mode }: { sprint: string; mode: Mode }) {
               {busy ? 'Starting…' : 'Start assessment (uses model credits)'}
             </button>
             <ErrorMessage message={error} />
+            {identityChoices.length > 0 && <div className="panel-muted space-y-2" role="group" aria-label="Confirm source institution">
+              <p>Confirm that these records should be assessed for the selected source institution. The saved profile name stays unchanged. Starting the assessment uses model credits.</p>
+              {identityChoices.map((name) => <button key={name} type="button" className="btn-secondary block" disabled={busy} onClick={(event) => start(event, name)}>Assess records from {name}</button>)}
+            </div>}
           </form>
         </details>
       )}
@@ -540,7 +552,8 @@ function RunWorkspace({
   return (
     <div className="space-y-6">
       <section className="glass-card p-4">
-        <h2 className="font-bold">{data.profile.name}</h2>
+        <h2 className="font-bold">{data.scope?.institution?.assessed_name || data.profile.name}</h2>
+        {data.current_rubric_version && data.rubric_version !== data.current_rubric_version && <p role="status" className="panel-muted border border-warning mt-3">This saved assessment uses the earlier scoring method ({data.rubric_version}). Start a new evidence assessment above to use {data.current_rubric_version}. This historical result stays unchanged.</p>}
         <p>
           {data.population} · {data.reference_period} · {data.status}
         </p>
@@ -598,7 +611,7 @@ function RunWorkspace({
               <p>{data.diagnostics.cause_audit.validator_affected_conditions} requirement decisions could not be validated. These are response problems, not findings that the institution lacks capability.</p>
               <p>{data.diagnostics.cause_audit.unknown_without_validator_issue} requirements have an unknown decision without a recorded validation error. The selected passages did not establish those requirements; this does not prove the full documents lack the evidence.</p>
               {!!data.diagnostics.cause_audit.evaluation_unavailable_conditions && <p>{data.diagnostics.cause_audit.evaluation_unavailable_conditions} decisions record an evidence-context or execution problem. Check their reasons below.</p>}
-              <details><summary>Foundational requirements keeping the lower bound unresolved</summary>
+              <details><summary>Foundational evidence still unresolved</summary>
                 {data.diagnostics.cause_audit.foundation_blockers.map((row) => <article key={row.indicator} className="mt-3">
                   <h4 className="font-semibold">{data.assessment!.result.indicators.find((i) => i.code === row.indicator)?.name || row.indicator}</h4>
                   {row.blockers.map((b) => <p key={b.condition_id} className="text-sm mt-2">{b.requirement} · {stateLabel(b.state)}. {b.reason}</p>)}

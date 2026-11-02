@@ -5,13 +5,15 @@ from copy import deepcopy
 from fractions import Fraction
 from itertools import product
 import re
-from .engine import ENGINE_VERSION, STATES, assess, indicator_bounds, number, validate_release
+from .engine import ENGINE_VERSION, LEGACY_ENGINE_VERSION, STATES, assess, indicator_bounds, number, validate_release
 
 VERSION = 'conditional-scenario-0.2'
 RESULT_WORDS = re.compile(r'competenc|measured|demonstrably|sustained|improved|compare.+(?:outcome|benefit)|show.+(?:benefit|improvement)', re.I)
 
 
 def result_dependent(condition):
+    if 'result_evidence_required' in condition:
+        return condition['result_evidence_required']
     return condition['level'] == 'O' or condition['id'] in {
         'AIQIF-C3.4.A1', 'AIQIF-C4.1.A1', 'AIQIF-C4.2.A1', 'AIQIF-C4.4.A1',
         'AIQIF-C5.1.A1', 'AIQIF-C5.2.A1', 'AIQIF-C5.3.A1', 'AIQIF-C8.4.A1',
@@ -89,7 +91,7 @@ def paired_delta(baseline, overlay, rubric):
 
 
 def evaluate_plan(baseline, mappings, rubric, *, engine_version=ENGINE_VERSION):
-    if engine_version != ENGINE_VERSION:
+    if engine_version not in {ENGINE_VERSION, LEGACY_ENGINE_VERSION}:
         raise ValueError('Recorded engine version is not supported.')
     validate_release(rubric)
     accepted, rejected = validate_overlays(baseline, mappings, rubric)

@@ -69,6 +69,9 @@ def render_pdf(report, indicators, actions):
     pdf.paragraph(f"Resolved indicator weight: {result['assessment_coverage']}%. "
                   f"Decided conditions: {result['condition_decision_coverage']}%. These are evidence-resolution measures.")
     for tier in result['tiers']:
+        if tier['threshold'] is None:
+            pdf.paragraph(f"{tier['name']}: achievement requirements are not calibrated; no badge awarded.")
+            continue
         pdf.paragraph(f"{tier['name']}: {tier['eligibility'].replace('_', ' ')} | "
                       f"Threshold {tier['threshold']} | Pillar floor {float(Fraction(str(tier['pillar_floor']))):.2f}")
     diagnostics = report['diagnostics']
@@ -90,7 +93,8 @@ def render_pdf(report, indicators, actions):
     pdf.section('All indicators and requirement evidence')
     for indicator in indicators:
         pdf.section(f"{indicator['code']} - {indicator['name']}")
-        pdf.paragraph(f"Level {indicator['lower_level']} - {indicator['upper_level']} | "
+        units = "Credit units" if result.get("aggregation") == "independent_conditions" else "Level"
+        pdf.paragraph(f"{units} {indicator['lower_level']} - {indicator['upper_level']} | "
                       f"{indicator['lower']} - {indicator['upper']} / 100")
         for condition in indicator['requirements']:
             decision = condition['decision']

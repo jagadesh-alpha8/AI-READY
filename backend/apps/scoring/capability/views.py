@@ -13,9 +13,11 @@ from apps.scoring.models import CapabilityExecution
 from apps.sprints.access import get_authorized_sprint
 from config.pagination import DefaultPageNumberPagination
 from .execution import finish, start
+from .engine import DEFAULT_METHODOLOGY
 
 
 class StartSerializer(serializers.Serializer):
+    confirmed_source_institution = serializers.CharField(max_length=250, required=False)
     population = serializers.CharField(max_length=2000, required=False)
     reference_period = serializers.CharField(max_length=200, required=False)
     scope_mode = serializers.ChoiceField(choices=['default', 'custom'], required=False)
@@ -39,6 +41,7 @@ def summary(execution):
             'stalled': execution.status in {'queued', 'running'} and execution.heartbeat_at < (
                 timezone.now() - timedelta(seconds=settings.CAPABILITY_STALE_SECONDS)),
             'rubric_version': execution.run.inputs['rubric'].get('version'),
+            'current_rubric_version': DEFAULT_METHODOLOGY,
             'reference_period': execution.run.inputs['reference_period'],
             'scope': execution.run.inputs.get('scope'),
             'refines_run_id': execution.run.inputs.get('refines_run_id')}

@@ -121,7 +121,8 @@ class CapabilityStorageTests(TestCase):
         event = publish(**args, evaluation={'records': rows},
                         inference={'provider': 'mock', 'model': 'mock', 'settings': {}, 'calls': []})
         self.assertEqual(event.payload['result']['exact_score'], 100)
-        self.assertEqual(event.payload['result']['highest_demonstrated_tier'], 'Platinum')
+        self.assertIsNone(event.payload['result']['highest_demonstrated_tier'])
+        self.assertEqual(event.payload['result']['badge_policy'], 'not_calibrated')
         with self.assertRaises(ValueError):
             type(run).objects.filter(pk=run.pk).update(inputs={})
         with self.assertRaises(ValueError):
@@ -134,3 +135,26 @@ class CapabilityStorageTests(TestCase):
         event = publish(**args, evaluation={'records': rows},
                         inference={'provider': 'mock', 'model': 'mock', 'settings': {}, 'calls': []})
         self.assertEqual(event.payload['result']['lower'], 0)
+
+    def test_new_default_publication_keeps_one_supported_assertion_credit(self):
+        quote = 'The ERP system provides admissions and finance services to staff.'
+        self.page.text = 'Institution name: College\nReporting period: 2023-24\n' + quote
+        self.page.save(update_fields=['text'])
+        run = create_run(institution_id=self.institution.pk, sprint_id=self.sprint.pk)
+        self.assertEqual(run.inputs['rubric']['version'], 'AIQIF-CAP-0.3')
+        self.assertEqual(run.inputs['engine_version'], 'capability-engine-0.3.0')
+        args = {'institution_id': self.institution.pk, 'run_id': run.pk}
+        checkpoint(**args, state='running')
+        rows = [{'condition_id': cid, 'state': 'met' if cid == 'AIQIF-C8.1.F1' else 'unknown',
+                 'reason': 'Reported service provision.' if cid == 'AIQIF-C8.1.F1' else 'Not established.',
+                 'scope_supported': cid == 'AIQIF-C8.1.F1', 'period_supported': cid == 'AIQIF-C8.1.F1',
+                 'citations': [{'source_id': str(self.page.pk), 'quote': quote}] if cid == 'AIQIF-C8.1.F1' else []}
+                for cid in candidate_requirements(run)]
+        event = publish(**args, evaluation={'records': rows},
+                        inference={'provider': 'mock', 'model': 'mock', 'settings': {}, 'calls': []})
+        result = event.payload['result']
+        area = next(i for i in result['indicators'] if i['code'] == 'AIQIF-C8.1')
+        self.assertEqual(area['lower'], 16.67)
+        self.assertGreater(result['lower'], 0)
+        self.assertEqual(result['upper'], 100)
+        self.assertEqual(len(event.payload['records']), 216)

@@ -46,13 +46,13 @@ def policy():
 
 
 @transaction.atomic
-def start(*, sprint, user, idempotency_key, population=None, reference_period=None, scope_mode=None, refines_run_id=None):
+def start(*, sprint, user, idempotency_key, population=None, reference_period=None, scope_mode=None, refines_run_id=None, confirmed_source_institution=None):
     # Serializes competing keys as well as repeated requests for this sprint (PostgreSQL).
     Sprint.objects.select_for_update().get(pk=sprint.pk)
     from .scope import intent
     from rest_framework.exceptions import ValidationError
     try:
-        mode, requested = intent(population, reference_period, scope_mode, refines_run_id)
+        mode, requested = intent(population, reference_period, scope_mode, refines_run_id, confirmed_source_institution)
     except ValueError as exc:
         raise ValidationError(str(exc))
     signature = digest(requested)
@@ -72,7 +72,8 @@ def start(*, sprint, user, idempotency_key, population=None, reference_period=No
         raise AssessmentConflict()
     run = create_run(institution_id=sprint.institution_id, sprint_id=sprint.pk,
                      population=population, reference_period=reference_period, scope_mode=mode,
-                     refines_run_id=refines_run_id, execution_policy=policy())
+                     refines_run_id=refines_run_id, execution_policy=policy(),
+                     confirmed_source_institution=confirmed_source_institution)
     execution = CapabilityExecution.objects.create(run=run, sprint=sprint, requested_by=user,
         idempotency_key=idempotency_key, request_hash=signature)
     # Never dispatch before the frozen evidence and idempotency record commit.

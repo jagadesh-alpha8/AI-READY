@@ -267,6 +267,39 @@ describe('capability presentation and explicit spending', () => {
     assert.deepEqual(calls, []);
     await ui.close();
   });
+  it('confirms a source identity before explicitly starting a budgeted run', async () => {
+    const ui = await mount();
+    const submitted: any[][] = [];
+    hooks.startRun = async (...values) => {
+      submitted.push(values);
+      if (submitted.length === 1) throw { response: { data: { code: 'source_identity_confirmation_required', detail: 'Confirm source identity.', source_institutions: ['Synthetic University'] } } };
+      return { data: run };
+    };
+    const form = ui.container.querySelector('[data-tour="capability-start"] form')!;
+    await act(async () => form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
+    await flush();
+    assert.equal(submitted.length, 1);
+    const confirm = [...ui.container.querySelectorAll('button')].find((b) => b.textContent === 'Assess records from Synthetic University')!;
+    assert.ok(confirm);
+    await act(async () => confirm.click());
+    await flush();
+    assert.deepEqual(submitted[1][1], { scope_mode: 'default', confirmed_source_institution: 'Synthetic University' });
+    assert.notEqual(submitted[0][2], submitted[1][2]);
+    await ui.close();
+  });
+  it('shows that a saved old assessment needs a fresh run', async () => {
+    const ui = await mount();
+    hooks.getRun = async () => ({ data: { ...run, rubric_version: 'AIQIF-CAP-0.2', current_rubric_version: 'AIQIF-CAP-0.3' } });
+    const refresh = [...ui.container.querySelectorAll('button')].find((b) => b.textContent === 'Refresh')!;
+    await act(async () => refresh.click());
+    // Force a different history selection to reload the run with current method metadata.
+    const select = ui.container.querySelector('select[aria-label="Assessment history"]') as HTMLSelectElement;
+    await act(async () => { select.value = 'run2'; select.dispatchEvent(new dom.window.Event('change', { bubbles: true })); });
+    await flush();
+    assert.match(ui.container.textContent!, /saved assessment uses the earlier scoring method/);
+    assert.match(ui.container.textContent!, /AIQIF-CAP-0.3/);
+    await ui.close();
+  });
   it('puts refinement and plan entry after the assessment', async () => {
     const ui = await mount();
     const content = ui.container.textContent!;

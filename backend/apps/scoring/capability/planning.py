@@ -8,7 +8,7 @@ def actions_for(result):
     actions = []
     for item in result['indicators']:
         # Keep prerequisites for each next level visible; no cycles from related-indicator links.
-        target = min(3, item['lower_level'] + 1)
+        target = 3 if result.get('aggregation') == 'independent_conditions' else min(3, item['lower_level'] + 1)
         for condition in item['conditions']:
             if LEVELS.index(condition['level']) >= target or condition['state'] == 'met':
                 continue
@@ -28,6 +28,11 @@ def actions_for(result):
 def roadmap(decisions, tier_name, rubric=None):
     rubric = rubric or release()
     current = assess(decisions, rubric)
+    if rubric.get('badge_policy') == 'not_calibrated':
+        return {'target': tier_name, 'already_demonstrated': False, 'scenario_sufficient': False,
+                'requirement_ids': [], 'assumptions': [], 'projected_minimum': current['lower'],
+                'conditional_uplift': None, 'status': 'not_calibrated',
+                'note': 'Achievement standards are not calibrated for this readiness method. No badge or sufficient tier plan is inferred from score alone.'}
     names = [t['name'] for t in rubric['tiers']]
     target_index = names.index(tier_name)
     tiers = rubric['tiers'][:target_index + 1]

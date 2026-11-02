@@ -9,7 +9,7 @@ from .capability.experimental_ladder import compare_source_export
 
 class RangeReplayTests(TestCase):
     def report(self):
-        rubric = release()
+        rubric = release('AIQIF-CAP-0.2')
         records = [{'condition_id': c['id'], 'state': 'unknown', 'reason': 'Unresolved evidence.',
                     'validation_issue': ''} for i in rubric['indicators'] for c in i['conditions']]
         by_id = {r['condition_id']: r for r in records}
