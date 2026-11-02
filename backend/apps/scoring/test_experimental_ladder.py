@@ -94,3 +94,10 @@ class IndependentComponentTests(TestCase):
         for broken in (records[:-1], records + [records[0]]):
             with self.assertRaises(ValueError):
                 compare_source_export({'rubric': rubric, 'assessment': {'records': broken}})
+
+    def test_malformed_shapes_fail_with_value_error(self):
+        for requirements, decisions in ((None, {}), ([None], {}), ([{}], {}),
+                                        ([{'id': 'x', 'stage': 'F'}], []),
+                                        ([{'id': 'x', 'stage': 'F'}], {'x': []})):
+            with self.assertRaises(ValueError):
+                component_bounds(requirements, decisions, methodology_id='fixture')

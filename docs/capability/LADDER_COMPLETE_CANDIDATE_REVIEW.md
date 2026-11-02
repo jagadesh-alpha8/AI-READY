@@ -1,5 +1,7 @@
 # Complete readiness candidate and proposed profile gates
 
+Historical candidate 0.2 design review. The audited current candidate is 0.3 with profile rules 0.2; use `LADDER_CANDIDATE_AUDIT_2026_11_02.md` for corrections, current paths and commands. The files and examples below describe the prior revision.
+
 Candidate 0.2, 2026-11-02. **Offline, experimental and not active.** This completes the assertion-level review begun in candidate 0.1; it does not claim empirical calibration.
 
 ## Completed work

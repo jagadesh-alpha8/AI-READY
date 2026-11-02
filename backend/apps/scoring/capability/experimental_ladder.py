@@ -18,15 +18,22 @@ def component_bounds(requirements, decisions, *, methodology_id):
     No cross-stage prerequisites, guessed weights or implicit exclusions.
     Fractions are serialized as numerator/denominator for exact replay.
     """
-    rows = list(requirements)
-    ids = [r['id'] for r in rows]
-    if (not methodology_id or not rows
+    if not isinstance(decisions, dict):
+        raise ValueError('Decisions must be an object.')
+    try:
+        rows = list(requirements)
+    except TypeError:
+        raise ValueError('Requirements must be iterable.') from None
+    if any(not isinstance(r, dict) for r in rows):
+        raise ValueError('Each requirement must be an object.')
+    ids = [r.get('id') for r in rows]
+    if (not isinstance(methodology_id, str) or not methodology_id.strip() or not rows
             or any(not isinstance(i, str) or not i for i in ids)
             or len(set(ids)) != len(ids)):
         raise ValueError('A methodology and unique nonempty requirements are required.')
-    if any(r['stage'] not in ('F', 'A', 'O') for r in rows):
+    if any(r.get('stage') not in ('F', 'A', 'O') for r in rows):
         raise ValueError('Unsupported stage.')
-    if set(decisions) - set(ids) or any(s not in STATES for s in decisions.values()):
+    if set(decisions) - set(ids) or any(not isinstance(s, str) or s not in STATES for s in decisions.values()):
         raise ValueError('Unknown requirement or invalid state; no implicit N/A.')
     result = {}
     for stage in ('F', 'A', 'O'):
