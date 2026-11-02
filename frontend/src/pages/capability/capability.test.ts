@@ -215,10 +215,21 @@ describe('capability presentation and explicit spending', () => {
     const ui = await mount('report');
     let args: unknown[] = [];
     hooks.downloadCapabilityReport = async (...values) => { args = values; };
-    const button = [...ui.container.querySelectorAll('button')].find((b) => b.textContent === 'Download PDF')!;
+    const button = [...ui.container.querySelectorAll('button')].find((b) => b.textContent === 'Download leadership PDF')!;
     await act(async () => button.click());
     assert.deepEqual(args.slice(0, 3), ['sprint1', 'run1', 'pdf']);
+    assert.equal(args[4], 'leadership');
     assert.deepEqual(calls, []);
+    await ui.close();
+  });
+  it('exports supporting evidence for the same selected assessment', async () => {
+    const ui = await mount('report');
+    let args: unknown[] = [];
+    hooks.downloadCapabilityReport = async (...values) => { args = values; };
+    const button = [...ui.container.querySelectorAll('button')].find((b) => b.textContent === 'Download supporting evidence PDF')!;
+    await act(async () => button.click());
+    assert.deepEqual(args.slice(0, 3), ['sprint1', 'run1', 'pdf']);
+    assert.equal(args[4], 'evidence');
     await ui.close();
   });
   it('discards late responses after changing assessments', async () => {

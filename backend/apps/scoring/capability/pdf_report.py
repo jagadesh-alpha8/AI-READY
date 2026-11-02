@@ -32,7 +32,7 @@ class Report(FPDF):
         self.set_text_color(90, 100, 110)
         self.cell(0, 5, f'Assessment {self.run_id} | Page {self.page_no()} of {{nb}}', align='C')
 
-    def paragraph(self, value, *, heading=False, small=False):
+    def paragraph(self, value, *, heading=False, small=False, align='J'):
         self.set_font('Evidence', 'B' if heading else '', 12 if heading else 8 if small else 9)
         self.set_text_color(30, 55, 65)
         if heading and self.get_y() > 255:
@@ -42,7 +42,7 @@ class Report(FPDF):
         # Preserve unsupported text explicitly. Never silently substitute '?' in evidence.
         value = ''.join(c if c in '\n\t' or ord(c) in cmap else
                         (f'\\u{ord(c):04x}' if ord(c) <= 65535 else f'\\U{ord(c):08x}') for c in value)
-        self.multi_cell(0, 6 if heading else 4.5, value, new_x='LMARGIN', new_y='NEXT')
+        self.multi_cell(0, 6 if heading else 4.5, value, align=align, new_x='LMARGIN', new_y='NEXT')
         self.ln(2 if heading else 1)
 
     def section(self, title):
