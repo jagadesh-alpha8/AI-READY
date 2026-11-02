@@ -167,14 +167,25 @@ def build_report_view(report, actions):
                         'Maintain demonstrated capability and review new evidence.'})
     counts = Counter(row['state'] for row in decisions.values())
     diagnostics = report['diagnostics']
+    scope = report.get('scope') or {}
+    scope_notices = [{k: question[k] for k in ('code', 'severity', 'message')}
+                     for question in scope.get('questions', [])]
+    if scope.get('mode') == 'default':
+        scope_notices.insert(0, {'code': 'default_source_specific_scope', 'severity': 'limitation',
+            'message': 'This is an institutional overview using source-specific populations and periods. Universal coverage and current-year activity are not presumed.'})
+    if report.get('refines_run_id'):
+        scope_notices.append({'code': 'scope_refinement', 'severity': 'limitation',
+            'message': 'This is a refined assessment scope. A result change from an earlier scope does not by itself show institutional improvement.'})
+    needs_scope_review = any(q['severity'] == 'review' for q in scope_notices)
     return {
-        'version': 'readable-assessment-0.1', 'institution': report['profile']['name'],
+        'version': 'readable-assessment-0.2', 'institution': report['profile']['name'],
         'population': report['population'], 'period': report['reference_period'],
+        'scope_notices': scope_notices,
         'methodology': result['methodology'], 'methodology_status': result['methodology_status'],
         'methodology_notice': 'This report uses the recorded capability method. The revised readiness methodology is not activated. Experimental results do not constitute accreditation.',
         'score': score_label(result['lower'], result['upper']),
         'score_explanation': bounds_note(result['lower'], result['upper']),
-        'assessment_state': 'Provisional findings' if counts['unknown'] or counts['conflicting'] else 'Assessment completed',
+        'assessment_state': 'Provisional findings' if counts['unknown'] or counts['conflicting'] or needs_scope_review else 'Assessment completed',
         'advisory': state, 'pillars': pillars, 'areas': areas, 'priorities': followups[:5],
         'followup_count': len(followups),
         'priority_note': 'These starting points use the earliest unresolved capability steps, with contradictions first within each step. Institutional benefit, cost and feasibility have not been assessed. All areas remain available in the detail.',
@@ -188,7 +199,7 @@ def build_report_view(report, actions):
             'Human review decisions influence these findings only if included in the saved assessment inputs. This export does not rerun that integration.',
             'Completing a suggested task does not change the score. New supporting evidence must be assessed in a new version.',
             'These explanations summarise saved decisions and do not independently verify their factual accuracy.',
-        ] + (['Some source pages were unreadable or unavailable. Check the supporting evidence inventory.']
+        ] + [q['message'] for q in scope_notices] + ([scope['limitations']] if scope.get('limitations') else []) + (['Some source pages were unreadable or unavailable. Check the supporting evidence inventory.']
              if diagnostics['unreadable_or_unavailable_pages'] else []) +
             (['Some requirement decisions could not be validated and remain unresolved. See the supporting evidence.']
              if diagnostics['validation_issues'] else []),

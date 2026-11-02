@@ -7,7 +7,7 @@ from itertools import product
 import re
 from .engine import ENGINE_VERSION, STATES, assess, indicator_bounds, number, validate_release
 
-VERSION = 'conditional-scenario-0.1'
+VERSION = 'conditional-scenario-0.2'
 RESULT_WORDS = re.compile(r'competenc|measured|demonstrably|sustained|improved|compare.+(?:outcome|benefit)|show.+(?:benefit|improvement)', re.I)
 
 
@@ -57,9 +57,11 @@ def validate_overlays(baseline, mappings, rubric):
         if len({m['state'] for m in items}) > 1:
             rejected.extend({'mapping': m, 'reason': 'Contradictory plan actions target the same requirement.'} for m in items)
             continue
-        accepted.append({**items[0], 'phase': 'results' if any(m['phase'] == 'results' for m in items) else 'implementation',
-                         'action_ids': sorted({m['action_id'] for m in items}),
-                         'assumptions': list(dict.fromkeys(a for m in items for a in m['assumptions']))})
+        # Each admitted mapping independently covers the complete requirement. A later
+        # alternative cannot remove a sufficient delivery-only path or duplicate its credit.
+        selected = next((m for m in items if m['phase'] == 'implementation'), items[0])
+        accepted.append({**selected, 'action_ids': sorted({m['action_id'] for m in items}),
+                         'alternative_mappings': items})
     return accepted, rejected
 
 

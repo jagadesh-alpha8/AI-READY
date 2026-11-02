@@ -38,3 +38,17 @@ it('renders actual standing separately from both hypothetical plans, with retain
   assert.match(html, /No budget specified/);
   assert.doesNotMatch(html, /<script>/);
 });
+
+it('keeps a saved original review visible without inventing a completed improved plan', () => {
+  const baseline = { lower: 0, upper: 100, exact_score: null, pillars: [{ code: 'AIQIF-C4', lower: 0, upper: 100 }] };
+  const plan = { evaluation: { baseline, accepted: [], rejected: [{ reason: 'Workshop attendance does not establish competence.' }],
+    note: 'Conditional requirements must be demonstrated. Actual assessment unchanged.',
+    scenarios: { implementation: { result: baseline }, results: { result: baseline } } } };
+  const html = renderToStaticMarkup(React.createElement(bundle.mod.OriginalPlanReview, { plan }));
+  assert.match(html, /Saved original plan review/);
+  assert.match(html, /No improved plan is established/);
+  assert.match(html, /not a predicted score or guaranteed gain/);
+  assert.match(html, /Faculty and staff/);
+  assert.match(html, /Workshop attendance does not establish competence/);
+  assert.doesNotMatch(html, /Suggested improved plan/);
+});

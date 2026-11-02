@@ -3,6 +3,15 @@
 2 November 2026. Audited against *AI_READY_Product_Diagnosis_and_Report_Prototype(1).pdf*,
 pages 1–13, and current A1 at `f837d86a3ee1bdd43c3b9df30e03a7e17a25b532`.
 
+## Current post-merge checkpoint
+
+PRs #4 and #5 are merged into A1 at `eeeae893d27bdb64227180d7e4453f50aabc76ae`.
+The open-PR checkpoints below describe the earlier passes, not the current remote state.
+A subsequent independent audit found and corrected five additional context/failure/export/scope/
+alternative-mapping defects on `a1-post-merge-audit`. See `POST_MERGE_AUDIT_2026_11_02.md`
+and `SWE_TEST_HANDOFF_2026_11_02.md`. These corrections do not complete the review bridge,
+question queue, ordinary initiative generator, single-action flow or methodology validation.
+
 ## Finding
 
 PR #3 is merged into A1. Its ingestion/diagnostic fixes and PostgreSQL account-lock repair are

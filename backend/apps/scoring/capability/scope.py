@@ -5,15 +5,15 @@ Dates remain verbatim and typed; filenames and upload times never establish curr
 """
 import re
 
-VERSION = 'source-local-scope-0.1'
+VERSION = 'source-local-scope-0.2'
 DEFAULT_POPULATION = 'Institutional overview; coverage established separately for each finding'
 DEFAULT_PERIOD = 'Source-specific evidence periods; currency not presumed'
 PATTERNS = {
-    'population': r'(?im)^\s*(?:population|cohort|programme|program|beneficiaries)\s*:\s*([^\n]{1,250})',
-    'activity_period': r'(?im)^\s*(?:activity period|academic year|reporting period)\s*:\s*([^\n]{1,150})',
-    'policy_interval': r'(?im)^\s*(?:policy effective|effective from|effective period)\s*:\s*([^\n]{1,150})',
-    'curriculum_regulation': r'(?im)^\s*(?:curriculum regulation|regulation year)\s*:\s*([^\n]{1,150})',
-    'institution_identity': r'(?im)^\s*(?:institution name|name of (?:the )?institution)\s*:\s*([^\n]{1,250})',
+    'population': r'(?im)^[ \t]*(?:population|cohort|programme|program|beneficiaries)[ \t]*:[ \t]*([^\r\n]{1,250})',
+    'activity_period': r'(?im)^[ \t]*(?:activity period|academic year|reporting period)[ \t]*:[ \t]*([^\r\n]{1,150})',
+    'policy_interval': r'(?im)^[ \t]*(?:policy effective|effective from|effective period)[ \t]*:[ \t]*([^\r\n]{1,150})',
+    'curriculum_regulation': r'(?im)^[ \t]*(?:curriculum regulation|regulation year)[ \t]*:[ \t]*([^\r\n]{1,150})',
+    'institution_identity': r'(?im)^[ \t]*(?:institution name|name of (?:the )?institution)[ \t]*:[ \t]*([^\r\n]{1,250})',
 }
 
 
@@ -43,6 +43,8 @@ def resolve(*, profile, sources, requested, mode):
     for source in sources:
         for kind, pattern in PATTERNS.items():
             for match in re.finditer(pattern, source['text']):
+                if not match.group(1).strip():
+                    continue
                 declarations.append({'kind': kind, 'value': match.group(1).strip(),
                     'source_id': source['id'], 'start': match.start(1), 'end': match.end(1),
                     'quote': match.group(1), 'interpretation': 'explicit_label_candidate_unverified'})
@@ -63,7 +65,7 @@ def resolve(*, profile, sources, requested, mode):
     default = mode == 'default'
     return {'version': VERSION, 'mode': mode, 'requested_intent': requested,
         'institution': {'name': profile['name'], 'basis': 'saved_profile_not_source_verified',
-                        'identity_status': 'mismatch_requires_review' if mismatches else 'unconfirmed'},
+                        'identity_status': 'mismatch_requires_review' if mismatches else 'source_label_matches_profile_unverified' if identity else 'unconfirmed'},
         'population_label': DEFAULT_POPULATION if default else requested['population'],
         'period_label': ('Mixed source periods; no common reporting year established' if len(periods) > 1
                          else DEFAULT_PERIOD) if default else requested['reference_period'],

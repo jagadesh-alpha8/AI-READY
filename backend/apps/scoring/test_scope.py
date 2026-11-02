@@ -30,6 +30,13 @@ class ScopeContractTests(SimpleTestCase):
         self.assertIn('BBA', [d['value'] for d in scope['source_declarations']])
         self.assertNotIn('2026', scope['period_label'])
 
+    def test_empty_labels_never_take_the_next_line_as_a_value(self):
+        scope = resolve(profile={'name': 'College'}, mode='default', requested={'scope_mode': 'default'},
+            sources=[{'id': 'p1', 'text': 'Institution name:\nProgramme:   \nAcademic year: 2024-25\nPolicy effective:\r\nCurriculum regulation: 2020'}])
+        self.assertEqual([(d['kind'], d['value']) for d in scope['source_declarations']],
+            [('activity_period', '2024-25'), ('curriculum_regulation', '2020')])
+        self.assertEqual(scope['institution']['identity_status'], 'unconfirmed')
+
     def test_intent_rejects_partial_and_preserves_legacy_digest(self):
         self.assertEqual(intent('All', '2025-26')[1], {'population': 'All', 'reference_period': '2025-26'})
         for args in [('BBA', None, None), ('All', '2025', 'default'), (None, None, 'custom')]:

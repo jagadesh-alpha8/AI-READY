@@ -8,6 +8,7 @@ body{font:15px/1.6 system-ui,sans-serif;color:#19323c;max-width:1050px;margin:40
 <h1>{{ view.institution }}</h1>
 <p class="scope"><strong>People covered:</strong> {{ view.population }}<br><strong>Reporting period:</strong> {{ view.period }}</p>
 <div class="notice"><strong>{{ view.assessment_state }} · {{ view.advisory.label }}</strong><p>{{ view.advisory.explanation }}</p></div>
+{% for notice in view.scope_notices %}<div class="notice"><strong>{% if notice.severity == "review" %}Scope needs review{% else %}Scope and interpretation{% endif %}</strong><p>{{ notice.message }}</p></div>{% endfor %}
 <h2>Overall capability result</h2>
 <p class="score">{{ view.score }}</p><p>{{ view.score_explanation }}</p>
 <p>{{ view.evidence_summary }}</p><p class="muted">{{ view.methodology_notice }}</p>

@@ -53,6 +53,29 @@ class ReadableProjectionTests(SimpleTestCase):
             for block in page.get_text('blocks'):
                 self.assertLess(block[3], page.rect.height - 10)
 
+    def test_scope_identity_and_refinement_notices_survive_html_and_pdf(self):
+        import pymupdf
+        from django.template.loader import render_to_string
+        from .capability.leadership_pdf import render_leadership_pdf
+        report, actions = report_fixture(default='met')
+        report['scope'] = {'mode': 'default', 'limitations': 'Source labels are unverified.', 'questions': [
+            {'code': 'institution_identity_mismatch', 'severity': 'review', 'message': 'A source names a different institution.'}]}
+        report['refines_run_id'] = 'older-scope'
+        frozen = deepcopy(report)
+        view = build_report_view(report, actions)
+        self.assertEqual(view['assessment_state'], 'Provisional findings')
+        self.assertEqual(view['score'], '100 / 100')
+        self.assertEqual(report, frozen)
+        html = render_to_string('scoring/leadership_report.html', {'view': view, 'report': report})
+        self.assertIn('Scope needs review', html)
+        self.assertIn('A source names a different institution.', html)
+        self.assertIn('does not by itself show institutional improvement', html)
+        document = pymupdf.open(stream=render_leadership_pdf(view), filetype='pdf')
+        first_page = document[0].get_text()
+        self.assertIn('Scope needs review', first_page)
+        self.assertIn('different institution', first_page)
+        self.assertIn('Universal coverage', first_page)
+
     def test_sparse_evidence_is_unknown_and_never_a_zero_score(self):
         report, actions = report_fixture()
         original = deepcopy(report)

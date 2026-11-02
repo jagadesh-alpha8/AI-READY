@@ -40,6 +40,15 @@ class ScenarioTests(SimpleTestCase):
         self.assertEqual(len(twice['accepted']), 1)
         self.assertEqual(twice['accepted'][0]['action_ids'], ['a1', 'a2'])
 
+    def test_later_complete_alternative_does_not_remove_delivery_path(self):
+        mappings = [self.mapping(cid) for cid in self.ids[:2]]
+        base_result = evaluate_plan(self.base, mappings, self.rubric)
+        later = {**mappings[0], 'action_id': 'later-alternative', 'phase': 'results'}
+        combined = evaluate_plan(self.base, mappings + [later], self.rubric)
+        self.assertEqual(base_result['scenarios'], combined['scenarios'])
+        self.assertEqual(combined['accepted'][0]['phase'], 'implementation')
+        self.assertEqual(len(combined['accepted']), 2)
+
     def test_partial_clarification_conflicts_and_invalid_ids(self):
         m = self.mapping(self.ids[0])
         for change in [{'coverage': 'partial'}, {'scope_compatible': False}, {'condition_id': 'fake'},
