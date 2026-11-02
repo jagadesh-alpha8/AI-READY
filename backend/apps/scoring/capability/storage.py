@@ -31,6 +31,7 @@ def evidence_snapshot(sprint):
     for document in documents:
         pages = list(DocumentPage.objects.filter(document=document).order_by('page_number'))
         manifest.append({'document_id': str(document.pk), 'filename': document.original_filename,
+                         'drive_file_id': document.drive_file_id, 'source_path': document.source_path,
                          'checksum': document.checksum, 'version': document.version_number,
                          'previous_version_id': str(document.previous_version_id) if document.previous_version_id else None,
                          'status': document.status, 'expected_pages': document.page_count,
@@ -122,7 +123,14 @@ def publish(*, institution_id, run_id, evaluation, inference):
     for indicator in rubric['indicators']:
         subset = [dict(r) for r in rows
                   if r['condition_id'] in {c['id'] for c in indicator['conditions']}]
-        validated.extend(validate_decisions(indicator, {'conditions': subset}, run.inputs['sources']))
+        checked = validate_decisions(indicator, {'conditions': subset}, run.inputs['sources'])
+        # Revalidation must not erase why the evaluator already downgraded a row.
+        original = {r['condition_id']: r for r in subset}
+        for row in checked:
+            prior = original[row['condition_id']]
+            if row['state'] == 'unknown' and not row['validation_issue'] and prior.get('validation_issue'):
+                row['validation_issue'] = prior['validation_issue']
+        validated.extend(checked)
     decisions = {r['condition_id']: r['state'] for r in validated}
     result = assess(decisions, rubric)
     payload = {'records': validated, 'result': result, 'actions': actions_for(result),

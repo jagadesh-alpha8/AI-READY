@@ -11,6 +11,20 @@ from .capability.storage import create_run, checkpoint, publish, candidate_requi
 
 
 class CapabilityStorageTests(TestCase):
+    def test_publication_preserves_evaluator_validation_failure_diagnostics(self):
+        from .capability.diagnostics import explain
+        run = self.make_run()
+        args = {'institution_id': self.institution.pk, 'run_id': run.pk}
+        checkpoint(**args, state='running')
+        evaluation = evaluate(run.inputs['sources'], service=None, population='All',
+                              reference_period='2026', max_calls=0)
+        before = evaluation['records'][0]['validation_issue']
+        self.assertTrue(before)
+        event = publish(**args, evaluation=evaluation,
+                        inference={'provider': 'none', 'model': 'none', 'settings': {}, 'calls': []})
+        self.assertEqual(event.payload['records'][0]['validation_issue'], before)
+        self.assertTrue(explain(run.inputs, event.payload)['validation_issues'])
+
     def setUp(self):
         self.institution = Institution.objects.create(name='College', student_count=1000)
         self.sprint = Sprint.objects.create(institution=self.institution)
