@@ -81,11 +81,17 @@ rescore. Targeted backend checks use DEBUG=True (HTTP test client); the initial 
 invocation redirected requests to HTTPS and did not exercise the API tests. No deployment setting
 was weakened.
 
-Final validation: **179 tests passed** across documents, source identity, capability engine/API/storage,
+Initial validation before the follow-up: **179 tests passed** across documents, source identity, capability engine/API/storage,
 reports, recommendations and evidence diagnostics. `makemigrations --check --dry-run` reports no
 pending changes; `manage.py check` reports only the expected unconfigured AI-key warning;
 `git diff --check` is clean. The rubric draft contains exactly 36 distinct indicator rows.
 No production database, worker, paid AI endpoint or full-folder assessment was exercised.
+
+Follow-up checks: **37 focused ingestion/audit tests passed**, including incomplete-provider
+searches, empty/exact-cap pagination, repeated tokens, pre-download retries and safe audit
+exports. Migration drift, Django configuration and whitespace checks passed. The frontend
+production build passed locally and on GitHub. The full backend suite and PostgreSQL CI results
+are recorded in the PR description/checks; do not treat an in-progress check as a pass.
 
 ```bash
 DEBUG=True python manage.py test apps.documents.tests apps.documents.test_source_identity apps.scoring.test_capability apps.scoring.test_capability_api apps.scoring.test_capability_storage apps.scoring.test_capability_reports apps.scoring.test_recommendations apps.scoring.test_evidence_diagnostics --verbosity 1
