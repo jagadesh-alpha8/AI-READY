@@ -11,10 +11,12 @@ also measure enabling readiness: curriculum, people, computing, governance and r
 make adoption feasible. These are different findings. Report them separately; a general IT
 budget must never be described as demonstrated AI adoption or AI-specific assurance.
 
-Proposed report: (1) enabling readiness, (2) demonstrated AI activity/maturity, and (3) unresolved
-evidence, with scope and period. Do not blend the two scores or reuse Silver/Gold/Platinum
-thresholds until weights and tier meanings are reviewed. Keep the existing engine unchanged
-while collecting a repaired full-corpus baseline. Old runs retain their frozen methodology.
+Presentation direction updated in `METHODOLOGY_REVIEW.md`: one eventual headline AI readiness
+score with visible enabling-capacity, AI-activity and results components; unresolved evidence
+remains separate, with scope and period. The earlier proposal for separate headline scores is
+not the current design direction. Do not combine components or reuse Silver/Gold/Platinum
+thresholds until constructs, weights and tier meanings are reviewed. Keep the existing engine
+unchanged while collecting a repaired full-corpus baseline. Old runs retain their frozen methodology.
 
 ## Evidence rules
 

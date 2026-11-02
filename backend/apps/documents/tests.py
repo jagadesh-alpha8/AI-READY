@@ -646,6 +646,59 @@ class ListDriveFolderFilesTests(SimpleTestCase):
     Celery task and HTTP layer."""
 
     @patch('apps.documents.drive_import.requests.get')
+    def test_complete_scan_rejects_provider_incomplete_search(self, mock_get):
+        mock_get.return_value = _FakeDriveResponse(json_data={
+            'files': [{'id': 'f1', 'name': 'a.pdf', 'mimeType': 'application/pdf'}],
+            'incompleteSearch': True,
+        })
+        with self.assertRaisesRegex(RecoverableDriveImportError, 'incomplete folder search'):
+            list_drive_folder_files('root', 'test-key', 10, require_complete=True)
+        self.assertIn('incompleteSearch', mock_get.call_args.kwargs['params']['fields'])
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_complete_scan_follows_empty_pages_and_checks_page_after_exact_cap(self, mock_get):
+        mock_get.side_effect = [
+            _FakeDriveResponse(json_data={'files': [], 'nextPageToken': 'page2'}),
+            _FakeDriveResponse(json_data={'files': [
+                {'id': 'f1', 'name': 'a.pdf', 'mimeType': 'application/pdf'}],
+                'nextPageToken': 'page3'}),
+            _FakeDriveResponse(json_data={'files': []}),
+        ]
+        files = list_drive_folder_files('root', 'test-key', 1, require_complete=True)
+        self.assertEqual([f['id'] for f in files], ['f1'])
+        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(mock_get.call_args.kwargs['params']['pageToken'], 'page3')
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_complete_scan_detects_overflow_on_later_page(self, mock_get):
+        mock_get.side_effect = [
+            _FakeDriveResponse(json_data={'files': [
+                {'id': 'f1', 'name': 'a.pdf', 'mimeType': 'application/pdf'}],
+                'nextPageToken': 'page2'}),
+            _FakeDriveResponse(json_data={'files': [
+                {'id': 'f2', 'name': 'b.pdf', 'mimeType': 'application/pdf'}]}),
+        ]
+        with self.assertRaisesRegex(PermanentDriveImportError, 'MAX_FILES=1'):
+            list_drive_folder_files('root', 'test-key', 1, require_complete=True)
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_repeated_page_token_fails_instead_of_looping(self, mock_get):
+        mock_get.return_value = _FakeDriveResponse(json_data={'files': [], 'nextPageToken': 'same'})
+        with self.assertRaisesRegex(RecoverableDriveImportError, 'repeated a folder page token'):
+            list_drive_folder_files('root', 'test-key', 10, require_complete=True)
+        self.assertEqual(mock_get.call_count, 2)
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_complete_scan_checks_provider_incompleteness_in_child_folder(self, mock_get):
+        mock_get.side_effect = [
+            _FakeDriveResponse(json_data={'files': [
+                {'id': 'sub', 'name': 'Sub', 'mimeType': 'application/vnd.google-apps.folder'}]}),
+            _FakeDriveResponse(json_data={'files': [], 'incompleteSearch': True}),
+        ]
+        with self.assertRaises(RecoverableDriveImportError):
+            list_drive_folder_files('root', 'test-key', 10, require_complete=True)
+
+    @patch('apps.documents.drive_import.requests.get')
     def test_complete_scan_accepts_exact_file_cap_when_no_more_files_exist(self, mock_get):
         mock_get.side_effect = _make_fake_drive_get(files=[
             {'id': f'f{i}', 'name': f'{i}.pdf', 'mimeType': 'application/pdf'} for i in range(3)])
@@ -788,6 +841,20 @@ class DriveImportTaskTests(APITestCase):
             f'/api/v1/sprints/{self.sprint.id}/drive-import-jobs/', {'drive_url': drive_url},
         )
 
+    @patch('apps.documents.tasks.download_drive_file')
+    @patch('apps.documents.drive_import.requests.get')
+    def test_incomplete_provider_scan_retries_before_any_download(self, mock_get, download):
+        mock_get.return_value = _FakeDriveResponse(json_data={
+            'files': [{'id': 'f1', 'name': 'a.pdf', 'mimeType': 'application/pdf'}],
+            'incompleteSearch': True,
+        })
+        response = self._start_import()
+        job = DriveImportJob.objects.get(pk=response.data['id'])
+        self.assertEqual(job.status, DriveImportJob.Status.SCANNING)
+        self.assertIn('incomplete folder search', job.error_message)
+        download.assert_not_called()
+        self.assertFalse(Document.objects.filter(sprint=self.sprint).exists())
+
     @patch('apps.documents.drive_import.requests.get')
     def test_same_basename_in_different_folders_remains_two_current_sources(self, mock_get):
         mock_get.side_effect = _make_fake_drive_get(files_by_folder={
@@ -834,10 +901,14 @@ class DriveImportTaskTests(APITestCase):
         self.assertEqual(job.files_scanned, 3)
         self.assertEqual(job.files_imported, 2)
         self.assertEqual(job.results['naac_ssr']['status'], 'found')
+        self.assertEqual(job.results['naac_ssr']['drive_file_id'], 'f1')
+        self.assertEqual(job.results['naac_ssr']['source_path'], 'NAAC_SSR_2025.pdf')
         self.assertEqual(job.results['aqar_report']['status'], 'found')
         self.assertEqual(job.results['aicte_approval']['status'], 'missing')
         self.assertEqual(
-            job.results['skipped_files'], [{'filename': 'Random_Notes.txt', 'reason': 'Unsupported file type.'}],
+            job.results['skipped_files'], [{'drive_file_id': 'f3', 'source_path': 'Random_Notes.txt',
+                'filename': 'Random_Notes.txt', 'reason': 'Unsupported file type.',
+                'reason_code': 'unsupported_type'}],
         )
         self.assertEqual(job.results['additional_files'], [])
         self.assertEqual(Document.objects.filter(sprint=self.sprint).count(), 2)

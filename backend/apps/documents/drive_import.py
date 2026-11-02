@@ -47,7 +47,7 @@ def parse_drive_folder_id(url):
     )
 
 
-def _list_one_folder(folder_id, folder_path, api_key, max_files):
+def _list_one_folder(folder_id, folder_path, api_key, max_files, *, require_complete=False):
     """One folder's immediate contents, paging until exhausted or `max_files`.
 
     Returns `(files, subfolders)` where each file dict gains a `folder_path`
@@ -58,11 +58,12 @@ def _list_one_folder(folder_id, folder_path, api_key, max_files):
     files = []
     subfolders = []
     page_token = None
+    seen_page_tokens = set()
 
     while len(files) < max_files:
         params = {
             'q': f"'{folder_id}' in parents and trashed=false",
-            'fields': 'nextPageToken, files(id,name,mimeType,size)',
+            'fields': 'nextPageToken,incompleteSearch,files(id,name,mimeType,size)',
             # Fixed page size. This used to be `min(100, max_files - len(files))`
             # against the GLOBAL running total, which shrank as the walk filled
             # up: at 199 of 200 files it asked for one record per round trip.
@@ -79,6 +80,11 @@ def _list_one_folder(folder_id, folder_path, api_key, max_files):
 
         _raise_for_drive_status(resp, context='listing the folder')
         payload = resp.json()
+        if require_complete and payload.get('incompleteSearch'):
+            raise RecoverableDriveImportError(
+                'Google Drive reported an incomplete folder search. '
+                'No files were imported by this scan. Retry the scan.'
+            )
         for entry in payload.get('files', []):
             if entry.get('mimeType') == _FOLDER_MIME_TYPE:
                 child_path = f"{folder_path}/{entry['name']}" if folder_path else entry['name']
@@ -89,6 +95,11 @@ def _list_one_folder(folder_id, folder_path, api_key, max_files):
         page_token = payload.get('nextPageToken')
         if not page_token:
             break
+        if page_token in seen_page_tokens:
+            raise RecoverableDriveImportError(
+                'Google Drive repeated a folder page token. Retry the scan.'
+            )
+        seen_page_tokens.add(page_token)
 
     return files, subfolders
 
@@ -150,13 +161,15 @@ def list_drive_folder_files(
 
         scan_limit = max_files + 1 if require_complete else max_files
         if len(current) == 1:
-            results = [_list_one_folder(current[0][0], current[0][1], api_key, scan_limit)]
+            results = [_list_one_folder(current[0][0], current[0][1], api_key, scan_limit,
+                                        require_complete=require_complete)]
         else:
             with ThreadPoolExecutor(max_workers=min(max_workers, len(current))) as pool:
                 # `map` yields in submission order, so the walk stays
                 # deterministic even though the requests race.
                 results = list(pool.map(
-                    lambda node: _list_one_folder(node[0], node[1], api_key, scan_limit), current,
+                    lambda node: _list_one_folder(node[0], node[1], api_key, scan_limit,
+                                                  require_complete=require_complete), current,
                 ))
 
         next_level = []

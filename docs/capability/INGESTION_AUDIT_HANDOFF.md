@@ -18,6 +18,10 @@ require a complete scan and fail visibly BEFORE downloading any files if file/fo
 exceeded. Existing bounded-list callers keep their previous behavior. The default file limit
 increases from 200 to 1000; an explicit deployment environment value still overrides it.
 Folder scans completing exactly at the file cap still check pending child folders.
+They also follow empty provider pages, reject Google's `incompleteSearch` flag before
+downloading, and stop repeated-page-token loops with a recoverable scan error. Import results
+retain Drive IDs and source paths for successful files and skips, including checksum rejects.
+Reference: https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
 
 Capability manifests include source identity/path. Publication revalidation preserves previously
 recorded evaluator validation errors instead of blanking them when already-unknown decisions
@@ -50,10 +54,25 @@ python manage.py audit_evidence --sprint REPLACE_WITH_ACTUAL_SPRINT_UUID > evide
 
 Replace the labelled UUID placeholder with the actual test sprint ID. The output includes the
 checkout commit, limits, document/source identity, version lineage, page status counts, import
-job results and the last five runs' frozen input counts. It excludes document text and secrets,
-makes no AI calls and does not change records. Filenames and import error messages may contain
+job results and the last five runs' frozen input counts. Inventory format 0.2 exports a bounded
+set of import-result fields and fixed skip-reason codes, plus an `error_present` flag. It omits
+raw stored exception messages and provider response bodies, which can contain credential-bearing
+URLs. Legacy skip reasons are labelled `legacy_unspecified`; inspect detailed errors locally if
+needed. It makes no AI calls and does not change records. Filenames and source paths may contain
 institutional information; send the output only within the existing project team.
 A checkout SHA is not proof the API/worker processes were restarted on that SHA.
+
+## Work that can proceed independently
+
+`EVIDENCE_TO_REPORT_CONTRACT.md` specifies the proposed reviewed-evidence boundary and 18
+acceptance cases. `METHODOLOGY_REVIEW.md` adds six worked report fixtures and explains the
+score-meaning decision. `methodology_review_matrix.json` inventories all 216 conditions with
+candidate wording, scope/period rules and counterexamples; reproduce it with
+`python scripts/build_methodology_review.py` from the repository root. These files are design
+material only. The app does not load them and no scoring release is activated.
+
+CI now includes pull requests targeting A1. Image publication and deployment remain restricted
+to pushes on main by the existing workflow conditions. Merging this PR into A1 does not deploy it.
 
 ## Validation
 

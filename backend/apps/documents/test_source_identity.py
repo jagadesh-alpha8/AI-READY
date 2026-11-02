@@ -3,7 +3,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 
 from apps.institutions.models import Institution
 from apps.sprints.models import Sprint
-from .models import Document
+from .models import Document, DriveImportJob
 from .services import create_document_from_file
 from io import StringIO
 import json
@@ -53,3 +53,25 @@ class SourceIdentityTests(TestCase):
     def test_inventory_rejects_invalid_sprint_identifier(self):
         with self.assertRaises(CommandError):
             call_command('audit_evidence', sprint='invalid')
+
+    def test_inventory_omits_raw_import_errors_and_retains_source_identity(self):
+        DriveImportJob.objects.create(
+            sprint=self.sprint, drive_url='https://drive.google.com/drive/folders/root',
+            error_message='request failed https://example.invalid?key=SECRET-KEY',
+            results={
+                'skipped_files': [{'filename': 'a.pdf', 'drive_file_id': 'drive-1',
+                    'source_path': 'Folder/a.pdf', 'reason': 'provider body SECRET-BODY',
+                    'reason_code': 'download_failed'},
+                    {'filename': 'old.pdf', 'reason': 'legacy SECRET-OLD'}],
+                'progress': {'processed': 2, 'total': 2, 'current_file': 'SECRET-CURRENT'},
+                'provider_response': 'SECRET-RESPONSE',
+            })
+        output = StringIO()
+        call_command('audit_evidence', sprint=str(self.sprint.pk), stdout=output)
+        self.assertNotIn('SECRET', output.getvalue())
+        record = json.loads(output.getvalue())['imports'][0]
+        self.assertTrue(record['error_present'])
+        self.assertEqual(record['results']['skipped_files'][0], {
+            'filename': 'a.pdf', 'drive_file_id': 'drive-1', 'source_path': 'Folder/a.pdf',
+            'reason_code': 'download_failed'})
+        self.assertEqual(record['results']['skipped_files'][1]['reason_code'], 'legacy_unspecified')

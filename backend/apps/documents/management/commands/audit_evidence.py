@@ -13,6 +13,37 @@ from apps.scoring.models import CapabilityRun
 from apps.sprints.models import Sprint
 
 
+def _safe_import(job):
+    """Project diagnostic fields, never stored exception strings/provider bodies.
+
+    Legacy results may not have source identities or reason codes. Preserve that
+    absence instead of guessing identities from ambiguous basenames.
+    """
+    results = job.results if isinstance(job.results, dict) else {}
+    safe_results = {}
+    allowed = ('status', 'filename', 'document_id', 'drive_file_id', 'source_path', 'folder')
+    reason_codes = {'unsupported_type', 'download_failed', 'validation_rejected'}
+    for key, value in results.items():
+        if key in {'additional_files', 'skipped_files'} and isinstance(value, list):
+            rows = []
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                row = {field: item[field] for field in allowed if field in item}
+                if key == 'skipped_files':
+                    code = item.get('reason_code')
+                    row['reason_code'] = code if code in reason_codes else 'legacy_unspecified'
+                rows.append(row)
+            safe_results[key] = rows
+        elif key == 'progress' and isinstance(value, dict):
+            safe_results[key] = {field: value[field] for field in ('processed', 'total') if field in value}
+        elif isinstance(value, dict) and value.get('status') in {'found', 'missing'}:
+            safe_results[key] = {field: value[field] for field in allowed if field in value}
+    return {'id': str(job.pk), 'status': job.status, 'files_scanned': job.files_scanned,
+            'files_imported': job.files_imported, 'error_present': bool(job.error_message),
+            'results': safe_results}
+
+
 class Command(BaseCommand):
     help = 'Print a read-only JSON inventory for one sprint; does not call an AI provider.'
 
@@ -50,7 +81,7 @@ class Command(BaseCommand):
                 'frozen_document_ids': [m['document_id'] for m in run.inputs.get('manifest', [])],
             })
         report = {
-            'version': 'evidence-inventory-0.1', 'checkout_commit': commit,
+            'version': 'evidence-inventory-0.2', 'checkout_commit': commit,
             'sprint_id': str(sprint.pk),
             'limits': {'max_files': settings.GOOGLE_DRIVE_IMPORT_MAX_FILES,
                        'max_folders': settings.GOOGLE_DRIVE_IMPORT_MAX_FOLDERS},
@@ -64,8 +95,8 @@ class Command(BaseCommand):
                            'status': d.status, 'expected_pages': d.page_count,
                            'previous_version_id': str(d.previous_version_id) if d.previous_version_id else None,
                            'superseded_at': d.superseded_at} for d in docs],
-            'imports': list(DriveImportJob.objects.filter(sprint=sprint).order_by('created_at').values(
-                'id', 'status', 'files_scanned', 'files_imported', 'error_message', 'results')),
+            'imports': [_safe_import(job) for job in
+                        DriveImportJob.objects.filter(sprint=sprint).order_by('created_at')],
             'recent_runs': runs,
             'note': 'Counts describe this sprint only. A Git checkout SHA does not prove running workers were restarted.',
         }
