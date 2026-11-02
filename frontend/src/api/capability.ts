@@ -206,15 +206,16 @@ export async function downloadCapabilityReport(
   run: string,
   format: 'html' | 'json' | 'pdf',
   advice?: string,
+  audience: 'leadership' | 'evidence' = 'leadership',
 ) {
   const response = await api.get(`${path(sprint, run)}/report`, {
-    params: { file: format, recommendation_id: advice },
+    params: { file: format, recommendation_id: advice, audience },
     responseType: 'blob',
   });
   const url = URL.createObjectURL(response.data);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `capability-${run}.${format}`;
+  a.download = `capability-${run}-${audience}.${format}`;
   document.body.appendChild(a);
   a.click();
   a.remove();

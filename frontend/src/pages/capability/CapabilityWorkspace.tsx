@@ -1097,7 +1097,7 @@ function ReportExport({
 }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  async function download(format: 'html' | 'json' | 'pdf') {
+  async function download(format: 'html' | 'json' | 'pdf', audience: 'leadership' | 'evidence' = 'leadership') {
     setBusy(true);
     setError('');
     try {
@@ -1106,6 +1106,7 @@ function ReportExport({
         run.id,
         format,
         recommendation?.id,
+        audience,
       );
     } catch (e) {
       setError(getErrorMessage(e));
@@ -1115,21 +1116,21 @@ function ReportExport({
   }
   return (
     <section className="glass-card p-5 space-y-3">
-      <h2 className="text-xl font-bold">Export this pinned assessment</h2>
+      <h2 className="text-xl font-bold">Share this assessment</h2>
       <p>
-        Includes all 36 indicators, condition evidence, source versions,
-        uncertainty and tier pathways
+        The leadership report explains the overall result, nine readiness areas and first actions.
+        Supporting evidence retains all 36 subareas, original decisions and source references
         {recommendation
-          ? ', plus this recommendation version and current workflow'
+          ? ', plus the selected advice version and current workflow'
           : ''}
         . The selected version is preserved in every export.
       </p>
       <p>
-        Download a PDF of this frozen assessment directly. Exporting does not invoke a model.
+        Basic guidance is clearly labelled when tailored advice is unavailable. Exporting does not invoke a model.
       </p>
       <div className="flex flex-wrap gap-3">
         <button className="btn-primary" disabled={busy} onClick={() => download('pdf')}>
-          Download PDF
+          Download leadership PDF
         </button>
         <button
           className="btn-primary whitespace-normal max-w-full"
@@ -1137,6 +1138,13 @@ function ReportExport({
           onClick={() => download('html')}
         >
           Download printable HTML report
+        </button>
+        <button
+          className="btn-secondary"
+          disabled={busy}
+          onClick={() => download('pdf', 'evidence')}
+        >
+          Download supporting evidence PDF
         </button>
         <button
           className="btn-secondary"

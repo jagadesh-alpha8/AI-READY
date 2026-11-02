@@ -34,7 +34,7 @@ class CapabilityReportTests(APITestCase):
         before = (CapabilityRun.objects.count(), CapabilityRunEvent.objects.count(), RecommendationSnapshot.objects.count())
         with patch('apps.scoring.tasks.get_ai_service') as factory:
             response = self.client.get(self.report_url, {'file': 'json'})
-            html = self.client.get(self.report_url)
+            html = self.client.get(self.report_url, {'audience': 'evidence'})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(html.status_code, 200)
         self.assertFalse(factory.called)
@@ -57,7 +57,7 @@ class CapabilityReportTests(APITestCase):
         import pymupdf
         before = CapabilityRunEvent.objects.count()
         with patch('apps.scoring.tasks.get_ai_service') as factory:
-            response = self.client.get(self.report_url, {'file': 'pdf'})
+            response = self.client.get(self.report_url, {'file': 'pdf', 'audience': 'evidence'})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'application/pdf')
         self.assertTrue(response.content.startswith(b'%PDF-'))
@@ -139,12 +139,54 @@ class CapabilityReportTests(APITestCase):
         self.page.save()
         self.prepare_run()
         url = f'/api/v1/sprints/{self.sprint.pk}/capability-runs/{self.run.pk}/report'
-        response = self.client.get(url)
+        response = self.client.get(url, {'audience': 'evidence'})
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, '<script>')
         self.assertContains(response, '&lt;script&gt;profile_attack()&lt;/script&gt;')
         self.assertContains(response, '&lt;script&gt;source_attack()&lt;/script&gt;')
         self.assertContains(response, 'AIQIF-NEXT-0.1')
+
+    def test_default_leadership_report_is_readable_without_changing_assessment(self):
+        import pymupdf
+        before = list(self.run.events.values_list('id', 'payload'))
+        with patch('apps.scoring.tasks.get_ai_service') as factory:
+            html = self.client.get(self.report_url)
+            pdf = self.client.get(self.report_url, {'file': 'pdf'})
+            data = json.loads(self.client.get(self.report_url, {'file': 'json'}).content)
+        self.assertContains(html, 'Basic assessment report')
+        self.assertContains(html, 'Faculty and staff')
+        self.assertNotContains(html, 'AIQIF-C1.1.F1')
+        document = pymupdf.open(stream=pdf.content, filetype='pdf')
+        text = ''.join(page.get_text() for page in document)
+        self.assertIn('Basic assessment report', text)
+        self.assertNotIn('AIQIF-C1.1.F1', text)
+        self.assertEqual(len(data['report_view']['areas']), 36)
+        self.assertEqual(len(data['report_view']['pillars']), 9)
+        self.assertLessEqual(len(data['report_view']['priorities']), 5)
+        self.assertEqual(data['assessment']['result'], before[-1][1]['result'])
+        self.assertEqual(list(self.run.events.values_list('id', 'payload')), before)
+        factory.assert_not_called()
+
+    def test_failed_advice_is_explicit_basic_report_and_invalid_audience_rejected(self):
+        from .capability.recommendation_execution import finish
+        ex = fixtures.RecommendationTests.start(self)
+        finish(ex.snapshot_id, 'failed', 'provider_quota_exhausted')
+        response = self.client.get(self.report_url, {'recommendation_id': str(ex.snapshot_id)})
+        self.assertContains(response, 'Basic assessment report')
+        self.assertContains(response, 'could not be completed')
+        self.assertEqual(self.client.get(self.report_url, {'audience': 'arbitrary'}).status_code, 400)
+
+    def test_leadership_report_escapes_profile_and_source_text(self):
+        self.institution.name = '<script>profile_attack()</script>'
+        self.institution.save()
+        self.page.text = '<script>source_attack()</script> scoped source across the institution in 2025-26'
+        self.page.save()
+        self.prepare_run()
+        url = f'/api/v1/sprints/{self.sprint.pk}/capability-runs/{self.run.pk}/report'
+        response = self.client.get(url)
+        self.assertNotContains(response, '<script>')
+        self.assertContains(response, '&lt;script&gt;profile_attack()&lt;/script&gt;')
+        self.assertContains(response, '&lt;script&gt;source_attack()&lt;/script&gt;')
 
     def test_capability_onboarding_does_not_require_legacy_approval_or_fact_review(self):
         response = self.client.get('/api/v1/auth/guide-status', {'sprint_id': str(self.sprint.pk), 'workflow': 'capability'})
