@@ -29,7 +29,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         model = Document
         fields = [
             'id', 'sprint_id', 'document_type', 'document_type_label', 'document_type_source', 'title',
-            'original_filename', 'mime_type', 'file_size', 'file_size_display', 'checksum',
+            'original_filename', 'drive_file_id', 'source_path', 'mime_type', 'file_size', 'file_size_display', 'checksum',
             'download_url', 'has_file', 'uploaded_by', 'owner_role', 'status',
             'page_count', 'quality_score', 'ocr_required', 'ocr_warnings', 'processing_status',
             'classification_status', 'ai_document_type', 'ai_document_type_label', 'ai_confidence',
@@ -39,7 +39,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             'uploaded_at', 'processed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'sprint_id', 'original_filename', 'mime_type', 'file_size', 'file_size_display',
+            'id', 'sprint_id', 'original_filename', 'drive_file_id', 'source_path', 'mime_type', 'file_size', 'file_size_display',
             'checksum', 'download_url', 'has_file', 'document_type_label', 'document_type_source', 'uploaded_by',
             # Only the extraction pipeline writes the AI's verdict; a person
             # overrides it through POST /documents/{id}/confirm-category.

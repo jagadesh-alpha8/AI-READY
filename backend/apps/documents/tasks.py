@@ -64,6 +64,7 @@ def run_drive_import_job(self, job_id):
             folder_id, settings.GOOGLE_DRIVE_API_KEY, settings.GOOGLE_DRIVE_IMPORT_MAX_FILES,
             max_folders=settings.GOOGLE_DRIVE_IMPORT_MAX_FOLDERS,
             max_workers=settings.GOOGLE_DRIVE_IMPORT_CONCURRENCY,
+            require_complete=True,
         )
     except PermanentDriveImportError as exc:
         _fail(job, str(exc))
@@ -143,6 +144,7 @@ def run_drive_import_job(self, job_id):
             document = create_document_from_file(
                 sprint=job.sprint, file_obj=upload, document_type=document_type,
                 owner_role=owner_role, uploaded_by=job.created_by, document_type_source=type_source,
+                drive_file_id=entry['id'], source_path=_display_name(entry, filename),
             )
         except DocumentValidationError as exc:
             skipped.append({'filename': _display_name(entry, filename), 'reason': _flatten_errors(exc.errors)})

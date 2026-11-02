@@ -68,6 +68,9 @@ class Document(models.Model):
     title = models.CharField(max_length=255, blank=True)
     file = models.FileField(upload_to=document_upload_path, blank=True, null=True, max_length=500)
     original_filename = models.CharField(max_length=255, blank=True)
+    # Drive identity, not the basename, determines imported-file version lineage.
+    drive_file_id = models.CharField(max_length=255, blank=True, db_index=True)
+    source_path = models.TextField(blank=True)
     mime_type = models.CharField(max_length=150, blank=True)
     file_size = models.PositiveBigIntegerField(null=True, blank=True)
     checksum = models.CharField(max_length=64, blank=True, db_index=True, help_text='SHA-256 hex digest')
@@ -87,9 +90,8 @@ class Document(models.Model):
     processing_status = models.CharField(max_length=100, blank=True)
     uploaded_at = models.DateTimeField(null=True, blank=True)
     processed_at = models.DateTimeField(null=True, blank=True)
-    # Versions within one sprint (services.create_document_from_file): a file with the same name as a
-    # current document of the sprint but different content is its next version. The earlier version is
-    # kept, with its facts and reviews, as history; only the current one still needs processing.
+    # Versions within a sprint: Drive ID for imports, filename for manual uploads.
+    # Earlier versions and their facts/reviews remain as history.
     previous_version = models.ForeignKey(
         'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='newer_versions',
     )

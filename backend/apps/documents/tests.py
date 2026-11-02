@@ -646,6 +646,38 @@ class ListDriveFolderFilesTests(SimpleTestCase):
     Celery task and HTTP layer."""
 
     @patch('apps.documents.drive_import.requests.get')
+    def test_complete_scan_accepts_exact_file_cap_when_no_more_files_exist(self, mock_get):
+        mock_get.side_effect = _make_fake_drive_get(files=[
+            {'id': f'f{i}', 'name': f'{i}.pdf', 'mimeType': 'application/pdf'} for i in range(3)])
+        self.assertEqual(len(list_drive_folder_files('root', 'test-key', 3, require_complete=True)), 3)
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_complete_scan_rejects_file_cap_instead_of_returning_partial_evidence(self, mock_get):
+        mock_get.side_effect = _make_fake_drive_get(files=[
+            {'id': f'f{i}', 'name': f'{i}.pdf', 'mimeType': 'application/pdf'} for i in range(4)
+        ])
+        with self.assertRaisesRegex(PermanentDriveImportError, 'MAX_FILES=3'):
+            list_drive_folder_files('root', 'test-key', 3, require_complete=True)
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_complete_scan_checks_children_even_when_root_exactly_fills_cap(self, mock_get):
+        mock_get.side_effect = _make_fake_drive_get(files_by_folder={
+            'root': [{'id': 'f1', 'name': '1.pdf', 'mimeType': 'application/pdf'},
+                     {'id': 'sub', 'name': 'Sub', 'mimeType': 'application/vnd.google-apps.folder'}],
+            'sub': [{'id': 'f2', 'name': '2.pdf', 'mimeType': 'application/pdf'}],
+        })
+        with self.assertRaisesRegex(PermanentDriveImportError, 'MAX_FILES=1'):
+            list_drive_folder_files('root', 'test-key', 1, require_complete=True)
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_complete_scan_rejects_unvisited_folders(self, mock_get):
+        mock_get.side_effect = _make_fake_drive_get(files_by_folder={
+            'root': [{'id': 'sub', 'name': 'Sub', 'mimeType': 'application/vnd.google-apps.folder'}],
+        })
+        with self.assertRaisesRegex(PermanentDriveImportError, 'MAX_FOLDERS=1'):
+            list_drive_folder_files('root', 'test-key', 10, max_folders=1, require_complete=True)
+
+    @patch('apps.documents.drive_import.requests.get')
     def test_recurses_into_subfolders(self, mock_get):
         mock_get.side_effect = _make_fake_drive_get(
             files_by_folder={
@@ -755,6 +787,34 @@ class DriveImportTaskTests(APITestCase):
         return self.client.post(
             f'/api/v1/sprints/{self.sprint.id}/drive-import-jobs/', {'drive_url': drive_url},
         )
+
+    @patch('apps.documents.drive_import.requests.get')
+    def test_same_basename_in_different_folders_remains_two_current_sources(self, mock_get):
+        mock_get.side_effect = _make_fake_drive_get(files_by_folder={
+            'abc123folder': [
+                {'id': 'c3', 'name': 'criteria 3', 'mimeType': 'application/vnd.google-apps.folder'},
+                {'id': 'c4', 'name': 'criteria 4', 'mimeType': 'application/vnd.google-apps.folder'}],
+            'c3': [{'id': 'f1', 'name': 'a.pdf', 'mimeType': 'application/pdf'}],
+            'c4': [{'id': 'f2', 'name': 'a.pdf', 'mimeType': 'application/pdf'}],
+        }, downloads={'f1': b'%PDF-1.4 research', 'f2': b'%PDF-1.4 equipment'})
+        response = self._start_import()
+        self.assertEqual(response.status_code, 201)
+        docs = Document.objects.filter(sprint=self.sprint, superseded_at__isnull=True)
+        self.assertEqual(docs.count(), 2)
+        self.assertEqual(set(docs.values_list('drive_file_id', flat=True)), {'f1', 'f2'})
+        self.assertEqual(set(docs.values_list('source_path', flat=True)),
+                         {'criteria 3/a.pdf', 'criteria 4/a.pdf'})
+
+    @override_settings(GOOGLE_DRIVE_IMPORT_MAX_FILES=1)
+    @patch('apps.documents.drive_import.requests.get')
+    def test_scan_limit_failure_does_not_import_partial_collection(self, mock_get):
+        mock_get.side_effect = _make_fake_drive_get(files=[
+            {'id': f'f{i}', 'name': f'{i}.pdf', 'mimeType': 'application/pdf'} for i in range(2)])
+        response = self._start_import()
+        job = DriveImportJob.objects.get(pk=response.data['id'])
+        self.assertEqual(job.status, DriveImportJob.Status.FAILED)
+        self.assertIn('MAX_FILES=1', job.error_message)
+        self.assertEqual(Document.objects.filter(sprint=self.sprint).count(), 0)
 
     @patch('apps.documents.drive_import.requests.get')
     def test_happy_path_imports_matched_files_and_records_unmatched(self, mock_get):

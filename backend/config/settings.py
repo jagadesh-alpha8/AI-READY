@@ -577,7 +577,7 @@ GOOGLE_DRIVE_API_KEY = os.getenv('GOOGLE_DRIVE_API_KEY', '')
 # indefinitely. Subfolders are scanned recursively (breadth-first);
 # GOOGLE_DRIVE_IMPORT_MAX_FOLDERS separately caps how many folders total get
 # walked, guarding against a deeply-nested or unexpectedly wide tree.
-GOOGLE_DRIVE_IMPORT_MAX_FILES = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_FILES', 200))
+GOOGLE_DRIVE_IMPORT_MAX_FILES = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_FILES', 1000))
 GOOGLE_DRIVE_IMPORT_MAX_FOLDERS = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_FOLDERS', 200))
 
 # Retry policy for transient Drive API failures (network hiccups, 5xx),
