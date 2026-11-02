@@ -1,5 +1,7 @@
 # Readiness rubric and maturity ladder review — 2026-11-02
 
+Historical first-pass review (candidate 0.1). The complete 216-requirement follow-up is in `LADDER_COMPLETE_CANDIDATE_REVIEW.md`; it supersedes the unfinished-work list below without activating live scoring.
+
 Status: **experimental candidate, not an activated methodology**. Guidance: user-supplied *AIFRC AI Readiness Maturity Ladder Blueprint v0.1*. Scope: all 72 foundational requirements, aggregation and badge separation. This does not implement the blueprint's full programme-management platform.
 
 ## Finding
