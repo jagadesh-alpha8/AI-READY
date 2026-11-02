@@ -1,0 +1,256 @@
+{
+  "status": "synthetic_hand_adjudicated_arithmetic_and_policy_cases_not_model_validation",
+  "cases": [
+    {
+      "id": "sparse_naac_capacity",
+      "evidence_facts": [
+        "Synthetic register: learners can access computing resources.",
+        "Synthetic record: a digital service has a defined purpose."
+      ],
+      "decisions": {
+        "LADDER03-C6.1.F1": "met",
+        "LADDER03-C8.1.F1": "met"
+      },
+      "gate_context": {
+        "scope_verified": null,
+        "currency_verified": null,
+        "coverage_verified": null,
+        "critical_risks": "unknown",
+        "consequential_ai_use": null
+      },
+      "expected_gate": "unresolved",
+      "positive_components": [
+        "F"
+      ],
+      "zero_lower_components": [
+        "A",
+        "O"
+      ],
+      "methodology": "LADDER-CANDIDATE-0.3",
+      "candidate_hash": "0728bc51c0b0f657b0b452cc3122264749b787ccd85872a18b1c7880978162f3",
+      "profile_release_hash": "5510afe4ba53a6feeae6b8e5176754c9ee1fb71ba0868d3f30be29d9a11ce379",
+      "profile": "engineering"
+    },
+    {
+      "id": "scoped_ai_delivery",
+      "evidence_facts": [
+        "Synthetic teaching log: one identified cohort completed substantive AI content; foundation approval record unavailable."
+      ],
+      "decisions": {
+        "LADDER03-C3.1.A1": "met"
+      },
+      "gate_context": {
+        "scope_verified": null,
+        "currency_verified": null,
+        "coverage_verified": null,
+        "critical_risks": "unknown",
+        "consequential_ai_use": null
+      },
+      "expected_gate": "unresolved",
+      "positive_components": [
+        "A"
+      ],
+      "zero_lower_components": [
+        "F",
+        "O"
+      ],
+      "methodology": "LADDER-CANDIDATE-0.3",
+      "candidate_hash": "0728bc51c0b0f657b0b452cc3122264749b787ccd85872a18b1c7880978162f3",
+      "profile_release_hash": "5510afe4ba53a6feeae6b8e5176754c9ee1fb71ba0868d3f30be29d9a11ce379",
+      "profile": "engineering"
+    },
+    {
+      "id": "approved_plan_only",
+      "evidence_facts": [
+        "Synthetic approved institutional plan identifies a digital priority; no delivery is established."
+      ],
+      "decisions": {
+        "LADDER03-C1.1.F1": "met"
+      },
+      "gate_context": {
+        "scope_verified": null,
+        "currency_verified": null,
+        "coverage_verified": null,
+        "critical_risks": "unknown",
+        "consequential_ai_use": null
+      },
+      "expected_gate": "unresolved",
+      "positive_components": [
+        "F"
+      ],
+      "zero_lower_components": [
+        "A",
+        "O"
+      ],
+      "methodology": "LADDER-CANDIDATE-0.3",
+      "candidate_hash": "0728bc51c0b0f657b0b452cc3122264749b787ccd85872a18b1c7880978162f3",
+      "profile_release_hash": "5510afe4ba53a6feeae6b8e5176754c9ee1fb71ba0868d3f30be29d9a11ce379",
+      "profile": "engineering"
+    },
+    {
+      "id": "open_critical_risk",
+      "evidence_facts": [
+        "Synthetic scenario assumes every proposed checklist requirement evidenced, but a critical risk remains open."
+      ],
+      "decisions": {
+        "LADDER03-C1.1.F2": "met",
+        "LADDER03-C1.2.A1": "met",
+        "LADDER03-C2.1.F1": "met",
+        "LADDER03-C2.1.F2": "met",
+        "LADDER03-C2.1.A1": "met",
+        "LADDER03-C2.2.F1": "met",
+        "LADDER03-C2.2.F2": "met",
+        "LADDER03-C2.2.A1": "met",
+        "LADDER03-C6.3.F1": "met",
+        "LADDER03-C6.3.A2": "met",
+        "LADDER03-C4.1.A1": "met",
+        "LADDER03-C5.1.A1": "met",
+        "LADDER03-C8.1.A1": "met",
+        "LADDER03-C3.1.A1": "met",
+        "LADDER03-C2.3.F1": "met",
+        "LADDER03-C2.3.F2": "met",
+        "LADDER03-C2.3.A1": "met",
+        "LADDER03-C6.3.A1": "met",
+        "LADDER03-C5.1.O1": "met",
+        "LADDER03-C8.1.F2": "met"
+      },
+      "gate_context": {
+        "scope_verified": true,
+        "currency_verified": true,
+        "coverage_verified": true,
+        "critical_risks": "open",
+        "consequential_ai_use": false
+      },
+      "expected_gate": "blocked",
+      "positive_components": [
+        "F",
+        "A",
+        "O"
+      ],
+      "zero_lower_components": [],
+      "methodology": "LADDER-CANDIDATE-0.3",
+      "candidate_hash": "0728bc51c0b0f657b0b452cc3122264749b787ccd85872a18b1c7880978162f3",
+      "profile_release_hash": "5510afe4ba53a6feeae6b8e5176754c9ee1fb71ba0868d3f30be29d9a11ce379",
+      "profile": "engineering"
+    },
+    {
+      "id": "conflicting_literacy",
+      "evidence_facts": [
+        "Synthetic contradictory records disagree about learner access; neither has been resolved."
+      ],
+      "decisions": {
+        "LADDER03-C5.1.F1": "conflicting"
+      },
+      "gate_context": {
+        "scope_verified": null,
+        "currency_verified": null,
+        "coverage_verified": null,
+        "critical_risks": "unknown",
+        "consequential_ai_use": null
+      },
+      "expected_gate": "unresolved",
+      "positive_components": [],
+      "zero_lower_components": [
+        "F",
+        "A",
+        "O"
+      ],
+      "methodology": "LADDER-CANDIDATE-0.3",
+      "candidate_hash": "0728bc51c0b0f657b0b452cc3122264749b787ccd85872a18b1c7880978162f3",
+      "profile_release_hash": "5510afe4ba53a6feeae6b8e5176754c9ee1fb71ba0868d3f30be29d9a11ce379",
+      "profile": "engineering"
+    },
+    {
+      "id": "checklist_complete_not_badge",
+      "evidence_facts": [
+        "Synthetic scenario assumes proposed minimum checklist and scope/currency/coverage/risk checks all satisfied."
+      ],
+      "decisions": {
+        "LADDER03-C1.1.F2": "met",
+        "LADDER03-C1.2.A1": "met",
+        "LADDER03-C2.1.F1": "met",
+        "LADDER03-C2.1.F2": "met",
+        "LADDER03-C2.1.A1": "met",
+        "LADDER03-C2.2.F1": "met",
+        "LADDER03-C2.2.F2": "met",
+        "LADDER03-C2.2.A1": "met",
+        "LADDER03-C6.3.F1": "met",
+        "LADDER03-C6.3.A2": "met",
+        "LADDER03-C4.1.A1": "met",
+        "LADDER03-C5.1.A1": "met",
+        "LADDER03-C8.1.A1": "met",
+        "LADDER03-C3.1.A1": "met",
+        "LADDER03-C2.3.F1": "met",
+        "LADDER03-C2.3.F2": "met",
+        "LADDER03-C2.3.A1": "met",
+        "LADDER03-C6.3.A1": "met",
+        "LADDER03-C5.1.O1": "met",
+        "LADDER03-C8.1.F2": "met"
+      },
+      "gate_context": {
+        "scope_verified": true,
+        "currency_verified": true,
+        "coverage_verified": true,
+        "critical_risks": "clear",
+        "consequential_ai_use": false
+      },
+      "expected_gate": "satisfied_for_review",
+      "positive_components": [
+        "F",
+        "A",
+        "O"
+      ],
+      "zero_lower_components": [],
+      "methodology": "LADDER-CANDIDATE-0.3",
+      "candidate_hash": "0728bc51c0b0f657b0b452cc3122264749b787ccd85872a18b1c7880978162f3",
+      "profile_release_hash": "5510afe4ba53a6feeae6b8e5176754c9ee1fb71ba0868d3f30be29d9a11ce379",
+      "profile": "engineering"
+    },
+    {
+      "id": "consequential_use_requires_oversight",
+      "evidence_facts": [
+        "Synthetic completed base checklist; consequential deployment exists, but oversight and appeals evidence is unavailable."
+      ],
+      "decisions": {
+        "LADDER03-C1.1.F2": "met",
+        "LADDER03-C1.2.A1": "met",
+        "LADDER03-C2.1.F1": "met",
+        "LADDER03-C2.1.F2": "met",
+        "LADDER03-C2.1.A1": "met",
+        "LADDER03-C2.2.F1": "met",
+        "LADDER03-C2.2.F2": "met",
+        "LADDER03-C2.2.A1": "met",
+        "LADDER03-C6.3.F1": "met",
+        "LADDER03-C6.3.A2": "met",
+        "LADDER03-C4.1.A1": "met",
+        "LADDER03-C5.1.A1": "met",
+        "LADDER03-C8.1.A1": "met",
+        "LADDER03-C3.1.A1": "met",
+        "LADDER03-C2.3.F1": "met",
+        "LADDER03-C2.3.F2": "met",
+        "LADDER03-C2.3.A1": "met",
+        "LADDER03-C6.3.A1": "met",
+        "LADDER03-C5.1.O1": "met",
+        "LADDER03-C8.1.F2": "met"
+      },
+      "gate_context": {
+        "scope_verified": true,
+        "currency_verified": true,
+        "coverage_verified": true,
+        "critical_risks": "clear",
+        "consequential_ai_use": true
+      },
+      "expected_gate": "unresolved",
+      "positive_components": [
+        "F",
+        "A",
+        "O"
+      ],
+      "zero_lower_components": [],
+      "methodology": "LADDER-CANDIDATE-0.3",
+      "candidate_hash": "0728bc51c0b0f657b0b452cc3122264749b787ccd85872a18b1c7880978162f3",
+      "profile_release_hash": "5510afe4ba53a6feeae6b8e5176754c9ee1fb71ba0868d3f30be29d9a11ce379",
+      "profile": "engineering"
+    }
+  ]
+}
