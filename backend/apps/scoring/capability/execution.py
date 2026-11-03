@@ -42,6 +42,7 @@ def policy():
     return {'prompt_version': PROMPT_VERSION, 'prompt_hash': digest(SYSTEM_PROMPT),
             'schema_hash': digest(DECISION_SCHEMA), 'max_http_calls': calls, 'max_cost_usd': str(cost), 'output_tokens': output,
             'timeout_seconds': timeout, 'sdk_retries': 0, 'transient_retries_per_indicator': 1,
+            'corrective_batches_per_indicator': 1,
             'cost_policy': 'reserve_utf8_bytes_plus_4096_tokens_at_configured_max_rates'}
 
 

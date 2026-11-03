@@ -19,7 +19,7 @@ Deploy the same A1 revision to web and Celery workers and restart both. No migra
 python manage.py readiness_smoke_test
 ```
 
-Expected: `AIQIF-CAP-0.3`, `capability-engine-0.3.0`, `AIQIF-EVAL-0.7`, `assertion-balanced-windows-0.3`. This default command makes no provider call.
+Expected: `AIQIF-CAP-0.3`, `capability-engine-0.3.0`, `AIQIF-EVAL-0.8`, `assertion-balanced-windows-0.3`. This default command makes no provider call.
 
 Then explicitly probe the actual configured provider with synthetic evidence:
 
