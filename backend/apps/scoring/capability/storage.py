@@ -7,11 +7,13 @@ replacements must use existing version lineage; never guess replacement by conte
 """
 import hashlib
 import json
+import re
 
 from django.db import connection, transaction
 
 from apps.documents.models import Document
 from apps.extraction.models import DocumentPage
+from apps.extraction.services.evidence_text import evidence_pages
 from apps.scoring.models import CapabilityRun, CapabilityRunEvent
 from apps.sprints.models import Sprint
 from .engine import ENGINE_VERSION, assess, release
@@ -25,22 +27,48 @@ def digest(value):
 
 
 def evidence_snapshot(sprint):
+    from apps.facts.models import ExtractedFact
+    from apps.facts.verification.grounding import parse_pages
+    hints = {}
+    for fact in ExtractedFact.objects.filter(sprint=sprint).exclude(status='rejected').prefetch_related('aiqif_mappings'):
+        document_id = str(fact.source_document_id or fact.document_id)
+        quote = fact.source_snippet.strip()
+        if not quote:
+            continue
+        codes = sorted({m.indicator_code for m in fact.aiqif_mappings.all()
+                        if m.review_status != 'rejected' and m.auto_decision != 'rejected_precedent'
+                        and (m.status == 'mapped' or m.review_status == 'confirmed')})
+        for number in parse_pages(fact.source_page):
+            hints.setdefault((document_id, number), []).append((codes, quote))
     manifest, sources = [], []
     documents = Document.objects.filter(sprint=sprint, superseded_at__isnull=True).exclude(
         status=Document.Status.REJECTED).order_by('id')
     for document in documents:
         pages = list(DocumentPage.objects.filter(document=document).order_by('page_number'))
+        rendered = {p['page_number']: p['text'] for p in evidence_pages([
+            {'page_number': p.page_number, 'text': p.text, 'tables': p.tables} for p in pages])}
         manifest.append({'document_id': str(document.pk), 'filename': document.original_filename,
                          'drive_file_id': document.drive_file_id, 'source_path': document.source_path,
                          'checksum': document.checksum, 'version': document.version_number,
                          'previous_version_id': str(document.previous_version_id) if document.previous_version_id else None,
                          'status': document.status, 'expected_pages': document.page_count,
                          'pages': [{'page_id': str(p.pk), 'number': p.page_number, 'status': p.status,
-                                    'text_hash': digest(p.text), 'text_source': p.text_source} for p in pages]})
+                                    'text_hash': digest(p.text), 'tables_hash': digest(p.tables),
+                                    'evidence_text_hash': digest(rendered[p.page_number]), 'text_source': p.text_source} for p in pages]})
         for page in pages:
-            if page.status == DocumentPage.Status.OK and page.text.strip():
-                sources.append({'id': str(page.pk), 'document_id': str(document.pk),
-                                'page_number': page.page_number, 'text': page.text,
+            if page.status == DocumentPage.Status.OK and rendered[page.page_number].strip():
+                page_hints = []
+                text = rendered[page.page_number]
+                for codes, quote in hints.get((str(document.pk), page.page_number), []):
+                    # A tag proposes a location only when its quotation actually
+                    # occurs in the canonical source. Never manufacture evidence.
+                    match = re.search(r'\s+'.join(re.escape(part) for part in quote.split()), text)
+                    if match:
+                        page_hints.extend({'indicator_code': code, 'start': match.start(), 'end': match.end()}
+                                          for code in codes)
+                sources.append({'retrieval_hints': sorted(page_hints, key=lambda h: (h['indicator_code'], h['start'], h['end'])),
+                                'id': str(page.pk), 'document_id': str(document.pk),
+                                'page_number': page.page_number, 'text': rendered[page.page_number],
                                 'text_source': page.text_source})
     return manifest, sources
 
@@ -184,6 +212,7 @@ def boundary_revision(sprint_id):
         ('documents_document', 't.sprint_id = %s'),
         ('extraction_documentpage', 't.document_id IN (SELECT id FROM documents_document WHERE sprint_id = %s)'),
         ('facts_extractedfact', 't.sprint_id = %s'),
+        ('facts_factaiqifmapping', 't.fact_id IN (SELECT id FROM facts_extractedfact WHERE sprint_id = %s)'),
         ('facts_factreviewhistory', 't.fact_id IN (SELECT id FROM facts_extractedfact WHERE sprint_id = %s)'),
         ('gaps_gapitem', 't.sprint_id = %s'),
         ('gaps_gapevent', 't.gap_id IN (SELECT id FROM gaps_gapitem WHERE sprint_id = %s)'),

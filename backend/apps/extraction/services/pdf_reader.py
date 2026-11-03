@@ -30,7 +30,8 @@ from ..exceptions import PermanentExtractionError, RecoverableExtractionError
 from . import stub
 from .base import PageReader
 from .paddle_ocr import OCRResult, read_with
-from .text_cleaning import clean_text, is_meaningful_text, remove_repeated_headers_footers
+from .text_cleaning import clean_text, is_meaningful_text
+from .evidence_text import _placeholder, _with_tables, render_table, evidence_pages
 
 logger = logging.getLogger(__name__)
 
@@ -162,11 +163,10 @@ class PDFPageReader(PageReader):
             unreadable += read.status != 'ok'
             self._progress(index + 1, pages_to_read, ocr_done, unreadable, vision_done)
 
-        cleaned = [
-            _with_tables(clean_text(t), read.tables, page_number)
-            for page_number, (t, read) in enumerate(
-                zip(remove_repeated_headers_footers([clean_text(t) for t in raw_texts]), reads), start=1)
-        ]
+        cleaned = [p['text'] for p in evidence_pages([
+            {'page_number': n, 'text': text, 'tables': read.tables}
+            for n, (text, read) in enumerate(zip(raw_texts, reads), start=1)
+        ])]
 
         pages_out = [
             {
@@ -217,7 +217,7 @@ class PDFPageReader(PageReader):
         from .vision_fallback import run_vision_fallback, supports_vision
 
         text, tables = _page_text(page)
-        if is_meaningful_text(text, self.min_text_chars_per_page):
+        if is_meaningful_text(_with_tables(text, tables, page_number), self.min_text_chars_per_page):
             return _PageRead(
                 text, 'text', 'ok', None, '', tables, previous_attempts,
                 ocr_status='skipped', vision_status='skipped',
@@ -409,10 +409,6 @@ def _save_page(document, page_number, read):
 
 # -- tables ---------------------------------------------------------------------------------------------------
 
-def _placeholder(index):
-    """A letters-only line marking where table `index` sits in the page text: header/footer removal masks
-    digits, so a numbered marker repeated on many pages could be dropped as a footer."""
-    return 'AIOSTABLEMARKER' + ''.join(chr(97 + int(c)) for c in str(index))
 
 
 def _page_text(page):
@@ -457,25 +453,3 @@ def _page_text(page):
 
 def _cell(value):
     return ' '.join(str(value).split()) if value is not None else ''
-
-
-def render_table(table, page_number):
-    """A table as text the AI reads row by row, with its header and page, e.g.
-    [Table 1 on page 5 -- columns: Year | Students]
-    Year: 2023 | Students: 420"""
-    header = table.get('header') or []
-    lines = [f'[Table {table["index"]} on page {page_number} -- columns: {" | ".join(header) or "(none)"}]']
-    for row in table.get('rows') or []:
-        if header and len(header) == len(row):
-            lines.append(' | '.join(f'{h}: {v}' if h else v for h, v in zip(header, row)))
-        else:
-            lines.append(' | '.join(row))
-    return '\n'.join(lines)
-
-
-def _with_tables(text, tables, page_number):
-    for table in tables or []:
-        marker = _placeholder(table['index'])
-        rendered = render_table(table, page_number)
-        text = text.replace(marker, rendered) if marker in text else f'{text}\n{rendered}'.strip()
-    return text

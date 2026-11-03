@@ -1504,7 +1504,7 @@ def _valid_fact(**overrides):
         'pillar': 'aiqif_c4',
         'owner_role': 'hr_officer',
         'source_page': '1',
-        'source_snippet': 'The institution has 42 faculty members.',
+        'source_snippet': 'The institution has 42 faculty members',
         'confidence_score': 0.96,
         'confidence_reason': 'Explicitly stated in the source.',
     }
@@ -1583,7 +1583,7 @@ class OpenAIFactExtractorTests(TestCase):
     def test_fact_with_missing_evidence_snippet_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(source_snippet='')]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_fact_citing_a_page_outside_the_chunk_is_dropped(self):
@@ -1591,36 +1591,35 @@ class OpenAIFactExtractorTests(TestCase):
         actually given (it only saw page 1) must not be trusted."""
         service = self._fake_service(results=[{'facts': [_valid_fact(source_page='99')]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
-    def test_fact_with_null_source_page_is_still_accepted(self):
-        """'Prefer null over guessing' -- an honestly-unknown page shouldn't
-        be penalized the way a fabricated one is."""
+    def test_null_source_page_is_repaired_from_a_unique_exact_quote(self):
+        """A unique quotation identifies its page without model inference."""
         service = self._fake_service(results=[{'facts': [_valid_fact(source_page=None)]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(len(facts), 1)
-        self.assertEqual(facts[0]['source_page'], '')
+        self.assertEqual(facts[0]['source_page'], '1')
 
     # -- structured output / confidence validation ---------------------------
 
     def test_fact_with_invalid_data_type_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(data_type='integer')]}])  # not a real choice
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_fact_with_invalid_pillar_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(pillar='not_a_real_pillar')]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_fact_with_invalid_owner_role_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(owner_role='super_admin')]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_malformed_top_level_response_is_treated_like_any_other_chunk_failure(self):
@@ -1632,19 +1631,19 @@ class OpenAIFactExtractorTests(TestCase):
         the_others for why single-chunk failures shouldn't be fatal)."""
         service = self._fake_service(results=[{'not_facts': []}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_confidence_out_of_range_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(confidence_score=1.5)]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_negative_confidence_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(confidence_score=-0.2)]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_boundary_confidence_values_are_accepted(self):
@@ -1653,14 +1652,14 @@ class OpenAIFactExtractorTests(TestCase):
             _valid_fact(field_key='b', confidence_score=1.0),
         ]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual({f['field_key'] for f in facts}, {'a', 'b'})
 
     # -- Django-side value typing --------------------------------------------
 
     def test_percentage_value_is_normalized_to_a_number(self):
         service = self._fake_service(results=[{'facts': [
-            _valid_fact(field_key='placement_rate', data_type='percentage', value='87%'),
+            _valid_fact(field_key='placement_rate', data_type='percentage', value='87%', source_snippet='Placement rate: 87%.'),
         ]}])
         extractor = OpenAIFactExtractor(openai_service=service)
         facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Placement rate: 87%.')]})
@@ -1670,7 +1669,7 @@ class OpenAIFactExtractorTests(TestCase):
         service = self._fake_service(results=[{'facts': [
             _valid_fact(
                 field_key='ai_software', data_type='list', pillar='aiqif_c6',
-                owner_role='lab_admin', value='TensorFlow; PyTorch; MATLAB',
+                owner_role='lab_admin', value='TensorFlow; PyTorch; MATLAB', source_snippet='Licensed AI software text.',
             ),
         ]}])
         extractor = OpenAIFactExtractor(openai_service=service)
@@ -1680,7 +1679,7 @@ class OpenAIFactExtractorTests(TestCase):
     def test_unparseable_number_is_dropped_not_coerced(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(value='approximately forty-two')]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     # -- multiple pages / multiple chunks / duplicates -----------------------
@@ -1694,7 +1693,7 @@ class OpenAIFactExtractorTests(TestCase):
             ),
         ]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        pages = {'pages': [_page(1, 'Faculty section text.'), _page(2, 'Enrolment section text.')]}
+        pages = {'pages': [_page(1, 'The institution has 42 faculty members.'), _page(2, 'Total student enrolment is 1200.')]}
 
         facts = extractor.extract_facts(self.document, pages)
 
@@ -1715,7 +1714,7 @@ class OpenAIFactExtractorTests(TestCase):
         self.assertIn('chunk 1 of 3', first_call_content)
 
     def test_unscoped_observations_on_different_pages_are_preserved(self):
-        pages = {'pages': [_page(i, f'Page {i} content. ' * 10) for i in range(1, 3)]}
+        pages = {'pages': [_page(1, 'The institution has 42 faculty members. Weaker mention.' * 2), _page(2, 'The institution has 42 faculty members. Clear, explicit statement.' * 2)]}
         service = self._fake_service(results=[
             {'facts': [_valid_fact(source_page='1', confidence_score=0.6, source_snippet='Weaker mention.')]},
             {'facts': [_valid_fact(source_page='2', confidence_score=0.95, source_snippet='Clear, explicit statement.')]},
@@ -1742,10 +1741,10 @@ class OpenAIFactExtractorTests(TestCase):
         service = self._fake_service(side_effect=RecoverableExtractionError('rate limited'))
         extractor = OpenAIFactExtractor(openai_service=service)
         with self.assertRaises(RecoverableExtractionError):
-            extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+            extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
 
     def test_permanent_error_on_one_chunk_does_not_block_the_others(self):
-        pages = {'pages': [_page(i, f'Page {i} content. ' * 10) for i in range(1, 3)]}
+        pages = {'pages': [_page(1, 'The institution has 42 faculty members. Weaker mention.' * 2), _page(2, 'The institution has 42 faculty members. Clear, explicit statement.' * 2)]}
         service = self._fake_service(side_effect=[
             PermanentExtractionError('malformed response for this chunk'),
             {'facts': [_valid_fact(source_page='2')]},
