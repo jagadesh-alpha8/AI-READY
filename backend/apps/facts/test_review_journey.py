@@ -350,7 +350,7 @@ class ReviewJourneyTests(APITestCase):
         self.assertTrue(f.verifications.filter(outcome='verified').exists())
 
     def test_supported_correction_reaches_payload_with_independent_source(self):
-        self.fact(value=0, source_snippet=NEGATIVE)
+        self.fact(value=0, value_text='0', source_snippet=NEGATIVE)
         self.page.text = NEGATIVE; self.page.save()
         source = Document.objects.create(sprint=self.sprint, original_filename='correcting-source.pdf')
         page = DocumentPage.objects.create(document=source, page_number=1, text=POSITIVE)
@@ -362,6 +362,7 @@ class ReviewJourneyTests(APITestCase):
         claim = run.inputs['reviewed_evidence']['claims'][0]
         self.assertEqual(claim['source']['document_id'], str(source.pk))
         self.assertEqual(claim['verification']['grounding'], 'exact')
+        self.assertEqual(claim['verification']['outcome'], 'verified')
         self.assertEqual(claim['decisions'][-1]['action'], 'corrected')
         from apps.scoring.capability.reviewed_evidence import for_context, citation_issue
         sent = for_context(run.inputs['reviewed_evidence'], run.inputs['sources'])

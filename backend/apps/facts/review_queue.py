@@ -165,7 +165,7 @@ def decide(sprint, user, case_id, data):
         allowed, why = ownership.check_fact(user, f)
         if not allowed:
             raise PermissionDenied(why)
-        if evidence_requests.open_request_for(f):
+        if action not in ('defer', 'cannot_establish') and evidence_requests.open_request_for(f):
             raise ValidationError('Decide the existing evidence request first.')
     reason = (data.get('reason') or '').strip()
     if action in ('correct', 'cannot_establish', 'defer') and not reason:
@@ -206,6 +206,7 @@ def decide(sprint, user, case_id, data):
                     f.original_source_page, f.original_source_snippet = f.source_page, f.source_snippet
                 f.value, f.normalized_value = data['value'], None
                 f.value_origin = 'corrected'
+                f.value_text, f.derivation = '', {}
                 from apps.documents.models import Document
                 doc_id = data.get('source_document_id')
                 doc = Document.objects.filter(sprint=sprint, pk=doc_id).first() if doc_id else None
