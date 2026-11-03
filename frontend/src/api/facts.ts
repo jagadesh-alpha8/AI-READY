@@ -112,6 +112,7 @@ export interface VerificationGroup {
 }
 
 export interface VerificationWorkload {
+  current?: { automatically_accepted: number; awaiting_decision: number; resolved_by_you: number; excluded: number; deferred_cases: number };
   mode: 'shadow' | 'enforce';
   facts: number;
   verified_once: number;

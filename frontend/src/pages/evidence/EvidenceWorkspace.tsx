@@ -3,7 +3,7 @@ import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { useSelectedSprint } from '../../context/SelectedSprintContext';
 import { SelectSprintPrompt } from '../../components/SprintContextBar';
 import { EvidenceIntelligence } from './EvidenceIntelligence';
-import { FactsReview } from '../facts/FactsReview';
+import { ReviewJourney } from '../facts/ReviewJourney';
 import { GapDashboard } from '../gaps/GapDashboard';
 import { ComplianceMapping } from '../compliance/ComplianceMapping';
 import { UploadDataPack } from '../documents/UploadDataPack';
@@ -34,7 +34,7 @@ export function EvidenceWorkspace() {
     <p className="text-sm text-ink-600">Inspect sources and review exceptions in one place. Missing evidence does not establish a capability shortfall.</p>
     <Tabs tabs={evidenceTabs} value={tab} onChange={(next) => setParams({ tab: next })} />
     {tab === 'documents' && <EvidenceIntelligence />}
-    {tab === 'review' && <FactsReview />}
+    {tab === 'review' && <ReviewJourney />}
     {tab === 'gaps' && <GapDashboard />}
     {tab === 'accreditation' && <ComplianceMapping />}
   </div>;

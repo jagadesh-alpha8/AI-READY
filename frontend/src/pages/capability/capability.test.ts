@@ -288,7 +288,7 @@ describe('capability presentation and explicit spending', () => {
     assert.deepEqual(calls, []);
     await ui.close();
   });
-  it('confirms a source identity before explicitly starting a budgeted run', async () => {
+  it('routes identity review through the shared question budget before spending', async () => {
     const ui = await mount();
     const submitted: any[][] = [];
     hooks.startRun = async (...values) => {
@@ -300,12 +300,11 @@ describe('capability presentation and explicit spending', () => {
     await act(async () => form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })));
     await flush();
     assert.equal(submitted.length, 1);
-    const confirm = [...ui.container.querySelectorAll('button')].find((b) => b.textContent === 'Assess records from Synthetic University')!;
-    assert.ok(confirm);
-    await act(async () => confirm.click());
-    await flush();
-    assert.deepEqual(submitted[1][1], { scope_mode: 'default', confirmed_source_institution: 'Synthetic University' });
-    assert.notEqual(submitted[0][2], submitted[1][2]);
+    const link = [...ui.container.querySelectorAll('a')].find((a) => a.textContent === 'Review source identity')!;
+    assert.ok(link);
+    assert.equal(link.getAttribute('href'), '/sprint/sprint1/evidence?tab=review');
+    assert.match(ui.container.textContent || '', /25-question budget/);
+    assert.equal(submitted.length, 1);
     await ui.close();
   });
   it('shows that a saved old assessment needs a fresh run', async () => {

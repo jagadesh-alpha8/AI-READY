@@ -31,7 +31,7 @@ jobs:
 
       - run: pip install -r requirements/development.txt
 
-      - run: python manage.py test
+      - run: python manage.py test --parallel 4
         env:
           SECRET_KEY: ci-test-secret-key
           JWT_SECRET_KEY: ci-test-jwt-secret-key
@@ -72,7 +72,9 @@ jobs:
 
       - run: pip install -r requirements/development.txt
 
-      - run: python manage.py test
+      - run: |
+          python manage.py test apps.scoring.test_review_snapshot_concurrency apps.scoring.test_capability_storage apps.facts.test_review_journey
+          python manage.py test --parallel 4
         env:
           DATABASE_URL: postgres://ci:ci@localhost:5432/ai_ready
           SECRET_KEY: ci-test-secret-key
@@ -90,11 +92,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
       - run: npm ci
+      - run: npm test
       - run: npm run build
 
   build-and-push:

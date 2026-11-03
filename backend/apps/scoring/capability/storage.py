@@ -8,7 +8,7 @@ replacements must use existing version lineage; never guess replacement by conte
 import hashlib
 import json
 
-from django.db import transaction
+from django.db import connection, transaction
 
 from apps.documents.models import Document
 from apps.extraction.models import DocumentPage
@@ -50,11 +50,15 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
                scope_mode=None, refines_run_id=None, confirmed_source_institution=None):
     from .scope import intent, resolve
     mode, requested = intent(population, reference_period, scope_mode, refines_run_id, confirmed_source_institution)
-    sprint = Sprint.objects.select_related('institution').get(pk=sprint_id, institution_id=institution_id)
-    institution = sprint.institution
-    manifest, sources = evidence_snapshot(sprint)
-    profile = {'name': institution.name, 'institution_type': institution.institution_type,
-               'student_count': institution.student_count, 'faculty_count': institution.faculty_count}
+    sprint, manifest, sources, reviewed, profile = freeze_boundary(institution_id, sprint_id)
+    batch = reviewed.get('review_batch')
+    if batch and not requested.get('confirmed_source_institution'):
+        for identity_case in reversed(batch['cases']):
+            identity_decision = batch['decisions'].get(identity_case['id'])
+            if (identity_case.get('kind') == 'identity' and identity_case.get('source_hash') == digest(manifest)
+                    and identity_decision and identity_decision['action'] == 'identity'):
+                requested['confirmed_source_institution'] = identity_decision['request']['source_institution']
+                break
     try:
         scope = resolve(profile=profile, sources=sources, requested=requested, mode=mode)
     except ValueError as exc:
@@ -71,7 +75,7 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
             raise ValueError('Refinement requires a completed assessment in this sprint.')
     rubric = release()
     from .evaluation import PROMPT_VERSION, RETRIEVAL_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA
-    inputs = {'institution_id': str(institution.pk), 'sprint_id': str(sprint.pk),
+    inputs = {'institution_id': str(sprint.institution_id), 'sprint_id': str(sprint.pk),
               'profile': profile, 'scope': scope,
               'refines_run_id': str(refines_run_id) if refines_run_id else None,
               'population': scope['population_label'], 'reference_period': scope['period_label'],
@@ -81,7 +85,7 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
               'assessment_protocol': {'prompt_version': PROMPT_VERSION, 'retrieval_version': RETRIEVAL_VERSION,
                                       'prompt_hash': hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
                                       'schema_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest()},
-              'manifest': manifest, 'sources': sources,
+              'manifest': manifest, 'sources': sources, 'reviewed_evidence': reviewed,
               'execution_policy': execution_policy or {}}
     run = CapabilityRun.objects.create(sprint=sprint, inputs=inputs, inputs_hash=digest(inputs))
     CapabilityRunEvent.objects.create(run=run, state='queued')
@@ -140,7 +144,8 @@ def publish(*, institution_id, run_id, evaluation, inference):
     for indicator in rubric['indicators']:
         subset = [dict(r) for r in rows
                   if r['condition_id'] in {c['id'] for c in indicator['conditions']}]
-        checked = validate_decisions(indicator, {'conditions': subset}, run.inputs['sources'])
+        checked = validate_decisions(indicator, {'conditions': subset}, run.inputs['sources'],
+                                     reviewed_evidence=run.inputs.get('reviewed_evidence'))
         # Revalidation must not erase why the evaluator already downgraded a row.
         original = {r['condition_id']: r for r in subset}
         for row in checked:
@@ -164,3 +169,50 @@ def candidate_requirements(run):
     citation-only matching. Context selection still bounds each indicator's input.
     """
     return [c['id'] for i in run.inputs['rubric']['indicators'] for c in i['conditions']]
+
+
+def boundary_revision(sprint_id):
+    """One PostgreSQL statement witnesses every mutable input at one MVCC instant.
+
+    Comparing the full rows, not only timestamps/counts, catches page corrections,
+    deletions and review disposition changes. JSONB gives deterministic key order.
+    No locks or external calls. SQLite already has one atomic read snapshot.
+    """
+    if connection.vendor != 'postgresql':
+        return None
+    tables = [
+        ('documents_document', 't.sprint_id = %s'),
+        ('extraction_documentpage', 't.document_id IN (SELECT id FROM documents_document WHERE sprint_id = %s)'),
+        ('facts_extractedfact', 't.sprint_id = %s'),
+        ('facts_factreviewhistory', 't.fact_id IN (SELECT id FROM facts_extractedfact WHERE sprint_id = %s)'),
+        ('gaps_gapitem', 't.sprint_id = %s'),
+        ('gaps_gapevent', 't.gap_id IN (SELECT id FROM gaps_gapitem WHERE sprint_id = %s)'),
+        ('facts_reviewbatch', 't.sprint_id = %s'),
+        ('institutions_institution', 't.id IN (SELECT institution_id FROM sprints_sprint WHERE id = %s)'),
+    ]
+    parts = [f'(SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM {table} t WHERE {where})'
+             for table, where in tables]
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT md5(jsonb_build_array(' + ','.join(parts) + ')::text)',
+                       [str(sprint_id)] * len(parts))
+        return cursor.fetchone()[0]
+
+
+def freeze_boundary(institution_id, sprint_id):
+    from .reviewed_evidence import snapshot
+    # With PostgreSQL READ COMMITTED an outer caller may already have read rows.
+    # A single-statement witness before/after copying proves a stable boundary;
+    # retry boundedly if any transaction committed an input change during it.
+    for _ in range(3):
+        before = boundary_revision(sprint_id)
+        sprint = Sprint.objects.select_related('institution').get(pk=sprint_id, institution_id=institution_id)
+        manifest, sources = evidence_snapshot(sprint)
+        reviewed = snapshot(sprint)
+        institution = sprint.institution
+        profile = {'name': institution.name, 'institution_type': institution.institution_type,
+                   'student_count': institution.student_count, 'faculty_count': institution.faculty_count}
+        if before == boundary_revision(sprint_id):
+            return sprint, manifest, sources, reviewed, profile
+    from rest_framework.exceptions import ValidationError
+    raise ValidationError({'code': 'evidence_changed_during_snapshot',
+                           'detail': 'Evidence changed repeatedly while it was being copied. Retry the explicit assessment start; no model work was dispatched.'})

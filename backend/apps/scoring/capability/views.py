@@ -93,8 +93,14 @@ class RunView(APIView):
         from .recommendations import build_inputs
         plan = build_inputs(execution.run, completed, {}) if completed else None
         from .diagnostics import explain
+        from .reviewed_evidence import snapshot
+        from .storage import digest
+        saved_review = execution.run.inputs.get('reviewed_evidence')
+        current_review = snapshot(execution.sprint)
         return Response({**summary(execution), 'deterministic_plan': plan,
             'diagnostics': explain(execution.run.inputs, completed.payload) if completed else None,
+            'reviewed_evidence': saved_review,
+            'review_changes_since_assessment': digest(saved_review) != digest(current_review),
             'inputs_hash': execution.run.inputs_hash,
             'population': execution.run.inputs['population'], 'profile': execution.run.inputs['profile'],
             'source_manifest': execution.run.inputs['manifest'],

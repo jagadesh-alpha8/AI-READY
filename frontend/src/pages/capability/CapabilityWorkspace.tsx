@@ -506,8 +506,8 @@ function Workspace({ sprint, mode }: { sprint: string; mode: Mode }) {
             </button>
             <ErrorMessage message={error} />
             {identityChoices.length > 0 && <div className="panel-muted space-y-2" role="group" aria-label="Confirm source institution">
-              <p>Confirm that these records should be assessed for the selected source institution. The saved profile name stays unchanged. Starting the assessment uses model credits.</p>
-              {identityChoices.map((name) => <button key={name} type="button" className="btn-secondary block" disabled={busy} onClick={(event) => start(event, name)}>Assess records from {name}</button>)}
+              <p>Source institution identity needs a decision. Resolve it within the initial review questions so it counts toward the same 25-question budget.</p>
+              <a className="btn-secondary inline-block" href={`/sprint/${sprint}/evidence?tab=review`}>Review source identity</a>
             </div>}
           </form>
         </details>
@@ -588,6 +588,7 @@ function RunWorkspace({
       <section className="glass-card p-4">
         <h2 className="font-bold">{data.scope?.institution?.assessed_name || data.profile.name}</h2>
         {data.current_rubric_version && (data.rubric_version !== data.current_rubric_version || data.assessment_protocol_current === false) && <p role="status" className="panel-muted border border-warning mt-3">This saved assessment uses the earlier scoring method or evaluation protocol ({data.rubric_version}). Start a new evidence assessment above to use {data.current_rubric_version} with the current retrieval and prompts. This historical result stays unchanged.</p>}
+        {data.review_changes_since_assessment && <p role="status" className="panel-muted border border-warning mt-3">Evidence or review decisions changed after this assessment was saved. Start a fresh assessment to include them. This result remains frozen.</p>}
         <p>
           {data.population} · {data.reference_period} · {data.status}
         </p>

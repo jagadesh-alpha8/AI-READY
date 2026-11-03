@@ -158,3 +158,16 @@ class CapabilityStorageTests(TestCase):
         self.assertGreater(result['lower'], 0)
         self.assertEqual(result['upper'], 100)
         self.assertEqual(len(event.payload['records']), 216)
+
+    def test_changed_boundary_retries_before_creating_run_and_bounds_repeated_churn(self):
+        from unittest.mock import patch
+        from rest_framework.exceptions import ValidationError
+        from .models import CapabilityRun
+        with patch('apps.scoring.capability.storage.boundary_revision', side_effect=['old', 'new', 'new', 'new']) as revision:
+            self.make_run()
+        self.assertEqual(revision.call_count, 4)
+        count = CapabilityRun.objects.count()
+        with patch('apps.scoring.capability.storage.boundary_revision', side_effect=['a', 'b', 'c', 'd', 'e', 'f']):
+            with self.assertRaises(ValidationError):
+                self.make_run()
+        self.assertEqual(CapabilityRun.objects.count(), count)

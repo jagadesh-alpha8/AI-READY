@@ -40,7 +40,15 @@ def workload(sprint):
     reversed_ids = set(overrides.values_list('fact_id', flat=True)) & auto_fact_ids
     decisions = Counter(facts.values_list('automation_decision', flat=True))
     outcomes = Counter(facts.values_list('verification_status', flat=True))
+    statuses = Counter(facts.values_list('status', flat=True))
+    from apps.facts.models import ReviewBatch
+    batch = ReviewBatch.objects.filter(sprint=sprint).first()
+    deferred = sum(d['action'] in ('defer', 'cannot_establish') for d in batch.decisions.values()) if batch else 0
     return {
+        'current': {'automatically_accepted': facts.filter(status__in=['confirmed', 'corrected'], id__in=auto_fact_ids).count(),
+                    'awaiting_decision': statuses['extracted'] + statuses['evidence_requested'],
+                    'resolved_by_you': facts.filter(status__in=['confirmed', 'corrected'], reviewed_by__isnull=False).exclude(id__in=auto_fact_ids).count(),
+                    'excluded': statuses['rejected'], 'deferred_cases': deferred},
         'mode': policy.mode(),
         'facts': facts.count(),
         'verified_once': facts.exclude(verification_status='').count(),

@@ -71,6 +71,7 @@ class CapabilityReportView(RunView):
             'run_id': str(run.pk), 'assessment_event_id': event.pk, 'inputs_hash': run.inputs_hash,
             'profile': run.inputs['profile'], 'population': run.inputs['population'], 'rubric': run.inputs['rubric'],
             'reference_period': run.inputs['reference_period'], 'scope': run.inputs.get('scope'),
+            'reviewed_evidence': run.inputs.get('reviewed_evidence'),
             'refines_run_id': run.inputs.get('refines_run_id'), 'source_manifest': run.inputs['manifest'],
             'assessment_protocol': run.inputs.get('assessment_protocol'),
             'assessment': event.payload, 'recommendation': recommendation,
