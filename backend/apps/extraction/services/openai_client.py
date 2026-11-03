@@ -318,29 +318,31 @@ def _message_content(response):
         return ''
 
 
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('Duplicate JSON object member.')
+        result[key] = value
+    return result
+
+
 def _loads_lenient(content):
-    """Parse a model's JSON reply, tolerating the wrappers models add when
-    nothing enforces the schema: a ```json fence, or a sentence before or
-    after the JSON. Plain JSON parses on the first try, exactly as before."""
-    try:
-        return json.loads(content)
-    except ValueError:
-        pass
+    """Allow prose/fences around one complete JSON value, never salvage inner fragments.
+
+    Duplicate members must fail rather than silently discarding earlier decisions.
+    An invalid outer value cannot be replaced with an unrelated valid nested object.
+    """
     text = content.strip()
     if text.startswith('```'):
         text = text.split('\n', 1)[1] if '\n' in text else ''
         text = text.rsplit('```', 1)[0].strip()
-        try:
-            return json.loads(text)
-        except ValueError:
-            pass
-    # First '{' or '[' that starts a complete JSON value.
-    decoder = json.JSONDecoder()
-    for index, char in enumerate(text):
-        if char in '{[':
-            try:
-                value, _end = decoder.raw_decode(text, index)
-                return value
-            except ValueError:
-                continue
-    return json.loads(content)  # re-raise the original, clearest error
+    decoder = json.JSONDecoder(object_pairs_hook=_unique_json_object)
+    starts = [i for i, char in enumerate(text) if char in '{[']
+    if starts:
+        # Do not keep scanning inside a malformed or truncated outer response.
+        value, end = decoder.raw_decode(text, starts[0])
+        if text[end:].lstrip().startswith(('{', '[')):
+            raise ValueError('Multiple JSON values in one response.')
+        return value
+    return json.loads(text, object_pairs_hook=_unique_json_object)

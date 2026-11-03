@@ -33,7 +33,7 @@ New numerical results expose independent aggregation and badge policy. Fractiona
 1. Deploy the updated A1 commit to both the web process and assessment worker; restart both so their engine/prompt protocols agree. No database migration or new dependency is introduced.
 2. Open the scoring workspace and **start a new assessment**. Refreshing or selecting an old 0.2 result cannot test this fix. A new start uses a new idempotency key; ordinary request retries remain idempotent.
 3. If prompted, confirm the correct source institution or correct the uploaded documents/profile. The preflight rejection spends no model credits.
-4. Verify that the new run's `rubric_version` is `AIQIF-CAP-0.3`, result engine is `capability-engine-0.3.0`, prompt is `AIQIF-EVAL-0.7` and retrieval is `assertion-balanced-windows-0.3`.
+4. Verify that the new run's `rubric_version` is `AIQIF-CAP-0.3`, result engine is `capability-engine-0.3.0`, prompt is `AIQIF-EVAL-0.8` and retrieval is `assertion-balanced-windows-0.3`.
 5. Inspect supported enabling assertions, actual source periods, validation failures and per-indicator bounds. A supported assertion must move its lower bound. A fully unresolved assertion set must stay unresolved. Quote/provenance/identity/period failures still cannot receive automatic credit.
 
 Tests exercise the actual default evaluator and publication path with synthetic evidence, identity confirmation before dispatch, fresh/legacy method behavior, exact windows, numerical extremes, plan deltas and unchanged history. They are not a fresh live-provider assessment of institutional PDFs. The SWE must run that final provider/deployment test and retain its new export; a historical export is not evidence of this version's behavior.

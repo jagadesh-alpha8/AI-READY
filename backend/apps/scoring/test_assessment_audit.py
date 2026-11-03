@@ -24,17 +24,21 @@ class AssessmentCauseAuditTests(SimpleTestCase):
 
     def test_exact_schema_binds_all_condition_ids_and_supplied_source_ids(self):
         schema = indicator_schema(self.indicator, self.sources)
-        array = schema['properties']['conditions']
-        self.assertEqual(array['minItems'], 6)
-        self.assertEqual(array['maxItems'], 6)
-        self.assertEqual(array['items']['properties']['condition_id']['enum'], self.ids)
-        self.assertEqual(array['items']['properties']['citations']['items']['properties']['source_id']['enum'], ['page1'])
+        keyed = schema['properties']['conditions']
+        self.assertEqual(keyed['required'], self.ids)
+        self.assertFalse(keyed['additionalProperties'])
+        self.assertEqual(set(keyed['properties']), set(self.ids))
+        self.assertEqual(keyed['properties'][self.ids[0]]['properties']['citations']['items']['properties']['source_id']['enum'], ['page1'])
         from jsonschema import validate, ValidationError
+        def value(cid):
+            row = self.row(cid)
+            row.pop('condition_id')
+            return row
         with self.assertRaises(ValidationError):
-            validate({'conditions': [self.row(self.ids[0])]}, schema)
+            validate({'conditions': {self.ids[0]: value(self.ids[0])}}, schema)
         with self.assertRaises(ValidationError):
-            validate({'conditions': [self.row(cid) for cid in self.ids[:-1]] + [self.row('made-up')]}, schema)
-        validate({'conditions': [self.row(cid) for cid in self.ids]}, schema)
+            validate({'conditions': {**{cid: value(cid) for cid in self.ids}, 'made-up': value(self.ids[0])}}, schema)
+        validate({'conditions': {cid: value(cid) for cid in self.ids}}, schema)
 
     def test_rejected_candidate_and_missing_ids_remain_auditable_but_never_score(self):
         bad = self.row(self.ids[0], state='met', scope_supported=True, period_supported=True,
@@ -53,7 +57,7 @@ class AssessmentCauseAuditTests(SimpleTestCase):
         outer = self
         class Fake:
             def extract_structured_data(self, **kwargs):
-                ids = kwargs['response_schema']['properties']['conditions']['items']['properties']['condition_id']['enum']
+                ids = kwargs['response_schema']['properties']['conditions']['required']
                 return {'conditions': [outer.row(cid) for cid in ids]}
         before = deepcopy(self.sources)
         evaluated = evaluate(self.sources, service=Fake(), population='Institution', reference_period='Source-specific')
@@ -62,7 +66,7 @@ class AssessmentCauseAuditTests(SimpleTestCase):
         self.assertTrue(all(t['response_audit']['returned_decisions'] == 6 for t in evaluated['traces']))
         self.assertFalse(any(t['response_audit']['missing_ids'] for t in evaluated['traces']))
         self.assertTrue(all(t['schema_hash'] != t['schema_template_hash'] for t in evaluated['traces']))
-        self.assertTrue(all(t['schema_binding_version'] == 'indicator-ids-and-source-ids-0.1' for t in evaluated['traces']))
+        self.assertTrue(all(t['schema_binding_version'] == 'required-condition-properties-0.2' for t in evaluated['traces']))
         self.assertEqual(self.sources, before)
 
     def fixture(self):
