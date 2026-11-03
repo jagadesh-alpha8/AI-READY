@@ -458,25 +458,41 @@ class OpenAIFactExtractor(FactExtractor):
         valid_page_numbers = {str(page['page_number']) for page in chunk_pages}
         chunk_text = '\n'.join(page.get('text') or '' for page in chunk_pages)
         out = []
-        checks = getattr(self, 'report', {}).setdefault('quotation_checks', {'accepted': 0, 'repaired': 0, 'rejected': 0})
+        # accepted includes repaired; rejected_examples is bounded and persisted on the job (pipeline.py).
+        checks = getattr(self, 'report', {}).setdefault('quotation_checks', {
+            'accepted': 0, 'repaired': 0, 'rejected': 0, 'other_rejected': 0, 'rejected_examples': []})
         for raw_fact in raw_facts:
+            quotation_failure = False
+            original_page = raw_fact.get('source_page') if isinstance(raw_fact, dict) else None
             try:
-                fact = self._validate_fact(raw_fact, valid_page_numbers, chunk_text)
+                # A page outside the chunk is a wrong citation, not a wrong fact: let the quotation repair it.
+                candidate = ({**raw_fact, 'source_page': None} if isinstance(original_page, str)
+                             and original_page not in valid_page_numbers else raw_fact)
+                fact = self._validate_fact(candidate, valid_page_numbers, chunk_text)
                 quote = ' '.join(fact['source_snippet'].split())
                 matching = [str(p['page_number']) for p in chunk_pages
                             if quote in ' '.join((p.get('text') or '').split())]
                 if fact['source_page'] not in matching:
                     if len(matching) == 1:
                         fact['tagging_notes'].append({'kind': 'citation_page_repaired',
-                            'original_page': fact['source_page'], 'page': matching[0]})
+                            'original_page': original_page if candidate is not raw_fact else fact['source_page'],
+                            'page': matching[0]})
                         fact['source_page'] = matching[0]
                         checks['repaired'] += 1
                     else:
-                        checks['rejected'] += 1
-                        raise FactValidationError('source_snippet is not an exact quotation on its cited page; no unique repair.')
+                        quotation_failure = True
+                        raise FactValidationError(
+                            'source_snippet is not an exact quotation on its cited page; no unique repair.'
+                            if not matching else 'source_snippet occurs on several supplied pages, none of them the cited one.')
                 checks['accepted'] += 1
                 out.append(fact)
             except FactValidationError as exc:
+                checks['rejected' if quotation_failure else 'other_rejected'] += 1
+                if len(checks['rejected_examples']) < 50:
+                    raw = raw_fact if isinstance(raw_fact, dict) else {}
+                    checks['rejected_examples'].append({
+                        'chunk': chunk_index, 'field_key': raw.get('field_key'), 'cited_page': raw.get('source_page'),
+                        'reason': str(exc)[:200], 'quotation': ' '.join(str(raw.get('source_snippet') or '').split())[:300]})
                 logger.warning(
                     'fact_extractor.fact_rejected document_id=%s chunk=%d field_key=%r error=%s',
                     document.id, chunk_index,

@@ -11,6 +11,11 @@ def _placeholder(index):
     return 'AIOSTABLEMARKER' + ''.join(chr(97 + int(c)) for c in str(index))
 
 
+#: A header cell longer than this is a paragraph the table detector took as a header (an SSR metric
+#: question, say), not a column label: it is printed once in the title line, never before every row.
+LABEL_MAX_CHARS = 60
+
+
 def render_table(table, page_number):
     """A table as text the AI reads row by row, with its header and page, e.g.
     [Table 1 on page 5 -- columns: Year | Students]
@@ -19,7 +24,7 @@ def render_table(table, page_number):
     lines = [f'[Table {table["index"]} on page {page_number} -- columns: {" | ".join(header) or "(none)"}]']
     for row in table.get('rows') or []:
         if header and len(header) == len(row):
-            lines.append(' | '.join(f'{h}: {v}' if h else v for h, v in zip(header, row)))
+            lines.append(' | '.join(f'{h}: {v}' if h and len(h) <= LABEL_MAX_CHARS else v for h, v in zip(header, row)))
         else:
             lines.append(' | '.join(row))
     return '\n'.join(lines)

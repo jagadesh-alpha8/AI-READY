@@ -431,6 +431,9 @@ export const AIProcessingMonitor: React.FC = () => {
                               : `${documentFactCount} fact${documentFactCount === 1 ? '' : 's'} extracted`}
                           </p>
                         )}
+                        {status === 'completed' && !partial && job?.extraction_warnings
+                          .filter((w) => w.kind === 'quotation_checks' && (Number(w.rejected) || Number(w.other_rejected)))
+                          .map((w, i) => <p key={i} className="text-xs text-ink-500 mt-0.5">{w.detail}</p>)}
                         {job?.status === 'failed' && job.error_message && (
                           <p className="text-xs text-danger mt-0.5">
                             {humanizeExtractionError(job.error_message, false)}

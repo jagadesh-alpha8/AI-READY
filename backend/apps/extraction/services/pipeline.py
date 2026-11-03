@@ -312,7 +312,14 @@ class ExtractionPipeline:
                 issues.append({'kind': 'unreadable_pages', 'page_numbers': numbers[:200],
                                'detail': f'{len(other)} page(s) had no readable text, so nothing was extracted '
                                          f'from them.', 'pages': other[:50]})
-        job.extraction_warnings = issues
+        checks = report.get('quotation_checks') or {}
+        dropped = checks.get('rejected', 0) + checks.get('other_rejected', 0)
+        # Dropped facts are recorded, never silent; they do not make the reading of the document partial.
+        job.extraction_warnings = issues + ([{
+            'kind': 'quotation_checks', **checks,
+            'detail': f'{dropped} extracted fact(s) were dropped: {checks.get("rejected", 0)} quotation(s) not found on '
+                      f'the cited page and {checks.get("other_rejected", 0)} other validation failure(s). '
+                      f'{checks.get("repaired", 0)} citation page(s) were repaired.'}] if dropped or checks.get('repaired') else [])
         job.chunks_total = report.get('chunks_total', 0)
         job.chunks_completed = report.get('chunks_completed', 0)
         job.completeness = ExtractionJob.Completeness.PARTIAL if issues else ExtractionJob.Completeness.COMPLETE

@@ -75,7 +75,12 @@ FAKE_CLASSIFICATION_RESULT = {
 }
 
 
-def make_pdf_bytes(page_texts=('Sample document text for extraction pipeline tests.',)):
+# Extraction keeps a fact only when its quotation is printed on its page, so the default page prints the
+# sentence the shared fixture fact (_valid_fact) quotes.
+DEFAULT_PAGE = 'Sample document text for extraction pipeline tests.\nThe institution has 42 faculty members.'
+
+
+def make_pdf_bytes(page_texts=(DEFAULT_PAGE,)):
     """A real, pdfplumber-readable PDF -- one page per string in
     `page_texts`; an empty string produces a page with no text drawn on it
     (simulating a blank/scanned page)."""
@@ -104,7 +109,7 @@ def make_scanned_pdf_bytes():
     return bytes(pdf.output())
 
 
-def make_pdf(name='doc.pdf', page_texts=('Sample document text for extraction pipeline tests.',)):
+def make_pdf(name='doc.pdf', page_texts=(DEFAULT_PAGE,)):
     return SimpleUploadedFile(name, make_pdf_bytes(page_texts), content_type='application/pdf')
 
 
@@ -1586,13 +1591,17 @@ class OpenAIFactExtractorTests(TestCase):
         facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
-    def test_fact_citing_a_page_outside_the_chunk_is_dropped(self):
-        """The core hallucination guard: a source_page the model wasn't
-        actually given (it only saw page 1) must not be trusted."""
+    def test_fact_citing_a_page_outside_the_chunk_is_repaired_or_dropped(self):
+        """The core hallucination guard: a source_page the model wasn't actually given (it only saw page 1) is
+        never trusted. The quotation decides: printed on exactly one supplied page, the citation moves there;
+        printed on none, the fact is dropped."""
+        pages = {'pages': [_page(1, 'The institution has 42 faculty members.')]}
         service = self._fake_service(results=[{'facts': [_valid_fact(source_page='99')]}])
-        extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
-        self.assertEqual(facts, [])
+        facts = OpenAIFactExtractor(openai_service=service).extract_facts(self.document, pages)
+        self.assertEqual([f['source_page'] for f in facts], ['1'])
+        self.assertIn({'kind': 'citation_page_repaired', 'original_page': '99', 'page': '1'}, facts[0]['tagging_notes'])
+        service = self._fake_service(results=[{'facts': [_valid_fact(source_page='99', source_snippet='There are 99 faculty')]}])
+        self.assertEqual(OpenAIFactExtractor(openai_service=service).extract_facts(self.document, pages), [])
 
     def test_null_source_page_is_repaired_from_a_unique_exact_quote(self):
         """A unique quotation identifies its page without model inference."""
@@ -2054,7 +2063,8 @@ class EndToEndGapAndConflictTests(ExtractionJobTestBase):
         upload = self.client.post(
             f'/api/v1/sprints/{self.sprint.id}/upload-file/',
             {
-                'file': make_pdf(name='doc2.pdf', page_texts=('A second, distinct document for conflict tests.',)),
+                'file': make_pdf(name='doc2.pdf', page_texts=(
+                    'A second, distinct document for conflict tests.\nThere are 47 teaching staff.',)),
                 'document_type': 'aqar_report',
             },
             format='multipart',
@@ -3143,7 +3153,7 @@ class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
         # The evidence stays on the fact; the CRI pillar is untouched by the tags.
         self.assertEqual(
             (faculty['source_document_id'], faculty['source_page'], faculty['source_snippet'], faculty['pillar']),
-            (self.document.id, '1', 'The institution has 42 faculty members.', 'aiqif_c4'),
+            (self.document.id, '1', 'The institution has 42 faculty members', 'aiqif_c4'),  # the literal quotation
         )
         self.assertEqual(facts['ai_labs']['aiqif_mapping_status'], 'needs_review')
         self.assertEqual((facts['campus_area']['aiqif_mapping_status'], facts['campus_area']['aiqif_mappings']),
@@ -3259,7 +3269,8 @@ class DocumentAnalyzerTests(TestCase):
     def test_one_request_returns_a_validated_classification_and_facts(self):
         analyzer = self._analyzer([{
             'classification': dict(FAKE_CLASSIFICATION_RESULT),
-            'facts': [_valid_fact(), _valid_fact(field_key='bad', source_page='99')],  # page 99 was not sent
+            # page 99 was not sent, and no supplied page prints this quotation: no page can be repaired
+            'facts': [_valid_fact(), _valid_fact(field_key='bad', source_page='99', source_snippet='A sentence no page prints')],
         }], max_chunk_chars=10_000)
         first, facts = self._analyze(analyzer, self._pages('The institution has 42 faculty members.'))
 
@@ -3971,7 +3982,8 @@ class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
     # One short line per page: a line wider than the page is cut off when the PDF is read. Each line is at least
     # PDF_MIN_TEXT_CHARS_PER_PAGE (40) characters, so it is read from the text layer in every environment -- a
     # shorter page counts as a scan, needs OCR / vision (absent in CI) and leaves the document partially read.
-    PAGES = ('Metric 1.1.3: MBA course on Artificial Intelligence.', 'Metric 2.1.2: MBA intake is 120 seats per year.')
+    PAGES = ('Metric 1.1.3: MBA course on Artificial Intelligence.', 'Metric 2.1.2: MBA intake is 120 seats per year.',
+             'Metric 2.1.2: 120 seats in the AI and Data Science programme.')
 
     def setUp(self):
         super().setUp()
@@ -3999,14 +4011,14 @@ class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
         return _valid_fact(**{
             'field_key': 'mba_ai_course', 'field_name': 'MBA AI course', 'value': 'Yes', 'data_type': 'boolean',
             'pillar': 'aiqif_c3', 'fact_kind': 'ai_evidence', 'naac_metric': '1.1.3',
-            'source_snippet': 'The MBA programme includes a compulsory course on Artificial Intelligence for Managers.',
+            'source_snippet': 'MBA course on Artificial Intelligence.',  # printed on page 1 (PAGES)
             'aiqif_indicators': [_indicator('AIQIF-C3.1', 0.5), _indicator('AIQIF-C3.2', 0.9)], **overrides})
 
     def _intake(self, **overrides):
         return _valid_fact(**{
             'field_key': 'mba_approved_intake', 'field_name': 'MBA approved intake', 'value': '120',
             'pillar': 'aiqif_c5', 'fact_kind': 'context', 'naac_metric': '2.1.2',
-            'source_snippet': 'Approved intake for MBA is 120 seats.',
+            'source_page': '2', 'source_snippet': 'MBA intake is 120 seats per year.',  # printed on page 2
             'aiqif_indicators': [_indicator('AIQIF-C3.1', 0.6)], **overrides})
 
     def test_the_crosswalk_decides_the_naac_linked_indicators_of_ai_evidence(self):
@@ -4045,7 +4057,7 @@ class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
         self.assertEqual(queue_counts(self.sprint)['tags'], 2)
 
     def test_ai_words_in_a_context_fact_send_it_to_the_expert(self):
-        fact = self._run(self._intake(field_key='ai_seats',
+        fact = self._run(self._intake(field_key='ai_seats', source_page='3',
                                       source_snippet='120 seats in the AI and Data Science programme.'))['ai_seats']
         self.assertEqual((fact.fact_kind, fact.kind_needs_check), ('context', True))
 

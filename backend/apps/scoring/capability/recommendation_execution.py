@@ -2,6 +2,7 @@
 import json
 from datetime import timedelta
 
+import jsonschema
 from celery import shared_task
 from django.conf import settings
 from django.db import transaction
@@ -15,8 +16,27 @@ from apps.extraction.usage import usage_scope
 from apps.scoring.models import CapabilityRun, RecommendationSnapshot, RecommendationExecution, RecommendationEvent
 from .execution import policy, AssessmentConflict, AssessmentDisabled, BudgetExceeded, ExecutionStopped
 from .provider import MeteredService, UnpricedModel, UsageUnavailable
-from .recommendations import build_inputs, validate_advice, VERSION, PROMPT, SCHEMA
+from .recommendations import build_inputs, validate_advice, processing_failure, VERSION, PROMPT, SCHEMA
 from .storage import digest
+
+
+def deterministic_advice(action, inputs, origin, note=''):
+    """Advice that needs no model: evidence requests, re-assessment of unevaluated requirements, and the
+    labelled fallback for a batch whose model answer failed validation."""
+    requirement = action['requirement']
+    if origin == 'processing_rerun':
+        steps = [f'Re-assess "{requirement}": it was not evaluated ({action["reason"]}). '
+                 'This is a processing result, not a finding about the institution.']
+    elif action['type'] == 'develop_capability':
+        steps = [action['suggestion']]
+    elif action['type'] == 'resolve_contradiction':
+        steps = [f'Reconcile the conflicting sources for "{requirement}" before choosing an intervention.']
+    else:
+        steps = [f"Request evidence for {requirement} covering {inputs['population']} in {inputs['reference_period']}."]
+    row = {'condition_id': action['id'], 'operation': action['operation'], 'steps': steps,
+           'suggested_role': 'Evidence coordinator (suggested)', 'effort': 'unknown', 'dependencies': [],
+           'completion_evidence': action['completion_evidence'], 'basis': action['citations'], 'origin': origin}
+    return {**row, 'fallback_reason': note} if note else row
 
 
 def enabled():
@@ -145,7 +165,10 @@ def generate_recommendations(snapshot_id, task_id):
         # Verified strengths can ground tailored evidence checks without asserting that unknown capability is absent.
         foundation = inputs.get('foundation_plan') or {}
         strengths = bounded_strengths(foundation.get('existing_strengths', []))
-        model_actions = [a for a in inputs['actions'] if a['state'] != 'unknown' or strengths]
+        # A requirement the assessment never evaluated (or whose output failed validation) is a processing
+        # result, not an institutional shortcoming: it is re-assessed, never advised as missing evidence.
+        unevaluated = {a['id'] for a in inputs['actions'] if processing_failure(a)}
+        model_actions = [a for a in inputs['actions'] if a['id'] not in unevaluated and (a['state'] != 'unknown' or strengths)]
         needs_model = bool(model_actions and snapshot.run.inputs['sources'])
         if needs_model:
             pool = get_router_pool()
@@ -154,12 +177,9 @@ def generate_recommendations(snapshot_id, task_id):
         # Unknown actions remain evidence checks. Grounded conditional foundation proposals
         # are separate from verified baseline changes and from mandatory development advice.
         model_ids = {a['id'] for a in model_actions}
-        advice = [{'condition_id': a['id'], 'operation': a['operation'],
-                   'steps': [f"Request evidence for {a['requirement']} covering {inputs['population']} in {inputs['reference_period']}."],
-                   'suggested_role': 'Evidence coordinator (suggested)', 'effort': 'unknown',
-                   'dependencies': [], 'completion_evidence': a['completion_evidence'],
-                   'basis': a['citations'], 'origin': 'deterministic_evidence_request'}
-                  for a in inputs['actions'] if a['state'] == 'unknown' and a['id'] not in model_ids]
+        advice = [deterministic_advice(a, inputs, 'processing_rerun') for a in inputs['actions'] if a['id'] in unevaluated]
+        advice += [deterministic_advice(a, inputs, 'deterministic_evidence_request') for a in inputs['actions']
+                   if a['state'] == 'unknown' and a['id'] not in model_ids | unevaluated]
         with use_lease(lease):
             service = RecommendationMeter(get_ai_service(), execution) if needs_model else None
             with usage_scope(sprint=snapshot.run.sprint, stage='capability_recommendations',
@@ -181,7 +201,14 @@ def generate_recommendations(snapshot_id, task_id):
                         payload['scope'] = {k: scope[k] for k in ('institution', 'mode', 'population_label', 'period_label', 'limitations') if k in scope}
                         response = service.extract_structured_data(system_prompt=PROMPT, user_content=json.dumps(payload),
                             response_schema=SCHEMA, schema_name='capability_advice')
-                        batch = validate_advice(response, actions, established_strengths=strengths)
+                        try:
+                            batch = [{**row, 'origin': 'model_tailored'} for row in validate_advice(
+                                response, actions, established_strengths=strengths, sources=selected_sources)]
+                        except (ValueError, jsonschema.ValidationError) as exc:
+                            # One unusable answer must not discard every other batch: this batch falls back,
+                            # labelled, with a fixed reason (never the model's text).
+                            reason = 'Model advice failed validation: ' + (str(exc) if isinstance(exc, ValueError) else 'schema mismatch.')
+                            batch = [deterministic_advice(a, inputs, 'deterministic_fallback', reason[:200]) for a in actions]
                         save_batch(snapshot_id, indicator, batch)
                         advice.extend(batch)
             with transaction.atomic():

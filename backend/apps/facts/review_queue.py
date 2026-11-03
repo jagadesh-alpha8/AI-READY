@@ -236,9 +236,10 @@ def decide(sprint, user, case_id, data):
 
 
 def identity_case(sprint):
-    from apps.scoring.capability.storage import evidence_snapshot, digest
+    from apps.scoring.capability.storage import evidence_snapshot, digest, label_sources
     from apps.scoring.capability.scope import resolve
     manifest, sources = evidence_snapshot(sprint)
+    sources = label_sources(sources)  # the repeated SSR header naming the institution survives only here
     scope = resolve(profile={'name': sprint.institution.name}, sources=sources, requested={}, mode='default')
     if scope['institution']['identity_status'] != 'mismatch_requires_review':
         return None

@@ -35,8 +35,10 @@ def evidence_snapshot(sprint):
         quote = fact.source_snippet.strip()
         if not quote:
             continue
+        # Contextual tags never count toward coverage; they would also crowd evidence out of retrieval.
         codes = sorted({m.indicator_code for m in fact.aiqif_mappings.all()
                         if m.review_status != 'rejected' and m.auto_decision != 'rejected_precedent'
+                        and m.relationship != 'contextual'
                         and (m.status == 'mapped' or m.review_status == 'confirmed')})
         for number in parse_pages(fact.source_page):
             hints.setdefault((document_id, number), []).append((codes, quote))
@@ -78,7 +80,7 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
                scope_mode=None, refines_run_id=None, confirmed_source_institution=None):
     from .scope import intent, resolve
     mode, requested = intent(population, reference_period, scope_mode, refines_run_id, confirmed_source_institution)
-    sprint, manifest, sources, reviewed, profile = freeze_boundary(institution_id, sprint_id)
+    sprint, manifest, sources, labels, reviewed, profile = freeze_boundary(institution_id, sprint_id)
     batch = reviewed.get('review_batch')
     if batch and not requested.get('confirmed_source_institution'):
         for identity_case in reversed(batch['cases']):
@@ -88,7 +90,7 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
                 requested['confirmed_source_institution'] = identity_decision['request']['source_institution']
                 break
     try:
-        scope = resolve(profile=profile, sources=sources, requested=requested, mode=mode)
+        scope = resolve(profile=profile, sources=labels, requested=requested, mode=mode)
     except ValueError as exc:
         from rest_framework.exceptions import ValidationError
         raise ValidationError(str(exc))
@@ -227,6 +229,18 @@ def boundary_revision(sprint_id):
         return cursor.fetchone()[0]
 
 
+def label_sources(sources):
+    """The same sources carrying their stored page text, for scope label scanning (scope.resolve).
+
+    Evidence cleanup removes repeated page headers, and an SSR's repeated header ("Self Study Report
+    of …") is what names the source institution and lets its footer date the report. The stored text
+    keeps it. Declaration offsets therefore refer to stored page text, not the evidence text.
+    """
+    stored = {str(pk): text for pk, text in DocumentPage.objects.filter(
+        pk__in=[s['id'] for s in sources]).values_list('pk', 'text')}
+    return [{**s, 'text': stored.get(s['id'], s['text'])} for s in sources]
+
+
 def freeze_boundary(institution_id, sprint_id):
     from .reviewed_evidence import snapshot
     # With PostgreSQL READ COMMITTED an outer caller may already have read rows.
@@ -236,12 +250,13 @@ def freeze_boundary(institution_id, sprint_id):
         before = boundary_revision(sprint_id)
         sprint = Sprint.objects.select_related('institution').get(pk=sprint_id, institution_id=institution_id)
         manifest, sources = evidence_snapshot(sprint)
+        labels = label_sources(sources)
         reviewed = snapshot(sprint)
         institution = sprint.institution
         profile = {'name': institution.name, 'institution_type': institution.institution_type,
                    'student_count': institution.student_count, 'faculty_count': institution.faculty_count}
         if before == boundary_revision(sprint_id):
-            return sprint, manifest, sources, reviewed, profile
+            return sprint, manifest, sources, labels, reviewed, profile
     from rest_framework.exceptions import ValidationError
     raise ValidationError({'code': 'evidence_changed_during_snapshot',
                            'detail': 'Evidence changed repeatedly while it was being copied. Retry the explicit assessment start; no model work was dispatched.'})

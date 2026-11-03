@@ -16,6 +16,9 @@ from .capability.recommendation_execution import generate_recommendations, finis
 from .models import RecommendationExecution, RecommendationSnapshot
 
 
+EVALUATED_UNKNOWN = 'Not established in the supplied passages.'
+
+
 @override_settings(SECURE_SSL_REDIRECT=False, CAPABILITY_RECOMMENDATIONS_ENABLED=True,
     CAPABILITY_MAX_HTTP_CALLS=72, CAPABILITY_MAX_COST_USD='2', CAPABILITY_OUTPUT_TOKENS=3000,
     CAPABILITY_REQUEST_TIMEOUT_SECONDS=60, AI_RATE_LIMIT_ENABLED=False, AI_PROCESSING_MODE='single',
@@ -107,6 +110,8 @@ class RecommendationTests(APITestCase):
                               population='All faculty and students', reference_period='2025-26')
         checkpoint(institution_id=self.institution.pk, run_id=self.run.pk, state='running')
         evaluation = evaluate([], service=None, population='All', reference_period='2025-26')
+        for row in evaluation['records']:  # evaluated unknowns, not "never evaluated" processing results
+            row.update(reason=EVALUATED_UNKNOWN, validation_issue='')
         known = next(r for r in evaluation['records'] if r['condition_id'] == 'AIQIF-C6.1.F1')
         known.update(state='met', reason='Synthetic dated computing access.', validation_issue='',
                      scope_supported=True, period_supported=True,
@@ -298,8 +303,12 @@ class RecommendationTests(APITestCase):
             return response
         self.sdk.chat.completions.create.side_effect = fabricate
         self.execute(ex)
-        self.assertEqual(ex.status, 'failed')
-        self.assertTrue(self.detail(ex)['fallback'])
+        # Each batch's unsupported citation drops that batch to labelled deterministic advice; nothing fabricated survives.
+        self.assertEqual(ex.status, 'completed')
+        advice = self.detail(ex)['tailoring']['advice']
+        self.assertTrue(advice)
+        self.assertTrue(all(a['origin'] == 'deterministic_fallback' and a['fallback_reason'] for a in advice))
+        self.assertFalse(any(c.get('source_id') == 'foreign' for a in advice for c in a['basis']))
         actions = ex.snapshot.inputs['actions'][:2]
         rows = self.rows(actions)
         validate_advice({'advice': rows}, actions)
@@ -341,6 +350,7 @@ class RecommendationTests(APITestCase):
         evaluation = evaluate([], service=None, population='All', reference_period='2025-26')
         unknown = {c['id'] for c in self.run.inputs['rubric']['indicators'][0]['conditions']}
         for row in evaluation['records']:
+            row.update(reason=EVALUATED_UNKNOWN, validation_issue='')
             if row['condition_id'] not in unknown:
                 row.update(state='not_met', reason='Scoped shortfall', scope_supported=True, period_supported=True,
                            citations=[{'source_id': str(self.page.pk), 'quote': self.page.text}])
