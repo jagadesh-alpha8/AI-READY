@@ -94,8 +94,11 @@ def page_text(document, page_number, provided=None):
     if provided and page_number in provided:
         return provided[page_number]
     from apps.extraction.models import DocumentPage
-    row = DocumentPage.objects.filter(document=document, page_number=page_number).only('text').first()
-    return row.text if row and row.text else None
+    row = DocumentPage.objects.filter(document=document, page_number=page_number).only('text', 'tables', 'page_number').first()
+    if row is None:
+        return None
+    from apps.extraction.services.evidence_text import evidence_pages
+    return evidence_pages([{'page_number': row.page_number, 'text': row.text, 'tables': row.tables}])[0]['text'] or None
 
 
 def match_quote(quote, text):

@@ -26,7 +26,7 @@ def freeze(job, facts):
     import pymupdf
     document = job.document
     pages = list(DocumentPage.objects.filter(document=document).order_by('page_number').values(
-        'page_number', 'text', 'text_source', 'status'))
+        'page_number', 'text', 'tables', 'text_source', 'status'))
     inputs = {'checksum': document.checksum, 'filename': document.original_filename,
               'pages_hash': digest(pages), 'protocol': protocol(),
               'reader_version': pymupdf.VersionBind,

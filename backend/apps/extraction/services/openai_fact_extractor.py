@@ -71,8 +71,9 @@ Follow these rules exactly, without exception:
 - Never invent numbers, names, dates, statistics or institutional information.
 - If information is unavailable, return no fact. Do not create a fact with a guessed or approximate \
 value, and do not create a fact just because a category above seems like it should be present.
-- Every fact must have supporting evidence: a real snippet quoted or closely paraphrased from the \
-text you were given.
+- Every fact must have supporting evidence: an exact contiguous quotation copied from the \
+text you were given. Never paraphrase or join separate passages in `source_snippet`. \
+For a table, copy the rendered row including column labels. Cite its supplied page marker.
 - Prefer null over guessing. If you're confident a fact is real but unsure of one specific detail \
 (such as exactly which page it's on), return null for that detail -- but if you are not confident \
 the fact itself is real, do not include it at all.
@@ -457,9 +458,24 @@ class OpenAIFactExtractor(FactExtractor):
         valid_page_numbers = {str(page['page_number']) for page in chunk_pages}
         chunk_text = '\n'.join(page.get('text') or '' for page in chunk_pages)
         out = []
+        checks = getattr(self, 'report', {}).setdefault('quotation_checks', {'accepted': 0, 'repaired': 0, 'rejected': 0})
         for raw_fact in raw_facts:
             try:
-                out.append(self._validate_fact(raw_fact, valid_page_numbers, chunk_text))
+                fact = self._validate_fact(raw_fact, valid_page_numbers, chunk_text)
+                quote = ' '.join(fact['source_snippet'].split())
+                matching = [str(p['page_number']) for p in chunk_pages
+                            if quote in ' '.join((p.get('text') or '').split())]
+                if fact['source_page'] not in matching:
+                    if len(matching) == 1:
+                        fact['tagging_notes'].append({'kind': 'citation_page_repaired',
+                            'original_page': fact['source_page'], 'page': matching[0]})
+                        fact['source_page'] = matching[0]
+                        checks['repaired'] += 1
+                    else:
+                        checks['rejected'] += 1
+                        raise FactValidationError('source_snippet is not an exact quotation on its cited page; no unique repair.')
+                checks['accepted'] += 1
+                out.append(fact)
             except FactValidationError as exc:
                 logger.warning(
                     'fact_extractor.fact_rejected document_id=%s chunk=%d field_key=%r error=%s',
