@@ -114,6 +114,8 @@ class MeteredService:
         event = self.event('partial', {
             'kind': 'request_reserved', 'request_number': execution.requests_reserved,
             'provider': self.provider, 'configured_model': self.model, 'input_token_bound': bound,
+            'request_utf8_bytes': len(json.dumps(kwargs, ensure_ascii=False, default=str).encode()),
+            'schema_utf8_bytes': len(json.dumps(kwargs.get('response_format', kwargs.get('tools', [])), ensure_ascii=False).encode()),
             'reserved_usd': str(amount), 'request_hash': digest(kwargs),
             'configured_prices': {k: str(v) for k, v in self.rates.items()},
             'settings': {k: kwargs[k] for k in ('temperature', 'seed', 'max_tokens', 'max_completion_tokens', 'timeout')

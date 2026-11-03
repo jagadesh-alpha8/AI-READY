@@ -169,7 +169,11 @@ def generate_recommendations(snapshot_id, task_id):
                         actions = [a for a in model_actions if a['indicator'] == indicator]
                         payload = {k: inputs[k] for k in ('profile', 'population', 'reference_period')}
                         from .reviewed_evidence import for_context
-                        payload['reviewed_evidence'] = for_context(inputs.get('reviewed_evidence'), snapshot.run.inputs['sources'])
+                        from .evaluation import select_context
+                        rubric_indicator = next(i for i in snapshot.run.inputs['rubric']['indicators'] if i['code'] == indicator)
+                        selected_sources = select_context(rubric_indicator, snapshot.run.inputs['sources'])
+                        payload['sources'] = selected_sources
+                        payload['reviewed_evidence'] = for_context(inputs.get('reviewed_evidence'), selected_sources)
                         payload['actions'] = actions
                         payload['established_strengths'] = strengths
                         payload['foundation_goals'] = [{k: g[k] for k in ('id', 'title', 'depends_on', 'status', 'conditional')} for g in foundation.get('goals', [])]

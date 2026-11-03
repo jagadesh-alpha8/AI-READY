@@ -77,27 +77,77 @@ def snapshot(sprint):
 
 
 def for_context(ledger, sources):
-    """Bound by selected pages; keep complete decision provenance for those claims."""
+    """Project review controls onto the exact excerpts, without copying quotations.
+
+    Source passages are supplied separately. The frozen ledger remains the local
+    validation authority; this packet contains current dispositions and references.
+    """
     if not ledger:
         return None
     from apps.facts.verification.grounding import parse_pages
-    pages = {(s['document_id'], s['page_number']) for s in sources}
-    def selected(source):
-        return any((source['document_id'], p) in pages for p in parse_pages(source['page']))
-    claims = [{**c, 'decisions': c['decisions'][-3:]} for c in ledger['claims']
-              if selected(c['source']) or selected(c['original_source'])]
-    ids = {c['id'] for c in claims}
+    from .evaluation import _normal
+    pages = {}
+    for source in sources:
+        pages.setdefault((source['document_id'], source['page_number']), []).append(source)
+
+    def references(source):
+        quote = _normal(source.get('quote') or '')
+        refs = []
+        for page in parse_pages(source.get('page', '')):
+            for window in pages.get((source.get('document_id'), page), []):
+                text = _normal(window['text'])
+                # Include boundary-straddling quotes if an exact substantial
+                # fragment is present. This is selection, never quote validation.
+                touches = quote and (quote in text or text in quote or any(
+                    quote[i:i + 64] in text for i in range(0, max(0, len(quote) - 63), 32)))
+                if touches:
+                    refs.append({'source_id': window['id'], 'text_offset': window.get('text_offset', 0)})
+        return refs
+
+    selected = {}
+    for claim in ledger['claims']:
+        current_refs, original_refs = references(claim['source']), references(claim['original_source'])
+        if current_refs or original_refs:
+            selected[claim['id']] = (claim, current_refs, original_refs)
+    # Keep every alternative of an applicable conflict, including rejected or
+    # off-window alternatives; do not present them as citable source passages.
+    issues = [i for i in ledger['issues'] if i['kind'] == 'conflict'
+              and set(selected).intersection(i['claim_ids'])]
+    alternatives = {cid for issue in issues for cid in issue['claim_ids']}
+    for claim in ledger['claims']:
+        if claim['id'] in alternatives and claim['id'] not in selected:
+            selected[claim['id']] = (claim, [], [])
+
+    def citation(source, refs):
+        return {k: source[k] for k in ('document_id', 'version', 'page', 'current') if k in source} | {
+            'passages': refs, 'source_support_in_selected_passages': bool(refs)}
+
+    claims = []
+    for claim, current_refs, original_refs in selected.values():
+        decisions = [d for d in claim['decisions'] if d['action'] in ('confirmed', 'corrected', 'rejected')]
+        decision = decisions[-1:]  # the effective disposition, not tagging/assignment history
+        row = {k: claim[k] for k in ('id', 'attribute', 'label', 'value', 'kind', 'disposition', 'verification')}
+        row['scope'] = {k: v for k, v in claim['scope'].items() if k not in ('stated', 'sources')}
+        row['source'] = citation(claim['source'], current_refs)
+        row['decisions'] = [{k: d[k] for k in ('id', 'actor_id', 'timestamp', 'action', 'rationale')}
+                            for d in decision]
+        if claim['disposition'] == 'corrected':
+            row['original_value'] = claim['original_value']
+            row['original_source'] = citation(claim['original_source'], original_refs)
+        claims.append(row)
     batch = ledger.get('review_batch')
+    answers = []
     if batch:
-        cases = [{k: c[k] for k in ('id', 'question', 'scope', 'fact_ids', 'affected_requirements', 'initial')}
-                 for c in batch['cases'] if c.get('kind') == 'identity' or ids.intersection(c['fact_ids'])]
-        case_ids = {c['id'] for c in cases}
-        batch = {'id': batch['id'], 'cases': cases,
-                 'decisions': {k: d for k, d in batch['decisions'].items() if k in case_ids},
-                 'overflow_total': sum(not c['initial'] for c in ledger['review_batch']['cases'])}
-    return {**ledger, 'claims': claims, 'review_batch': batch,
-            'issues': [{k: v for k, v in i.items() if k != 'events'} for i in ledger['issues']
-                       if ids.intersection(i['claim_ids'])]}
+        for case in batch['cases']:
+            decision = batch['decisions'].get(case['id'])
+            ids = sorted(set(case['fact_ids']).intersection(selected))
+            if decision and (ids or case.get('kind') == 'identity'):
+                answers.append({'id': decision['id'], 'claim_ids': ids, 'action': decision['action'],
+                                'rationale': decision.get('rationale', '')})
+    return {'version': 'review-context-2', 'claims': claims,
+            'issues': [{k: i[k] for k in ('id', 'kind', 'status', 'claim_ids', 'rationale')} for i in issues],
+            'review_answers': answers,
+            'instruction': 'Passage references point to the separately supplied sources. Records with no selected passage support are review context, not quotations or automatic capability credit.'}
 
 
 def citation_issue(citations, ledger, sources, state=None):
