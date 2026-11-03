@@ -13,7 +13,7 @@ from apps.sprints.models import Sprint
 from .capability.storage import create_run
 
 
-@skipUnless(connection.vendor == 'postgresql', 'PostgreSQL snapshot-lock regression')
+@skipUnless(connection.vendor == 'postgresql', 'PostgreSQL snapshot consistency regression')
 class ReviewSnapshotConcurrencyTests(TransactionTestCase):
     def test_review_history_and_claim_revision_are_frozen_together(self):
         institution = Institution.objects.create(name='Synthetic College')
@@ -45,10 +45,16 @@ class ReviewSnapshotConcurrencyTests(TransactionTestCase):
         try:
             w.start(); self.assertTrue(halfway.wait(5))
             r.start(); self.assertTrue(reading.wait(5))
-            self.assertFalse(finished.wait(0.2))
+            # A pending writer must not deadlock or leak uncommitted history.
+            self.assertTrue(finished.wait(5))
         finally:
             release.set(); w.join(10)
             if r.ident: r.join(10)
         self.assertFalse(w.is_alive()); self.assertFalse(r.is_alive()); self.assertEqual(errors, [])
-        self.assertEqual(results[0]['value'], 21)
-        self.assertEqual(results[0]['decisions'][0]['after'], 21)
+        self.assertEqual(results[0]['value'], 20)
+        self.assertEqual(results[0]['decisions'], [])
+        fresh = create_run(institution_id=institution.pk, sprint_id=sprint.pk,
+                           population='Synthetic', reference_period='2025-26')
+        claim = fresh.inputs['reviewed_evidence']['claims'][0]
+        self.assertEqual(claim['value'], 21)
+        self.assertEqual(claim['decisions'][0]['after'], 21)

@@ -18,7 +18,7 @@ Each question offers supported confirmation/alternative choice, a correction wit
 
 ## Frozen boundary and limits
 
-PostgreSQL uses brief SHARE locks on the evidence/review tables while copying the boundary; no provider work occurs under these locks. This conservatively blocks evidence writes across sprints for the duration of the copy. SQLite uses its transaction snapshot. The production concurrency regression checks a writer paused between review history and claim update: a new assessment must wait and capture both.
+PostgreSQL computes a tenant/sprint-scoped, single-statement revision witness over all mutable evidence inputs before and after copying. If any committed input changed, the copy retries up to three times before returning an explicit retryable start error without model dispatch. This avoids table-lock ordering deadlocks with concurrent reviewers. SQLite uses its transaction snapshot. The production concurrency regression pauses a writer between review history and claim update: an assessment sees the complete previous revision, and a later assessment sees both committed changes. A separate regression verifies bounded retries on revision changes.
 
 Provider ledger context is restricted to selected source pages and compact decision history. Above 32,000 ledger characters for an indicator, evaluation remains unknown without a provider call. Raw frozen history remains complete. This conservative guard can limit findings on exceptionally dense pages; it never discards rejected alternatives to obtain credit. Citation overlap guards may withhold an entire broad quotation containing a rejected claim; independently supported quotations remain usable.
 
