@@ -82,7 +82,7 @@ class Command(BaseCommand):
         from apps.scoring.capability import evaluation
         records = {r['condition_id']: r for r in export['assessment']['records']}
         # Production evaluate(), unchanged except that each batch receives its oracle context.
-        with patch.object(evaluation, 'select_context', lambda indicator, sources, max_chars=18000: contexts[indicator['code']]):
+        with patch.object(evaluation, 'select_context', lambda indicator, sources, max_chars=18000, **kwargs: contexts[indicator['code']]):
             outcome = evaluation.evaluate(rendered, service=get_ai_service(), population=export['population'],
                                           reference_period=export['reference_period'], rubric={'indicators': indicators},
                                           scope=export['scope'], reviewed_evidence=export['reviewed_evidence'])

@@ -181,7 +181,8 @@ def retrieval_recall(rubric, sources, gold, *, selector=select_context, budget=1
             selections[indicator['code']] = selector(indicator, sources, max_chars=budget)
         windows = selections[indicator['code']]
         quote = _normal(item['quote'])
-        on_page = [w for w in windows if w['page_number'] == int(item['page'])]
+        on_page = [w for w in windows if w['page_number'] == int(item['page'])
+                   and (not item.get('document_id') or w['document_id'] == item['document_id'])]
         items.append({'condition_id': item.get('condition_id'), 'indicator': indicator['code'], 'page': int(item['page']),
                       'evidence_type': item.get('evidence_type', 'unlabelled'),
                       'retrieved': any(quote in _normal(w['text']) for w in on_page), 'page_selected': bool(on_page)})

@@ -22,7 +22,10 @@ body{font:15px/1.6 system-ui,sans-serif;color:#19323c;max-width:1050px;margin:40
 <h2>First actions to consider</h2><p>{{ view.priority_note }}</p>
 <p>{{ view.priorities|length }} starting points are shown from {{ view.followup_count }} areas with follow-ups. The detail below retains all assessed areas.</p>
 {% for priority in view.priorities %}<article class="card"><p class="eyebrow">{{ priority.guidance }}</p><h3>{{ forloop.counter }}. {{ priority.title }}</h3><p>{{ priority.reason }}</p>
-<ol>{% for step in priority.steps %}<li>{{ step }}</li>{% endfor %}</ol>
+{% if priority.improvement_steps %}
+{% if priority.evidence_steps %}<h4>Establish what exists</h4><ol>{% for step in priority.evidence_steps %}<li>{{ step }}</li>{% endfor %}</ol>{% endif %}
+<h4>Improve capability where needed</h4><p>{{ priority.improvement_condition }}</p><ol>{% for step in priority.improvement_steps %}<li>{{ step }}</li>{% endfor %}</ol>
+{% else %}<ol>{% for step in priority.steps %}<li>{{ step }}</li>{% endfor %}</ol>{% endif %}
 <p><strong>Suggested responsible role:</strong> {{ priority.suggested_role }}<br><strong>Effort:</strong> {{ priority.effort }}</p>
 <p><strong>Completion evidence:</strong> {{ priority.completion }}</p>
 {% if priority.dependencies %}<p><strong>Dependencies:</strong> {{ priority.dependencies|join:"; " }}</p>{% endif %}

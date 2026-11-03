@@ -171,7 +171,7 @@ export interface ActionState {
 export interface FoundationPlan {
   version: string; destination: string; current_level: string;
   baseline: { status: string; message: string };
-  goals: { id: string; title: string; target_condition_ids: string[]; depends_on: string[]; suggested_role: string; status: string; steps: string[]; existing_strengths: { condition_id: string; requirement: string; reason: string; basis: Citation[] }[] }[];
+  goals: { id: string; title: string; target_condition_ids: string[]; depends_on: string[]; suggested_role: string; status: string; steps: string[]; evidence_steps: string[]; improvement_steps: string[]; improvement_condition: string; existing_strengths: { condition_id: string; requirement: string; reason: string; basis: Citation[] }[] }[];
   routes: { name: string; indicative_duration: string; batches: string[][]; assumptions: string[]; outcomes: string[] }[];
   review_questions: { id: string; title: string; question: string; requirements: string[]; condition_ids: string[]; answer_policy: string }[];
   other_unresolved_requirements: number; limitations: string[];

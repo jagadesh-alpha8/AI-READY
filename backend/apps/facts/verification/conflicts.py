@@ -18,7 +18,7 @@ def live_facts(facts):
     """Not rejected, and not from a document superseded by a newer version (that version speaks for it)."""
     out = []
     for fact in facts:
-        if fact.status == ExtractedFact.Status.REJECTED:
+        if fact.retired_at is not None or fact.status == ExtractedFact.Status.REJECTED:
             continue
         doc = fact.source_document or fact.document
         if doc is not None and doc.superseded_at is not None:

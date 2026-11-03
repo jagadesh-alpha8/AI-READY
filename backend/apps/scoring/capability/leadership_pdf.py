@@ -94,8 +94,18 @@ def render_leadership_pdf(view):
         pdf.section(f"{i}. {item['title']}")
         pdf.paragraph(item['guidance'], small=True)
         pdf.paragraph(item['reason'])
-        for number, step in enumerate(item['steps'][:2], 1):
-            pdf.paragraph(f'{number}. {brief(step)}')
+        if item.get('improvement_steps'):
+            if item.get('evidence_steps'):
+                pdf.paragraph('Establish what exists', small=True)
+                for step in item['evidence_steps'][:2]:
+                    pdf.paragraph(brief(step))
+            pdf.paragraph('Improve capability where needed', small=True)
+            pdf.paragraph(item['improvement_condition'])
+            for step in item['improvement_steps'][:2]:
+                pdf.paragraph(brief(step))
+        else:
+            for number, step in enumerate(item['steps'][:2], 1):
+                pdf.paragraph(f'{number}. {brief(step)}')
         pdf.paragraph('Suggested responsible role: ' + item['suggested_role'])
         pdf.paragraph('Effort: ' + item['effort'])
         pdf.paragraph('Completion evidence: ' + brief(item['completion']))

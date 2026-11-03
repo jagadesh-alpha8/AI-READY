@@ -30,7 +30,7 @@ def evidence_snapshot(sprint):
     from apps.facts.models import ExtractedFact
     from apps.facts.verification.grounding import parse_pages
     hints = {}
-    for fact in ExtractedFact.objects.filter(sprint=sprint).exclude(status='rejected').prefetch_related('aiqif_mappings'):
+    for fact in ExtractedFact.objects.filter(sprint=sprint).exclude(status='rejected').filter(source_review_required=False).prefetch_related('aiqif_mappings'):
         document_id = str(fact.source_document_id or fact.document_id)
         quote = fact.source_snippet.strip()
         if not quote:
@@ -103,6 +103,12 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
         prior = CapabilityRun.objects.get(pk=refines_run_id, sprint=sprint)
         if not prior.events.filter(state='completed', payload__result__isnull=False).exists():
             raise ValueError('Refinement requires a completed assessment in this sprint.')
+    from .semantic_retrieval import configured_policy
+    try:
+        retrieval_policy = configured_policy()
+    except ValueError as exc:
+        from rest_framework.exceptions import ValidationError
+        raise ValidationError({'code': 'retrieval_configuration_invalid', 'detail': str(exc)}) from exc
     rubric = release()
     from .evaluation import PROMPT_VERSION, RETRIEVAL_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA
     inputs = {'institution_id': str(sprint.institution_id), 'sprint_id': str(sprint.pk),
@@ -111,7 +117,7 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
               'population': scope['population_label'], 'reference_period': scope['period_label'],
               'carry_over_policy': 'current_sprint_only_explicit_document_lineage',
               'rubric': rubric, 'rubric_snapshot_hash': digest(rubric),
-              'engine_version': ENGINE_VERSION,
+              'engine_version': ENGINE_VERSION, 'retrieval_policy': retrieval_policy,
               'assessment_protocol': {'prompt_version': PROMPT_VERSION, 'retrieval_version': RETRIEVAL_VERSION,
                                       'prompt_hash': hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
                                       'schema_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest()},

@@ -319,7 +319,15 @@ export function FoundationPathway({ plan, advice = [] }: { plan: FoundationPlan;
         <ul className="list-disc pl-5">{row.steps.map((step, n) => <li key={n}>{step}</li>)}</ul>
         {row.basis.map((cite, n) => <blockquote key={n} className="border-l-2 pl-3 mt-2">{cite.quote}</blockquote>)}
       </div>)}
-      <ol className="list-decimal pl-5">{goal.steps.map((step, n) => <li key={n}>{step}</li>)}</ol>
+      <div className="grid md:grid-cols-2 gap-4">
+        {goal.evidence_steps.length > 0 && <div><h4 className="font-semibold text-sm">Establish what exists</h4>
+          <ol className="list-decimal pl-5">{goal.evidence_steps.map((step, n) => <li key={n}>{step}</li>)}</ol>
+        </div>}
+        <div><h4 className="font-semibold text-sm">Improve capability where needed</h4>
+          <p className="text-sm">{goal.improvement_condition}</p>
+          <ol className="list-decimal pl-5">{goal.improvement_steps.map((step, n) => <li key={n}>{step}</li>)}</ol>
+        </div>
+      </div>
       {goal.depends_on.length > 0 && <p className="text-sm">Prerequisites: {goal.depends_on.map((id) => plan.goals.find((g) => g.id === id)?.title || id).join('; ')}.</p>}
     </article>)}
     {plan.review_questions.length > 0 && <details className="glass-card p-4"><summary className="font-semibold">{plan.review_questions.length} grouped evidence checks before implementation</summary>

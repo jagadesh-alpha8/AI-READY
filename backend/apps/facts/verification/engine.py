@@ -316,7 +316,8 @@ def verify_fact(fact, *, source=FactVerification.Source.REVERIFY, provided_pages
     summary = dict(verification_status=result.outcome, grounding_status=result.grounding['status'],
                    validation_status=result.validation['status'], cross_source_status=result.cross_source['status'],
                    risk_level=result.risk_level, automation_decision=decision.action,
-                   automation_reason=decision.reason, verified_at=now)
+                   automation_reason=decision.reason, verified_at=now,
+                   source_review_required=fact.source_review_required and result.outcome != 'verified')
     ExtractedFact.objects.filter(pk=fact.pk).update(**summary)
     for name, value in summary.items():
         setattr(fact, name, value)
