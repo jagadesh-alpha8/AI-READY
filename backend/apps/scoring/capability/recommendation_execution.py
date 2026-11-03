@@ -201,7 +201,7 @@ def generate_recommendations(snapshot_id, task_id):
                         payload['foundation_goals'] = [{k: g[k] for k in ('id', 'title', 'depends_on', 'status', 'conditional')} for g in foundation.get('goals', [])]
                         scope = inputs.get('scope') or {}
                         payload['scope'] = {k: scope[k] for k in ('institution', 'mode', 'population_label', 'period_label', 'limitations') if k in scope}
-                        response = service.extract_structured_data(system_prompt=PROMPT, user_content=json.dumps(payload),
+                        response = service.extract_structured_data(system_prompt=PROMPT, user_content=json.dumps(payload, sort_keys=True),
                             response_schema=SCHEMA, schema_name='capability_advice')
                         try:
                             batch = [{**row, 'origin': 'model_tailored'} for row in validate_advice(

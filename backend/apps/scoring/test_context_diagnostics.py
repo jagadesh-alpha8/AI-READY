@@ -475,6 +475,14 @@ class ProductionPathTests(APITestCase):
         self.assertEqual([r['payload_hash'] for r in rebuilt], [hashlib.sha256(u.encode()).hexdigest() for u in self.sent])
         self.assertTrue(all(r['unsupported_unconnected_claims'] == 0 for r in rebuilt))
 
+    def test_request_replay_is_independent_of_jsonb_object_key_order(self):
+        execution = self.tailor()
+        # PostgreSQL JSONB reorders object keys; arrays and values are unchanged.
+        reordered_plan = json.loads(json.dumps(execution.snapshot.inputs, sort_keys=True))
+        reordered_sources = json.loads(json.dumps(self.run.inputs['sources'], sort_keys=True))
+        rebuilt = diag.recommendation_requests(reordered_plan, reordered_sources, self.run.inputs['rubric'])['batches']
+        self.assertEqual([r['payload_hash'] for r in rebuilt], [hashlib.sha256(u.encode()).hexdigest() for u in self.sent])
+
     def test_inspection_and_export_make_no_model_calls_and_change_no_history(self):
         execution = self.tailor()
         calls = self.sdk.chat.completions.create.call_count

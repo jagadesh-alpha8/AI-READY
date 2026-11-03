@@ -376,17 +376,19 @@ def recommendation_requests(plan, sources, rubric):
     attached to every batch.
     """
     from .recommendation_execution import bounded_strengths
-    from .recommendations import PROMPT, SCHEMA
+    from .recommendations import PROMPT, SCHEMA, processing_failure
+    from .semantic_retrieval import ranker_for
     foundation = plan.get('foundation_plan') or {}
     strengths = bounded_strengths(foundation.get('existing_strengths', []))
-    model_actions = [a for a in plan['actions'] if a['state'] != 'unknown' or strengths]
+    model_actions = [a for a in plan['actions'] if not processing_failure(a) and (a['state'] != 'unknown' or strengths)]
+    semantic_ranker = ranker_for(plan.get('retrieval_policy')) if model_actions else None
     ledger = plan.get('reviewed_evidence')
     whole = page_projection(ledger, sources)
     scope = plan.get('scope') or {}
     rows = []
     for indicator in dict.fromkeys(a['indicator'] for a in model_actions):
         actions = [a for a in model_actions if a['indicator'] == indicator]
-        selected = select_context(next(i for i in rubric['indicators'] if i['code'] == indicator), sources)
+        selected = select_context(next(i for i in rubric['indicators'] if i['code'] == indicator), sources, semantic_ranker=semantic_ranker)
         payload = {k: plan[k] for k in ('profile', 'population', 'reference_period')}
         payload['sources'] = selected
         payload['reviewed_evidence'] = review = for_context(ledger, selected)
@@ -395,7 +397,7 @@ def recommendation_requests(plan, sources, rubric):
         payload['foundation_goals'] = [{k: g[k] for k in ('id', 'title', 'depends_on', 'status', 'conditional')}
                                        for g in foundation.get('goals', [])]
         payload['scope'] = {k: scope[k] for k in ('institution', 'mode', 'population_label', 'period_label', 'limitations') if k in scope}
-        user = json.dumps(payload)
+        user = json.dumps(payload, sort_keys=True)
         support = anchoring({'review': review, 'context': selected})
         rows.append({'indicator': indicator, 'actions': len(actions),
                      'unknown_actions': sum(a['state'] == 'unknown' for a in actions),

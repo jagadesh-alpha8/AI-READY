@@ -163,7 +163,7 @@ def bounded_packet(claims, issues, answers):
         if isinstance(value, str):
             return value if len(value) <= 512 else value[:480] + ' [context clipped]'
         if isinstance(value, dict):
-            return {k: clip(v, depth + 1) for k, v in list(value.items())[:32]}
+            return {k: clip(v, depth + 1) for k, v in sorted(value.items())[:32]}
         if isinstance(value, list):
             return [clip(v, depth + 1) for v in value[:8]]
         return value
