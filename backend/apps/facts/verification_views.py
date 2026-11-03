@@ -24,7 +24,7 @@ from apps.accounts.models import User
 from apps.accounts.permissions import CanReviewFacts, IsInstitutionMember, require_institution_access
 from apps.sprints.access import get_authorized_sprint
 
-from .models import ExtractedFact, FactCorrectionProposal, FactVerification
+from .models import ExtractedFact, FactCorrectionProposal, FactVerification, ReviewBatch
 from .verification import corrections, engine, metrics, policy
 
 
@@ -99,9 +99,12 @@ class SprintVerificationSummaryView(APIView):
     def get(self, request, sprint_id):
         sprint = get_authorized_sprint(request.user, sprint_id)
         groups = metrics.exception_queue(sprint)
-        limit = 25
+        # Historical technical groups share one display limit; the persisted
+        # review-batch API owns the actual human decision budget.
+        remaining = 25
         for group in groups:
-            group['items'] = group['items'][:limit]
+            group['items'] = group['items'][:remaining]
+            remaining -= len(group['items'])
         return Response({'mode': policy.mode(), 'policy_version': engine.POLICY_VERSION,
                          'policy': policy.policy(), 'workload': metrics.workload(sprint), 'groups': groups})
 
@@ -224,3 +227,39 @@ class CorrectionRejectView(_ProposalActionView):
 
 class CorrectionWithdrawView(_ProposalActionView):
     action = 'withdraw'
+
+
+class SprintReviewBatchView(APIView):
+    permission_classes = [IsInstitutionMember]
+
+    def get(self, request, sprint_id):
+        from .review_queue import view
+        return Response(view(get_authorized_sprint(request.user, sprint_id)))
+
+    def post(self, request, sprint_id):
+        from .review_queue import start, view
+        if not CanReviewFacts().has_permission(request, self):
+            raise PermissionDenied('Fact review permission is required.')
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        if request.data.get('optional_follow_up') is True:
+            from .review_queue import follow_up
+            try:
+                follow_up(sprint)
+            except ReviewBatch.DoesNotExist:
+                raise ValidationError('Start the initial review first.')
+            return Response(view(sprint))
+        _, created = start(sprint)
+        return Response(view(sprint), status=201 if created else 200)
+
+
+class SprintReviewCaseView(APIView):
+    permission_classes = [CanReviewFacts]
+
+    def post(self, request, sprint_id, case_id):
+        from .review_queue import decide, view
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        try:
+            decide(sprint, request.user, case_id, request.data)
+        except ReviewBatch.DoesNotExist:
+            raise ValidationError('Start a review batch first.')
+        return Response(view(sprint))

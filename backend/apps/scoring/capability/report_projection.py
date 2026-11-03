@@ -218,7 +218,7 @@ def build_report_view(report, actions):
         'limitations': [
             'Missing or unreadable records do not establish that an activity is absent.',
             'Findings apply only to the recorded population and period; historical evidence does not establish current performance.',
-            'Human review decisions influence these findings only if included in the saved assessment inputs. This export does not rerun that integration.',
+            review_limitation(report),
             'Completing a suggested task does not change the score. New supporting evidence must be assessed in a new version.',
             'These explanations summarise saved decisions and do not independently verify their factual accuracy.',
         ] + [q['message'] for q in scope_notices] + ([scope['limitations']] if scope.get('limitations') else []) + (['Some source pages were unreadable or unavailable. Check the supporting evidence inventory.']
@@ -228,3 +228,16 @@ def build_report_view(report, actions):
             ([f"{diagnostics['indicators_with_bounded_context']} assessment areas used selected subsets of source passages. This is not a complete page-by-page review; missing support in a selected passage does not prove absence from all documents."]
              if diagnostics.get('indicators_with_bounded_context') else []),
     }
+
+
+def review_limitation(inputs):
+    ledger = inputs.get('reviewed_evidence')
+    if not ledger:
+        return 'This historical assessment did not include the reviewed-evidence ledger. Start a fresh assessment to include current decisions.'
+    batch = ledger.get('review_batch')
+    unresolved = sum(i['status'] != 'resolved' for i in ledger.get('issues', []))
+    overflow = sum(not c['initial'] for c in batch['cases']) if batch else 0
+    deferred = sum(d['action'] in ('defer', 'cannot_establish') for d in batch['decisions'].values()) if batch else 0
+    return (f"This assessment froze {len(ledger['claims'])} claims with their review decisions. "
+            f"{unresolved} evidence issues, {overflow} optional overflow questions and {deferred} deferred/unestablished answers remain recorded. "
+            'Review acceptance is not capability credit; insufficient evidence remains unknown.')

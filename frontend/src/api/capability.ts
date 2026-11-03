@@ -15,6 +15,7 @@ export interface AssessmentScope {
   limitations: string;
 }
 export interface Job {
+  review_changes_since_assessment?: boolean;
   scope?: AssessmentScope;
   refines_run_id?: string | null;
   id: string;

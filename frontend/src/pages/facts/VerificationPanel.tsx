@@ -21,10 +21,10 @@ export const VerificationPanel: React.FC<{ sprintId: string; canReview: boolean;
   const w = data.workload;
   const shadow = data.mode === 'shadow';
   const tiles: [string, number, string][] = [
-    ['Verified', w.outcomes.verified || 0, 'text-success'],
-    ['Needs review', w.outcomes.needs_review || 0, 'text-warning'],
-    ['Invalid', w.outcomes.invalid || 0, 'text-danger'],
-    ['Conflicting', w.outcomes.conflicting || 0, 'text-danger'],
+    ['Automatically accepted', w.current?.automatically_accepted || 0, 'text-success'],
+    ['Unresolved fact records', w.current?.awaiting_decision || 0, 'text-warning'],
+    ['Resolved by you', w.current?.resolved_by_you || 0, 'text-success'],
+    ['Excluded', w.current?.excluded || 0, 'text-ink-900'],
     [shadow ? 'Would auto-confirm' : 'Auto-confirmed', shadow ? w.would_auto_verify : w.auto_verified + w.auto_by_precedent,
       'text-ink-900'],
     ['Reviewer overrides', w.reviewer_overrides, w.reviewer_overrides ? 'text-danger' : 'text-ink-900'],
@@ -72,9 +72,9 @@ export const VerificationPanel: React.FC<{ sprintId: string; canReview: boolean;
           </div>
         ))}
       </div>
-      {data.groups.length > 0 && (
+      <details><summary className="text-xs">Original check results: {JSON.stringify(w.outcomes)}. These are historical checks, not current review workload.</summary>{data.groups.length > 0 && (
         <div className="space-y-1">
-          <h3 className="text-xs font-bold text-ink-700">Why facts need a person</h3>
+          <h3 className="text-xs font-bold text-ink-700">Technical verification history and outstanding records</h3>
           {data.groups.map((g) => (
             <div key={g.code} className="border border-line-200 rounded-md">
               <button type="button" className="w-full flex items-center justify-between px-3 py-1.5 text-left"
@@ -103,7 +103,7 @@ export const VerificationPanel: React.FC<{ sprintId: string; canReview: boolean;
             </div>
           ))}
         </div>
-      )}
+      )}</details>
     </div>
   );
 };

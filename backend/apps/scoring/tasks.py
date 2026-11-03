@@ -43,6 +43,7 @@ def run_capability_assessment(run_id, task_id):
                 evaluation = evaluate(execution.run.inputs['sources'], service=service,
                     population=execution.run.inputs['population'], reference_period=execution.run.inputs['reference_period'],
                     rubric=execution.run.inputs['rubric'], strict_errors=True, scope=inputs.get('scope'),
+                    reviewed_evidence=inputs.get('reviewed_evidence'),
                     on_indicator=lambda rows, trace: progress(run_id, rows, trace))
             # Same lock order as cancellation; completion and ledger become visible atomically.
             with transaction.atomic():

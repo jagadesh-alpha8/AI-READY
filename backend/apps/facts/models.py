@@ -382,6 +382,7 @@ class FactReviewHistory(models.Model):
         #: A correction was proposed / its proposal rejected (FactCorrectionProposal); an approval is CORRECTED.
         CORRECTION_PROPOSED = 'correction_proposed', 'Correction Proposed'
         CORRECTION_REJECTED = 'correction_rejected', 'Correction Rejected'
+        SOURCE_REPAIRED = 'source_repaired', 'Source quotation repaired by rules'
 
     class DecisionSource(models.TextChoices):
         """Who decided: '' = a person (and every row from before this existed)."""
@@ -583,3 +584,17 @@ class EvidenceRequestEvent(models.Model):
 
     class Meta:
         ordering = ['created_at']
+
+
+class ReviewBatch(models.Model):
+    """One persisted initial question set per sprint. Answering never refills it.
+
+    Cases include overflow with initial=False; explicit follow-up is separate from
+    the initial budget. Case inputs/revisions are frozen for stale-write checks.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.OneToOneField('sprints.Sprint', on_delete=models.CASCADE, related_name='review_batch')
+    cases = models.JSONField(default=list)
+    decisions = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)

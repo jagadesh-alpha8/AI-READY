@@ -8,7 +8,7 @@ replacements must use existing version lineage; never guess replacement by conte
 import hashlib
 import json
 
-from django.db import transaction
+from django.db import connection, transaction
 
 from apps.documents.models import Document
 from apps.extraction.models import DocumentPage
@@ -50,9 +50,26 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
                scope_mode=None, refines_run_id=None, confirmed_source_institution=None):
     from .scope import intent, resolve
     mode, requested = intent(population, reference_period, scope_mode, refines_run_id, confirmed_source_institution)
+    # Short freeze locks give PostgreSQL one coherent boundary even when an outer
+    # execution transaction already read rows. No provider work occurs under locks.
+    if connection.vendor == 'postgresql':
+        with connection.cursor() as cursor:
+            cursor.execute('LOCK TABLE institutions_institution, documents_document, extraction_documentpage, facts_extractedfact, '
+                           'facts_factreviewhistory, gaps_gapitem, gaps_gapevent, facts_reviewbatch '
+                           'IN SHARE MODE')
     sprint = Sprint.objects.select_related('institution').get(pk=sprint_id, institution_id=institution_id)
     institution = sprint.institution
     manifest, sources = evidence_snapshot(sprint)
+    from .reviewed_evidence import snapshot
+    reviewed = snapshot(sprint)
+    batch = reviewed.get('review_batch')
+    if batch and not requested.get('confirmed_source_institution'):
+        for identity_case in reversed(batch['cases']):
+            identity_decision = batch['decisions'].get(identity_case['id'])
+            if (identity_case.get('kind') == 'identity' and identity_case.get('source_hash') == digest(manifest)
+                    and identity_decision and identity_decision['action'] == 'identity'):
+                requested['confirmed_source_institution'] = identity_decision['request']['source_institution']
+                break
     profile = {'name': institution.name, 'institution_type': institution.institution_type,
                'student_count': institution.student_count, 'faculty_count': institution.faculty_count}
     try:
@@ -81,7 +98,7 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
               'assessment_protocol': {'prompt_version': PROMPT_VERSION, 'retrieval_version': RETRIEVAL_VERSION,
                                       'prompt_hash': hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
                                       'schema_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest()},
-              'manifest': manifest, 'sources': sources,
+              'manifest': manifest, 'sources': sources, 'reviewed_evidence': reviewed,
               'execution_policy': execution_policy or {}}
     run = CapabilityRun.objects.create(sprint=sprint, inputs=inputs, inputs_hash=digest(inputs))
     CapabilityRunEvent.objects.create(run=run, state='queued')
@@ -140,7 +157,8 @@ def publish(*, institution_id, run_id, evaluation, inference):
     for indicator in rubric['indicators']:
         subset = [dict(r) for r in rows
                   if r['condition_id'] in {c['id'] for c in indicator['conditions']}]
-        checked = validate_decisions(indicator, {'conditions': subset}, run.inputs['sources'])
+        checked = validate_decisions(indicator, {'conditions': subset}, run.inputs['sources'],
+                                     reviewed_evidence=run.inputs.get('reviewed_evidence'))
         # Revalidation must not erase why the evaluator already downgraded a row.
         original = {r['condition_id']: r for r in subset}
         for row in checked:

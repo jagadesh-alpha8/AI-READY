@@ -78,6 +78,8 @@ def work_summary(sprint):
                         'rejected values needing replacement).')
     return {
         'ready_for_baseline_review': not blockers,
+        'capability_assessment_available': True,
+        'capability_note': 'Legacy baseline blockers do not gate capability assessment. Unresolved evidence remains explicit in its findings.',
         'blockers': blockers,
         'totals': {'pending_facts': pending, 'open_gaps': gaps.count(), 'fact_gaps': fact_gaps,
                    'blocking_gaps': blocking, 'unassigned': sum(r['unassigned'] for r in by_role.values()),

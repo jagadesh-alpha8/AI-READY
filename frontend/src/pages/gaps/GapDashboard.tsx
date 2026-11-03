@@ -231,11 +231,11 @@ export const GapDashboard: React.FC = () => {
                     <th>Audit Field ID</th>
                     <th>Gap Type</th>
                     <th>Priority</th>
-                    <th title="The CRI pillar whose score this gap's penalty is taken from while it is open.">CRI Pillar</th>
+                    <th title="Evidence area; legacy gap penalties do not determine the capability assessment.">Assessment area</th>
                     <th>Title</th>
                     <th>Source</th>
                     <th title="The linked fact's snippet and page; both sources for a conflict">Source Snippet</th>
-                    <th>Score Impact</th>
+                    <th>Assessment consequence</th>
                     <th>Status</th>
                     <th title="The fact's evidence request and the person it is assigned to">Evidence Request</th>
                     <th className="text-right">Action</th>
@@ -277,7 +277,7 @@ export const GapDashboard: React.FC = () => {
                         <GapSnippetCell gap={gap} />
                       </td>
                       <td className="font-mono font-bold text-danger tabular-nums">
-                        -{gap.score_impact} pts
+                        Unresolved evidence
                       </td>
                       <td>
                         <span className={statusBadgeClass(gap.status)}>{gap.status}</span>

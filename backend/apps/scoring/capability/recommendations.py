@@ -114,6 +114,7 @@ def build_inputs(run, event, execution_policy):
             'assessment_event_id': event.pk, 'assessment_hash': digest(event.payload),
             'run_inputs_hash': run.inputs_hash, 'profile': run.inputs['profile'],
             'population': run.inputs['population'], 'reference_period': run.inputs['reference_period'],
+            'reviewed_evidence': run.inputs.get('reviewed_evidence'),
             'scope': run.inputs.get('scope'), 'current_standing': result, 'next_improvements': [a['id'] for a in event.payload['actions']],
             'next_overall': next_step, 'pathways': paths, 'actions': actions, 'execution_policy': execution_policy,
             'note': 'Experimental criteria. Proposed advice requires feasibility review. Completion does not change scores; reassess evidence.'}

@@ -267,3 +267,10 @@ for suffix in ('', '/'):
         path(prefix + '/<uuid:scenario_id>/cancel' + suffix, CancelPlanEvaluationView.as_view()),
         path(prefix + '/<uuid:scenario_id>/report' + suffix, PlanEvaluationReportView.as_view()),
     ]
+
+from apps.facts.verification_views import SprintReviewBatchView, SprintReviewCaseView
+for suffix in ('', '/'):
+    urlpatterns += [
+        path('/<uuid:sprint_id>/review-batch' + suffix, SprintReviewBatchView.as_view()),
+        path('/<uuid:sprint_id>/review-batch/<str:case_id>' + suffix, SprintReviewCaseView.as_view()),
+    ]
