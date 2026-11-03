@@ -23,7 +23,7 @@ def snapshot(sprint):
                     'decision_source': h.decision_source or 'person', 'before': h.original_value,
                     'after': h.new_value, 'rationale': h.reason, 'details': h.details}
                    for h in sorted(f.review_history.all(), key=lambda h: (h.created_at, str(h.pk)))]
-        original_doc = f.original_source_document or f.document
+        original_doc = f.original_source_document or f.document or f.source_document
         original_valid = original_doc is not None and original_doc.sprint_id == sprint.pk
         first_review = next(iter(history), {})
         claims.append({'id': str(f.pk), 'revision': f.updated_at.isoformat(),

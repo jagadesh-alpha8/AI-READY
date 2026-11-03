@@ -348,3 +348,23 @@ class ReviewJourneyTests(APITestCase):
         self.assertEqual(h.details['after_quote'], POSITIVE)
         self.assertTrue(f.verifications.filter(grounding__quote='not_found').exists())
         self.assertTrue(f.verifications.filter(outcome='verified').exists())
+
+    def test_supported_correction_reaches_payload_with_independent_source(self):
+        self.fact(value=0, source_snippet=NEGATIVE)
+        self.page.text = NEGATIVE; self.page.save()
+        source = Document.objects.create(sprint=self.sprint, original_filename='correcting-source.pdf')
+        page = DocumentPage.objects.create(document=source, page_number=1, text=POSITIVE)
+        batch, _ = start(self.sprint)
+        decide(self.sprint, self.user, batch.cases[0]['id'], {'action': 'correct', 'value': 20,
+            'reason': 'Corrected from the explicitly cited programme access record',
+            'source_document_id': str(source.pk), 'source_page': '1', 'source_snippet': POSITIVE})
+        run = self.run_snapshot()
+        claim = run.inputs['reviewed_evidence']['claims'][0]
+        self.assertEqual(claim['source']['document_id'], str(source.pk))
+        self.assertEqual(claim['verification']['grounding'], 'exact')
+        self.assertEqual(claim['decisions'][-1]['action'], 'corrected')
+        from apps.scoring.capability.reviewed_evidence import for_context, citation_issue
+        sent = for_context(run.inputs['reviewed_evidence'], run.inputs['sources'])
+        self.assertEqual(sent['claims'][0]['value'], 20)
+        self.assertEqual(sent['claims'][0]['decisions'][-1]['rationale'], 'Corrected from the explicitly cited programme access record')
+        self.assertEqual(citation_issue([{'source_id': str(page.pk), 'quote': POSITIVE}], run.inputs['reviewed_evidence'], run.inputs['sources'], state='met'), '')
