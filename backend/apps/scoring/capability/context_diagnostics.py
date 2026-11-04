@@ -376,7 +376,7 @@ def recommendation_requests(plan, sources, rubric):
     attached to every batch.
     """
     from .recommendation_execution import bounded_strengths
-    from .recommendations import PROMPT, SCHEMA, processing_failure
+    from .recommendations import PROMPT, advice_schema, processing_failure
     from .semantic_retrieval import ranker_for
     foundation = plan.get('foundation_plan') or {}
     strengths = bounded_strengths(foundation.get('existing_strengths', []))
@@ -401,7 +401,7 @@ def recommendation_requests(plan, sources, rubric):
         support = anchoring({'review': review, 'context': selected})
         rows.append({'indicator': indicator, 'actions': len(actions),
                      'unknown_actions': sum(a['state'] == 'unknown' for a in actions),
-                     'user_chars': len(user), 'instructions_chars': len(PROMPT), 'schema_chars': len(json.dumps(SCHEMA)),
+                     'user_chars': len(user), 'instructions_chars': len(PROMPT), 'schema_chars': len(json.dumps(advice_schema(actions, selected, strengths))),
                      'source_windows': len(selected), 'source_chars': len(json.dumps(selected)),
                      'ledger_chars': len(json.dumps(review)) if review else 0,
                      'ledger_claims': len((review or {}).get('claims', [])),

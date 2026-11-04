@@ -34,10 +34,13 @@ def _artifact_hash(root, signature):
     return digest.hexdigest()
 
 
-def configured_policy():
+FUSION = 'lexical-protected-weighted-rrf-v2'
+
+
+def configured_policy(mode=None):
     from django.conf import settings
     path = settings.CAPABILITY_EMBEDDING_PATH
-    mode = settings.CAPABILITY_RETRIEVAL_MODE
+    mode = mode or settings.CAPABILITY_RETRIEVAL_MODE
     if mode not in ('bm25', 'hybrid'):
         raise SemanticRetrievalUnavailable('CAPABILITY_RETRIEVAL_MODE must be bm25 or hybrid.')
     if mode == 'bm25':
@@ -49,7 +52,8 @@ def configured_policy():
         raise SemanticRetrievalUnavailable('Install requirements/semantic.txt to enable local hybrid retrieval.') from exc
     return {'mode': 'hybrid', 'model': settings.CAPABILITY_EMBEDDING_MODEL,
             'artifact_hash': artifact_hash(path), 'fastembed_version': package_version,
-            'fusion': 'reciprocal-rank-k60-top60', 'window_chars': 1200}
+            'fusion': FUSION, 'window_chars': 1200,
+            'lexical_weight': 2, 'semantic_weight': 1, 'lexical_budget_share': 0.5}
 
 
 @lru_cache(maxsize=2)
@@ -65,7 +69,7 @@ class SemanticRanker:
         # Private vectors live only for this run; no global source cache/index.
         self.vectors, self.queries = {}, {}
 
-    def fuse(self, rows, lexical, query):
+    def rankings(self, rows, lexical, query):
         import numpy as np
         missing = list(dict.fromkeys(row[2] for row in rows if row[2] not in self.vectors))
         if missing:
@@ -89,10 +93,49 @@ class SemanticRanker:
             return hashlib.sha256(row[0]['text'].encode()).hexdigest(), row[1], row[0]['id']
         semantic = sorted(rows, key=lambda row: (-float(self.vectors[row[2]] @ q), tie(row)))
         scores = {}
-        for ranking in (lexical[:60], semantic[:60]):
+        for weight, ranking in ((2, diverse_candidates(lexical)[:60]), (1, diverse_candidates(semantic)[:60])):
             for rank, row in enumerate(ranking, start=1):
-                scores[key(row)] = scores.get(key(row), 0) + 1 / (60 + rank)
-        return sorted(rows, key=lambda row: (-scores.get(key(row), 0), tie(row)))
+                scores[key(row)] = scores.get(key(row), 0) + weight / (60 + rank)
+        fused = sorted(rows, key=lambda row: (-scores.get(key(row), 0), tie(row)))
+        return {'lexical': lexical, 'semantic': semantic, 'fused': fused,
+                'similarity': {key(row): float(self.vectors[row[2]] @ q) for row in rows}}
+
+    def input_diagnostics(self, text):
+        """Probe the provisioned tokenizer, without changing the live tokenizer's settings.
+
+        This reports tokenizer coverage, not whether a table retains semantic meaning.
+        """
+        tokenizer = getattr(getattr(self.model, 'model', None), 'tokenizer', None)
+        if tokenizer is None:
+            return {'status': 'tokenizer_unavailable', 'input_chars': len(text)}
+        from tokenizers import Tokenizer
+        probe = Tokenizer.from_str(tokenizer.to_str())
+        encoded = probe.encode(text)
+        retained = max((end for _, end in encoded.offsets), default=0)
+        limit = probe.truncation
+        probe.no_truncation()
+        full = probe.encode(text)
+        return {'status': 'tokenizer_probed', 'input_chars': len(text), 'encoded_tokens': len(encoded.ids),
+                'full_tokens': len(full.ids), 'truncation': limit, 'retained_chars': retained,
+                'truncated': len(encoded.ids) < len(full.ids)}
+
+    def fuse(self, rows, lexical, query):
+        return self.rankings(rows, lexical, query)['fused']
+
+
+def diverse_candidates(rows):
+    """Avoid spending candidate slots on substantially overlapping windows of one page."""
+    selected, spans = [], {}
+    for row in rows:
+        source, start, text, _ = row
+        end = start + len(text)
+        existing = spans.setdefault(source['id'], [])
+        if any(max(0, min(end, b) - max(start, a)) > .5 * min(end - start, b - a)
+               for a, b in existing):
+            continue
+        selected.append(row)
+        existing.append((start, end))
+    return selected
 
 
 def ranker_for(policy):
@@ -100,7 +143,9 @@ def ranker_for(policy):
         return None
     from django.conf import settings
     from importlib.metadata import version
-    if (policy.get('mode') != 'hybrid' or policy.get('fusion') != 'reciprocal-rank-k60-top60'
+    if (policy.get('mode') != 'hybrid' or policy.get('fusion') != FUSION
+            or policy.get('window_chars') != 1200 or policy.get('lexical_weight') != 2
+            or policy.get('semantic_weight') != 1 or policy.get('lexical_budget_share') != 0.5
             or policy.get('model') != settings.CAPABILITY_EMBEDDING_MODEL
             or policy.get('fastembed_version') != version('fastembed')
             or policy.get('artifact_hash') != artifact_hash(settings.CAPABILITY_EMBEDDING_PATH)):

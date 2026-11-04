@@ -56,7 +56,8 @@ class RecommendationDetailView(RecommendationBase):
             'assessment_event_id': snapshot.assessment_event_id,
             'plan': {k: v for k, v in inputs.items() if k != 'execution_policy'},
             'tailoring': completed.payload if completed else None,
-            'fallback': completed is None or completed.payload['mode'] == 'deterministic',
+            'fallback': completed is None or not any(a.get('origin') == 'model_tailored'
+                for a in completed.payload.get('advice', [])),
             'error': terminal.payload if terminal else None,
             'action_states': list(snapshot.action_states.order_by('condition_id').values(
                 'condition_id', 'owner', 'feasibility', 'status', 'updated_at'))})

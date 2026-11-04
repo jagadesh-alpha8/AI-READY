@@ -30,9 +30,8 @@ class Command(BaseCommand):
         run = CapabilityRun.objects.get(pk=options['run_id'])
         if digest(run.inputs) != run.inputs_hash:
             raise CommandError('Frozen input integrity mismatch.')
-        policy = configured_policy()
-        if policy['mode'] != 'hybrid':
-            raise CommandError('Provision CAPABILITY_EMBEDDING_PATH and enable hybrid mode first.')
+        # Explicit offline candidate policy; the running application can remain BM25.
+        policy = configured_policy(mode='hybrid')
         ranker = ranker_for(policy)
         sources, rubric = run.inputs['sources'], run.inputs['rubric']
         conditions = {c['id'] for i in rubric['indicators'] for c in i['conditions']}
@@ -76,9 +75,12 @@ class Command(BaseCommand):
         methods = {'bm25_1800': lambda i, s, max_chars: select_context(i, s, max_chars=max_chars),
                    'bm25_1200': lambda i, s, max_chars: select_context(i, s, max_chars=max_chars, window_chars=1200),
                    'hybrid_1200': lambda i, s, max_chars: select_context(i, s, max_chars=max_chars, semantic_ranker=ranker)}
+        from apps.scoring.capability.retrieval_diagnostics import gold_traces
+        result['gold_traces'] = {}
         for split, gold in sets.items():
             result['sets'][split] = {name: retrieval_recall(rubric, sources, gold, selector=selector, budget=options['budget'])
                                     for name, selector in methods.items()}
+            result['gold_traces'][split] = gold_traces(rubric, sources, gold, ranker, options['budget'])
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(result, indent=2))
         self.stdout.write('Wrote local retrieval ablation; no evaluation requests or database writes.')

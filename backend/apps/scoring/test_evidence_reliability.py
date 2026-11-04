@@ -210,8 +210,10 @@ class RetrievalComparisonCommandTests(TestCase):
         cid = run.inputs['rubric']['indicators'][0]['conditions'][0]['id']
         count = CapabilityRunEvent.objects.count()
         class Ranker:
-            def fuse(self, rows, lexical, query):
-                return lexical
+            def rankings(self, rows, lexical, query):
+                return {'lexical': lexical, 'semantic': lexical, 'fused': lexical, 'similarity': {}}
+            def input_diagnostics(self, text):
+                return {'status': 'synthetic'}
         with TemporaryDirectory() as directory:
             gold = Path(directory) / 'gold.json'
             output = Path(directory) / 'comparison.json'
@@ -220,7 +222,10 @@ class RetrievalComparisonCommandTests(TestCase):
                     'apps.scoring.capability.semantic_retrieval.ranker_for', return_value=Ranker()), patch(
                     'apps.extraction.services.ai_service.get_ai_service', side_effect=AssertionError('No evaluator calls')):
                 call_command('capability_retrieval_compare', str(run.pk), gold=str(gold), output=str(output), stdout=StringIO())
+            self.assertEqual(configured_policy()['mode'], 'bm25')
             result = json.loads(output.read_text())
             self.assertEqual(set(result['sets']['development']), {'bm25_1800', 'bm25_1200', 'hybrid_1200'})
             self.assertTrue(all(r['retrieved'] == 1 for r in result['sets']['development'].values()))
+            self.assertTrue(result['gold_traces']['development'][0]['retrieved'])
+            self.assertEqual(result['gold_traces']['development'][0]['queries'][0]['lexical_rank'], 1)
         self.assertEqual(CapabilityRunEvent.objects.count(), count)

@@ -303,11 +303,16 @@ class RecommendationTests(APITestCase):
             return response
         self.sdk.chat.completions.create.side_effect = fabricate
         self.execute(ex)
-        # Each batch's unsupported citation drops that batch to labelled deterministic advice; nothing fabricated survives.
+        # Only the bad item falls back after one repair; valid neighbours survive.
         self.assertEqual(ex.status, 'completed')
         advice = self.detail(ex)['tailoring']['advice']
         self.assertTrue(advice)
-        self.assertTrue(all(a['origin'] == 'deterministic_fallback' and a['fallback_reason'] for a in advice))
+        self.assertEqual(sum(a['origin'] == 'deterministic_fallback' for a in advice), 36)
+        self.assertTrue(any(a['origin'] == 'model_tailored' for a in advice))
+        self.assertEqual(ex.requests_reserved, 72)
+        batches = list(ex.snapshot.events.filter(payload__kind='advice_batch'))
+        self.assertTrue(all(len(e.payload['validation']['initial_invalid']) == 1 for e in batches))
+        self.assertTrue(all(len(e.payload['validation']['final_fallback_ids']) == 1 for e in batches))
         self.assertFalse(any(c.get('source_id') == 'foreign' for a in advice for c in a['basis']))
         actions = ex.snapshot.inputs['actions'][:2]
         rows = self.rows(actions)

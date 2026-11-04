@@ -780,8 +780,8 @@ if EXTRACTION_QUEUE:
 # Experimental, explicit plan interpretation; shares configured request/cost caps.
 CAPABILITY_PLANS_ENABLED = os.getenv('CAPABILITY_PLANS_ENABLED', 'false').lower() == 'true'
 
-# Capability retrieval: a provisioned local model enables hybrid ranking.
+# Capability retrieval: installing weights never changes the live retrieval policy.
 # Workers never download artifacts or use hosted embedding inference.
 CAPABILITY_EMBEDDING_PATH = os.getenv('CAPABILITY_EMBEDDING_PATH', '')
 CAPABILITY_EMBEDDING_MODEL = os.getenv('CAPABILITY_EMBEDDING_MODEL', 'BAAI/bge-small-en-v1.5')
-CAPABILITY_RETRIEVAL_MODE = os.getenv('CAPABILITY_RETRIEVAL_MODE', 'hybrid' if CAPABILITY_EMBEDDING_PATH else 'bm25')
+CAPABILITY_RETRIEVAL_MODE = os.getenv('CAPABILITY_RETRIEVAL_MODE', 'bm25')

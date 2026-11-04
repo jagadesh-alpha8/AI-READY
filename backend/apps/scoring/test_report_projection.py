@@ -166,8 +166,14 @@ class ReadableProjectionTests(SimpleTestCase):
         for tailoring in ({'mode': 'deterministic', 'advice': []}, {'mode': 'tailored', 'advice': []}):
             self.assertEqual(advisory_state({'status': 'completed', 'tailoring': tailoring})['kind'], 'basic')
         state = advisory_state({'status': 'completed', 'tailoring': {'mode': 'tailored', 'advice': [
-            {'condition_id': 'AIQIF-C1.1.F1', 'steps': ['Confirm the current plan.']}]}})
+            {'condition_id': 'AIQIF-C1.1.F1', 'origin': 'model_tailored', 'steps': ['Confirm the current plan.']}]}})
         self.assertEqual(state['kind'], 'tailored')
+
+    def test_fallback_processing_and_unlabelled_advice_are_never_called_tailored(self):
+        for origin in ('deterministic_fallback', 'processing_rerun', 'deterministic_evidence_request', None):
+            item = {'condition_id': 'AIQIF-C1.1.F1', 'origin': origin, 'steps': ['Check the evidence.']}
+            state = advisory_state({'status': 'completed', 'tailoring': {'mode': 'tailored', 'advice': [item]}})
+            self.assertEqual(state['kind'], 'basic')
 
     def test_generated_codes_are_readable_but_original_quotes_are_preserved(self):
         report, actions = report_fixture()

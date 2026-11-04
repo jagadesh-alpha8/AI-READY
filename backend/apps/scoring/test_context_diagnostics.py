@@ -554,7 +554,7 @@ class ProductionPathTests(APITestCase):
         self.assertFalse(any(step.startswith('Request evidence') for step in item['steps']))
         self.assertTrue(all(json.loads(u)['actions'] and self.blocked not in u for u in self.sent))
 
-    def test_an_invalid_advice_batch_falls_back_for_that_batch_only(self):
+    def test_invalid_advice_is_repaired_without_discarding_valid_neighbours(self):
         answer = self.response
         def first_batch_invalid(**kwargs):
             response = answer(**kwargs)
@@ -567,8 +567,10 @@ class ProductionPathTests(APITestCase):
         advice = self.advice()
         origins = diag.advice_origins(advice)
         fallback = [a for a in advice if a['origin'] == 'deterministic_fallback']
-        self.assertTrue(fallback)
-        self.assertTrue(all(a['fallback_reason'].startswith('Model advice failed validation') for a in fallback))
+        self.assertEqual(fallback, [])
+        repair = json.loads(self.sent[1])
+        self.assertEqual(len(repair['actions']), 1)
+        self.assertIn(repair['actions'][0]['id'], repair['validation_errors'])
         self.assertGreater(origins.get('model_tailored', 0), 0)
 
 
