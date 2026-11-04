@@ -1,5 +1,5 @@
 """Evidence-aware foundation plan proposals; no scores, badges or baseline writes."""
-VERSION = 'foundation-path-0.1'
+VERSION = 'foundation-path-0.2'
 
 # These are pilot goal templates, not calibrated achievement gates.
 GOALS = (
@@ -69,7 +69,14 @@ def build_foundation_plan(rubric, records, result):
             'unresolved_condition_ids': unresolved, 'documented_shortfall_ids': shortfalls,
             'existing_strengths': related, 'depends_on': list(dependencies), 'suggested_role': role,
             'status': 'verify_before_implementation' if unresolved else 'documented_development_need',
-            'steps': (['First establish which listed practices already operate for the relevant scope and period; reuse them instead of rebuilding.'] if unresolved else []) + list(steps),
+            'evidence_steps': ([
+                'Check which of the listed practices already operate for the stated population and period; retain supporting records.',
+                'Separate confirmed provision, documented shortfalls and unresolved questions before choosing an intervention.'
+            ] if unresolved else []),
+            'improvement_steps': list(steps),
+            'improvement_condition': ('Apply these proposals only where evidence review confirms a gap; reuse the established strengths below.'
+                                      if unresolved else 'Address the documented shortfalls, building on the established strengths below.'),
+            'steps': list(steps),
             'completion_evidence': [conditions[cid]['completion_evidence'] for cid in remaining],
             'conditional': bool(unresolved), 'automatic_points': False})
         if unresolved:

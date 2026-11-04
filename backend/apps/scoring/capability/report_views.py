@@ -74,6 +74,7 @@ class CapabilityReportView(RunView):
             'reviewed_evidence': run.inputs.get('reviewed_evidence'),
             'refines_run_id': run.inputs.get('refines_run_id'), 'source_manifest': run.inputs['manifest'],
             'assessment_protocol': run.inputs.get('assessment_protocol'),
+            'retrieval_policy': run.inputs.get('retrieval_policy'),
             'assessment': event.payload, 'recommendation': recommendation,
             'deterministic_plan': snapshot.inputs if recommendation else build_inputs(run, event, {}),
             'notice': 'Experimental internal methodology, not an external accreditation standard. Unknown evidence is not failure. '

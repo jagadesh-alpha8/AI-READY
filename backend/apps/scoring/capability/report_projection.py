@@ -194,7 +194,10 @@ def build_report_view(report, actions):
                         basis.append(cite)
             priorities.append({'title': goal['title'], 'area_key': goal['target_condition_ids'][0].rsplit('.', 1)[0],
                 'reason': ('Verify unresolved practices before implementation; they are not presumed absent.' if goal['conditional'] else 'The recorded requirements identify a documented development need.'),
-                'steps': advice_steps + goal['steps'], 'suggested_role': goal['suggested_role'] + ' (suggested)',
+                'steps': goal['improvement_steps'],
+                'evidence_steps': advice_steps + goal['evidence_steps'],
+                'improvement_steps': goal['improvement_steps'],
+                'improvement_condition': goal['improvement_condition'], 'suggested_role': goal['suggested_role'] + ' (suggested)',
                 'effort': 'Confirm for the chosen route', 'completion': '; '.join(dict.fromkeys(goal['completion_evidence'])),
                 'dependencies': goal['depends_on'], 'sources': [{'label': source_labels.get(str(c['source_id']), 'Saved source reference'), 'quote': c['quote']} for c in basis[:3]],
                 'guidance': 'Proposed foundation goal; current achievement is not verified'})

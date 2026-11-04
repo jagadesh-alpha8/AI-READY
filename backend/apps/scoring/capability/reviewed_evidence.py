@@ -32,7 +32,8 @@ def snapshot(sprint):
             'original_value': f.original_value if f.original_value is not None else first_review.get('before'), 'value_origin': f.value_origin,
             'scope': {**read_scope(f), 'stated': f.scope}, 'kind': f.fact_kind,
             'verification': {'outcome': f.verification_status, 'grounding': f.grounding_status,
-                             'validation': f.validation_status, 'automation': f.automation_decision},
+                             'validation': f.validation_status, 'automation': f.automation_decision,
+                             'source_review_required': f.source_review_required},
             'disposition': f.status, 'source': {
                 'document_id': str(doc.pk) if valid_doc else None,
                 'version': doc.version_number if valid_doc else None,
@@ -109,14 +110,15 @@ def for_context(ledger, sources):
         current_refs, original_refs = references(claim['source']), references(claim['original_source'])
         if current_refs or original_refs:
             selected[claim['id']] = (claim, current_refs, original_refs)
-    # Keep every alternative of an applicable conflict, including rejected or
-    # off-window alternatives; do not present them as citable source passages.
+    # Full alternatives stay in the frozen ledger and citation validator. The
+    # model receives bounded representatives plus explicit omission summaries.
     issues = [i for i in ledger['issues'] if i['kind'] == 'conflict'
               and set(selected).intersection(i['claim_ids'])]
     alternatives = {cid for issue in issues for cid in issue['claim_ids']}
-    for claim in ledger['claims']:
-        if claim['id'] in alternatives and claim['id'] not in selected:
-            selected[claim['id']] = (claim, [], [])
+    candidates = sorted((c for c in ledger['claims'] if c['id'] in alternatives and c['id'] not in selected),
+                        key=lambda c: (c['disposition'] not in ('rejected', 'corrected', 'evidence_requested'), c['id']))
+    for claim in candidates[:4]:
+        selected[claim['id']] = (claim, [], [])
 
     def citation(source, refs):
         return {k: source[k] for k in ('document_id', 'version', 'page', 'current') if k in source} | {
@@ -144,10 +146,61 @@ def for_context(ledger, sources):
             if decision and (ids or case.get('kind') == 'identity'):
                 answers.append({'id': decision['id'], 'claim_ids': ids, 'action': decision['action'],
                                 'rationale': decision.get('rationale', '')})
-    return {'version': 'review-context-2', 'claims': claims,
-            'issues': [{k: i[k] for k in ('id', 'kind', 'status', 'claim_ids', 'rationale')} for i in issues],
-            'review_answers': answers,
-            'instruction': 'Passage references point to the separately supplied sources. Records with no selected passage support are review context, not quotations or automatic capability credit.'}
+    return bounded_packet(claims, issues, answers)
+
+
+def bounded_packet(claims, issues, answers):
+    """A fixed prompt budget, never a truncation of the validation authority.
+
+    Omitted alternatives stay in run.inputs.reviewed_evidence; citation_issue
+    always checks that complete ledger, including rejected and corrected claims.
+    """
+    import hashlib
+    import json
+    def clip(value, depth=0):
+        if depth > 5:
+            return '[context omitted]'
+        if isinstance(value, str):
+            return value if len(value) <= 512 else value[:480] + ' [context clipped]'
+        if isinstance(value, dict):
+            return {k: clip(v, depth + 1) for k, v in sorted(value.items())[:32]}
+        if isinstance(value, list):
+            return [clip(v, depth + 1) for v in value[:8]]
+        return value
+    ordered = sorted(claims, key=lambda c: (
+        c['disposition'] not in ('rejected', 'corrected', 'evidence_requested'),
+        not c['source']['source_support_in_selected_passages'], c['id']))
+    rows = [clip(c) for c in ordered[:20]]
+    # IDs and ref arrays are structural, not narrative. Preserve them verbatim.
+    for row, original in zip(rows, ordered):
+        row['id'] = original['id']
+        row['source'] = original['source']
+    def packet():
+        sent = {c['id'] for c in rows}
+        selected_issues = []
+        for issue in issues:
+            retained = [cid for cid in issue['claim_ids'] if cid in sent]
+            if not retained:
+                continue
+            selected_issues.append({'id': issue['id'] if len(issue['id']) <= 200 else
+                'conflict-digest:' + hashlib.sha256(issue['id'].encode()).hexdigest(),
+                'kind': issue['kind'], 'status': issue['status'], 'claim_ids': retained,
+                'rationale': clip(issue.get('rationale', '')),
+                'alternative_count': len(issue['claim_ids']),
+                'omitted_alternatives': len(issue['claim_ids']) - len(retained)})
+            if len(selected_issues) == 8:
+                break
+        return {'version': 'review-context-3', 'claims': rows, 'issues': selected_issues,
+            'review_answers': [clip(a) for a in answers[:8]],
+            'omissions': {'matching_claims': max(0, len(claims) - len(rows)),
+                          'applicable_issues': max(0, len(issues) - len(selected_issues)),
+                          'full_ledger_retained_for_validation': True},
+            'instruction': 'Only supplied passages are citable. This bounded packet may omit conflict alternatives and review details; omitted records do not establish agreement. Complete rejected, corrected and unresolved alternatives are enforced by local validation. Never award credit from review dispositions alone.'}
+    result = packet()
+    while len(json.dumps(result)) > 24000 and rows:
+        rows.pop()
+        result = packet()
+    return result
 
 
 def citation_issue(citations, ledger, sources, state=None):
@@ -165,7 +218,7 @@ def citation_issue(citations, ledger, sources, state=None):
     unresolved = {cid for i in ledger.get('issues', []) if i['kind'] == 'conflict' and i['status'] != 'resolved' for cid in i['claim_ids']}
     for claim in ledger['claims']:
         unresolved_conflict = state in ('met', 'not_met') and claim['id'] in unresolved
-        blocked = claim['disposition'] in ('rejected', 'evidence_requested')
+        blocked = claim['disposition'] in ('rejected', 'evidence_requested') or claim.get('verification', {}).get('source_review_required', False)
         corrected = claim['disposition'] == 'corrected'
         if not (blocked or corrected or unresolved_conflict):
             continue

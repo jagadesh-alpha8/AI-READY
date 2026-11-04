@@ -202,6 +202,8 @@ class ExtractionPipeline:
             analyze_pending_document_submissions(document, pages, job=job)
         except Exception:
             logger.exception('extraction.pipeline.final_evidence_assessment_hook_failed document_id=%s', document.id)
+        from apps.facts.lifecycle import reconcile_extraction
+        reconcile_extraction(job, getattr(job, '_seen_fact_ids', set()), pages)
         document.status = Document.Status.PROCESSED
         document.processed_at = timezone.now()
         update_fields = ['status', 'processed_at', 'updated_at']
@@ -341,7 +343,7 @@ class ExtractionPipeline:
         - auto-confirmed (apps/facts/auto_confirm.py, never a person's decision):
           updated like an unreviewed fact and set back to EXTRACTED, so it is
           checked for auto-confirmation again with the new value.
-        Facts an earlier run found that this run didn't are kept.
+        Missing facts are reconciled only after the whole pipeline succeeds; partial runs never retire facts.
         AI-QIF tagging (apps/facts/aiqif_tagging.py) runs for every fact,
         reviewed ones included: a reviewed fact keeps its value and review,
         but its kind / NAAC metric / automatic tags are refreshed. A kind a
@@ -366,7 +368,7 @@ class ExtractionPipeline:
         by_scope = {}
         # Oldest first, so the newest unreviewed row wins a key -- unless a
         # reviewed row already holds it.
-        for fact in ExtractedFact.objects.filter(document=job.document).select_related('reviewed_by').order_by('created_at'):
+        for fact in ExtractedFact.all_objects.filter(document=job.document).select_related('reviewed_by').order_by('created_at'):
             key = observation_identity(fact)
             by_scope.setdefault(observation_identity(fact, include_value=False), []).append(fact)
             held = existing.get(key)
@@ -374,6 +376,7 @@ class ExtractionPipeline:
                 existing[key] = fact
 
         count = 0
+        job._seen_fact_ids = set()
         from collections import Counter
         incoming_scopes = Counter(observation_identity(item, include_value=False) for item in mapped_facts)
         refreshed_fields = set()  # fields whose value may have changed: their conflict summaries are rebuilt
@@ -399,6 +402,8 @@ class ExtractionPipeline:
                     )
                     existing[observation_identity(fact)] = fact
                 elif updatable(fact):
+                    fact.retired_at = None
+                    fact.source_review_required = False
                     for name, value in fields.items():
                         if name == 'fact_kind' and fact.kind_reviewed_by_id:
                             continue  # a Super Admin decided the kind
@@ -411,6 +416,7 @@ class ExtractionPipeline:
                     fact.save()
                     refreshed_fields.add(fact.field_key)
                 else:
+                    job._seen_fact_ids.add(fact.pk)
                     # Reviewed: value and review untouched; only its tagging is refreshed.
                     for name in tagging_fields:
                         if name in fields and not (name == 'fact_kind' and fact.kind_reviewed_by_id):
@@ -419,6 +425,7 @@ class ExtractionPipeline:
                     if 'aiqif_mappings' in item:
                         ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'], crosswalk, precedents)
                     continue
+                job._seen_fact_ids.add(fact.pk)
                 if 'aiqif_mappings' in item:
                     ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'], crosswalk, precedents)
                 count += 1

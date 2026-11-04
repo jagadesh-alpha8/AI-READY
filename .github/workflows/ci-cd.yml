@@ -39,11 +39,9 @@ jobs:
           ALLOWED_HOSTS: localhost,127.0.0.1
 
   # The same tests on PostgreSQL, the production database: SQLite ignores row locks (SELECT ... FOR UPDATE) and
-  # some constraints, so bugs like the tag-confirm 500 only show up here. Informational for now -- it does not
-  # block the deploy (build-and-push needs only backend-test); make it required once it has been green a while.
+  # some constraints. Keep this required so production-database regressions cannot bypass CI.
   backend-test-postgres:
     runs-on: ubuntu-latest
-    continue-on-error: true
     defaults:
       run:
         working-directory: backend
@@ -73,7 +71,7 @@ jobs:
       - run: pip install -r requirements/development.txt
 
       - run: |
-          python manage.py test apps.scoring.test_review_snapshot_concurrency apps.scoring.test_capability_storage apps.facts.test_review_journey
+          python manage.py test apps.scoring.test_review_snapshot_concurrency apps.scoring.test_capability_storage apps.scoring.test_evidence_reliability apps.facts.test_review_journey
           python manage.py test --parallel 4
         env:
           DATABASE_URL: postgres://ci:ci@localhost:5432/ai_ready
@@ -101,7 +99,7 @@ jobs:
       - run: npm run build
 
   build-and-push:
-    needs: [backend-test, frontend-build]
+    needs: [backend-test, backend-test-postgres, frontend-build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:

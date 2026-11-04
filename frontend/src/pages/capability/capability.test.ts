@@ -199,7 +199,10 @@ describe('capability presentation and explicit spending', () => {
   it('shows proposed foundation goals and equal outcomes at three paces', () => {
     const goal = { id: 'resources', target_condition_ids: ['pending'], title: 'Reuse existing resources', status: 'verify_before_implementation',
       suggested_role: 'IT lead', existing_strengths: [{ condition_id: 'known', reason: 'Verified access <script>bad()</script>' }],
-      steps: ['Check suitability before conditional development.'], depends_on: [] };
+      steps: ['Check suitability before conditional development.'],
+      evidence_steps: ['Check which resources are already available.'],
+      improvement_steps: ['Check suitability before conditional development.'],
+      improvement_condition: 'Develop provision only where a gap is confirmed.', depends_on: [] };
     const plan = { destination: 'Proposed Silver foundation goals', baseline: { message: 'Review the unresolved baseline.' },
       routes: ['Immediate', 'Progressive', 'Gradual'].map(name => ({ name, indicative_duration: 'Illustrative duration',
         outcomes: ['resources'], assumptions: ['Confirm capacity first.'] })), goals: [goal], review_questions: [],
@@ -210,6 +213,9 @@ describe('capability presentation and explicit spending', () => {
     assert.match(html, /proposal, not a badge assessment/);
     assert.doesNotMatch(html, /<script>/);
     assert.match(html, /Check suitability/);
+    assert.match(html, /Establish what exists/);
+    assert.match(html, /Improve capability where needed/);
+    assert.match(html, /only where a gap is confirmed/);
     assert.match(html, /Inspect the verified facility/);
   });
   it('loads all 36 indicators read-only and escapes profile text', async () => {

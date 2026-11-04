@@ -179,7 +179,8 @@ def counting_q(prefix=''):
     """Q for FactAIQIFMapping rows that count toward coverage (rule 3). `prefix` for a related lookup."""
     p = prefix
     return (Q(**{f'{p}fact__fact_kind': Kind.AI_EVIDENCE, f'{p}fact__status__in': CONFIRMED_FACT,
-                 f'{p}relationship__in': COUNTING_RELATIONSHIPS})
+                 f'{p}relationship__in': COUNTING_RELATIONSHIPS,
+                 f'{p}fact__retired_at__isnull': True, f'{p}fact__source_review_required': False})
             & ~Q(**{f'{p}review_status': Review.REJECTED})
             & (Q(**{f'{p}review_status': Review.CONFIRMED}) | Q(**{f'{p}auto_accepted': True})))
 

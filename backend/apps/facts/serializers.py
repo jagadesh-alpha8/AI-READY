@@ -113,7 +113,7 @@ class ExtractedFactSerializer(serializers.ModelSerializer):
             'owner_role_label', 'assigned_to', 'assigned_to_name', 'assigned_at', 'due_date', 'can_act',
             'act_blocked_reason',
             'value_origin', 'original_value', 'original_source_page', 'original_source_snippet', 'derivation',
-            'scope', 'verification', 'pending_correction',
+            'scope', 'verification', 'pending_correction', 'source_review_required',
             'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
