@@ -50,22 +50,82 @@ def bounded_policy():
     return result
 
 
+def decision_preflight(plan, meter):
+    """Size all initial decision requests before spending; runtime guards remain.
+
+    This is the meter's conservative byte-derived bound, not model tokenization.
+    Client format repairs may add content later and are checked at runtime too.
+    """
+    from django.conf import settings
+    from apps.extraction.services.openai_client import OpenAIExtractionService, _JSON_INSTRUCTIONS, _sampling
+    from apps.extraction.services.provider_features import direct_gemini, gemini_thinking
+    if not isinstance(meter.service, OpenAIExtractionService):
+        return [{'id': r['id'], 'available': False, 'eligible': True,
+                 'note': 'Initial sizing unavailable for this client; runtime meter still applies.'}
+                for r in plan['requests']]
+    rows=[]
+    for request in plan['requests']:
+        system=request['system_prompt']
+        base_url=meter.service.base_url
+        schema=request['response_schema']
+        if base_url and not direct_gemini(base_url):
+            system += _JSON_INSTRUCTIONS.format(schema=json.dumps(schema,separators=(',',':')))
+        kwargs={'model':meter.model,
+            'messages':[{'role':'system','content':system},
+                        {'role':'user','content':json.dumps(request['payload'],sort_keys=True)}],
+            'response_format':{'type':'json_schema','json_schema':{
+                'name':'capability_probe_condition','schema':schema,'strict':True}},
+            'max_tokens':meter.policy['output_tokens'],'timeout':meter.policy['timeout_seconds'],
+            **_sampling()}
+        if gemini_thinking(base_url,meter.model) and meter.policy['gemini_reasoning_effort']!='default':
+            kwargs['reasoning_effort']=meter.policy['gemini_reasoning_effort']
+        bound,_=meter.envelope(kwargs)
+        rows.append({'id':request['id'],'available':True,
+            'input_token_bound':bound,'input_token_bound_limit':meter.policy['input_token_bound_limit'],
+            'eligible':bound<=meter.policy['input_token_bound_limit'],
+            'bound_basis':'serialized_utf8_bytes_plus_4096_not_actual_model_tokens'})
+    return rows
+
+
 def execute(plan, meter, *, advice_cases=3, on_result=None):
     """One shared meter/deadline for decisions, retries and normal advice repair."""
     if type(advice_cases) is not int or not 0<=advice_cases<=3:
         raise ValueError('At most three advice cases are allowed.')
+    from .execution import InputBudgetExceeded
     from .recommendations import KINDS,OPERATIONS,processing_failure
     from .recommendation_execution import tailor_batch,deterministic_advice,bounded_strengths
-    result={'version':'bounded-evidence-probe-1','diagnostic_only':True,'requests':[],
-            'execution_completed':False}
+    result={'version':'bounded-evidence-probe-2','diagnostic_only':True,'requests':[],
+            'case_errors':[], 'execution_completed':False, 'advice_stage_completed':False}
+    result['decision_preflight']=decision_preflight(plan,meter)
+    preflight={row['id']:row for row in result['decision_preflight']}
     try:
         for request in plan['requests']:
-            response=meter.extract_structured_data(system_prompt=request['system_prompt'],
-                user_content=json.dumps(request['payload'],sort_keys=True),response_schema=request['response_schema'],
-                schema_name='capability_probe_condition')
+            check=preflight[request['id']]
+            if not check['eligible']:
+                failure={'id':request['id'],'status':'not_evaluated_input_budget',
+                    'error_type':'InputBudgetExceeded','stage':'initial_preflight',
+                    'provider_requests_reserved_for_case':0,'preflight':check}
+                result['case_errors'].append(failure)
+                if on_result:on_result(failure)
+                continue
+            before=sum(c.get('kind')=='request_reserved' for c in meter.metadata()['calls'])
+            try:
+                response=meter.extract_structured_data(system_prompt=request['system_prompt'],
+                    user_content=json.dumps(request['payload'],sort_keys=True),response_schema=request['response_schema'],
+                    schema_name='capability_probe_condition')
+            except InputBudgetExceeded:
+                after=sum(c.get('kind')=='request_reserved' for c in meter.metadata()['calls'])
+                failure={'id':request['id'],'status':'not_evaluated_input_budget',
+                    'error_type':'InputBudgetExceeded','stage':'runtime_input_guard',
+                    'provider_requests_reserved_for_case':after-before}
+                result['case_errors'].append(failure)
+                if on_result:on_result(failure)
+                continue
             replay={**request,'response':response}
             audited=audit_request(replay,plan['reviewed_evidence'],plan['rubric'])
-            audited.update(model_execution_verified=True,system_prompt=request['system_prompt'],
+            audited.update(status='live_response_validated',model_execution_verified=True,
+                note='Live metered response; local validation checks grounding and shape, not semantic correctness.',
+                system_prompt=request['system_prompt'],
                 payload=request['payload'],response_schema=request['response_schema'])
             result['requests'].append(audited)
             if on_result:on_result(audited)
@@ -95,7 +155,11 @@ def execute(plan, meter, *, advice_cases=3, on_result=None):
                 advice.append({'condition_id':record['condition_id'],'advice':batch,'validation':validation})
             audited['live_advice']=advice
             if advice and on_result:on_result(audited)
-        result['execution_completed']=True
+        result['advice_stage_completed']=True
+        result['execution_completed']=not result['case_errors']
+        if result['case_errors']:
+            result['stop_reason']='InputBudgetExceeded'
+            result['partial_result_reason']='One or more decision packets exceeded the local input bound; other completed cases remain eligible for advice.'
     except Exception as exc:
         # Provider exception strings can contain confidential inputs or credentials.
         result['stop_reason']=type(exc).__name__

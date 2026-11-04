@@ -103,3 +103,24 @@ publishes an institutional assessment or dispatches a worker. If interrupted,
 inspect its reserved requests and partial case events before retrying: a request
 may already have been billed. Do not treat simulated SDK contract tests as model
 quality evidence. A successful live response still needs substantive human review.
+
+## Partial probe recovery
+
+The runner preflights every initial OpenAI-compatible decision packet before any
+provider request. Its `input_token_bound` is serialized UTF-8 request bytes plus
+4,096 framing units, matching the conservative meter policy; it is not an actual
+model tokenizer count or proof that the provider context window was exceeded.
+Client format repairs can add content later and still pass through runtime guards.
+
+An initial or runtime input-bound failure is recorded per case as unevaluated,
+with zero or more already reserved requests explicitly recorded. It creates no
+synthetic model judgement. Other cases and advice on completed decisions can
+continue within the unchanged shared request/cost/deadline limits. Global request,
+cost, deadline and provider failures still stop execution. Any skipped case keeps
+the overall run partial/failed; `case_errors`, completed decisions, advice-stage
+status and meter history explain exactly what happened.
+
+Live decisions use `live_response_validated`; offline audit replay retains its
+separate replay status. A valid response still does not establish semantic quality.
+Do not rerun completed cases merely to obtain missing advice or a corrected case:
+review the private output first and prepare an explicitly bounded follow-up plan.

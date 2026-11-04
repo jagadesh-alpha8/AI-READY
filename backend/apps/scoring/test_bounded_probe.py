@@ -118,3 +118,46 @@ class ProbeCommandGuardTests(SimpleTestCase):
                     call_command('capability_bounded_probe',str(source),output=str(Path(folder)/'out.json'),
                         execute=True,disposable_database=str(connection.settings_dict['NAME']),sprint_id='unused')
                 provider.assert_not_called()
+
+
+@override_settings(CAPABILITY_ASSESSMENT_ENABLED=True,AI_RATE_LIMIT_ENABLED=False,
+    AI_PRICING_JSON='{"test-model":{"input":0.1,"output":0.2}}')
+class OversizedProbeCaseTests(SharedProbeMeterTests):
+    def test_oversized_case_is_preflighted_before_calls_and_does_not_cancel_advice(self):
+        plan,ledger,corpus=fixture()
+        large=deepcopy(plan['requests'][0]);large['id']='oversized'
+        corpus=deepcopy(corpus)
+        full_text=corpus[0]['text']*5000
+        corpus[0]['text']=full_text
+        large['payload']['sources'][0]['text']=full_text
+        large['payload_hash']=digest(large['payload'])
+        plan['requests'].append(large)
+        meter,execution,sdk=self.setup_meter(2)
+        result=execute(prepare(plan,ledger,corpus),meter,advice_cases=1)
+        self.assertEqual(result['requests'][0]['status'],'live_response_validated')
+        self.assertFalse(result['execution_completed'])
+        self.assertTrue(result['advice_stage_completed'])
+        self.assertEqual(result['case_errors'][0]['id'],'oversized')
+        self.assertEqual(result['case_errors'][0]['provider_requests_reserved_for_case'],0)
+        self.assertIn('not_actual_model_tokens',result['decision_preflight'][1]['bound_basis'])
+        self.assertTrue(result['requests'][0]['live_advice'])
+        self.assertEqual(sdk.chat.completions.create.call_count,2)
+        execution.refresh_from_db();self.assertEqual(execution.requests_reserved,2)
+
+    def test_runtime_input_guard_is_local_but_global_budget_still_stops(self):
+        from unittest.mock import patch
+        from .capability.execution import InputBudgetExceeded
+        plan,ledger,corpus=fixture();second=deepcopy(plan['requests'][0]);second['id']='runtime_oversize'
+        plan['requests'].append(second)
+        meter,execution,sdk=self.setup_meter(2)
+        original=meter.extract_structured_data;calls=0
+        def send(**kwargs):
+            nonlocal calls
+            calls+=1
+            if calls==2:raise InputBudgetExceeded()
+            return original(**kwargs)
+        with patch.object(meter,'extract_structured_data',side_effect=send):
+            result=execute(prepare(plan,ledger,corpus),meter,advice_cases=1)
+        self.assertEqual(result['case_errors'][0]['stage'],'runtime_input_guard')
+        self.assertTrue(result['advice_stage_completed'])
+        self.assertTrue(result['requests'][0]['live_advice'])
