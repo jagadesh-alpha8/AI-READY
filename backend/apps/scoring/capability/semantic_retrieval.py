@@ -34,7 +34,7 @@ def _artifact_hash(root, signature):
     return digest.hexdigest()
 
 
-FUSION = 'protected-bm25-discovery-v3'
+FUSION = 'protected-bm25-discovery-v4'
 BASELINE_CHARS = 18000
 EXPANSION_CHARS = 6000
 BGE_QUERY_INSTRUCTION = 'Represent this sentence for searching relevant passages: '

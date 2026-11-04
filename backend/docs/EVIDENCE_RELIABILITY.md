@@ -136,6 +136,22 @@ cells. Discovery strips only the generated wrapper when classifying the payload;
 source text and offsets are preserved. Caption-only narratives and long split
 captions are covered by regression tests. The frozen filter policy is version 2.
 
+## Lexical retrieval correction
+
+Lexical retrieval retains `review` as a content term. Removing it as boilerplate
+can erase the activity in an assertion and rank subject-only material above a
+review of that subject. A synthetic regression distinguishes a review from a
+catalogue that repeats the subject words, under the same character budget.
+The source-passage protocol is version 4; protected hybrid's fusion identifier
+is also version 4 because its protected lexical baseline changes. Budgets,
+scoring assertions and the operational BM25 default are unchanged.
+
+Case-pack corrections must change the data as well as reviewer notes. Move
+disputed support into an `adjudication_needed` control rather than leaving it
+in `positive_bundles`; otherwise it still inflates the positive denominator.
+New alternative evidence found after inspecting retrieval is useful regression
+coverage, not an independent held-out quality estimate.
+
 ## Recommendations
 
 The foundation pathway now displays two separate tracks in the application and HTML/PDF reports:

@@ -50,6 +50,19 @@ class ProtectedRetrievalTests(SimpleTestCase):
                             if a['outcome'] == 'selected'))
         self.assertEqual(selected, select_context(indicator, sources[::-1], max_chars=2400, semantic_ranker=ranker))
 
+    def test_review_is_retrieval_evidence_not_a_stop_word(self):
+        indicator = {'code': 'TEST', 'name': 'Resource oversight',
+                     'scoring_mode': 'independent_conditions',
+                     'conditions': [{'id': 'c', 'text': 'A review compares capacity with delivery needs.'}]}
+        # Both pages mention the same subject. Only one records a review.
+        sources = [{'id': 'catalogue', 'text': 'Capacity delivery needs capacity. ' + 'catalogue ' * 30},
+                   {'id': 'review', 'text': 'Capacity delivery needs review. ' + 'assessment ' * 30}]
+        selected = select_context(indicator, sources, max_chars=150)
+        self.assertEqual([s['id'] for s in selected], ['review'])
+        self.assertEqual(selected, select_context(indicator, sources[::-1], max_chars=150))
+        self.assertLessEqual(sum(len(s['text']) for s in selected), 150)
+        self.assertEqual(selected[0]['text'], sources[1]['text'][:150])
+
     def test_duplicate_candidates_do_not_fill_fusion_slots(self):
         source = {'id': 'page', 'text': 'x' * 1200 + 'y' * 1200}
         rows = [Passage(source, start, end, 'prose', None, source['text'][start:end], 1)
