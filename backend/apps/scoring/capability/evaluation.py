@@ -419,7 +419,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
         schema = indicator_schema(indicator, context)
         from .scope import context_scope
         from .reviewed_evidence import for_context
-        review_context = for_context(reviewed_evidence, context)
+        attachment_audit = {}
+        review_context = for_context(reviewed_evidence, context, diagnostics=attachment_audit)
         payload = json.dumps({'reviewed_evidence': review_context, 'indicator': indicator, 'population': population,
                               'reference_period': reference_period, 'scope': context_scope(scope, context), 'sources': context}, sort_keys=True)
         if review_context and len(json.dumps(review_context)) > 32000:
@@ -500,6 +501,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                        'input_hash': hashlib.sha256(payload.encode()).hexdigest(),
                        'source_ids': [s['id'] for s in context],
                        'source_excerpts': context,
+                       'reviewed_evidence_packet': review_context,
+                       'reviewed_attachment_audit': attachment_audit,
                        'reviewed_context_chars': len(json.dumps(review_context)),
                        'reviewed_context_claims': len((review_context or {}).get('claims', [])),
                        'user_payload_chars': len(payload),
