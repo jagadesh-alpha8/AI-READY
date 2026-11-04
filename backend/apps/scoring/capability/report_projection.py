@@ -87,8 +87,10 @@ def advisory_state(recommendation):
     tailoring = recommendation.get('tailoring')
     if (status == 'completed' and tailoring and tailoring.get('mode') == 'tailored'
             and any(a.get('origin') == 'model_tailored' for a in tailoring.get('advice', []))):
+        has_basic = any(a.get('origin') != 'model_tailored' for a in tailoring.get('advice', []))
         return {'kind': 'tailored', 'status': status, 'label': 'Assessment with tailored advice',
-                'explanation': 'Advice is linked to the selected saved assessment. Some unresolved requirements may still use basic evidence guidance.'}
+                'explanation': 'Advice is linked to the selected saved assessment.' + (
+                    ' Some requirements use basic guidance or processing follow-ups.' if has_basic else '')}
     explanations = {
         'queued': 'Tailored advice is queued. This export contains basic assessment follow-ups.',
         'running': 'Tailored advice is still being generated. This export contains basic assessment follow-ups.',

@@ -31,7 +31,7 @@ from openai import (
 )
 
 from ..exceptions import (
-    AIResponseError, PermanentExtractionError, ProviderQuotaExhausted, ProviderRateLimited, ProviderUnavailable,
+    AIResponseError, AIOutputTruncated, PermanentExtractionError, ProviderQuotaExhausted, ProviderRateLimited, ProviderUnavailable,
 )
 from ..usage import record_openai_usage
 from . import rate_limit
@@ -86,6 +86,10 @@ class OpenAIResponseError(AIResponseError):
     empty, truncated, blocked by the content filter, or not valid JSON.
     Retrying an identical request against the same input won't fix this,
     so it's permanent rather than recoverable."""
+
+
+class OpenAIOutputTruncated(OpenAIResponseError, AIOutputTruncated):
+    pass
 
 
 class OpenAIExtractionService:
@@ -149,7 +153,8 @@ class OpenAIExtractionService:
         """
         started = time.monotonic()
         compatible_endpoint = bool(self.base_url)
-        if compatible_endpoint:
+        from .provider_features import direct_gemini
+        if compatible_endpoint and not direct_gemini(self.base_url):
             system_prompt = system_prompt + _JSON_INSTRUCTIONS.format(
                 schema=json.dumps(response_schema, separators=(',', ':')),
             )
@@ -173,6 +178,9 @@ class OpenAIExtractionService:
         response = self._send(started, messages, response_format, timeout)
         try:
             result = self._parse_response(response)
+        except AIOutputTruncated:
+            self._log_outcome(started, success=False, error='output_truncated')
+            raise
         except OpenAIResponseError as first_error:
             if not compatible_endpoint:
                 self._log_outcome(started, success=False, error='invalid_response')
@@ -200,9 +208,15 @@ class OpenAIExtractionService:
         if self.base_url and self.base_url in _NO_RESPONSE_FORMAT:
             response_format = None
         call_started = time.monotonic()
-        provider = 'openai_compatible' if self.base_url else 'openai'
+        from .provider_features import direct_gemini
+        provider = 'gemini' if direct_gemini(self.base_url) else 'openai_compatible' if self.base_url else 'openai'
         try:
             kwargs = {'response_format': response_format} if response_format else {}
+            from .provider_features import gemini_thinking
+            if gemini_thinking(self.base_url, self.model):
+                effort = settings.AI_GEMINI_REASONING_EFFORT
+                if effort != 'default':
+                    kwargs['reasoning_effort'] = effort
             if self.base_url not in _NO_SAMPLING:
                 kwargs.update(_sampling())
             # Shared per-key request / token limits across every worker (services/rate_limit.py).
@@ -241,7 +255,7 @@ class OpenAIExtractionService:
             self._log_outcome(started, success=False, error='connection_error')
             raise ProviderUnavailable(f'Could not reach OpenAI: {exc}', kind='network') from exc
         except APIStatusError as exc:
-            if response_format and self.base_url and _rejects_response_format(exc):
+            if response_format and self.base_url and not direct_gemini(self.base_url) and _rejects_response_format(exc):
                 logger.warning('openai.request base_url=%s response_format_unsupported resending_without_it', self.base_url)
                 _NO_RESPONSE_FORMAT.add(self.base_url)
                 return self._send(started, messages, None, timeout)
@@ -291,7 +305,7 @@ class OpenAIExtractionService:
 
         choice = choices[0]
         if choice.finish_reason == 'length':
-            raise OpenAIResponseError('OpenAI response was truncated (finish_reason=length).')
+            raise OpenAIOutputTruncated('OpenAI response was truncated (finish_reason=length).')
         if choice.finish_reason == 'content_filter':
             raise OpenAIResponseError('OpenAI response was blocked by the content filter.')
 

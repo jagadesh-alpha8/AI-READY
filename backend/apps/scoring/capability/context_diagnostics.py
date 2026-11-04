@@ -393,6 +393,7 @@ def recommendation_requests(plan, sources, rubric):
         payload['sources'] = selected
         payload['reviewed_evidence'] = review = for_context(ledger, selected)
         payload['actions'] = actions
+        payload['allowed_dependency_ids'] = [a['id'] for a in actions]
         payload['established_strengths'] = strengths
         payload['foundation_goals'] = [{k: g[k] for k in ('id', 'title', 'depends_on', 'status', 'conditional')}
                                        for g in foundation.get('goals', [])]
