@@ -85,8 +85,10 @@ class Command(BaseCommand):
                 raise CommandError('Development and holdout labels must not overlap.')
         result = {'run_id': str(run.pk), 'inputs_hash': run.inputs_hash, 'hybrid_policy': policy,
                   'no_model_evaluation': True, 'model_load_seconds': model_load_seconds, 'sets': {}}
+        from apps.scoring.capability.evidence_retrieval import retrieve_evidence
         methods = {'bm25_1800': lambda i, s, max_chars: select_context(i, s, max_chars=max_chars),
                    'bm25_1200': lambda i, s, max_chars: select_context(i, s, max_chars=max_chars, window_chars=1200),
+                   'profiled_bm25': lambda i, s, max_chars: retrieve_evidence(i, s, ranker, max_chars=max_chars, include_semantic=False),
                    'hybrid_passages': lambda i, s, max_chars: select_context(i, s, max_chars=max_chars, semantic_ranker=ranker)}
         from apps.scoring.capability.retrieval_diagnostics import gold_traces, trace_summary, readable_report
         result['gold_traces'] = {}

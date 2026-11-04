@@ -63,19 +63,22 @@ def gold_traces(rubric, sources, gold, ranker, budget=18000):
             nearest = [{**passage_data(n), 'similarity': requirement['similarity'][n]}
                        for n in requirement['raw_semantic'][:5]]
             probes.append({'queries': requirement['queries'],
+                'query_roles': requirement['query_roles'], 'evidence_query': requirement['evidence_query'],
                 'encoder_queries': [ranker.query_input(q) for q in requirement['queries']],
                 'encoder_query_tokens': [len(ranker.token_offsets(ranker.query_input(q))) for q in requirement['queries']],
                 'anchor': requirement['anchor'], 'query_clipped': requirement['query_clipped'],
                 'semantic_by_query': [{'query': query, 'encoder_input': ranker.query_input(query),
-                    'nearest': [{**passage_data(n), 'similarity': values[n]} for n in sorted(
+                    'role': role, 'nearest': [{**passage_data(n), 'similarity': values[n]} for n in sorted(
                         range(len(passages)), key=lambda n: (-values[n], passages[n].key))[:5]]}
-                    for query, values in zip(requirement['queries'], requirement['variant_similarities'])],
+                    for query, role, values in zip(requirement['queries'], requirement['query_roles'], requirement['variant_similarities'])],
                 'lexical_rank': best_rank('raw_lexical'), 'boosted_lexical_rank': best_rank('lexical'),
                 'contextual_lexical_rank': best_rank('contextual_lexical'),
+                'profile_lexical_rank': best_rank('profile_lexical'),
                 'terms_lexical_rank': best_rank('terms_lexical'), 'semantic_rank': best_rank('raw_semantic'),
                 'diversified_semantic_rank': best_rank('semantic'), 'fused_rank': best_rank('fused'),
                 'matching_scores': [{'passage': n, 'raw_bm25': requirement['raw_scores'][n],
                     'contextual_bm25': requirement['contextual_scores'][n],
+                    'with_evidence_profile': requirement['profile_scores'][n],
                     'with_indicator_terms': requirement['terms_scores'][n],
                     'with_extraction_hint': requirement['lexical_scores'][n],
                     'hint_applied': requirement['hint_applied'][n], 'cosine': requirement['similarity'][n],
@@ -115,7 +118,7 @@ def readable_report(result):
                       'Labelled quotation:', '', '    ' + row['label_quote'].replace('\n', '\n    '), '']
             for query in row['queries']:
                 lines += [f"BM25 rank: {query['lexical_rank']}; boosted rank: {query['boosted_lexical_rank']}; "
-                          f"semantic rank: {query['semantic_rank']}; fused rank: {query['fused_rank']}.", '', 'Queries:', '']
+                          f"semantic rank: {query['semantic_rank']}; fused rank: {query['fused_rank']}.", '', 'Query roles: ' + ', '.join(query['query_roles']), '', 'Actual encoder queries:', '']
                 lines += ['    ' + text.replace('\n', '\n    ') for text in query['encoder_queries']]
                 lines += ['', 'Top semantic passages (manual relevance/entailment review):', '']
                 for nearest in query['nearest_semantic']:

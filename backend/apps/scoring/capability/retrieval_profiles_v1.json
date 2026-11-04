@@ -1,0 +1,870 @@
+{
+  "version": "evidence-record-profiles-1",
+  "purpose": "Alternative descriptions of potentially relevant source records, not additional scoring requirements. Retrieve supporting, contradictory and proposed evidence; assessment determines what it establishes.",
+  "profiles": {
+    "AIQIF-C1.1.F1": {
+      "assertion": "An approved institutional plan identifies a digital or AI priority.",
+      "query": "Approved strategic plan, institutional development plan, governing council resolution or digital transformation roadmap listing digital or artificial intelligence priorities and effective dates."
+    },
+    "AIQIF-C1.1.F2": {
+      "assertion": "A responsible owner is assigned to that priority.",
+      "query": "Strategic plan responsibility matrix, appointment order, named coordinator or committee terms of reference assigning ownership of the digital priority."
+    },
+    "AIQIF-C1.1.A1": {
+      "assertion": "Delivery records demonstrate an AI initiative operating in an identified institutional function.",
+      "query": "AI initiative implementation report, service deployment register, operating logs, delivery dates and institutional department using the system; distinguish proposed, active and discontinued status."
+    },
+    "AIQIF-C1.1.A2": {
+      "assertion": "A portfolio review records a decision about an AI initiative.",
+      "query": "AI project portfolio meeting minutes, project review register, continuation, revision or closure decision and assigned action."
+    },
+    "AIQIF-C1.1.O1": {
+      "assertion": "A completed portfolio review compares a measured result with its stated objective.",
+      "query": "Completed AI project portfolio evaluation, original objective, target, measured delivery result and comparison recorded in review minutes."
+    },
+    "AIQIF-C1.1.O2": {
+      "assertion": "A subsequent record evaluates the effect of a portfolio decision.",
+      "query": "Follow-up portfolio review after a project funding, scope, continuation or closure decision, with subsequent results and effects of the decision."
+    },
+    "AIQIF-C1.2.F1": {
+      "assertion": "An institutional body has authority over relevant digital or AI decisions.",
+      "query": "Governing body, academic council, IT committee or digital governance charter, constitution, delegated decision authority and terms of reference."
+    },
+    "AIQIF-C1.2.F2": {
+      "assertion": "An escalation route is defined for those decisions.",
+      "query": "Digital governance escalation procedure, approval hierarchy, issue referral route, delegated limits and responsible decision body."
+    },
+    "AIQIF-C1.2.A1": {
+      "assertion": "A dated governance decision concerns an actual AI use.",
+      "query": "Dated committee minutes or approval register deciding an actual artificial intelligence deployment, use case or operational exception."
+    },
+    "AIQIF-C1.2.A2": {
+      "assertion": "An assigned governance action has a recorded follow-up.",
+      "query": "Governance action tracker linking an AI decision, accountable owner, due date, follow-up and recorded disposition."
+    },
+    "AIQIF-C1.2.O1": {
+      "assertion": "A review evaluates governance performance using an identified incident or delivery result.",
+      "query": "Governance effectiveness review using an incident, delayed delivery or actual operational result to assess decision performance."
+    },
+    "AIQIF-C1.2.O2": {
+      "assertion": "A follow-up checks implementation of a revised governance rule.",
+      "query": "Revised governance procedure and later compliance check, implementation follow-up, sampled decisions or audit findings after the revision."
+    },
+    "AIQIF-C1.3.F1": {
+      "assertion": "A resource commitment supports relevant computing, teaching or innovation capacity.",
+      "query": "Budget sanction, annual accounts, audited financial statement, equipment purchase, grant allocation or committed staff time supporting computing, teaching, laboratories or innovation."
+    },
+    "AIQIF-C1.3.F2": {
+      "assertion": "An allocation decision identifies the intended beneficiary group or function.",
+      "query": "Allocation order, budget note or resource sanction naming beneficiary department, student group, staff group or supported institutional function."
+    },
+    "AIQIF-C1.3.A1": {
+      "assertion": "A review compares committed resources with an identified delivery need.",
+      "query": "Resource needs assessment comparing sanctioned funds, equipment or staffing with documented project delivery requirements."
+    },
+    "AIQIF-C1.3.A2": {
+      "assertion": "A resource decision responds to a documented capacity shortfall.",
+      "query": "Capacity shortfall report, unmet resource request, revised budget, additional allocation or reallocation decision responding to the identified gap."
+    },
+    "AIQIF-C1.3.O1": {
+      "assertion": "A completed review compares a stated resource cost with a measured benefit or capacity result.",
+      "query": "Completed cost-benefit or capacity review linking expenditure to measured service, equipment, staffing or teaching capacity results."
+    },
+    "AIQIF-C1.3.O2": {
+      "assertion": "A follow-up evaluates the effect of a resource allocation change.",
+      "query": "Post-allocation review showing the effect of a changed budget, staffing or equipment decision on subsequent capacity or delivery."
+    },
+    "AIQIF-C1.4.F1": {
+      "assertion": "A process exists for introducing a digital service or teaching tool.",
+      "query": "Digital service rollout procedure, software introduction process, teaching tool pilot, onboarding plan and implementation approvals."
+    },
+    "AIQIF-C1.4.F2": {
+      "assertion": "Users have an identified support contact for that service or tool.",
+      "query": "Helpdesk contact, service desk, support coordinator or user guidance naming the contact for a digital service or teaching tool."
+    },
+    "AIQIF-C1.4.A1": {
+      "assertion": "Usage records demonstrate repeated use within an identified deployment scope.",
+      "query": "Dated user activity logs, repeated service transactions, attendance or usage statistics for an identified deployed digital tool and user group."
+    },
+    "AIQIF-C1.4.A2": {
+      "assertion": "A support action responds to a documented adoption barrier.",
+      "query": "Adoption barrier, user support ticket, accessibility complaint or training need linked to a corrective support response."
+    },
+    "AIQIF-C1.4.O1": {
+      "assertion": "A completed review compares adoption with an explicit target.",
+      "query": "Completed adoption review comparing active users, participation or repeated usage with a stated rollout target."
+    },
+    "AIQIF-C1.4.O2": {
+      "assertion": "A follow-up evaluates an adoption or user-experience change.",
+      "query": "User experience or adoption follow-up after a support, onboarding or service change, including subsequent usage or feedback results."
+    },
+    "AIQIF-C2.1.F1": {
+      "assertion": "Effective institutional guidance explicitly addresses AI use.",
+      "query": "Effective generative AI policy, artificial intelligence acceptable-use guidance, approval date, applicability and institutional policy notice."
+    },
+    "AIQIF-C2.1.F2": {
+      "assertion": "The guidance defines a restriction on unsafe or inappropriate AI use.",
+      "query": "AI use policy clauses on prohibited uses, unsafe outputs, academic misconduct, confidentiality restrictions or mandatory human checks."
+    },
+    "AIQIF-C2.1.A1": {
+      "assertion": "A deployment or onboarding check applies an AI policy requirement.",
+      "query": "AI deployment approval checklist, staff onboarding record or implementation check applying a specific responsible-use policy clause."
+    },
+    "AIQIF-C2.1.A2": {
+      "assertion": "A sampled-use review records the disposition of a policy exception.",
+      "query": "Sampled AI use audit, exception register, waiver decision, policy violation review and recorded disposition."
+    },
+    "AIQIF-C2.1.O1": {
+      "assertion": "A policy review evaluates an identified incident or assurance finding.",
+      "query": "Responsible AI policy review minutes considering an actual incident, compliance audit or assurance finding."
+    },
+    "AIQIF-C2.1.O2": {
+      "assertion": "A follow-up tests the effect of a revised responsible-use control.",
+      "query": "Follow-up assurance test, sampled compliance results or incident review after a responsible-use policy control was changed."
+    },
+    "AIQIF-C2.2.F1": {
+      "assertion": "Responsibility for personal or sensitive institutional data is assigned.",
+      "query": "Data protection responsibility order, privacy officer appointment, information ownership register or custodian assignment for personal or sensitive records."
+    },
+    "AIQIF-C2.2.F2": {
+      "assertion": "An access-control procedure covers the relevant information system.",
+      "query": "Information system access policy, role permissions, account authorization, access approval and revocation procedure."
+    },
+    "AIQIF-C2.2.A1": {
+      "assertion": "A risk assessment covers an identified deployed use.",
+      "query": "Documented risk assessment for a deployed system or AI use, identifying data exposure, security threats, likelihood and controls."
+    },
+    "AIQIF-C2.2.A2": {
+      "assertion": "A recorded risk decision responds to an identified access or supplier change.",
+      "query": "Access change or supplier change risk review, approval decision, mitigation action and recorded acceptance or rejection."
+    },
+    "AIQIF-C2.2.O1": {
+      "assertion": "A completed risk review compares exposure with a stated risk criterion.",
+      "query": "Completed risk review comparing assessed exposure or residual risk with an explicit tolerance, threshold or risk criterion."
+    },
+    "AIQIF-C2.2.O2": {
+      "assertion": "A follow-up tests the effectiveness of an implemented remediation.",
+      "query": "Remediation verification, access control retest, supplier control check or privacy risk follow-up measuring whether the implemented fix worked."
+    },
+    "AIQIF-C2.3.F1": {
+      "assertion": "An inventory identifies the AI services in use within the assessed scope.",
+      "query": "AI service inventory, model register or application catalogue listing artificial intelligence systems actually in use and their deployment scope."
+    },
+    "AIQIF-C2.3.F2": {
+      "assertion": "A responsible owner is assigned to each inventoried service.",
+      "query": "AI service register assigning a responsible owner, system steward or accountable department to each deployed service."
+    },
+    "AIQIF-C2.3.A1": {
+      "assertion": "An evaluation record concerns an actual AI service release or change.",
+      "query": "AI model release evaluation, version approval, change acceptance test or deployment assessment for an actual service update."
+    },
+    "AIQIF-C2.3.A2": {
+      "assertion": "A change record identifies data provenance for that service.",
+      "query": "AI service change log recording dataset origin, data lineage, collection source, permitted use or provenance of the changed data."
+    },
+    "AIQIF-C2.3.O1": {
+      "assertion": "A monitored release compares operational behaviour with a stated evaluation criterion.",
+      "query": "Model monitoring report comparing deployed AI behaviour, error rate or drift with a stated release evaluation threshold."
+    },
+    "AIQIF-C2.3.O2": {
+      "assertion": "A rollback or retirement exercise records its observed result.",
+      "query": "AI service rollback drill, model retirement exercise, withdrawal record or recovery test documenting what actually happened."
+    },
+    "AIQIF-C2.4.F1": {
+      "assertion": "A human intervention route is defined for an identified consequential AI use.",
+      "query": "Consequential AI decision workflow defining human approval, override, suspension or intervention authority for an identified use."
+    },
+    "AIQIF-C2.4.F2": {
+      "assertion": "Affected users have an error or appeal reporting route for that use.",
+      "query": "AI decision appeal procedure, complaint form, error reporting channel and guidance available to affected users."
+    },
+    "AIQIF-C2.4.A1": {
+      "assertion": "A record demonstrates human oversight of an actual consequential AI use.",
+      "query": "Actual AI decision review log, human intervention record, override or sign-off for a consequential use case."
+    },
+    "AIQIF-C2.4.A2": {
+      "assertion": "An assurance test examines a specified failure or fairness risk in that use.",
+      "query": "AI assurance test specifying a failure mode, subgroup fairness risk, test procedure and observed result for the deployed use."
+    },
+    "AIQIF-C2.4.O1": {
+      "assertion": "A reviewer separate from the delivery decision evaluates an identified harm or oversight result.",
+      "query": "Independent ethics, assurance or oversight review evaluating a specific harm, incident or human review outcome."
+    },
+    "AIQIF-C2.4.O2": {
+      "assertion": "A follow-up tests the effect of an oversight change.",
+      "query": "Follow-up oversight evaluation after changing an intervention, appeal or approval process, with observed effects."
+    },
+    "AIQIF-C3.1.F1": {
+      "assertion": "An approved syllabus includes substantive AI or ML content.",
+      "query": "Approved course syllabus or curriculum regulation containing artificial intelligence, machine learning, neural networks or substantive AI topics."
+    },
+    "AIQIF-C3.1.F2": {
+      "assertion": "An explicit learning objective addresses that AI or ML content.",
+      "query": "Course learning objectives or outcomes explicitly addressing the AI or machine learning content in the approved syllabus."
+    },
+    "AIQIF-C3.1.A1": {
+      "assertion": "Teaching records demonstrate delivery of substantive AI content to an identified programme group.",
+      "query": "Teaching diary, timetable, lesson plan, class delivery record or course completion report showing AI content taught to a named programme cohort."
+    },
+    "AIQIF-C3.1.A2": {
+      "assertion": "Assessed student work demonstrates attainment against an explicit AI learning criterion.",
+      "query": "Assessed student AI assignments, examinations, marking rubrics, learning outcome results and criterion-based attainment."
+    },
+    "AIQIF-C3.1.O1": {
+      "assertion": "A completed course review compares AI learning attainment with a stated objective.",
+      "query": "Completed course review comparing measured AI learning outcome attainment with the course learning objective."
+    },
+    "AIQIF-C3.1.O2": {
+      "assertion": "A subsequent assessment evaluates the effect of a curriculum revision.",
+      "query": "Curriculum revision record and later comparable assessment results evaluating the effect of changed AI content or teaching."
+    },
+    "AIQIF-C3.2.F1": {
+      "assertion": "An AI literacy learning offer is defined.",
+      "query": "AI literacy course offer, introductory workshop outline, learning module, scope and defined educational content."
+    },
+    "AIQIF-C3.2.F2": {
+      "assertion": "A delivery route makes that offer available to an identified learner group.",
+      "query": "AI literacy registration notice, enrolment route, learning platform access or programme availability for a named learner group."
+    },
+    "AIQIF-C3.2.A1": {
+      "assertion": "Delivery records demonstrate an AI literacy activity for an identified discipline.",
+      "query": "AI literacy workshop delivery report, class attendance, teaching record and identified academic discipline."
+    },
+    "AIQIF-C3.2.A2": {
+      "assertion": "A support response addresses a documented discipline-specific access or learning gap.",
+      "query": "Discipline-specific AI literacy access or learning gap, request for help, adapted provision or targeted support action."
+    },
+    "AIQIF-C3.2.O1": {
+      "assertion": "An assessment reports AI literacy attainment for an identified discipline.",
+      "query": "AI literacy assessment results, tested knowledge or competencies and attainment for a named discipline."
+    },
+    "AIQIF-C3.2.O2": {
+      "assertion": "A follow-up assessment evaluates the effect of targeted literacy support.",
+      "query": "Follow-up AI literacy assessment after discipline-specific tutoring, access support or learning materials changed."
+    },
+    "AIQIF-C3.3.F1": {
+      "assertion": "A course design specifies an AI-supported learning or feedback activity.",
+      "query": "Course design or lesson plan specifying an AI-supported teaching, learning, assessment feedback or tutoring activity."
+    },
+    "AIQIF-C3.3.F2": {
+      "assertion": "Learner instructions define acceptable AI use for that activity.",
+      "query": "Assignment brief, learner instructions or acceptable-use guidance defining permitted AI use for that course activity."
+    },
+    "AIQIF-C3.3.A1": {
+      "assertion": "Course records demonstrate repeated use of an identified AI-supported learning activity.",
+      "query": "Course logs, student submissions or teaching records showing repeated delivery of the specified AI-supported learning activity."
+    },
+    "AIQIF-C3.3.A2": {
+      "assertion": "An assessment check evaluates inappropriate dependence on AI in that activity.",
+      "query": "Assessment integrity check, independent task, oral examination or review of student dependence on AI-generated work."
+    },
+    "AIQIF-C3.3.O1": {
+      "assertion": "A completed evaluation compares learning or feedback results with a stated baseline.",
+      "query": "Completed comparison of AI-supported learning or feedback results against a stated prior or comparison baseline."
+    },
+    "AIQIF-C3.3.O2": {
+      "assertion": "A follow-up evaluates the effect of a change to the AI-supported learning design.",
+      "query": "Follow-up course evaluation after changing an AI-supported activity or feedback design, with subsequent learning results."
+    },
+    "AIQIF-C3.4.F1": {
+      "assertion": "A student project or lab route includes substantive AI work.",
+      "query": "Student project brief, practical laboratory module or project route involving implementation of substantive artificial intelligence work."
+    },
+    "AIQIF-C3.4.F2": {
+      "assertion": "A mentoring route is provided for that work.",
+      "query": "Project mentor allocation, supervision schedule, laboratory support or faculty mentoring route for student AI work."
+    },
+    "AIQIF-C3.4.A1": {
+      "assertion": "Assessed project work demonstrates an implemented AI application for an identified student group.",
+      "query": "Assessed AI project report, working prototype, implemented application, evaluation rubric and identified student group."
+    },
+    "AIQIF-C3.4.A2": {
+      "assertion": "A moderation record checks individual contribution to that work.",
+      "query": "Individual project contribution record, moderation minutes, viva assessment or contribution verification within group AI work."
+    },
+    "AIQIF-C3.4.O1": {
+      "assertion": "A completed project review evaluates work against an explicit capability criterion.",
+      "query": "Completed AI project evaluation against an explicit technical, practical or learning capability criterion."
+    },
+    "AIQIF-C3.4.O2": {
+      "assertion": "Later work is evaluated against a comparable criterion after a mentoring or design change.",
+      "query": "Later project assessments using a comparable criterion after a mentoring, laboratory or project design change."
+    },
+    "AIQIF-C4.1.F1": {
+      "assertion": "An AI-focused faculty learning activity has defined content.",
+      "query": "Faculty development programme (FDP), AI or machine learning workshop outline, learning materials and defined artificial intelligence content."
+    },
+    "AIQIF-C4.1.F2": {
+      "assertion": "Participation in an AI-focused learning activity is documented for an identified faculty group.",
+      "query": "Faculty AI or machine learning training attendance, FDP participant register, completion certificates and identified department or faculty group."
+    },
+    "AIQIF-C4.1.A1": {
+      "assertion": "An assessment demonstrates AI literacy for an identified faculty group.",
+      "query": "Faculty AI literacy test, assessed exercise, competency demonstration and results for a named faculty group."
+    },
+    "AIQIF-C4.1.A2": {
+      "assertion": "A support response addresses a documented faculty literacy gap.",
+      "query": "Faculty AI literacy assessment gap linked to remedial training, mentoring or a targeted support action."
+    },
+    "AIQIF-C4.1.O1": {
+      "assertion": "A completed assessment compares faculty literacy with a stated competency criterion.",
+      "query": "Completed faculty AI competency assessment comparing results with a defined literacy standard or criterion."
+    },
+    "AIQIF-C4.1.O2": {
+      "assertion": "A follow-up assessment evaluates the effect of a faculty learning revision.",
+      "query": "Follow-up faculty AI literacy assessment after revision of a faculty development programme or learning materials."
+    },
+    "AIQIF-C4.2.F1": {
+      "assertion": "A faculty AI learning offer targets an identified academic role.",
+      "query": "Faculty AI learning pathway for a specified teaching, research, assessment or academic administration role."
+    },
+    "AIQIF-C4.2.F2": {
+      "assertion": "A practice task develops a specific AI-related academic skill for that role.",
+      "query": "Role-specific faculty practice exercise applying AI to lesson design, assessment, research or another named academic skill."
+    },
+    "AIQIF-C4.2.A1": {
+      "assertion": "An assessed role-relevant task demonstrates a faculty AI skill.",
+      "query": "Assessed faculty AI task, role-relevant work product, marking criterion and demonstrated practical skill."
+    },
+    "AIQIF-C4.2.A2": {
+      "assertion": "A support action addresses a documented role-specific skill gap.",
+      "query": "Role-specific faculty skill gap, assessment feedback and targeted mentoring or support response."
+    },
+    "AIQIF-C4.2.O1": {
+      "assertion": "An academic work sample demonstrates application of the assessed skill.",
+      "query": "Actual academic work sample applying a previously assessed AI skill in teaching, assessment or research practice."
+    },
+    "AIQIF-C4.2.O2": {
+      "assertion": "A subsequent task evaluation tests the effect of a role-pathway revision.",
+      "query": "Subsequent role-specific task assessment after a faculty AI learning pathway was revised."
+    },
+    "AIQIF-C4.3.F1": {
+      "assertion": "A faculty work record demonstrates AI use in an academic task.",
+      "query": "Faculty work sample, teaching record, research workflow or academic task documenting actual AI tool use."
+    },
+    "AIQIF-C4.3.F2": {
+      "assertion": "A human review step is defined for the AI-supported task.",
+      "query": "Academic AI workflow defining human checking, verification, editorial review or approval of AI-supported work."
+    },
+    "AIQIF-C4.3.A1": {
+      "assertion": "Work samples demonstrate repeated AI use in an identified faculty practice.",
+      "query": "Dated faculty work samples or logs demonstrating repeated AI use in a specified teaching or research practice."
+    },
+    "AIQIF-C4.3.A2": {
+      "assertion": "A quality check evaluates the AI-supported academic work.",
+      "query": "Quality assurance check, accuracy review, moderation or validation of actual AI-supported academic work."
+    },
+    "AIQIF-C4.3.O1": {
+      "assertion": "A completed evaluation compares an academic quality, time or research result with a stated baseline.",
+      "query": "Completed comparison of academic quality, task time or research output with a stated baseline for AI-supported practice."
+    },
+    "AIQIF-C4.3.O2": {
+      "assertion": "A follow-up evaluates a practice change responding to an identified failure.",
+      "query": "Follow-up evaluation after a practice change responding to an AI-related academic error or failure."
+    },
+    "AIQIF-C4.4.F1": {
+      "assertion": "A digital or workflow learning offer targets an identified non-teaching staff role.",
+      "query": "Non-teaching staff training offer, administrative workflow workshop, ERP or MIS learning programme and targeted staff role."
+    },
+    "AIQIF-C4.4.F2": {
+      "assertion": "A support route is available to staff applying that learning.",
+      "query": "Staff helpdesk, training support contact, workflow guidance or mentoring route available after digital skills training."
+    },
+    "AIQIF-C4.4.A1": {
+      "assertion": "An assessed task demonstrates a relevant digital or AI skill for an identified staff role.",
+      "query": "Assessed administrative staff task demonstrating a relevant digital, workflow or AI skill for a named role."
+    },
+    "AIQIF-C4.4.A2": {
+      "assertion": "A support action addresses a documented staff workflow error.",
+      "query": "Documented staff workflow error, support request, troubleshooting record and corrective assistance."
+    },
+    "AIQIF-C4.4.O1": {
+      "assertion": "A completed evaluation compares staff task performance with a stated role criterion.",
+      "query": "Completed evaluation comparing staff task accuracy, completion or performance with a defined role standard."
+    },
+    "AIQIF-C4.4.O2": {
+      "assertion": "A follow-up evaluates the effect of a staff training or support change.",
+      "query": "Follow-up staff task evaluation after changing training, workflow guidance or support arrangements."
+    },
+    "AIQIF-C5.1.F1": {
+      "assertion": "An AI literacy offer is accessible to an identified student group.",
+      "query": "Student AI literacy course offer, registration, access arrangements or learning materials available to a named student group."
+    },
+    "AIQIF-C5.1.F2": {
+      "assertion": "A learning objective defines what that offer intends students to learn.",
+      "query": "Explicit student AI literacy learning objectives or intended competencies in the course or workshop outline."
+    },
+    "AIQIF-C5.1.A1": {
+      "assertion": "Delivery records demonstrate AI literacy provision to an identified student cohort.",
+      "query": "AI literacy teaching records, attendance, enrolment and completed delivery for an identified student cohort."
+    },
+    "AIQIF-C5.1.A2": {
+      "assertion": "A support response addresses a documented participation or attainment gap.",
+      "query": "Student AI literacy participation or attainment gap linked to outreach, tutoring, access assistance or another support response."
+    },
+    "AIQIF-C5.1.O1": {
+      "assertion": "An assessment reports student AI literacy attainment against an explicit criterion.",
+      "query": "Student AI literacy assessment results compared with an explicit knowledge or competency criterion."
+    },
+    "AIQIF-C5.1.O2": {
+      "assertion": "A follow-up evaluates the effect of a change addressing an access or learning gap.",
+      "query": "Follow-up results after changing AI literacy provision to address a student access, participation or learning gap."
+    },
+    "AIQIF-C5.2.F1": {
+      "assertion": "An advanced AI or ML skills pathway is defined for an identified student group.",
+      "query": "Advanced AI or machine learning specialization, skills track or role-specific pathway for an identified student group."
+    },
+    "AIQIF-C5.2.F2": {
+      "assertion": "The pathway includes a practical assessment task.",
+      "query": "Advanced AI pathway practical examination, programming assignment, model-building task or applied assessment brief."
+    },
+    "AIQIF-C5.2.A1": {
+      "assertion": "Student work demonstrates an advanced or role-specific AI skill against an explicit criterion.",
+      "query": "Assessed student work demonstrating an advanced or role-specific AI skill against a defined performance rubric."
+    },
+    "AIQIF-C5.2.A2": {
+      "assertion": "A delivery change responds to identified employer or disciplinary feedback.",
+      "query": "Employer or discipline feedback linked to a change in an advanced AI skills pathway or its delivery."
+    },
+    "AIQIF-C5.2.O1": {
+      "assertion": "A completed pathway review evaluates a relevant skill or progression result.",
+      "query": "Completed advanced AI pathway review evaluating measured skill attainment or learner progression."
+    },
+    "AIQIF-C5.2.O2": {
+      "assertion": "A subsequent task evaluation tests the effect of a pathway revision.",
+      "query": "Subsequent practical assessment results after an advanced AI or role-specific skills pathway revision."
+    },
+    "AIQIF-C5.3.F1": {
+      "assertion": "An AI project or portfolio opportunity is available to an identified student group.",
+      "query": "AI student project, portfolio or applied practice opportunity and the group eligible to participate."
+    },
+    "AIQIF-C5.3.F2": {
+      "assertion": "An evaluation criterion addresses individual contribution to the project or portfolio.",
+      "query": "AI project or portfolio marking rubric specifying how individual student contributions are evaluated."
+    },
+    "AIQIF-C5.3.A1": {
+      "assertion": "A reviewed portfolio identifies the student's substantive AI contribution.",
+      "query": "Reviewed AI portfolio, contribution statement, code or project evidence identifying the individual student contribution."
+    },
+    "AIQIF-C5.3.A2": {
+      "assertion": "A moderation record evaluates a participating student's project or portfolio.",
+      "query": "Project moderation, viva, portfolio assessment or reviewer record evaluating an individual participant."
+    },
+    "AIQIF-C5.3.O1": {
+      "assertion": "A completed evaluation assesses AI work quality or real-user value against an explicit criterion.",
+      "query": "Completed evaluation of AI project quality or value to actual users against a stated criterion."
+    },
+    "AIQIF-C5.3.O2": {
+      "assertion": "A follow-up evaluates the effect of a project or mentoring change.",
+      "query": "Follow-up AI project or portfolio evaluation after changing project design, supervision or mentoring."
+    },
+    "AIQIF-C5.4.F1": {
+      "assertion": "An AI-relevant internship or career opportunity is documented.",
+      "query": "AI-relevant internship advertisement, employer role description, career opportunity or placement notice."
+    },
+    "AIQIF-C5.4.F2": {
+      "assertion": "An eligibility rule identifies who can access the opportunity.",
+      "query": "Internship or career opportunity eligibility rules, access conditions and identified eligible student group."
+    },
+    "AIQIF-C5.4.A1": {
+      "assertion": "A verified record demonstrates participation in an AI-relevant internship or career opportunity.",
+      "query": "Verified internship completion, employer confirmation, placement or participation record for an AI-relevant opportunity."
+    },
+    "AIQIF-C5.4.A2": {
+      "assertion": "A cohort register identifies the denominator used to interpret participation or progression.",
+      "query": "Cohort register listing eligible students, participants, nonparticipants and the denominator for career progression statistics."
+    },
+    "AIQIF-C5.4.O1": {
+      "assertion": "A completed review compares a verified AI-related career result with a stated target.",
+      "query": "Completed career review comparing verified AI-related internship, placement or progression results with a stated target."
+    },
+    "AIQIF-C5.4.O2": {
+      "assertion": "A follow-up evaluates the effect of a career-pathway change.",
+      "query": "Follow-up career outcome review after a change to internship access, support or an AI career pathway."
+    },
+    "AIQIF-C6.1.F1": {
+      "assertion": "Relevant learners or researchers have access to computing resources.",
+      "query": "Computer centre, desktop workstations, ICT facilities, computing laboratory, library computers, server access, internet facilities and learner or researcher access arrangements."
+    },
+    "AIQIF-C6.1.F2": {
+      "assertion": "Resource specifications support one explicitly stated introductory AI workload.",
+      "query": "Computing hardware and software specifications, memory, processor, accelerator or cloud resources matched to one stated introductory AI workload."
+    },
+    "AIQIF-C6.1.A1": {
+      "assertion": "Usage records show relevant computing capacity serving an identified user group.",
+      "query": "Computer laboratory logs, resource bookings, user accounts or capacity usage statistics identifying the served learner or research group."
+    },
+    "AIQIF-C6.1.A2": {
+      "assertion": "A support response addresses a documented capacity or access failure.",
+      "query": "Computing access failure, capacity shortage, helpdesk ticket, outage or resource support response."
+    },
+    "AIQIF-C6.1.O1": {
+      "assertion": "A completed review compares service performance with a stated capacity or availability target.",
+      "query": "Completed computing service review comparing measured capacity, availability or performance with an explicit service target."
+    },
+    "AIQIF-C6.1.O2": {
+      "assertion": "A continuity exercise records recovery performance for that environment.",
+      "query": "Computing continuity drill, backup restoration or disaster recovery exercise recording achieved recovery time and service restoration."
+    },
+    "AIQIF-C6.2.F1": {
+      "assertion": "A register identifies relevant institutional datasets or systems.",
+      "query": "Institutional dataset register, information system inventory, database catalogue or list of relevant data assets."
+    },
+    "AIQIF-C6.2.F2": {
+      "assertion": "A responsible data custodian is assigned to the identified assets.",
+      "query": "Data custodian, information owner or responsible department assigned to the registered institutional datasets or systems."
+    },
+    "AIQIF-C6.2.A1": {
+      "assertion": "A data-quality check operates for an identified AI use or preparation activity.",
+      "query": "Data validation, completeness or quality checks performed for an identified AI application or preparation activity."
+    },
+    "AIQIF-C6.2.A2": {
+      "assertion": "A tracked data-quality issue has a recorded disposition.",
+      "query": "Data-quality issue tracker, error report, remediation action and recorded resolution, acceptance or rejection."
+    },
+    "AIQIF-C6.2.O1": {
+      "assertion": "A completed review compares data quality with a stated fitness criterion.",
+      "query": "Completed dataset quality review comparing measured quality with a defined fitness-for-use criterion."
+    },
+    "AIQIF-C6.2.O2": {
+      "assertion": "A follow-up measures the effect of a data-quality change on downstream work.",
+      "query": "Follow-up measurement of downstream effects after a data cleaning, validation or data-quality process change."
+    },
+    "AIQIF-C6.3.F1": {
+      "assertion": "Responsibility for security of the relevant computing environment is assigned.",
+      "query": "IT security responsibility assignment, system security officer, administrator role or accountability for the relevant computing environment."
+    },
+    "AIQIF-C6.3.F2": {
+      "assertion": "A recovery procedure covers that environment.",
+      "query": "Backup, restoration, incident recovery or business continuity procedure for that computing environment."
+    },
+    "AIQIF-C6.3.A1": {
+      "assertion": "A security test examines an identified AI-related threat in the assessed environment.",
+      "query": "Security assessment or penetration test addressing a specified AI-related threat in the deployed environment."
+    },
+    "AIQIF-C6.3.A2": {
+      "assertion": "An incident or exercise record demonstrates a response action.",
+      "query": "Security incident response log or exercise record documenting an actual containment, escalation or recovery action."
+    },
+    "AIQIF-C6.3.O1": {
+      "assertion": "A completed security review compares remediation or recovery performance with a stated criterion.",
+      "query": "Completed security review comparing remediation or recovery results with an explicit security or service criterion."
+    },
+    "AIQIF-C6.3.O2": {
+      "assertion": "A follow-up test evaluates a control change responding to a documented threat.",
+      "query": "Follow-up security test after a control was changed in response to an identified threat or vulnerability."
+    },
+    "AIQIF-C6.4.F1": {
+      "assertion": "An environment supports one specified introductory AI learning activity.",
+      "query": "Laboratory or digital learning environment specifications matched to a named introductory AI learning activity."
+    },
+    "AIQIF-C6.4.F2": {
+      "assertion": "Learners have a defined access route to that environment.",
+      "query": "Learner laboratory access rules, booking process, platform enrolment or permissions for that AI learning environment."
+    },
+    "AIQIF-C6.4.A1": {
+      "assertion": "Usage records demonstrate learner access to an identified AI learning environment.",
+      "query": "Laboratory attendance, platform activity, bookings or access logs identifying students using the AI learning environment."
+    },
+    "AIQIF-C6.4.A2": {
+      "assertion": "A support response addresses a documented accessibility or capacity issue.",
+      "query": "Accessibility complaint, assistive access issue, capacity shortage or learner support response for the learning environment."
+    },
+    "AIQIF-C6.4.O1": {
+      "assertion": "A completed review compares learner access with a stated service or equity criterion.",
+      "query": "Completed learning environment access review comparing service or equity results with a stated criterion."
+    },
+    "AIQIF-C6.4.O2": {
+      "assertion": "A follow-up evaluates the effect of an environment improvement.",
+      "query": "Follow-up access or learner service evaluation after an accessibility, laboratory or digital environment improvement."
+    },
+    "AIQIF-C7.1.F1": {
+      "assertion": "An AI research or applied-inquiry project has a defined objective.",
+      "query": "AI research proposal or applied-inquiry project brief specifying its research question, application objective or intended output."
+    },
+    "AIQIF-C7.1.F2": {
+      "assertion": "A responsible lead is assigned to the project.",
+      "query": "Principal investigator appointment, project lead assignment or responsibility record for the AI research project."
+    },
+    "AIQIF-C7.1.A1": {
+      "assertion": "An active AI research or applied-inquiry project has a reviewed work output.",
+      "query": "Active AI research project progress report and reviewed publication, prototype, dataset, software or other work output."
+    },
+    "AIQIF-C7.1.A2": {
+      "assertion": "A progress review records a decision about that project.",
+      "query": "AI research progress review minutes recording a continuation, revision, resource or closure decision."
+    },
+    "AIQIF-C7.1.O1": {
+      "assertion": "A completed review evaluates inquiry output quality or application against a stated objective.",
+      "query": "Completed AI inquiry review evaluating output quality or application against the original research objective."
+    },
+    "AIQIF-C7.1.O2": {
+      "assertion": "A follow-up evaluates the effect of an agenda or resource change.",
+      "query": "Follow-up research review after changing the agenda, project resources or research priorities."
+    },
+    "AIQIF-C7.2.F1": {
+      "assertion": "An AI centre or distributed innovation function has a defined remit.",
+      "query": "AI centre, distributed innovation unit or institutional innovation function charter defining remit and responsibilities."
+    },
+    "AIQIF-C7.2.F2": {
+      "assertion": "A project or mentoring service is available through that function.",
+      "query": "AI project assistance, mentoring, consultation or innovation service offer available through the named function."
+    },
+    "AIQIF-C7.2.A1": {
+      "assertion": "A service record demonstrates an AI project or mentoring engagement.",
+      "query": "Service register, mentoring log or engagement report demonstrating actual assistance to an AI project."
+    },
+    "AIQIF-C7.2.A2": {
+      "assertion": "A service review records a decision responding to use or delivery evidence.",
+      "query": "Innovation or mentoring service review recording a decision based on usage, delivery or project evidence."
+    },
+    "AIQIF-C7.2.O1": {
+      "assertion": "A completed review evaluates an output or institutional benefit against the function's objective.",
+      "query": "Completed review comparing an AI innovation function output or institutional benefit with its stated objective."
+    },
+    "AIQIF-C7.2.O2": {
+      "assertion": "A follow-up evaluates the effect of a service change.",
+      "query": "Follow-up evaluation after changing an AI mentoring, project support or innovation service."
+    },
+    "AIQIF-C7.3.F1": {
+      "assertion": "A funding, IP or incubation support route is available to eligible projects.",
+      "query": "Research funding scheme, intellectual property support, incubation programme or enterprise support route for eligible projects."
+    },
+    "AIQIF-C7.3.F2": {
+      "assertion": "A contact or application route enables access to that support.",
+      "query": "Funding application process, IP support contact, incubation intake or named project-support access route."
+    },
+    "AIQIF-C7.3.A1": {
+      "assertion": "A project record demonstrates use of a funding, IP or incubation support route.",
+      "query": "Project grant use, IP assistance record or incubation engagement documenting actual use of the support route."
+    },
+    "AIQIF-C7.3.A2": {
+      "assertion": "A review records a funding or translation decision about an identified project.",
+      "query": "Project review minutes recording a funding, commercialization, intellectual property or translation decision."
+    },
+    "AIQIF-C7.3.O1": {
+      "assertion": "A completed review evaluates verified project progression against a stated milestone.",
+      "query": "Completed project progression review comparing verified grant, IP or venture milestones with stated targets."
+    },
+    "AIQIF-C7.3.O2": {
+      "assertion": "A follow-up evaluates the effect of a project-support change.",
+      "query": "Follow-up project evaluation after changing funding, incubation, IP or enterprise support."
+    },
+    "AIQIF-C7.4.F1": {
+      "assertion": "A collaboration work plan specifies substantive AI research or application.",
+      "query": "Collaboration work plan or project agreement specifying substantive AI research, development or application activities."
+    },
+    "AIQIF-C7.4.F2": {
+      "assertion": "A partner responsibility is assigned for the planned AI work.",
+      "query": "Partner responsibility matrix or assigned work package for the planned AI collaboration."
+    },
+    "AIQIF-C7.4.A1": {
+      "assertion": "A delivery record demonstrates substantive AI collaboration beyond an agreement.",
+      "query": "Joint AI project delivery report, implemented output or completed activity beyond signing a memorandum of understanding."
+    },
+    "AIQIF-C7.4.A2": {
+      "assertion": "Partner or beneficiary feedback evaluates an identified delivered contribution.",
+      "query": "Partner or beneficiary feedback evaluating a specific delivered AI collaboration contribution."
+    },
+    "AIQIF-C7.4.O1": {
+      "assertion": "A completed review evaluates knowledge transfer or a beneficiary result against a stated objective.",
+      "query": "Completed review comparing AI knowledge transfer or beneficiary results with the collaboration objective."
+    },
+    "AIQIF-C7.4.O2": {
+      "assertion": "A follow-up evaluates the effect of a collaboration change.",
+      "query": "Follow-up collaboration evaluation after changing partner roles, delivery arrangements or project design."
+    },
+    "AIQIF-C8.1.F1": {
+      "assertion": "An institutional digital service has a defined purpose.",
+      "query": "Institutional digital service catalogue, service description or process document defining its intended purpose."
+    },
+    "AIQIF-C8.1.F2": {
+      "assertion": "A responsible owner is assigned to that service.",
+      "query": "Service owner register, appointment order or accountable department for the institutional digital service."
+    },
+    "AIQIF-C8.1.A1": {
+      "assertion": "Operational records demonstrate repeated AI use in an identified institutional service.",
+      "query": "Operational logs, service transactions or repeated workflow records demonstrating actual AI use in an institutional service."
+    },
+    "AIQIF-C8.1.A2": {
+      "assertion": "A monitoring record evaluates an AI-related service exception.",
+      "query": "AI service exception log, monitoring alert, error review and recorded disposition."
+    },
+    "AIQIF-C8.1.O1": {
+      "assertion": "A completed evaluation compares service benefit with a stated baseline while disclosing quality limitations.",
+      "query": "Completed AI service evaluation comparing measured benefit with a baseline and disclosing quality or interpretation limitations."
+    },
+    "AIQIF-C8.1.O2": {
+      "assertion": "A follow-up tests the effect of a workflow or control change.",
+      "query": "Follow-up workflow or control test after changing an AI-enabled institutional service."
+    },
+    "AIQIF-C8.2.F1": {
+      "assertion": "An industry work plan specifies an AI-related activity.",
+      "query": "Industry partnership work plan specifying an artificial intelligence training, curriculum, project or applied activity."
+    },
+    "AIQIF-C8.2.F2": {
+      "assertion": "The activity defines a contribution to skills, curriculum or projects.",
+      "query": "Industry activity plan identifying the intended contribution to learner skills, curriculum content or project work."
+    },
+    "AIQIF-C8.2.A1": {
+      "assertion": "A delivery record demonstrates an AI-related activity with an industry partner.",
+      "query": "Joint AI workshop, industry project, curriculum activity or delivery report naming the industry partner and actual delivery."
+    },
+    "AIQIF-C8.2.A2": {
+      "assertion": "A review evaluates the partner's delivered contribution to skills, projects or opportunities.",
+      "query": "Review of an industry partner contribution using delivered skills activities, projects or student opportunities."
+    },
+    "AIQIF-C8.2.O1": {
+      "assertion": "A completed partnership review evaluates a relevant output or outcome against a stated objective.",
+      "query": "Completed industry partnership review comparing measured outputs or outcomes with a stated partnership objective."
+    },
+    "AIQIF-C8.2.O2": {
+      "assertion": "A follow-up evaluates the effect of a jointly agreed delivery change.",
+      "query": "Follow-up review of a jointly agreed change to industry partnership delivery."
+    },
+    "AIQIF-C8.3.F1": {
+      "assertion": "An employment, enterprise or workforce pathway explicitly addresses AI skills.",
+      "query": "Employment, entrepreneurship, enterprise or workforce development pathway explicitly identifying AI-related skills."
+    },
+    "AIQIF-C8.3.F2": {
+      "assertion": "An opportunity or referral route connects eligible participants to the pathway.",
+      "query": "AI workforce opportunity notice, referral process, eligibility rules or access route connecting participants to the pathway."
+    },
+    "AIQIF-C8.3.A1": {
+      "assertion": "A verified record links an AI pathway participant to an opportunity or venture.",
+      "query": "Verified employer, venture or opportunity record linking a participant to an AI skills pathway."
+    },
+    "AIQIF-C8.3.A2": {
+      "assertion": "A review examines the relationship between pathway participation and an observed result.",
+      "query": "Pathway review connecting recorded participation with an observed employment, enterprise or workforce result."
+    },
+    "AIQIF-C8.3.O1": {
+      "assertion": "A completed review evaluates a verified progression or enterprise result against a stated objective.",
+      "query": "Completed review comparing verified career progression or enterprise results with the pathway objective."
+    },
+    "AIQIF-C8.3.O2": {
+      "assertion": "A follow-up evaluates the effect of a pathway portfolio change.",
+      "query": "Follow-up evaluation after changing an AI employment, enterprise or workforce pathway portfolio."
+    },
+    "AIQIF-C8.4.F1": {
+      "assertion": "An identified AI intervention has an explicit intended outcome.",
+      "query": "AI intervention proposal, project charter or implementation plan explicitly naming the intended educational or business outcome."
+    },
+    "AIQIF-C8.4.F2": {
+      "assertion": "A prospective measurement method is defined for that outcome.",
+      "query": "Prospective AI outcome measurement plan specifying baseline, metric, collection method and comparison procedure."
+    },
+    "AIQIF-C8.4.A1": {
+      "assertion": "Recorded results compare an AI intervention's outcome with a stated baseline using a disclosed method.",
+      "query": "AI intervention results report with baseline comparison, measured outcome and disclosed evaluation method."
+    },
+    "AIQIF-C8.4.A2": {
+      "assertion": "A review examines an alternative explanation or potential harm affecting interpretation.",
+      "query": "Outcome review discussing confounding factors, alternative explanations, unintended harms or attribution limitations."
+    },
+    "AIQIF-C8.4.O1": {
+      "assertion": "A completed measurement review evaluates benefit within explicitly stated limitations.",
+      "query": "Completed measurement review evaluating AI intervention benefit while stating uncertainty and limitations."
+    },
+    "AIQIF-C8.4.O2": {
+      "assertion": "A subsequent measurement evaluates the effect of an intervention change.",
+      "query": "Subsequent outcome measurement after changing the AI intervention, using a disclosed comparison method."
+    },
+    "AIQIF-C9.1.F1": {
+      "assertion": "An institutional review process uses defined indicators.",
+      "query": "IQAC review, academic audit, AQAR, accreditation or institutional quality process specifying indicators and measures."
+    },
+    "AIQIF-C9.1.F2": {
+      "assertion": "Responsibility for producing the indicator-based review is assigned.",
+      "query": "IQAC coordinator, audit committee or quality assurance responsibility order assigning production of an indicator-based institutional review."
+    },
+    "AIQIF-C9.1.A1": {
+      "assertion": "A repeated institutional assessment uses traceable evidence with reproducible calculations.",
+      "query": "Repeated institutional quality assessment with source records, indicator calculations and reproducible totals."
+    },
+    "AIQIF-C9.1.A2": {
+      "assertion": "A change record distinguishes institutional evidence changes from methodology changes.",
+      "query": "Assessment change log separating revised source evidence or institutional circumstances from revised calculation rules or methodology."
+    },
+    "AIQIF-C9.1.O1": {
+      "assertion": "A completed review evaluates an improvement priority using the assessment's results.",
+      "query": "Completed institutional review using assessment findings to evaluate a specific improvement priority."
+    },
+    "AIQIF-C9.1.O2": {
+      "assertion": "A follow-up evaluates the effect of a measurement-method revision.",
+      "query": "Follow-up evaluation after revising an institutional measurement or assessment method."
+    },
+    "AIQIF-C9.2.F1": {
+      "assertion": "An evidence index identifies the source records used for assessment.",
+      "query": "Evidence index, accreditation source register, document repository catalogue or annexure list linking assessment evidence to source records."
+    },
+    "AIQIF-C9.2.F2": {
+      "assertion": "A custodian is assigned to preserve those records.",
+      "query": "Evidence custodian, records officer or responsible unit assigned preservation of assessment source documents."
+    },
+    "AIQIF-C9.2.A1": {
+      "assertion": "A sampled assessment finding is traceable to its requirement and source passage.",
+      "query": "Sampled assessment finding linked to its indicator or requirement and the exact supporting document passage."
+    },
+    "AIQIF-C9.2.A2": {
+      "assertion": "An evidence correction preserves the earlier record and reason for change.",
+      "query": "Evidence correction log preserving the prior record, replacement, author and reason for the change."
+    },
+    "AIQIF-C9.2.O1": {
+      "assertion": "A completed audit evaluates traceability against an explicit checking procedure.",
+      "query": "Completed evidence audit applying an explicit source-tracing or verification procedure to assessment findings."
+    },
+    "AIQIF-C9.2.O2": {
+      "assertion": "A follow-up measures the effect of an evidence-process improvement.",
+      "query": "Follow-up measurement of evidence availability, source tracing or audit quality after improving the evidence process."
+    },
+    "AIQIF-C9.3.F1": {
+      "assertion": "A process monitors relevant accreditation, curriculum or technology changes.",
+      "query": "IQAC, academic council or technology review process monitoring accreditation guidance, curriculum regulations or relevant technology changes."
+    },
+    "AIQIF-C9.3.F2": {
+      "assertion": "A review schedule defines when those changes are considered.",
+      "query": "Accreditation, curriculum or technology monitoring calendar defining when external changes are reviewed."
+    },
+    "AIQIF-C9.3.A1": {
+      "assertion": "A change review identifies a requirement affected by an external change.",
+      "query": "External change review identifying a specific assessment requirement affected by new guidance, curriculum or technology."
+    },
+    "AIQIF-C9.3.A2": {
+      "assertion": "A versioned reassessment preserves the prior result with an explanation of the change.",
+      "query": "Versioned reassessment retaining the previous institutional result and explaining the effect of a changed requirement or method."
+    },
+    "AIQIF-C9.3.O1": {
+      "assertion": "A completed review evaluates the timeliness of a detected relevant change.",
+      "query": "Completed monitoring review comparing detection and response dates with a stated timeliness expectation."
+    },
+    "AIQIF-C9.3.O2": {
+      "assertion": "A follow-up evaluates the effect of a monitoring-process revision.",
+      "query": "Follow-up evaluation after revising accreditation, curriculum or technology change monitoring."
+    },
+    "AIQIF-C9.4.F1": {
+      "assertion": "A feedback process covers an institutional digital or learning initiative.",
+      "query": "Feedback collection or review process for an institutional digital service, teaching initiative or learning programme."
+    },
+    "AIQIF-C9.4.F2": {
+      "assertion": "A follow-up register assigns ownership of resulting actions.",
+      "query": "Feedback action-taken register assigning owners and follow-up responsibilities for identified improvements."
+    },
+    "AIQIF-C9.4.A1": {
+      "assertion": "A user acceptance or outcome review evaluates an identified deployed initiative.",
+      "query": "User acceptance testing, service feedback or outcome review of a named deployed institutional initiative."
+    },
+    "AIQIF-C9.4.A2": {
+      "assertion": "A corrective action has a recorded completion check.",
+      "query": "Corrective action record containing a completion check or verification of the implemented response."
+    },
+    "AIQIF-C9.4.O1": {
+      "assertion": "A completed review evaluates the subsequent result of a feedback-driven change.",
+      "query": "Completed follow-up review evaluating results after a feedback-driven institutional change."
+    },
+    "AIQIF-C9.4.O2": {
+      "assertion": "A later initiative demonstrably applies a lesson from that review.",
+      "query": "Later initiative or project record showing application of a specific lesson from an earlier feedback or outcome review."
+    }
+  }
+}

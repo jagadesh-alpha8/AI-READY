@@ -202,6 +202,27 @@ class RealLocalSemanticTests(SimpleTestCase):
         self.assertTrue(all(not ranker.input_diagnostics(p.embedding_text)['truncated'] for p in ranker.passages([source])))
 
 
+    def test_all_profile_queries_fit_real_encoder_and_are_used_for_retrieval(self):
+        from .capability.engine import release
+        from .capability.evidence_queries import requirement_queries
+        with override_settings(CAPABILITY_RETRIEVAL_MODE='hybrid',
+                               CAPABILITY_EMBEDDING_PATH=os.environ['CAPABILITY_TEST_EMBEDDING_PATH']):
+            ranker = ranker_for(configured_policy())
+        rubric = release()
+        for indicator in rubric['indicators']:
+            for request in requirement_queries(indicator, ranker):
+                self.assertEqual(request['query_roles'][0], 'evidence_records')
+                for query in request['queries']:
+                    self.assertLessEqual(len(ranker.token_offsets(ranker.query_input(query))), ranker.token_limit - 8)
+        item = next(i for i in rubric['indicators'] if i['code'] == 'AIQIF-C6.1')
+        trace = {}
+        source = {'id': 'p', 'text': 'The computer centre provides desktop workstations and internet access to students.'}
+        select_context(item, [source], semantic_ranker=ranker, diagnostics=trace)
+        for request in trace['requirements']:
+            self.assertTrue(all(query in ranker.queries for query in request['queries']))
+        self.assertIn('desktop workstations', trace['requirements'][0]['queries'][0])
+
+
 class GoldDocumentIdentityTests(SimpleTestCase):
     def test_same_page_number_in_another_document_does_not_count_as_a_gold_hit(self):
         from .capability.pipeline_diagnostics import retrieval_recall
@@ -252,7 +273,7 @@ class RetrievalComparisonCommandTests(TestCase):
 
             self.assertEqual(configured_policy()['mode'], 'bm25')
             result = json.loads(output.read_text())
-            self.assertEqual(set(result['sets']['development']), {'bm25_1800', 'bm25_1200', 'hybrid_passages'})
+            self.assertEqual(set(result['sets']['development']), {'bm25_1800', 'bm25_1200', 'profiled_bm25', 'hybrid_passages'})
             self.assertTrue(all(r['retrieved'] == 1 for r in result['sets']['development'].values()))
             self.assertTrue(result['gold_traces']['development'][0]['retrieved'])
             self.assertEqual(result['gold_traces']['development'][0]['queries'][0]['lexical_rank'], 1)

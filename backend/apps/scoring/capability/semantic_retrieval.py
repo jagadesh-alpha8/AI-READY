@@ -34,7 +34,7 @@ def _artifact_hash(root, signature):
     return digest.hexdigest()
 
 
-FUSION = 'source-passages-requirement-fusion-v1'
+FUSION = 'source-passages-requirement-fusion-v2'
 BGE_QUERY_INSTRUCTION = 'Represent this sentence for searching relevant passages: '
 
 
@@ -51,6 +51,8 @@ def configured_policy(mode=None):
         raise SemanticRetrievalUnavailable('CAPABILITY_RETRIEVAL_MODE must be bm25 or hybrid.')
     if mode == 'bm25':
         return {'mode': 'bm25'}
+    from .query_profiles import profile_metadata
+    profiles = profile_metadata()
     from importlib.metadata import version, PackageNotFoundError
     try:
         package_version = version('fastembed')
@@ -59,7 +61,7 @@ def configured_policy(mode=None):
     return {'mode': 'hybrid', 'model': settings.CAPABILITY_EMBEDDING_MODEL,
             'artifact_hash': artifact_hash(path), 'fastembed_version': package_version,
             'fusion': FUSION, 'representation': 'token-source-spans-v1', 'target_tokens': 240,
-            'query_policy': 'assertion-reference-context-v1',
+            'query_policy': 'evidence-record-profiles-1', **profiles,
             'query_instruction': query_instruction(settings.CAPABILITY_EMBEDDING_MODEL),
             'lexical_weight': 2, 'semantic_weight': 1, 'lexical_budget_share': 0.5}
 
@@ -183,9 +185,12 @@ def ranker_for(policy):
         return None
     from django.conf import settings
     from importlib.metadata import version
+    from .query_profiles import profile_metadata
+    profiles = profile_metadata()
     if (policy.get('mode') != 'hybrid' or policy.get('fusion') != FUSION
             or policy.get('representation') != 'token-source-spans-v1' or policy.get('target_tokens') != 240
-            or policy.get('query_policy') != 'assertion-reference-context-v1'
+            or policy.get('query_policy') != 'evidence-record-profiles-1'
+            or any(policy.get(key) != value for key, value in profiles.items())
             or policy.get('query_instruction') != query_instruction(settings.CAPABILITY_EMBEDDING_MODEL)
             or policy.get('lexical_weight') != 2
             or policy.get('semantic_weight') != 1 or policy.get('lexical_budget_share') != 0.5

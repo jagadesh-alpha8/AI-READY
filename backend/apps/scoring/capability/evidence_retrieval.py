@@ -45,7 +45,7 @@ def merged_spans(spans):
     return result
 
 
-def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=None):
+def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=None, include_semantic=True):
     started = perf_counter()
     if len({s['id'] for s in sources}) != len(sources):
         raise ValueError('Source IDs must be unique.')
@@ -77,25 +77,28 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
         contextual = assertion + assertion + Counter({t: 1 for t in terms(requirement['anchor'])})
         raw = bm25(assertion)
         contextual_scores = bm25(contextual)
-        with_terms = [score + .15 * hint for score, hint in zip(contextual_scores, topic_scores)]
+        profile_scores = bm25(Counter({t: 1 for t in terms(requirement['evidence_query'])}))
+        with_profiles = [score + .5 * profile for score, profile in zip(contextual_scores, profile_scores)]
+        with_terms = [score + .15 * hint for score, hint in zip(with_profiles, topic_scores)]
         hints = [any(h['indicator_code'] == indicator['code'] and p.start <= h['start']
                      and h['end'] <= p.end for h in p.source.get('retrieval_hints', [])) for p in passages]
         boosted = [score * 1.25 + 1 if hint else score for score, hint in zip(with_terms, hints)]
-        semantic_variants = ranker.similarities(passages, requirement['queries'])
-        similarity = [max(float(values[n]) for values in semantic_variants) for n in range(len(passages))]
+        semantic_variants = ranker.similarities(passages, requirement['queries']) if include_semantic else []
+        similarity = [max((float(values[n]) for values in semantic_variants), default=0.) for n in range(len(passages))]
         def ordered(values):
             return sorted(range(len(passages)), key=lambda n: (-values[n], ties[n]))
         lexical, suppressed_lexical = diverse(ordered(boosted), passages)
-        semantic, suppressed_semantic = diverse(ordered(similarity), passages)
+        semantic, suppressed_semantic = diverse(ordered(similarity), passages) if include_semantic else ([], {})
         fused_scores = Counter()
         for weight, order in ((2, lexical[:60]), (1, semantic[:60])):
             for position, index in enumerate(order, 1):
                 fused_scores[index] += weight / (60 + position)
         fused, suppressed_fused = diverse([n for n in ordered(fused_scores) if fused_scores[n] > 0], passages)
-        requirement.update(raw_scores=raw, contextual_scores=contextual_scores, terms_scores=with_terms,
+        requirement.update(raw_scores=raw, contextual_scores=contextual_scores,
+            profile_scores=with_profiles, terms_scores=with_terms,
             lexical_scores=boosted, hint_applied=hints, similarity=similarity,
             variant_similarities=[[float(v) for v in values] for values in semantic_variants],
-            raw_lexical=ordered(raw), contextual_lexical=ordered(contextual_scores), lexical=lexical, semantic=semantic, fused=fused,
+            raw_lexical=ordered(raw), contextual_lexical=ordered(contextual_scores), profile_lexical=ordered(with_profiles), lexical=lexical, semantic=semantic, fused=fused,
             raw_semantic=ordered(similarity), terms_lexical=ordered(with_terms),
             suppressed={'lexical': suppressed_lexical, 'semantic': suppressed_semantic, 'fused': suppressed_fused})
 
@@ -141,9 +144,10 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
                 break
             queues = pending
     # Whole passages only: no prefix truncation to force a window into remaining budget.
-    rounds('lexical', max_chars // 2)
-    rounds('semantic', max_chars, one_round=True)
-    rounds('fused', max_chars)
+    rounds('lexical', max_chars // 2 if include_semantic else max_chars)
+    if include_semantic:
+        rounds('semantic', max_chars, one_round=True)
+        rounds('fused', max_chars)
     source_lookup = {s['id']: s for s in sources}
     selected = []
     for sid, spans in source_spans.items():
