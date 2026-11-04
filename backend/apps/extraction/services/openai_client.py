@@ -73,6 +73,8 @@ def _rejects_sampling(exc):
 
 def _sampling():
     """temperature / seed for every request (settings.AI_TEMPERATURE / AI_SEED): the same chunk, the same answer."""
+    if not settings.AI_SEND_SAMPLING_PARAMS:
+        return {}
     out = {}
     if settings.AI_TEMPERATURE is not None:
         out['temperature'] = settings.AI_TEMPERATURE

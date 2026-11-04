@@ -13,7 +13,7 @@ from copy import deepcopy
 
 from .engine import STATES, release
 
-PROMPT_VERSION = 'AIQIF-EVAL-0.13'
+PROMPT_VERSION = 'AIQIF-EVAL-0.14'
 RETRIEVAL_VERSION = 'AIQIF-source-passages-4'
 SYSTEM_PROMPT = """Assess institutional AI capability against the supplied experimental rubric.
 Keep reasons concise and cite the shortest exact passages that retain necessary scope and dates. Do not copy entire pages into the response.
@@ -60,7 +60,12 @@ never establish activity currency. Historical assets do not prove present operat
 reported/effective period and describe it explicitly; do not demand the current year or current operation
 unless the assertion or custom period requires it. For a static enabling-capacity assertion in default mode, a report's explicit publication/generation
 label or standard SSR printed report timestamp may date the report's claim: assess it only as reported then, and state that limitation in the reason.
-This never dates an activity, proves current operation, or satisfies a custom current-period requirement.
+This never dates an activity, proves current operation, or satisfies a custom current-period requirement. The report-claim-date allowance never overrides a condition's period_rule.
+For observed_enabling_practice and measured_result assertions, a report generation/publication timestamp
+cannot establish the required actual activity or completed review interval. A recurring frequency
+(such as annually or at the end of each academic year) is not an identified activity interval.
+If only a report timestamp or unspecified recurring frequency is available for such an assertion,
+set period_supported false and state unknown even when the substantive content fits.
 A supplied report_claim_date declaration dates only the source claim, not an activity. Filesystem/upload timestamps cannot establish even that report claim date. If no applicable source
 period or report claim date exists, leave the period unresolved.
 Scope declarations are unverified source claims. If source institution identity is mismatched or

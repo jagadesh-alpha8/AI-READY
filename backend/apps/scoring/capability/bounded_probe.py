@@ -4,6 +4,7 @@ from copy import deepcopy
 from decimal import Decimal
 from .storage import digest
 from .reviewed_evidence import for_context
+from .scope import context_scope
 from .evaluation import SYSTEM_PROMPT, indicator_schema
 from .evidence_audit import audit_request
 
@@ -25,6 +26,8 @@ def prepare(plan, ledger, corpus):
                     or window['text']!=source['text'][offset:offset+len(window['text'])]):
                 raise ValueError('Probe window no longer matches the current corpus.')
         payload['reviewed_evidence']=for_context(ledger,payload['sources'])
+        if payload.get('scope') is not None:
+            payload['scope']=context_scope(payload['scope'],payload['sources'])
         request['system_prompt']=SYSTEM_PROMPT
         request['response_schema']=indicator_schema(payload['indicator'],payload['sources'])
         request['original_payload_hash']=original.get('payload_hash')

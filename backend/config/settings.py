@@ -551,6 +551,8 @@ AI_SDK_MAX_RETRIES = int(os.getenv('AI_SDK_MAX_RETRIES', 2))
 # Repeatable extraction: the same document gives the same facts. AI_TEMPERATURE 0 = always the most likely answer;
 # AI_SEED fixes what randomness is left (OpenAI-compatible endpoints only -- Ollama, vLLM, OpenAI; Anthropic has no
 # seed). Empty AI_TEMPERATURE / AI_SEED = the provider's own default.
+# Explicit endpoint opt-out; preserve defaults for other configured deployments.
+AI_SEND_SAMPLING_PARAMS = os.getenv('AI_SEND_SAMPLING_PARAMS', 'true').lower() == 'true'
 AI_TEMPERATURE = float(os.getenv('AI_TEMPERATURE', '0')) if os.getenv('AI_TEMPERATURE', '0').strip() else None
 AI_SEED = int(os.getenv('AI_SEED', '42')) if os.getenv('AI_SEED', '42').strip() else None
 AI_RATE_LIMIT_ENABLED = (os.getenv('AI_RATE_LIMIT_ENABLED', 'false' if _RUNNING_TESTS else 'true').lower()

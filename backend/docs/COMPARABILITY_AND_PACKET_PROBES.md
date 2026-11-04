@@ -21,7 +21,7 @@ still be challenged by newly disagreeing current evidence. No stored review gap
 or prior frozen ledger is rewritten by assessment snapshotting.
 
 Ledger version: `reviewed-evidence-2`. Bounded context version: `review-context-4`.
-The evaluator protocol is `AIQIF-EVAL-0.13` so mismatched web and worker versions
+The evaluator protocol is `AIQIF-EVAL-0.14` so mismatched web and worker versions
 are rejected by existing protocol checks. Deploy both processes together and
 start a new assessment boundary; old frozen inputs are not retroactively repaired.
 
@@ -124,3 +124,37 @@ Live decisions use `live_response_validated`; offline audit replay retains its
 separate replay status. A valid response still does not establish semantic quality.
 Do not rerun completed cases merely to obtain missing advice or a corrected case:
 review the private output first and prepare an explicitly bounded follow-up plan.
+
+## Stable case binding, scoped metadata and period interpretation
+
+`probe_cases.request_from_bundle` resolves a reviewed evidence bundle by its ID,
+not its position in a list. It records the selected bundle ID and kind outside
+the model payload, and rejects missing or ambiguous source spans. Adjudication
+controls remain adjudication controls; their labels cannot force an outcome.
+
+`prepare` applies the normal source-local `context_scope` projection to every
+request, including handwritten plan entries. Whole-document declarations are
+not copied into a small selected-source probe. Quoted source windows remain
+unchanged, the refreshed payload gets a new hash, and its original hash is kept.
+The complete database ledger remains the validation authority. No global input
+allowance is increased.
+
+The evaluator prompt clarifies that a report-generation timestamp and a recurring
+frequency do not identify an actual completed activity/review interval for an
+observed-practice assertion. A content-support bundle is conditional on scope
+and period; it is not an automatic met label. This changes no frozen rubric or
+scoring arithmetic. Live semantic verification of this clarification is still
+required, and saved decisions are not retroactively rewritten.
+
+For an endpoint empirically rejecting temperature/seed, an explicit deployment
+opt-out is available:
+
+```bash
+AI_SEND_SAMPLING_PARAMS=false python manage.py capability_bounded_probe ...
+```
+
+The default is true to preserve existing endpoint configuration. Setting it false
+omits both sampling parameters before the first SDK request; the existing format,
+usage and budget guards remain in force. Do not infer that every Gemini model or
+proxy rejects sampling from one observed rejection. Use the opt-out only for the
+configured endpoint requiring it. The diagnostic preflight uses the same setting.

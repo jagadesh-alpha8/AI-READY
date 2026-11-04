@@ -161,3 +161,37 @@ class OversizedProbeCaseTests(SharedProbeMeterTests):
         self.assertEqual(result['case_errors'][0]['stage'],'runtime_input_guard')
         self.assertTrue(result['advice_stage_completed'])
         self.assertTrue(result['requests'][0]['live_advice'])
+
+
+class ScopeProjectionProbeTests(SimpleTestCase):
+    def test_whole_document_scope_is_projected_to_the_actual_windows(self):
+        plan,ledger,corpus=fixture()
+        scope={k:'source-specific' for k in ('version','mode','institution','population_label','period_label',
+            'coverage_policy','rubric_scope_policy','limitations')}
+        scope['questions']=[]
+        scope['source_declarations']=[{'source_id':'unselected-'+str(n),'kind':'report_claim_date','value':'2024-01-01'} for n in range(374)]
+        scope['source_declarations'].append({'source_id':'p','kind':'report_claim_date','value':'2024-02-01'})
+        plan['requests'][0]['payload']['scope']=scope
+        plan['requests'][0]['payload_hash']=digest(plan['requests'][0]['payload'])
+        old_hash=plan['requests'][0]['payload_hash']
+        result=prepare(plan,ledger,corpus)['requests'][0]
+        self.assertEqual(result['payload']['scope']['source_declarations'],[scope['source_declarations'][-1]])
+        self.assertTrue(result['payload']['scope']['declarations_are_subset'])
+        self.assertEqual(result['original_payload_hash'],old_hash)
+        self.assertNotEqual(result['payload_hash'],old_hash)
+        self.assertEqual(len(plan['requests'][0]['payload']['scope']['source_declarations']),375)
+
+
+@override_settings(CAPABILITY_ASSESSMENT_ENABLED=True,AI_RATE_LIMIT_ENABLED=False,
+    AI_PRICING_JSON='{"test-model":{"input":0.1,"output":0.2}}',
+    AI_SEND_SAMPLING_PARAMS=False,AI_TEMPERATURE=0,AI_SEED=42)
+class SamplingOptOutProbeTests(SharedProbeMeterTests):
+    def test_explicit_endpoint_opt_out_reaches_sdk_on_first_attempt_and_matches_preflight(self):
+        plan,ledger,corpus=fixture();meter,execution,sdk=self.setup_meter(1)
+        result=execute(prepare(plan,ledger,corpus),meter,advice_cases=0)
+        self.assertTrue(result['execution_completed'])
+        self.assertEqual(sdk.chat.completions.create.call_count,1)
+        kwargs=sdk.chat.completions.create.call_args.kwargs
+        self.assertNotIn('temperature',kwargs);self.assertNotIn('seed',kwargs)
+        reserved=next(c for c in result['inference']['calls'] if c['kind']=='request_reserved')
+        self.assertEqual(result['decision_preflight'][0]['input_token_bound'],reserved['input_token_bound'])
