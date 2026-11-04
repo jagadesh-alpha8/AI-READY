@@ -22,20 +22,24 @@ Separate exact citations remain preferred. A joined citation can be normalized o
 
 ## Local hybrid retrieval
 
-The default remains BM25 until an operator provisions a local embedding model. No weights or institutional embeddings are committed to this repository. Provision on the worker host:
+The default is always BM25, including when an operator provisions a local embedding model. No weights or institutional embeddings are committed to this repository. Provision on the worker host:
 
 ```sh
 pip install -r requirements/semantic.txt
 python manage.py prepare_capability_embeddings --cache-dir /absolute/model-cache --download
 ```
 
-The command prints `CAPABILITY_EMBEDDING_PATH`. Set that directory in the web and worker environment. This enables hybrid mode by default; `CAPABILITY_RETRIEVAL_MODE=bm25` explicitly disables it. Restart the web/worker processes and start a fresh assessment.
+The command prints `CAPABILITY_EMBEDDING_PATH`. Set that directory in the web and worker environment. Installing a model does not activate hybrid. Keep `CAPABILITY_RETRIEVAL_MODE=bm25` for normal assessments. Set `CAPABILITY_RETRIEVAL_MODE=hybrid` only for an explicitly enabled candidate run after private evaluation. Restart the web/worker processes and start a fresh assessment.
 
 Model: `BAAI/bge-small-en-v1.5`, CPU through FastEmbed 0.9.1. Only the explicit preparation command downloads public model files. Workers use the provisioned directory with `local_files_only=True`, never hosted embeddings. Freeze an immutable model directory and do not replace its files while workers are running.
 
 Each run freezes the model identity, artifact SHA256 and library version. Workers reject mismatches or unavailable hybrid artifacts; they do not silently downgrade to BM25. Embeddings of source text and queries are cached in memory per run, not in a cross-institution/global source index.
 
-Hybrid ranking combines BM25 and cosine-similarity candidate ranks by reciprocal-rank fusion (k=60, top 60 from each route). This is rank fusion, not a cross-encoder reranker. Local semantic windows use 1,200 characters; BM25-only windows retain 1,800 characters. Selected overlapping passages merge; source text is never rewritten. The overall budget stays 18,000 characters per indicator. Assessment traces and exports expose the frozen retrieval policy. Recommendation generation uses that same policy.
+Experimental hybrid uses a separate source-grounded passage pipeline; see [the architecture decision](ADR_EVIDENCE_RETRIEVAL.md). It constructs sentence/row-aware, overlapping source spans once per execution, targeting 240 tokenizer tokens while bounding the complete encoder input by the actual model allowance. Embeddings carry actual page-local section/table headings; citable bodies and heading spans retain original source offsets. Both consume the same 18,000-character final budget. Whole units are selected without truncating them to fill remaining space.
+
+Queries now pair each of the 216 assertions with a versioned evidence-record description. Referencing assertions retain preceding-assertion context without consuming the profile slot. The paired queries remain bounded to two; profiles name alternative record types and aliases, not additional scoring requirements. Full coverage and exact assertion text are validated, and the profile version/checksum is frozen in each hybrid policy. English BGE v1.5 queries receive its documented query-only instruction. Other FastEmbed model families retain their native encoding. Raw lexical relevance, the modest evidence-profile contribution, low-weight indicator terms and extraction hints are separately recorded. Same-page exact/contained candidates are consolidated before fixed weighted RRF (2:1, k=60). Selection protects a lexical allocation, takes semantic turns per requirement and fills with fused candidates. These are experimental policy choices, not measured private recall guarantees.
+
+The passage store and normalized vector matrix are reused across indicators within one execution and invalidated when source inputs change. No vector database or shared institutional embedding cache is added. The frozen policy identifies representation, query protocol, instruction, fusion, model artifact and package version. Semantic failures never silently change a frozen run to BM25. Recommendation generation uses the same retrieval policy and retains item-level repair.
 
 ### Offline reference comparison
 
@@ -48,9 +52,11 @@ python manage.py capability_retrieval_compare RUN_UUID \
   --output /private/new-retrieval-comparison.json
 ```
 
-Use a new output path outside the repository. The command reads the database, runs local embeddings and writes a private comparison. It makes no evaluator requests or database changes. It compares BM25 at 1,800 characters, BM25 at 1,200 characters (window-size ablation), and hybrid at 1,200 characters, all at the same total budget.
+Use a new output path outside the repository. The command reads the database, runs local embeddings and writes a private comparison. It makes no evaluator requests or database changes. It explicitly constructs an offline hybrid policy even while the live setting remains BM25. It compares BM25 at 1,800 characters, BM25 at 1,200 characters (window-size ablation), `profiled_bm25` (new passages/profiles without embedding inference), and token-bounded hybrid passages, all at the same total budget. The additional offline lexical ablation separates representation/query gains from semantic-route gains; it is not a new operational setting. Partial overlaps retain their unique text; final span merging avoids paying twice for overlap.
 
-Each gold file is a list of `{condition_id, page, quote, document_id?, document?, evidence_type?}`. A document UUID or unique manifest filename is required when a page number is ambiguous. Every labelled quotation must occur on its frozen page. Development and held-out labels must not overlap. Gold tags are not generated from extraction tags. No institutional recall improvement is claimed until this command runs on the private reference corpus; a synthetic paraphrase smoke test is not a substitute.
+The private JSON also contains `gold_traces` per label: actual requirement query and actual encoder instruction, raw/contextual/boosted BM25 scores and ranks, per-query semantic similarities and fused ranks of windows containing the quote, five nearest semantic passages, exact embedding inputs, tokenizer coverage when available, and passage-packing attempts. Candidate absence is reported separately from ranking/allocation, duplicate consolidation and whole-unit budget exclusions. These are diagnostic observations, not proof that a document lacks evidence. Tokenizer probes report truncation; they do not establish that table headings are meaningful. Gold labels are used only after retrieval; they never select passages.
+
+Each gold file is a list of `{condition_id, page, quote, document_id?, document?, evidence_type?}`. A document UUID or unique manifest filename is required when a page number is ambiguous. Missing labelled quotations are reported as source-text loss signals rather than rejected; a person must distinguish ingestion loss from an incorrect label. The command also writes a readable `.md` alongside its new `.json`, aggregate observed stages, gains/losses relative to BM25 and timing/cache statistics. Development and held-out labels must not overlap. Gold tags are not generated from extraction tags. No institutional recall improvement is claimed until this command runs on the private reference corpus; a synthetic paraphrase smoke test is not a substitute.
 
 ## Recommendations
 
@@ -60,6 +66,12 @@ The foundation pathway now displays two separate tracks in the application and H
 - **Improve capability where needed**: actionable proposals, explicitly conditional where current capability is unresolved, with verified strengths retained as the basis for reuse.
 
 Unknown is not absent. Evidence-gathering steps do not automatically become development tasks; conditional proposals do not change scores or award achievement levels. Existing owners and resources are not invented.
+
+### Item-level validation and repair
+
+The recommendation schema restricts requirement, operation, dependency and source IDs to the batch. Responses are validated per item; unsupported citations, duplicates, missing items and changed operations affect their own requirement rather than valid neighbours. A single metered corrective generation requests only failed requirements. It cannot overwrite accepted advice. Dependency cycles are checked again after merging; a repair that creates a cycle loses its new edge-bearing item before accepted neighbours. Unrepaired items use explicitly labelled deterministic fallback. Citation and operation checks remain strict.
+
+Completed recommendation payloads expose `validation`: initially invalid item counts, repair-attempted batch counts, repaired item counts, final fallback item counts and per-indicator IDs/reasons. These counts measure validation and recovery, not prose quality. Only `origin=model_tailored` is labelled tailored in reports; deterministic fallback and processing follow-up remain basic guidance. Unknown actions remain evidence checks, and conditional development remains in the foundation pathway. No recommendation changes an assessment score.
 
 ## CI
 

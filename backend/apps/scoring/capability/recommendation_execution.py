@@ -2,21 +2,20 @@
 import json
 from datetime import timedelta
 
-import jsonschema
 from celery import shared_task
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from apps.extraction.exceptions import ProviderQuotaExhausted
+from apps.extraction.exceptions import ProviderQuotaExhausted, AIResponseError
 from apps.extraction.services.ai_service import get_ai_service
 from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
 from apps.scoring.models import CapabilityRun, RecommendationSnapshot, RecommendationExecution, RecommendationEvent
 from .execution import policy, AssessmentConflict, AssessmentDisabled, BudgetExceeded, ExecutionStopped
 from .provider import MeteredService, UnpricedModel, UsageUnavailable
-from .recommendations import build_inputs, validate_advice, processing_failure, VERSION, PROMPT, SCHEMA
+from .recommendations import build_inputs, validate_advice, partition_advice, advice_schema, processing_failure, VERSION, PROMPT, SCHEMA
 from .storage import digest
 
 
@@ -37,6 +36,51 @@ def deterministic_advice(action, inputs, origin, note=''):
            'suggested_role': 'Evidence coordinator (suggested)', 'effort': 'unknown', 'dependencies': [],
            'completion_evidence': action['completion_evidence'], 'basis': action['citations'], 'origin': origin}
     return {**row, 'fallback_reason': note} if note else row
+
+
+def tailor_batch(service, payload, inputs):
+    """Keep valid neighbours; reserve at most one metered corrective call per batch."""
+    actions, sources, strengths = payload['actions'], payload['sources'], payload['established_strengths']
+    try:
+        response = service.extract_structured_data(system_prompt=PROMPT, user_content=json.dumps(payload, sort_keys=True),
+            response_schema=advice_schema(actions, sources, strengths), schema_name='capability_advice')
+    except AIResponseError:
+        response = None  # Malformed provider output can receive the same single bounded repair.
+    valid, errors = partition_advice(response, actions, strengths, sources)
+    initially_invalid = dict(errors)
+    initially_valid = set(valid)
+    repair_attempted = False
+    if errors:
+        failed_actions = [a for a in actions if a['id'] in errors]
+        repair = {**payload, 'actions': failed_actions, 'validation_errors': errors,
+                  'allowed_dependency_ids': [a['id'] for a in actions],
+                  'instruction': 'Return corrected advice only for the supplied actions. Preserve allowed operations and exact citations.'}
+        repair_attempted = True
+        try:
+            corrected = service.extract_structured_data(system_prompt=PROMPT, user_content=json.dumps(repair, sort_keys=True),
+                response_schema=advice_schema(failed_actions, sources, strengths, dependency_actions=actions),
+                schema_name='capability_advice_repair')
+        except (BudgetExceeded, AIResponseError):
+            corrected = None  # A corrective call must never exceed the frozen request/cost cap.
+        # Retained rows are trusted only after the same checks as the initial response.
+        repaired_rows = corrected.get('advice', []) if isinstance(corrected, dict) else []
+        if not isinstance(repaired_rows, list):
+            repaired_rows = []
+        failed_ids = set(errors)
+        repaired_rows = [r for r in repaired_rows if isinstance(r, dict)
+                         and isinstance(r.get('condition_id'), str) and r['condition_id'] in failed_ids]
+        merged = {'advice': list(valid.values()) + repaired_rows}
+        valid, errors = partition_advice(merged, actions, strengths, sources, protected_ids=initially_valid)
+    # Fallback has no dependency edges. Final full-batch validation also guards future changes.
+    batch = [{**valid[a['id']], 'origin': 'model_tailored'} if a['id'] in valid else
+             deterministic_advice(a, inputs, 'deterministic_fallback',
+                                  'Model advice failed validation: ' + errors[a['id']][:150]) for a in actions]
+    validate_advice({'advice': [{k: v for k, v in row.items() if k not in ('origin', 'fallback_reason')}
+                               for row in batch]}, actions, strengths, sources)
+    metrics = {'initial_invalid': initially_invalid, 'repair_attempted': repair_attempted,
+               'repaired_ids': sorted(set(valid) - initially_valid),
+               'final_fallback_ids': [a['id'] for a in actions if a['id'] not in valid]}
+    return batch, metrics
 
 
 def enabled():
@@ -121,11 +165,11 @@ class RecommendationMeter(MeteredService):
 
 
 @transaction.atomic
-def save_batch(snapshot_id, indicator, advice):
+def save_batch(snapshot_id, indicator, advice, validation=None):
     execution = RecommendationExecution.objects.select_for_update().get(snapshot_id=snapshot_id)
     if execution.status != 'running' or not enabled():
         raise ExecutionStopped()
-    RecommendationEvent.objects.create(snapshot_id=snapshot_id, payload={'kind': 'advice_batch', 'indicator': indicator, 'advice': advice})
+    RecommendationEvent.objects.create(snapshot_id=snapshot_id, payload={'kind': 'advice_batch', 'indicator': indicator, 'advice': advice, 'validation': validation or {}})
     execution.heartbeat_at = timezone.now()
     execution.save(update_fields=['heartbeat_at'])
 
@@ -177,6 +221,7 @@ def generate_recommendations(snapshot_id, task_id):
         # Unknown actions remain evidence checks. Grounded conditional foundation proposals
         # are separate from verified baseline changes and from mandatory development advice.
         model_ids = {a['id'] for a in model_actions}
+        validation_batches = []
         advice = [deterministic_advice(a, inputs, 'processing_rerun') for a in inputs['actions'] if a['id'] in unevaluated]
         advice += [deterministic_advice(a, inputs, 'deterministic_evidence_request') for a in inputs['actions']
                    if a['state'] == 'unknown' and a['id'] not in model_ids | unevaluated]
@@ -201,17 +246,9 @@ def generate_recommendations(snapshot_id, task_id):
                         payload['foundation_goals'] = [{k: g[k] for k in ('id', 'title', 'depends_on', 'status', 'conditional')} for g in foundation.get('goals', [])]
                         scope = inputs.get('scope') or {}
                         payload['scope'] = {k: scope[k] for k in ('institution', 'mode', 'population_label', 'period_label', 'limitations') if k in scope}
-                        response = service.extract_structured_data(system_prompt=PROMPT, user_content=json.dumps(payload, sort_keys=True),
-                            response_schema=SCHEMA, schema_name='capability_advice')
-                        try:
-                            batch = [{**row, 'origin': 'model_tailored'} for row in validate_advice(
-                                response, actions, established_strengths=strengths, sources=selected_sources)]
-                        except (ValueError, jsonschema.ValidationError) as exc:
-                            # One unusable answer must not discard every other batch: this batch falls back,
-                            # labelled, with a fixed reason (never the model's text).
-                            reason = 'Model advice failed validation: ' + (str(exc) if isinstance(exc, ValueError) else 'schema mismatch.')
-                            batch = [deterministic_advice(a, inputs, 'deterministic_fallback', reason[:200]) for a in actions]
-                        save_batch(snapshot_id, indicator, batch)
+                        batch, validation = tailor_batch(service, payload, inputs)
+                        save_batch(snapshot_id, indicator, batch, validation)
+                        validation_batches.append({'indicator': indicator, **validation})
                         advice.extend(batch)
             with transaction.atomic():
                 locked = RecommendationExecution.objects.select_for_update().get(snapshot_id=snapshot_id)
@@ -221,6 +258,11 @@ def generate_recommendations(snapshot_id, task_id):
                     return
                 RecommendationEvent.objects.create(snapshot=snapshot, payload={'kind': 'completed',
                     'advice': advice, 'inputs_hash': snapshot.inputs_hash,
+                    'validation': {'initial_invalid_items': sum(len(b['initial_invalid']) for b in validation_batches),
+                        'repair_attempted_batches': sum(b['repair_attempted'] for b in validation_batches),
+                        'repaired_items': sum(len(b['repaired_ids']) for b in validation_batches),
+                        'fallback_items': sum(len(b['final_fallback_ids']) for b in validation_batches),
+                        'batches': validation_batches},
                     'mode': 'tailored' if service else 'deterministic',
                     'inference': service.metadata() if service else {'provider': 'none', 'model': 'none', 'calls': []}})
                 locked.status = 'completed'

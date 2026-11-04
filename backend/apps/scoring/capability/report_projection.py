@@ -86,7 +86,7 @@ def advisory_state(recommendation):
     status = recommendation['status']
     tailoring = recommendation.get('tailoring')
     if (status == 'completed' and tailoring and tailoring.get('mode') == 'tailored'
-            and any(a.get('origin') != 'deterministic_evidence_request' for a in tailoring.get('advice', []))):
+            and any(a.get('origin') == 'model_tailored' for a in tailoring.get('advice', []))):
         return {'kind': 'tailored', 'status': status, 'label': 'Assessment with tailored advice',
                 'explanation': 'Advice is linked to the selected saved assessment. Some unresolved requirements may still use basic evidence guidance.'}
     explanations = {
@@ -148,7 +148,7 @@ def build_report_view(report, actions):
                 'sources': [{'label': source_labels.get(str(c['source_id']), 'Saved source reference'),
                              'quote': c['quote']} for c in (advice.get('basis', []) if advice else first.get('citations', []))],
                 'guidance': ('Tailored suggestion' if state['kind'] == 'tailored' and advice and
-                             advice.get('origin') != 'deterministic_evidence_request' else 'Basic assessment follow-up'),
+                             advice.get('origin') == 'model_tailored' else 'Basic assessment follow-up'),
                 '_sort': ('FAO'.index(first['id'].rsplit('.', 1)[-1][0]),
                           {'conflicting': 0, 'not_met': 1, 'unknown': 2}.get(first['state'], 3), order),
             })
