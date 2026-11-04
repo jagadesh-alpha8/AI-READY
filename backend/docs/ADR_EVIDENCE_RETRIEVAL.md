@@ -70,3 +70,24 @@ The paired query design reserves one slot for the profile and one for the assert
 These are manually authored retrieval descriptions, not a domain-trained relevance model. They can still retrieve plans or irrelevant topical matches; existing assessment/citation checks determine what the evidence establishes. The private regression run must inspect profile-versus-assertion rankings and gained/lost evidence before any hybrid promotion.
 
 The offline comparison retains `profiled_bm25` as an unprotected lexical passage/profile ablation. Expanded methods compare protected profile-only discovery, protected hybrid discovery, and BM25 at the same larger budget. This distinguishes profile gains, semantic gains and extra-context gains. The comparison fails if a protected method loses baseline gold evidence. `--include-replay-inputs` includes the complete private frozen source/rubric/gold inputs in its outside-repository JSON output for independent offline replay. It adds no live retrieval mode and makes no evaluator calls.
+
+## Caption and diagnostic correction
+
+A rendered table caption is not disposable metadata: its column cells can carry
+substantive narrative. Filter version 2 removes only the generated wrapper when
+classifying that payload, preserves original citable offsets, and tests both
+caption-only narratives and oversized split captions. Do not infer semantic
+quality from passing these structure tests.
+
+The offline comparison now supports private replay without database access,
+per-requirement versus cross-requirement candidate pools (with pool sizes), and
+a label-aware packet-feasibility check. A budget-rejection observation does not
+establish that context capacity caused the miss. Relevant quotation counts,
+distinct requirements reached, and independently adjudicated decision truth are
+reported separately. Multiple alternative quotations for one requirement never
+become multiple demonstrated requirements.
+
+ONNX telemetry is disabled before local model initialization. Offline callers
+should also set ORT_DISABLE_TELEMETRY=1 before process launch and keep model
+downloads disabled. These corrections do not promote hybrid or change BM25's
+operational default.

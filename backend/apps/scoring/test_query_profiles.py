@@ -99,7 +99,7 @@ class QueryProfileTests(SimpleTestCase):
             'query_instruction': query_instruction('BAAI/bge-small-en-v1.5'),
             'lexical_weight': 2, 'semantic_weight': 1,
             'allocation': 'protected-baseline-then-discovery-v1', 'baseline_chars': 18000,
-            'expansion_chars': 6000, 'expansion_filter': 'instruction-heading-only-v1',
+            'expansion_chars': 6000, 'expansion_filter': 'instruction-heading-only-v2',
             **profile_metadata()}
         policy['query_profiles_hash'] = 'wrong-checksum'
         with patch('apps.scoring.capability.semantic_retrieval._model', side_effect=AssertionError('Must not load a model')):

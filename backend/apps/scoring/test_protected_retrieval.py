@@ -106,3 +106,32 @@ class ProtectedBaselineTests(SimpleTestCase):
         selected = select_context(indicator(), sources, semantic_ranker=ranker)
         self.assert_preserved(baseline, selected)
         self.assertLessEqual(sum(len(s['text']) for s in selected), 24000)
+
+    def test_narrative_inside_rendered_column_caption_is_embedded_and_retrieved(self):
+        narrative = 'The academic board approved the learning outcomes. They are evaluated every semester.'
+        text = '[Table 1 on page 27 -- columns:  | ' + narrative + ']'
+        class NarrativeModel(Model):
+            def passage_embed(self, texts, **kwargs):
+                return [[1., 0.] for text in texts]
+        ranker = synthetic_ranker(NarrativeModel())
+        ranker.baseline_chars = 0
+        trace = {}
+        selected = select_context(indicator(), [{'id': 'table', 'text': text}],
+            semantic_ranker=ranker, max_chars=1000, diagnostics=trace)
+        self.assertTrue(any(narrative in s['text'] for s in selected))
+        self.assertFalse(trace['expansion_exclusions'])
+        self.assertEqual(ranker.stats['embedded_passages'], 1)
+        self.assertEqual(selected[0]['text'], text)
+
+    def test_large_narrative_caption_keeps_all_discovery_chunks(self):
+        text = '[Table 3 on page 9 -- columns: ' + ('Faculty mentoring supports practical instruction. ' * 100) + ']'
+        ranker = synthetic_ranker(Model())
+        passages = ranker.passages([{'id': 'table', 'text': text}])
+        self.assertGreater(len(passages), 2)
+        self.assertTrue(all(expansion_exclusion(p) is None for p in passages))
+
+    def test_empty_or_upload_caption_stays_excluded(self):
+        for payload in ('', '(none)', ' | ', 'File Description | Document'):
+            text = '[Table 1 on page 2 -- columns: ' + payload + ']'
+            p = Passage({'id': 'p', 'text': text}, 0, len(text), 'table', None, text, 10)
+            self.assertIsNotNone(expansion_exclusion(p))

@@ -60,6 +60,53 @@ The private JSON also contains `gold_traces` per label: actual requirement query
 
 Each gold file is a list of `{condition_id, page, quote, document_id?, document?, evidence_type?}`. A document UUID or unique manifest filename is required when a page number is ambiguous. Missing labelled quotations are reported as source-text loss signals rather than rejected; a person must distinguish ingestion loss from an incorrect label. The command also writes a readable `.md` alongside its new `.json`, aggregate observed stages, gains/losses relative to BM25 and timing/cache statistics. Development and held-out labels must not overlap. Gold tags are not generated from extraction tags. No institutional recall improvement is claimed until this command runs on the private reference corpus; a synthetic paraphrase smoke test is not a substitute.
 
+## Candidate audit and private replay
+
+The comparison accepts a previously exported private corpus directly:
+
+```sh
+ORT_DISABLE_TELEMETRY=1 PYTHON_DOTENV_DISABLED=1 HF_HUB_OFFLINE=1 \
+python manage.py capability_retrieval_compare \
+  --replay-inputs /private/comparison-with-replay.json \
+  --output /private/new-candidate-audit.json
+```
+
+This route omits the run UUID and gold-file options, validates embedded labels,
+and never reads the assessment database. Its replay-content hash identifies the
+supplied corpus and labels; it does not independently verify the original run's
+entire snapshot hash. Model files must already be provisioned locally.
+
+Candidate recall is reported at 5, 10, 20, 60 and 100 candidates per route, both
+for the labelled requirement's queries and the union of queries for its whole
+indicator. Raw lexical/profile/semantic pools are distinguished from eligible
+filtered/diversified pools. Pool sizes accompany hits: a large union can have
+high recall without good ranking or affordable reranking. These label-aware
+measurements never influence production selection.
+
+The labelled-packet oracle chooses the shortest matching candidate per label
+and counts unique body/header spans. It shows physical feasibility for these
+labels only. It is not production retrieval, a global optimum, or a statement
+that evidence for every requirement would fit. A `context_budget_excluded`
+observation alone does not distinguish weak ranking from an inadequate budget.
+
+Gold quotation inclusion is a relevance target. Degree titles, aggregate patent
+counts, document upload lists and generic feedback claims can be useful leads
+without establishing all parts of a scored assertion. Keep retrieval labels
+separate from independently adjudicated expected assessment decisions. Do not
+remove difficult retrieval targets to improve a benchmark or infer a met state
+from a matching quotation alone.
+
+ONNX Runtime telemetry is disabled before encoder import in application settings
+and the model loader. Set `ORT_DISABLE_TELEMETRY=1` before starting an offline
+process too: disabling events via the API after import alone can be too late for
+an initialization event. This follows the installed runtime's Privacy.md and
+https://github.com/microsoft/onnxruntime/blob/main/docs/Privacy.md .
+
+Rendered `[Table ... -- columns: ...]` lines can contain substantive narrative
+cells. Discovery strips only the generated wrapper when classifying the payload;
+source text and offsets are preserved. Caption-only narratives and long split
+captions are covered by regression tests. The frozen filter policy is version 2.
+
 ## Recommendations
 
 The foundation pathway now displays two separate tracks in the application and HTML/PDF reports:

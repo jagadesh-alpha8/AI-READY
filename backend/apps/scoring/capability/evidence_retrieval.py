@@ -56,11 +56,19 @@ def expansion_exclusion(passage):
     meaningful = []
     for line in body.splitlines():
         text = line.strip()
-        if not text or text.startswith('[Table ') or re.fullmatch(r'[\d.\s]+', text):
+        # Rendered column cells can contain a complete narrative paragraph.
+        # Remove only the generated wrapper; classify its payload normally.
+        caption = re.match(r'^\[Table\s+\d+(?:\s+on\s+page\s+\d+)?\s+--\s+columns:\s*', text)
+        if caption:
+            text = text[caption.end():]
+            if text.endswith(']'):
+                text = text[:-1]
+            text = text.strip(' |')
+        if not text or re.fullmatch(r'[\d.\s]+', text):
             continue
         if re.search(r'File Description\s*:', text, re.I) and re.search(r'Document\s*:\s*(?:View Document|https?://)', text, re.I):
             continue
-        if text.lower() in {'response:', 'response', 'view document', 'file description | document'}:
+        if text.lower() in {'response:', 'response', 'view document', 'file description | document', '(none)'}:
             continue
         if section_heading(text) and (text.endswith(':') or text.startswith('#') or re.match(r'^\d+(?:\.\d+)+\s', text)):
             continue

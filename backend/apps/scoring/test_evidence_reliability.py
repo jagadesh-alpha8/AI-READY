@@ -264,6 +264,12 @@ class RetrievalComparisonCommandTests(TestCase):
                     'apps.extraction.services.ai_service.get_ai_service', side_effect=AssertionError('No evaluator calls')):
                 call_command('capability_retrieval_compare', str(run.pk), gold=str(gold), output=str(output),
                              include_replay_inputs=True, stdout=StringIO())
+                replay_output = Path(directory) / 'replay.json'
+                with patch('apps.scoring.models.CapabilityRun.objects.get', side_effect=AssertionError('Replay must not read the database')):
+                    call_command('capability_retrieval_compare', replay_inputs=str(output), output=str(replay_output), stdout=StringIO())
+                replayed = json.loads(replay_output.read_text())
+                self.assertEqual(replayed['input_verification'], 'replay_content_hash')
+                self.assertTrue(all(row['retrieved'] == 1 for row in replayed['sets']['development'].values()))
                 missing = Path(directory) / 'missing.json'
                 gold.write_text(json.dumps([{'condition_id': cid, 'document_id': str(doc.pk), 'page': 1,
                                             'quote': 'A manually labelled quotation absent from the frozen page.'}]))

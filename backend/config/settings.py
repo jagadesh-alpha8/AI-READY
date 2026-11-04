@@ -6,6 +6,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Local encoder dependencies can initialize ONNX Runtime during import. Its
+# pre-initialization switch disables the uploader as well as telemetry events.
+os.environ['ORT_DISABLE_TELEMETRY'] = '1'
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # settings.py -> config -> backend (BASE_DIR)
 BASE_DIR = Path(__file__).resolve().parent.parent

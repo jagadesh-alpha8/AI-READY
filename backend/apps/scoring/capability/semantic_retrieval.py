@@ -68,11 +68,15 @@ def configured_policy(mode=None):
             'lexical_weight': 2, 'semantic_weight': 1,
             'allocation': 'protected-baseline-then-discovery-v1',
             'baseline_chars': BASELINE_CHARS, 'expansion_chars': EXPANSION_CHARS,
-            'expansion_filter': 'instruction-heading-only-v1'}
+            'expansion_filter': 'instruction-heading-only-v2'}
 
 
 @lru_cache(maxsize=2)
 def _model(path, model_name, fingerprint):
+    import os
+    os.environ['ORT_DISABLE_TELEMETRY'] = '1'
+    import onnxruntime
+    onnxruntime.disable_telemetry_events()
     from fastembed import TextEmbedding
     return TextEmbedding(model_name=model_name, specific_model_path=path,
                          local_files_only=True, threads=2, providers=['CPUExecutionProvider'])
@@ -211,7 +215,7 @@ def ranker_for(policy):
             or policy.get('semantic_weight') != 1
             or policy.get('allocation') != 'protected-baseline-then-discovery-v1'
             or policy.get('baseline_chars') != BASELINE_CHARS or policy.get('expansion_chars') != EXPANSION_CHARS
-            or policy.get('expansion_filter') != 'instruction-heading-only-v1'
+            or policy.get('expansion_filter') != 'instruction-heading-only-v2'
             or policy.get('model') != settings.CAPABILITY_EMBEDDING_MODEL
             or policy.get('fastembed_version') != version('fastembed')
             or policy.get('artifact_hash') != artifact_hash(settings.CAPABILITY_EMBEDDING_PATH)):

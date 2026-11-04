@@ -206,7 +206,12 @@ def retrieval_recall(rubric, sources, gold, *, selector=select_context, budget=1
         group['items'] += 1
         group['retrieved'] += row['retrieved']
         group['page_selected'] += row['page_selected']
+    labelled_conditions = {row['condition_id'] for row in items if row.get('condition_id')}
+    reached_conditions = {row['condition_id'] for row in items if row.get('condition_id') and row['retrieved']}
     return {'budget_chars': budget, 'items': items, 'retrieved': sum(r['retrieved'] for r in items),
+            'labelled_requirement_coverage': {'labelled_requirements': len(labelled_conditions),
+                'requirements_with_any_target_retrieved': len(reached_conditions),
+                'note': 'Alternative quotations can share a requirement. Inclusion is not proof that the requirement is met.'},
             'page_hits': sum(r['page_selected'] for r in items), 'of': len(items), 'by_type': by_type,
             'indicators': economy}
 
