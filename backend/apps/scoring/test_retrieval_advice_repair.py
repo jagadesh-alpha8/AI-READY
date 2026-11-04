@@ -11,12 +11,15 @@ import jsonschema
 from django.test import SimpleTestCase, override_settings
 
 from .capability.evaluation import select_context
-from .capability.semantic_retrieval import SemanticRanker, diverse_candidates, configured_policy
+from .capability.semantic_retrieval import SemanticRanker, configured_policy
 from .capability.recommendations import advice_schema, partition_advice
 from .capability.recommendation_execution import tailor_batch
 from apps.extraction.exceptions import AIResponseError
 from .capability.execution import BudgetExceeded
 from .capability.retrieval_diagnostics import gold_traces
+from .retrieval_test_fixtures import synthetic_ranker
+from .capability.evidence_retrieval import diverse
+from .capability.passages import Passage
 
 
 class ProtectedRetrievalTests(SimpleTestCase):
@@ -26,7 +29,7 @@ class ProtectedRetrievalTests(SimpleTestCase):
                 return [np.array([0., 1.]) if 'LEXICAL' in t else np.array([1., 0.]) for t in texts]
             def query_embed(self, text):
                 return [np.array([1., 0.])]
-        return SemanticRanker(Model())
+        return synthetic_ranker(Model())
 
     def test_lexical_survives_adversarial_semantics_with_room_for_expansion(self):
         indicator = {'code': 'TEST', 'name': 'Broad AI theme', 'scoring_mode': 'independent_conditions',
@@ -38,14 +41,18 @@ class ProtectedRetrievalTests(SimpleTestCase):
         self.assertIn('exact', {s['id'] for s in selected})
         self.assertTrue(any(s['id'] != 'exact' for s in selected))
         self.assertLessEqual(sum(len(s['text']) for s in selected), 2400)
-        self.assertEqual(trace['rankings'][0]['query'], indicator['conditions'][0]['text'])
-        self.assertLessEqual(sum(len(s['text']) for s in selected if s['id'] == 'exact'), 1200)
+        self.assertEqual(trace['requirements'][0]['queries'][0], indicator['conditions'][0]['text'])
+        self.assertTrue(all(a['used_chars'] + a['additional_chars'] <= 1200 for a in trace['packing_attempts']
+                            if a['phase'] == 'lexical' and a['outcome'] == 'selected'))
         self.assertEqual(selected, select_context(indicator, sources[::-1], max_chars=2400, semantic_ranker=self.ranker()))
 
     def test_duplicate_candidates_do_not_fill_fusion_slots(self):
-        source = {'id': 'page', 'text': 'x' * 3000}
-        rows = [(source, n, 'x' * 1200, {}) for n in (0, 100, 200, 1200)]
-        self.assertEqual([r[1] for r in diverse_candidates(rows)], [0, 1200])
+        source = {'id': 'page', 'text': 'x' * 1200 + 'y' * 1200}
+        rows = [Passage(source, start, end, 'prose', None, source['text'][start:end], 1)
+                for start, end in ((0, 1200), (100, 1100), (200, 1000), (1200, 2400))]
+        selected, rejected = diverse(list(range(len(rows))), rows)
+        self.assertEqual([rows[n].start for n in selected], [0, 1200])
+        self.assertEqual(len(rejected), 2)
 
     def test_multiple_requirements_obey_budget_nonoverlap_and_exact_text(self):
         indicator = {'code': 'TEST', 'name': 'Skills', 'scoring_mode': 'independent_conditions',
@@ -75,10 +82,10 @@ class ProtectedRetrievalTests(SimpleTestCase):
         row = gold_traces(rubric, sources, gold, self.ranker(), 500)[0]
         self.assertEqual(row['loss_stage'], 'retrieved')
         self.assertEqual(row['queries'][0]['semantic_rank'], 1)
-        sources[0]['text'] = 'A' * 1500
-        gold[0]['quote'] = 'A' * 1300
-        row = gold_traces(rubric, sources, gold, self.ranker(), 1800)[0]
-        self.assertEqual(row['loss_stage'], 'quote_not_in_candidate_window')
+        sources[0]['text'] = 'A ' * 700
+        gold[0]['quote'] = ('A ' * 300).strip()
+        row = gold_traces(rubric, sources, gold, self.ranker(), 500)[0]
+        self.assertEqual(row['loss_stage'], 'quote_not_in_candidate_body')
         self.assertIsNone(row['queries'][0]['semantic_rank'])
 
     @skipUnless(find_spec('tokenizers'), 'Optional local semantic dependency is not installed')

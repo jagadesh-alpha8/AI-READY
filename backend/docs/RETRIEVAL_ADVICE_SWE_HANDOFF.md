@@ -1,6 +1,6 @@
 # A1 retrieval and recommendation verification
 
-This change combines protected hybrid retrieval, offline evidence-loss diagnostics and item-level recommendation repair. Target A1 only. Do not change main. It does not install a different embedding model, configure Gemini credentials, or claim improved institutional recall from synthetic tests.
+This change incorporates PR16 recommendation repair and redesigns experimental hybrid retrieval around token-bounded source passages. Read ADR_EVIDENCE_RETRIEVAL.md before reviewing the retrieval changes. Target A1 only. Do not change main. It does not install a different embedding model, configure Gemini credentials, or claim improved institutional recall from synthetic tests.
 
 ## Review and merge
 
@@ -14,11 +14,11 @@ This change combines protected hybrid retrieval, offline evidence-loss diagnosti
 From `backend`, in the project virtual environment and the same test configuration as CI (`DEBUG=True` locally). Clear a local `AI_PRICING_JSON` override for the tests, then restore deliberate development pricing afterward:
 
 ```sh
-python manage.py test apps.scoring.test_retrieval_advice_repair apps.scoring.test_evidence_reliability apps.scoring.test_recommendations apps.scoring.test_context_diagnostics apps.scoring.test_report_projection --parallel 4
+python manage.py test apps.scoring.test_passage_architecture apps.scoring.test_retrieval_advice_repair apps.scoring.test_evidence_reliability apps.scoring.test_recommendations apps.scoring.test_context_diagnostics apps.scoring.test_report_projection --parallel 4
 python manage.py test --parallel 4
 ```
 
-Also run the real local model test with `CAPABILITY_TEST_EMBEDDING_PATH` pointing to the provisioned immutable directory and `HF_HUB_OFFLINE=1`. A skipped test is not proof that the local model works. PostgreSQL CI is required; SQLite does not verify its locking behavior.
+Also run the real local model test with `CAPABILITY_TEST_EMBEDDING_PATH` pointing to the provisioned immutable directory and `HF_HUB_OFFLINE=1`. A skipped test is not proof that the local model works. The real-model suite also tests dense numeric passages against the actual tokenizer limit and verifies execution-local embedding reuse. PostgreSQL CI is required; SQLite does not verify its locking behavior.
 
 ## Offline private retrieval diagnostic
 
@@ -33,11 +33,11 @@ python manage.py capability_retrieval_compare RUN_UUID \
 
 Use actual absolute paths for the machine. Output must be a new file outside the repository. This command reads frozen evidence, performs local embeddings and writes the private report; it makes no evaluator requests or database writes.
 
-Report the three methods at the same 18,000-character budget: BM25/1,800, BM25/1,200 and candidate hybrid/1,200. Include retrieved item counts, prose/table groups, character totals and overlap. Compare item identities as well as totals: improved aggregate recall can hide lost evidence.
+Report the three methods at the same 18,000-character budget: BM25/1,800, BM25/1,200 and candidate token-bounded hybrid passages. Include retrieved item counts, prose/table groups, character totals and overlap. Compare item identities as well as totals: improved aggregate recall can hide lost evidence.
 
-For every missed label, inspect `gold_traces`: its query, matching candidate text, lexical/semantic/fused ranks, packing attempts, tokenizer truncation and the five nearest semantic passages. Determine whether the evidence is absent from candidate windows, ranked poorly, or excluded/partially selected during packing. Look at table headings in the actual embedding input. A tokenizer probe does not establish whether a table is meaningful. If tokenizer inspection is unavailable, report it explicitly.
+For every missed label, inspect `gold_traces`: its query, matching candidate text, lexical/semantic/fused ranks, packing attempts, tokenizer truncation and the five nearest semantic passages. Determine whether the evidence is absent from candidate windows, ranked poorly, or excluded by requirement allocation or the whole-passage budget. Look at table headings in the actual embedding input. A tokenizer probe does not establish whether a table is meaningful. If tokenizer inspection is unavailable, report it explicitly.
 
-Gold traces explain the candidate implementation, not an exact reconstruction of the previous hybrid algorithm. Keep the previous saved comparison as the historical baseline. Existing labels already inspected during tuning are a regression set, not a fresh independent validity study. Do not enable hybrid merely because CI or a paraphrase smoke test passes. Keep BM25 active if the candidate fails to improve grounded retrieval or loses important evidence.
+The command writes both JSON and a readable Markdown report. Check raw versus contextual/term/hint-boosted lexical scores, gain/loss item IDs, per-method time and model-load time. `vector_bytes` measures the vector matrix only; measure worker peak RSS separately on the reference run. Inspect per-query similarities and cache statistics. Check whether table/section headings are clipped and whether any oversized row is split. Gold traces explain the candidate implementation, not an exact reconstruction of the previous hybrid algorithm. Keep the previous saved comparison as the historical baseline. Existing labels already inspected during tuning are a regression set, not a fresh independent validity study. Do not enable hybrid merely because CI or a paraphrase smoke test passes. Keep BM25 active if the candidate fails to improve grounded retrieval or loses important evidence.
 
 ## Fresh assessment and recommendation checks
 

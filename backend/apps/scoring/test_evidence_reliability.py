@@ -17,6 +17,7 @@ from .capability.citations import expand_citation
 from .capability.evaluation import validate_decisions, select_context
 from .capability.reviewed_evidence import for_context, citation_issue, snapshot
 from .capability.semantic_retrieval import SemanticRanker, configured_policy, ranker_for
+from .retrieval_test_fixtures import synthetic_ranker
 
 
 class FactLifecycleTests(TestCase):
@@ -147,7 +148,7 @@ class HybridRetrievalTests(SimpleTestCase):
                 return [np.array([1., 0.]) if 'pedagogical' in t else np.array([0., 1.]) for t in texts]
             def query_embed(self, text):
                 return [np.array([1., 0.])]
-        ranker = SemanticRanker(Model())
+        ranker = synthetic_ranker(Model())
         indicator = {'code': 'TEST', 'name': 'Teacher training', 'scoring_mode': 'independent_conditions',
                      'conditions': [{'text': 'Teachers receive training.'}]}
         sources = [{'id': 'semantic', 'text': 'Pedagogical development workshops. '.lower()},
@@ -183,6 +184,24 @@ class RealLocalSemanticTests(SimpleTestCase):
         self.assertIn('target', {s['id'] for s in selected})
         self.assertLessEqual(sum(len(s['text']) for s in selected), 1800)
 
+    def test_dense_real_encoder_inputs_are_bounded_and_reused_without_truncation(self):
+        with override_settings(CAPABILITY_RETRIEVAL_MODE='hybrid',
+                               CAPABILITY_EMBEDDING_PATH=os.environ['CAPABILITY_TEST_EMBEDDING_PATH']):
+            ranker = ranker_for(configured_policy())
+        header = '[Table 1 on page 1 -- columns: Year | Staff training]'
+        source = {'id': 'dense', 'text': header + '\n' + ('1|2|3|4|5|6|7|8|9|0\n' * 300)}
+        self.assertGreater(len(ranker.token_offsets(source['text'][:1200])), ranker.token_limit)
+        item = {'code': 'T', 'name': 'Training', 'scoring_mode': 'independent_conditions',
+                'conditions': [{'id': 'c', 'text': 'Staff training is recorded.'}]}
+        first = select_context(item, [source], semantic_ranker=ranker)
+        count = ranker.stats['embedded_passages']
+        second = select_context(item, [source], semantic_ranker=ranker)
+        self.assertEqual(first, second)
+        self.assertEqual(ranker.stats['embedded_passages'], count)
+        self.assertEqual(ranker.stats['corpus_builds'], 1)
+        self.assertTrue(all(not ranker.input_diagnostics(p.embedding_text)['truncated'] for p in ranker.passages([source])))
+
+
 class GoldDocumentIdentityTests(SimpleTestCase):
     def test_same_page_number_in_another_document_does_not_count_as_a_gold_hit(self):
         from .capability.pipeline_diagnostics import retrieval_recall
@@ -209,22 +228,31 @@ class RetrievalComparisonCommandTests(TestCase):
         run = create_run(institution_id=sprint.institution_id, sprint_id=sprint.pk, population='Synthetic', reference_period='2026')
         cid = run.inputs['rubric']['indicators'][0]['conditions'][0]['id']
         count = CapabilityRunEvent.objects.count()
-        class Ranker:
-            def rankings(self, rows, lexical, query):
-                return {'lexical': lexical, 'semantic': lexical, 'fused': lexical, 'similarity': {}}
-            def input_diagnostics(self, text):
-                return {'status': 'synthetic'}
+        class Model:
+            def passage_embed(self, texts, **kwargs):
+                return [[1., 0.] for text in texts]
+            def query_embed(self, text):
+                return [[1., 0.]]
+        ranker = synthetic_ranker(Model())
         with TemporaryDirectory() as directory:
             gold = Path(directory) / 'gold.json'
             output = Path(directory) / 'comparison.json'
             gold.write_text(json.dumps([{'condition_id': cid, 'document_id': str(doc.pk), 'page': 1, 'quote': quote}]))
             with patch('apps.scoring.capability.semantic_retrieval.configured_policy', return_value={'mode': 'hybrid'}), patch(
-                    'apps.scoring.capability.semantic_retrieval.ranker_for', return_value=Ranker()), patch(
+                    'apps.scoring.capability.semantic_retrieval.ranker_for', return_value=ranker), patch(
                     'apps.extraction.services.ai_service.get_ai_service', side_effect=AssertionError('No evaluator calls')):
                 call_command('capability_retrieval_compare', str(run.pk), gold=str(gold), output=str(output), stdout=StringIO())
+                missing = Path(directory) / 'missing.json'
+                gold.write_text(json.dumps([{'condition_id': cid, 'document_id': str(doc.pk), 'page': 1,
+                                            'quote': 'A manually labelled quotation absent from the frozen page.'}]))
+                call_command('capability_retrieval_compare', str(run.pk), gold=str(gold), output=str(missing), stdout=StringIO())
+                absent = json.loads(missing.read_text())
+                self.assertEqual(absent['gold_traces']['development'][0]['loss_stage'], 'quote_not_in_searchable_page')
+                self.assertTrue(missing.with_suffix('.md').exists())
+
             self.assertEqual(configured_policy()['mode'], 'bm25')
             result = json.loads(output.read_text())
-            self.assertEqual(set(result['sets']['development']), {'bm25_1800', 'bm25_1200', 'hybrid_1200'})
+            self.assertEqual(set(result['sets']['development']), {'bm25_1800', 'bm25_1200', 'hybrid_passages'})
             self.assertTrue(all(r['retrieved'] == 1 for r in result['sets']['development'].values()))
             self.assertTrue(result['gold_traces']['development'][0]['retrieved'])
             self.assertEqual(result['gold_traces']['development'][0]['queries'][0]['lexical_rank'], 1)
