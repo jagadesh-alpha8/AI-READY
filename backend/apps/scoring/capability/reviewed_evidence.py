@@ -77,13 +77,15 @@ def snapshot(sprint):
                             if batch else None}
 
 
-def for_context(ledger, sources):
+def for_context(ledger, sources, diagnostics=None):
     """Project review controls onto the exact excerpts, without copying quotations.
 
     Source passages are supplied separately. The frozen ledger remains the local
     validation authority; this packet contains current dispositions and references.
     """
     if not ledger:
+        if diagnostics is not None:
+            diagnostics.update(version='review-attachment-audit-1', claims=[], issues=[])
         return None
     from apps.facts.verification.grounding import parse_pages
     from .evaluation import _normal
@@ -146,7 +148,36 @@ def for_context(ledger, sources):
             if decision and (ids or case.get('kind') == 'identity'):
                 answers.append({'id': decision['id'], 'claim_ids': ids, 'action': decision['action'],
                                 'rationale': decision.get('rationale', '')})
-    return bounded_packet(claims, issues, answers)
+    packet = bounded_packet(claims, issues, answers)
+    if diagnostics is not None:
+        sent = {c['id'] for c in packet['claims']}
+        rows = []
+        for claim in ledger['claims']:
+            refs = selected.get(claim['id'])
+            current_refs, original_refs = (refs[1], refs[2]) if refs else ([], [])
+            attached = claim['id'] in sent
+            if attached:
+                reason = ('current_quote_overlap' if current_refs else 'original_quote_overlap'
+                          if original_refs else 'conflict_alternative_context_only')
+            elif refs:
+                reason = 'bounded_packet_omission'
+            elif claim['id'] in alternatives:
+                reason = 'conflict_alternative_limit'
+            else:
+                reason = 'no_selected_quote_overlap'
+            rows.append({'claim_id': claim['id'], 'attached': attached, 'reason': reason,
+                'disposition': claim['disposition'], 'verification': claim['verification'],
+                'source': claim['source'], 'original_source': claim['original_source'],
+                'current_references': current_refs, 'original_references': original_refs,
+                'scope': claim['scope']})
+        diagnostics.update(version='review-attachment-audit-1', claims=rows,
+            issues=[{'id': i['id'], 'kind': i['kind'], 'status': i['status'],
+                     'claim_ids': i['claim_ids'], 'rationale': i.get('rationale', ''),
+                     'selected_claim_ids': sorted(set(i['claim_ids']).intersection(selected)),
+                     'sent_claim_ids': sorted(set(i['claim_ids']).intersection(sent))}
+                    for i in ledger['issues'] if set(i['claim_ids']).intersection(selected)],
+            note='Overlap attaches review controls; it does not establish assertion relevance, scope or satisfaction.')
+    return packet
 
 
 def bounded_packet(claims, issues, answers):

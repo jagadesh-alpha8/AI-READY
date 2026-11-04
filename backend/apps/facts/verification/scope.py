@@ -31,12 +31,17 @@ _DEPARTMENT = re.compile(r'\b(?:department|dept\.?)\s+of\s+([a-z &]+?)(?:[,.;:)]
 
 
 def _period(text):
-    m = _PERIOD.search(text)
-    if m:
+    periods = set()
+    for m in _PERIOD.finditer(text):
         start, end = int(m.group(1)), m.group(2)
         end = int(end) if len(end) == 4 else (start // 100) * 100 + int(end)
         if end == start + 1:
-            return f'{start}-{str(end)[-2:]}'
+            periods.add(f'{start}-{str(end)[-2:]}')
+    if periods:
+        # A table header can name several years. Its first column does not date
+        # every extracted cell. Leave that association to the stated cell scope,
+        # which remains extraction-derived and cannot establish source currency.
+        return next(iter(periods)) if len(periods) == 1 else ''
     m = _AS_ON.search(text)
     if m:
         parsed = normalize.parse_date(m.group(1))
@@ -71,8 +76,10 @@ def read_scope(fact, *, stated=None):
     """The scope of one fact: {'period', 'population', 'unit', 'includes', 'excludes', 'sources': {part: source}}.
     `stated` is the extractor's own scope dict (AI), if any -- falls back to fact.scope."""
     stated = stated if stated is not None else (getattr(fact, 'scope', None) or {})
-    text = ' '.join(str(x or '') for x in (fact.field_key.replace('_', ' '), fact.field_name, fact.source_snippet))
-    period, population = _period(text), _population(text)
+    field_text = ' '.join(str(x or '') for x in (fact.field_key.replace('_', ' '), fact.field_name))
+    text = field_text + ' ' + (fact.source_snippet or '')
+    period = _period(field_text) or _period(fact.source_snippet or '')
+    population = _population(text)
     sources = {}
     scope = {'period': period, 'population': population, 'unit': _unit(fact.data_type, f'{fact.source_snippet or ""}'),
              'includes': list(stated.get('includes') or []), 'excludes': list(stated.get('excludes') or [])}
