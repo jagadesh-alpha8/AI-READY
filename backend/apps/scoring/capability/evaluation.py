@@ -13,7 +13,7 @@ from copy import deepcopy
 
 from .engine import STATES, release
 
-PROMPT_VERSION = 'AIQIF-EVAL-0.12'
+PROMPT_VERSION = 'AIQIF-EVAL-0.13'
 RETRIEVAL_VERSION = 'AIQIF-source-passages-4'
 SYSTEM_PROMPT = """Assess institutional AI capability against the supplied experimental rubric.
 Keep reasons concise and cite the shortest exact passages that retain necessary scope and dates. Do not copy entire pages into the response.
@@ -24,6 +24,9 @@ Confirmation establishes a review disposition, never automatic rubric satisfacti
 without matching source support is a declaration, never a PDF quote or automatic credit.
 Unresolved/deferred issues limit the relevant findings; missing documents never prove absence.
 Check source support, discrepancy resolution and rubric sufficiency separately.
+A stored conflict flagged no_current_disagreement is historical review context, not a current
+contradiction or a human resolution. Check the current scoped alternatives and exact passages.
+Only active comparable disagreeing alternatives impose an unresolved-conflict constraint.
 Review records reference the separately supplied source passages; do not treat values or
 review rationales as quotations. Off-window conflict alternatives remain context only. A bounded review packet may summarize omitted alternatives;
 those alternatives still apply to local validation. Never infer agreement from omitted records.
