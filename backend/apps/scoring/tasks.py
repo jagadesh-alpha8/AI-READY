@@ -9,7 +9,7 @@ from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
 from .capability.evaluation import evaluate, SYSTEM_PROMPT, DECISION_SCHEMA, RETRIEVAL_VERSION
 from .capability.engine import ENGINE_VERSION
-from .capability.execution import BudgetExceeded, ExecutionStopped, claim, finish, progress
+from .capability.execution import BudgetExceeded, ExecutionDeadlineExceeded, ExecutionStopped, claim, finish, progress
 from .capability.provider import MeteredService, UnpricedModel, UsageUnavailable
 from .capability.storage import publish, digest
 from .models import CapabilityExecution
@@ -42,7 +42,7 @@ def run_capability_assessment(run_id, task_id):
             with usage_scope(sprint=execution.sprint, stage='evidence_assessment', capability_run=execution.run):
                 evaluation = evaluate(execution.run.inputs['sources'], service=service,
                     population=execution.run.inputs['population'], reference_period=execution.run.inputs['reference_period'],
-                    rubric=execution.run.inputs['rubric'], strict_errors=True, scope=inputs.get('scope'),
+                    rubric=execution.run.inputs['rubric'], strict_errors=True, recover_provider_errors=True, scope=inputs.get('scope'),
                     reviewed_evidence=inputs.get('reviewed_evidence'), retrieval_policy=inputs.get('retrieval_policy'),
                     on_indicator=lambda rows, trace: progress(run_id, rows, trace))
             # Same lock order as cancellation; completion and ledger become visible atomically.
@@ -58,6 +58,8 @@ def run_capability_assessment(run_id, task_id):
                 locked.save(update_fields=['status', 'heartbeat_at'])
     except ExecutionStopped:
         finish(run_id, 'cancelled', 'inference_stopped')
+    except ExecutionDeadlineExceeded:
+        finish(run_id, 'failed', 'execution_deadline_exceeded')
     except BudgetExceeded:
         finish(run_id, 'failed', 'budget_exhausted')
     except UnpricedModel:

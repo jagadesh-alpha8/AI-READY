@@ -15,9 +15,10 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.extraction.exceptions import RecoverableExtractionError, ProviderQuotaExhausted
-from apps.extraction.pricing import prices_for
+from apps.extraction.pricing import prices_for, positive_token_prices
+from apps.extraction.usage import openai_token_counts
 from apps.scoring.models import CapabilityExecution, CapabilityRunEvent
-from .execution import BudgetExceeded, ExecutionStopped
+from .execution import BudgetExceeded, ExecutionStopped, ExecutionDeadlineExceeded, InputBudgetExceeded
 from .storage import digest
 
 
@@ -50,14 +51,18 @@ class MeteredService:
         self.service = service
         self.run_id = ledger_id if ledger_id is not None else execution.run_id
         self.policy = execution_policy if execution_policy is not None else execution.run.inputs['execution_policy']
+        self.deadline = time.monotonic() + self.policy['max_duration_seconds']
         self.limit_breach = False
         self.model = service.model
-        self.provider = ('anthropic' if isinstance(service, AnthropicExtractionService)
+        from apps.extraction.services.provider_features import direct_gemini
+        self.provider = ('gemini' if direct_gemini(getattr(service, 'base_url', None)) else 'anthropic' if isinstance(service, AnthropicExtractionService)
                          else 'openai_compatible' if service.base_url else 'openai')
         # Fresh client instance per execution; no mutation of the extraction pipeline's clients.
         client = service._client.with_options(max_retries=0, timeout=self.policy['timeout_seconds'])
         self.prices = prices_for(self.model)
         if self.prices is None or not {'input', 'output'} <= set(self.prices):
+            raise UnpricedModel()
+        if self.provider == 'gemini' and not positive_token_prices(self.model):
             raise UnpricedModel()
         self.rates = {key: Decimal(str(value)) for key, value in self.prices.items()}
         if any(not v.is_finite() or v < 0 for v in self.rates.values()):
@@ -74,6 +79,7 @@ class MeteredService:
         # One transient retry per indicator; format/JSON fallbacks inside the existing
         # clients also pass through send(), so every extra request consumes the budget.
         for attempt in range(2):
+            self.remaining_time()
             try:
                 result = self.service.extract_structured_data(**kwargs, timeout=self.policy['timeout_seconds'])
                 if self.limit_breach:
@@ -112,25 +118,45 @@ class MeteredService:
         execution.heartbeat_at = timezone.now()
         execution.save(update_fields=['requests_reserved', 'usd_reserved', 'heartbeat_at'])
         event = self.event('partial', {
-            'kind': 'request_reserved', 'request_number': execution.requests_reserved,
+            'kind': 'request_reserved', 'stage': self.policy['stage'], 'request_number': execution.requests_reserved,
             'provider': self.provider, 'configured_model': self.model, 'input_token_bound': bound,
             'request_utf8_bytes': len(json.dumps(kwargs, ensure_ascii=False, default=str).encode()),
             'schema_utf8_bytes': len(json.dumps(kwargs.get('response_format', kwargs.get('tools', [])), ensure_ascii=False).encode()),
             'reserved_usd': str(amount), 'request_hash': digest(kwargs),
             'configured_prices': {k: str(v) for k, v in self.rates.items()},
-            'settings': {k: kwargs[k] for k in ('temperature', 'seed', 'max_tokens', 'max_completion_tokens', 'timeout')
+            'settings': {k: kwargs[k] for k in ('temperature', 'seed', 'max_tokens', 'max_completion_tokens', 'timeout', 'reasoning_effort')
                          if k in kwargs}, 'schema_hash': digest(kwargs.get('response_format', kwargs.get('tools', [])))})
         return event.pk
 
+    def remaining_time(self):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise ExecutionDeadlineExceeded()
+        return remaining
+
     def send(self, sender, kwargs):
         kwargs['max_tokens'] = self.policy['output_tokens']
-        kwargs['timeout'] = self.policy['timeout_seconds']
+        kwargs['timeout'] = min(self.policy['timeout_seconds'], self.remaining_time())
+        if self.provider == 'gemini':
+            from apps.extraction.services.provider_features import gemini_thinking
+            effort = self.policy['gemini_reasoning_effort']
+            if gemini_thinking(self.service.base_url, self.model) and effort != 'default':
+                kwargs['reasoning_effort'] = effort
+            else:
+                kwargs.pop('reasoning_effort', None)
+        bound, _ = self.envelope(kwargs)
+        if bound > self.policy['input_token_bound_limit']:
+            self.record(None, {'kind': 'request_rejected', 'reason': 'input_budget_exceeded',
+                'stage': self.policy['stage'], 'input_token_bound': bound,
+                'input_token_bound_limit': self.policy['input_token_bound_limit'], 'usage_known': True})
+            raise InputBudgetExceeded()
         event_id = self.reserve(kwargs)
         started = time.monotonic()
         try:
             response = sender(**kwargs)
-        except Exception:
+        except Exception as exc:
             self.record(event_id, {'outcome': 'failed_or_unknown_billing', 'usage_known': False,
+                                   'error_type': type(exc).__name__,
                                    'duration_ms': round((time.monotonic() - started) * 1000)})
             raise
         usage = getattr(response, 'usage', None)
@@ -139,14 +165,17 @@ class MeteredService:
         usage_known = usage is not None and all(type(getattr(usage, k, None)) is int for k in token_fields[:2])
         counts = {k: getattr(usage, k, 0) or 0 for k in token_fields} if usage_known else {}
         if self.provider != 'anthropic' and usage_known:
-            counts['cached_tokens'] = getattr(getattr(usage, 'prompt_tokens_details', None), 'cached_tokens', 0) or 0
+            counts, usage_known = openai_token_counts(usage, gemini=self.provider == 'gemini')
         if usage_known:
             bound, _ = self.envelope(kwargs)
             inputs = counts.get('prompt_tokens', sum(counts.get(k, 0) for k in (
                 'input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')))
             outputs = counts.get('completion_tokens', counts.get('output_tokens', 0))
             self.limit_breach = inputs > bound or outputs > self.policy['output_tokens']
+        choices = getattr(response, 'choices', None)
+        finish = getattr(response, 'stop_reason', None) if self.provider == 'anthropic' else (getattr(choices[0], 'finish_reason', None) if choices else None)
         self.record(event_id, {'outcome': 'response_received', 'usage_known': usage_known,
+            'finish_reason': finish if isinstance(finish, str) and len(finish) <= 64 else None,
             'actual_model': getattr(response, 'model', None), 'tokens': counts,
             'duration_ms': round((time.monotonic() - started) * 1000)})
         if not usage_known:
@@ -165,4 +194,4 @@ class MeteredService:
         events = self.events()
         return {'provider': self.provider, 'model': self.model, 'settings': self.policy,
                 'configured_prices': {k: str(v) for k, v in self.rates.items()},
-                'calls': [e.payload for e in events if e.payload.get('kind') in {'request_reserved', 'request_outcome'}]}
+                'calls': [e.payload for e in events if e.payload.get('kind') in {'request_reserved', 'request_outcome', 'request_rejected'}]}

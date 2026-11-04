@@ -8,12 +8,12 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from apps.extraction.exceptions import ProviderQuotaExhausted, AIResponseError
+from apps.extraction.exceptions import ProviderQuotaExhausted, AIResponseError, RecoverableExtractionError
 from apps.extraction.services.ai_service import get_ai_service
 from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
 from apps.scoring.models import CapabilityRun, RecommendationSnapshot, RecommendationExecution, RecommendationEvent
-from .execution import policy, AssessmentConflict, AssessmentDisabled, BudgetExceeded, ExecutionStopped
+from .execution import policy, AssessmentConflict, AssessmentDisabled, BudgetExceeded, ExecutionDeadlineExceeded, InputBudgetExceeded, ExecutionStopped
 from .provider import MeteredService, UnpricedModel, UsageUnavailable
 from .recommendations import build_inputs, validate_advice, partition_advice, advice_schema, processing_failure, VERSION, PROMPT, SCHEMA
 from .storage import digest
@@ -41,16 +41,31 @@ def deterministic_advice(action, inputs, origin, note=''):
 def tailor_batch(service, payload, inputs):
     """Keep valid neighbours; reserve at most one metered corrective call per batch."""
     actions, sources, strengths = payload['actions'], payload['sources'], payload['established_strengths']
+    from .request_recovery import request_with_split, failure_code
+    def payload_for(group):
+        return {**payload, 'actions': group, 'allowed_dependency_ids': [a['id'] for a in actions]}
     try:
-        response = service.extract_structured_data(system_prompt=PROMPT, user_content=json.dumps(payload, sort_keys=True),
-            response_schema=advice_schema(actions, sources, strengths), schema_name='capability_advice')
+        response, response_recovery, provider_errors = request_with_split(service=service, items=actions,
+            identity=lambda action: action['id'], payload_for=payload_for,
+            schema_for=lambda group: advice_schema(group, sources, strengths, dependency_actions=actions),
+            rows_for=lambda response: response.get('advice', []) if isinstance(response, dict) and isinstance(response.get('advice'), list) else [],
+            prompt=PROMPT, name='capability_advice', result_key='advice')
+    except ProviderQuotaExhausted:
+        raise
+    except RecoverableExtractionError as exc:
+        reason = 'Recommendation provider request failed: ' + failure_code(exc)
+        return ([deterministic_advice(a, inputs, 'deterministic_fallback', reason) for a in actions],
+                {'initial_invalid': {}, 'repair_attempted': False, 'repaired_ids': [],
+                 'final_fallback_ids': [a['id'] for a in actions], 'provider_failure': failure_code(exc)})
     except AIResponseError:
-        response = None  # Malformed provider output can receive the same single bounded repair.
+        response, response_recovery, provider_errors = None, {}, {}
     valid, errors = partition_advice(response, actions, strengths, sources)
+    errors.update(provider_errors)
     initially_invalid = dict(errors)
     initially_valid = set(valid)
     repair_attempted = False
-    if errors:
+    repair_failure = None
+    if errors and not response_recovery.get('split_attempted') and not provider_errors:
         failed_actions = [a for a in actions if a['id'] in errors]
         repair = {**payload, 'actions': failed_actions, 'validation_errors': errors,
                   'allowed_dependency_ids': [a['id'] for a in actions],
@@ -60,7 +75,12 @@ def tailor_batch(service, payload, inputs):
             corrected = service.extract_structured_data(system_prompt=PROMPT, user_content=json.dumps(repair, sort_keys=True),
                 response_schema=advice_schema(failed_actions, sources, strengths, dependency_actions=actions),
                 schema_name='capability_advice_repair')
-        except (BudgetExceeded, AIResponseError):
+        except ProviderQuotaExhausted:
+            raise
+        except ExecutionDeadlineExceeded:
+            raise
+        except (BudgetExceeded, AIResponseError, RecoverableExtractionError, InputBudgetExceeded) as exc:
+            repair_failure = failure_code(exc) if not isinstance(exc, BudgetExceeded) else 'request_budget_exceeded'
             corrected = None  # A corrective call must never exceed the frozen request/cost cap.
         # Retained rows are trusted only after the same checks as the initial response.
         repaired_rows = corrected.get('advice', []) if isinstance(corrected, dict) else []
@@ -77,7 +97,10 @@ def tailor_batch(service, payload, inputs):
                                   'Model advice failed validation: ' + errors[a['id']][:150]) for a in actions]
     validate_advice({'advice': [{k: v for k, v in row.items() if k not in ('origin', 'fallback_reason')}
                                for row in batch]}, actions, strengths, sources)
-    metrics = {'initial_invalid': initially_invalid, 'repair_attempted': repair_attempted,
+    metrics = {'response_recovery': response_recovery, 'provider_errors': provider_errors,
+               'repair_failure': repair_failure,
+               'provider_failure': 'all_split_requests_failed' if len(provider_errors) == len(actions) else None,
+               'initial_invalid': initially_invalid, 'repair_attempted': repair_attempted,
                'repaired_ids': sorted(set(valid) - initially_valid),
                'final_fallback_ids': [a['id'] for a in actions if a['id'] not in valid]}
     return batch, metrics
@@ -103,7 +126,7 @@ def start(*, run, user, key):
         raise ValidationError('Recommendations require a completed assessment.')
     if RecommendationExecution.objects.filter(run=run, status__in=['queued', 'running']).exists():
         raise AssessmentConflict('Recommendation generation is already active for this assessment.')
-    budget = policy()
+    budget = policy(stage='recommendation')
     budget.update(prompt_version=VERSION, prompt_hash=digest(PROMPT), schema_hash=digest(SCHEMA))
     inputs = build_inputs(run, event, budget)
     snapshot = RecommendationSnapshot.objects.create(run=run, assessment_event=event, inputs=inputs, inputs_hash=digest(inputs))
@@ -222,6 +245,7 @@ def generate_recommendations(snapshot_id, task_id):
         # are separate from verified baseline changes and from mandatory development advice.
         model_ids = {a['id'] for a in model_actions}
         validation_batches = []
+        provider_failure_streak = 0
         advice = [deterministic_advice(a, inputs, 'processing_rerun') for a in inputs['actions'] if a['id'] in unevaluated]
         advice += [deterministic_advice(a, inputs, 'deterministic_evidence_request') for a in inputs['actions']
                    if a['state'] == 'unknown' and a['id'] not in model_ids | unevaluated]
@@ -246,7 +270,14 @@ def generate_recommendations(snapshot_id, task_id):
                         payload['foundation_goals'] = [{k: g[k] for k in ('id', 'title', 'depends_on', 'status', 'conditional')} for g in foundation.get('goals', [])]
                         scope = inputs.get('scope') or {}
                         payload['scope'] = {k: scope[k] for k in ('institution', 'mode', 'population_label', 'period_label', 'limitations') if k in scope}
-                        batch, validation = tailor_batch(service, payload, inputs)
+                        if provider_failure_streak >= 2:
+                            batch = [deterministic_advice(a, inputs, 'deterministic_fallback',
+                                'Recommendation provider circuit open; basic assessment guidance retained.') for a in actions]
+                            validation = {'initial_invalid': {}, 'repair_attempted': False, 'repaired_ids': [],
+                                'final_fallback_ids': [a['id'] for a in actions], 'provider_failure': 'circuit_open'}
+                        else:
+                            batch, validation = tailor_batch(service, payload, inputs)
+                        provider_failure_streak = provider_failure_streak + 1 if validation.get('provider_failure') else 0
                         save_batch(snapshot_id, indicator, batch, validation)
                         validation_batches.append({'indicator': indicator, **validation})
                         advice.extend(batch)
@@ -262,6 +293,8 @@ def generate_recommendations(snapshot_id, task_id):
                         'repair_attempted_batches': sum(b['repair_attempted'] for b in validation_batches),
                         'repaired_items': sum(len(b['repaired_ids']) for b in validation_batches),
                         'fallback_items': sum(len(b['final_fallback_ids']) for b in validation_batches),
+                        'split_batches': sum(bool(b.get('response_recovery', {}).get('split_attempted')) for b in validation_batches),
+                        'provider_failed_batches': sum(bool(b.get('provider_failure')) for b in validation_batches),
                         'batches': validation_batches},
                     'mode': 'tailored' if service else 'deterministic',
                     'inference': service.metadata() if service else {'provider': 'none', 'model': 'none', 'calls': []}})
@@ -270,6 +303,8 @@ def generate_recommendations(snapshot_id, task_id):
                 locked.save(update_fields=['status', 'heartbeat_at'])
     except ExecutionStopped:
         finish(snapshot_id, 'cancelled', 'inference_stopped')
+    except ExecutionDeadlineExceeded:
+        finish(snapshot_id, 'failed', 'execution_deadline_exceeded')
     except BudgetExceeded:
         finish(snapshot_id, 'failed', 'budget_exhausted')
     except UnpricedModel:

@@ -29,17 +29,36 @@ class BudgetExceeded(Exception):
     pass
 
 
-def policy():
+class InputBudgetExceeded(Exception):
+    pass
+
+
+class ExecutionDeadlineExceeded(BudgetExceeded):
+    pass
+
+
+def policy(stage='assessment'):
     from .evaluation import PROMPT_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA
     calls = settings.CAPABILITY_MAX_HTTP_CALLS
     cost = Decimal(str(settings.CAPABILITY_MAX_COST_USD))
-    output = settings.CAPABILITY_OUTPUT_TOKENS
-    timeout = settings.CAPABILITY_REQUEST_TIMEOUT_SECONDS
+    prefix = 'CAPABILITY_RECOMMENDATION' if stage == 'recommendation' else 'CAPABILITY_ASSESSMENT'
+    output = getattr(settings, prefix + '_OUTPUT_TOKENS')
+    output = settings.CAPABILITY_OUTPUT_TOKENS if output is None else output
+    timeout = getattr(settings, prefix + '_TIMEOUT_SECONDS')
+    timeout = settings.CAPABILITY_REQUEST_TIMEOUT_SECONDS if timeout is None else timeout
+    input_limit = settings.CAPABILITY_MAX_INPUT_TOKEN_BOUND
+    duration = settings.CAPABILITY_MAX_DURATION_SECONDS
+    effort = settings.AI_GEMINI_REASONING_EFFORT
     if (type(calls) is not int or not 1 <= calls <= 108 or not cost.is_finite() or not 0 < cost <= 100
-            or type(output) is not int or not 256 <= output <= 16000
-            or type(timeout) is not int or not 1 <= timeout <= 300):
+            or type(output) is not int or not 256 <= output <= 65536
+            or type(timeout) is not int or not 1 <= timeout <= 600
+            or type(input_limit) is not int or not 4096 <= input_limit <= 1000000
+            or type(duration) is not int or not 1 <= duration <= 21600
+            or effort not in {'default', 'minimal', 'low', 'medium', 'high'}):
         raise AssessmentDisabled('Assessment budget configuration is invalid.')
-    return {'prompt_version': PROMPT_VERSION, 'prompt_hash': digest(SYSTEM_PROMPT),
+    return {'request_policy_version': 'bounded-stage-1', 'stage': stage, 'input_token_bound_limit': input_limit, 'max_duration_seconds': duration,
+            'gemini_reasoning_effort': effort, 'response_recovery_requests': 2,
+            'prompt_version': PROMPT_VERSION, 'prompt_hash': digest(SYSTEM_PROMPT),
             'schema_hash': digest(DECISION_SCHEMA), 'max_http_calls': calls, 'max_cost_usd': str(cost), 'output_tokens': output,
             'timeout_seconds': timeout, 'sdk_retries': 0, 'transient_retries_per_indicator': 1,
             'corrective_batches_per_indicator': 1,
@@ -120,6 +139,7 @@ def finish(run_id, state, error_code):
         'dispatch_failed': 'Check the broker and worker configuration, then start a new assessment.',
         'inference_disabled': 'Enable configured capability inference before starting a new assessment.',
         'model_pricing_required': 'Configure valid input/output model prices, then start a new assessment.',
+        'execution_deadline_exceeded': 'Review request durations and partial results before starting a fresh execution.',
         'budget_exhausted': 'Review partial decisions and request/cost limits before starting a new assessment.',
         'usage_telemetry_missing': 'Configure the provider to report token usage before starting a new assessment.',
         'provider_quota_exhausted': 'Restore provider credit or quota before starting a new assessment.',

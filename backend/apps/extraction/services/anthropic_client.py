@@ -26,7 +26,7 @@ from anthropic import (
 )
 
 from ..exceptions import (
-    AIResponseError, PermanentExtractionError, ProviderQuotaExhausted, ProviderRateLimited, ProviderUnavailable,
+    AIResponseError, AIOutputTruncated, PermanentExtractionError, ProviderQuotaExhausted, ProviderRateLimited, ProviderUnavailable,
 )
 from . import rate_limit
 from ..usage import record_anthropic_usage
@@ -49,6 +49,10 @@ class AnthropicResponseError(AIResponseError):
     no matching tool call, truncated, refused, or context-window exceeded.
     Retrying an identical request against the same input won't fix this,
     so it's permanent rather than recoverable."""
+
+
+class AnthropicOutputTruncated(AnthropicResponseError, AIOutputTruncated):
+    pass
 
 
 class AnthropicExtractionService:
@@ -196,7 +200,7 @@ class AnthropicExtractionService:
     @staticmethod
     def _parse_response(response, schema_name):
         if response.stop_reason == 'max_tokens':
-            raise AnthropicResponseError('Claude response was truncated (stop_reason=max_tokens).')
+            raise AnthropicOutputTruncated('Claude response was truncated (stop_reason=max_tokens).')
         if response.stop_reason == 'refusal':
             raise AnthropicResponseError('Claude declined to answer (stop_reason=refusal).')
         if response.stop_reason == 'model_context_window_exceeded':
