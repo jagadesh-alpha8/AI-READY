@@ -37,14 +37,31 @@ class ProtectedRetrievalTests(SimpleTestCase):
         sources = [{'id': 'exact', 'text': 'LEXICAL Faculty completed accredited training. ' + 'x ' * 600}]
         sources += [{'id': f'noise-{n}', 'text': f'General background passage {n}. ' + 'y ' * 600} for n in range(80)]
         trace = {}
-        selected = select_context(indicator, sources, max_chars=2400, semantic_ranker=self.ranker(), diagnostics=trace)
+        ranker = self.ranker()
+        ranker.baseline_chars = 1200
+        selected = select_context(indicator, sources, max_chars=2400, semantic_ranker=ranker, diagnostics=trace)
         self.assertIn('exact', {s['id'] for s in selected})
         self.assertTrue(any(s['id'] != 'exact' for s in selected))
         self.assertLessEqual(sum(len(s['text']) for s in selected), 2400)
         self.assertEqual(trace['requirements'][0]['queries'][0], indicator['conditions'][0]['text'])
-        self.assertTrue(all(a['used_chars'] + a['additional_chars'] <= 1200 for a in trace['packing_attempts']
-                            if a['phase'] == 'lexical' and a['outcome'] == 'selected'))
-        self.assertEqual(selected, select_context(indicator, sources[::-1], max_chars=2400, semantic_ranker=self.ranker()))
+        self.assertLessEqual(trace['baseline_chars'], 1200)
+        self.assertTrue(any(a['phase'] == 'semantic' and a['outcome'] == 'selected' for a in trace['packing_attempts']))
+        self.assertTrue(all(a['used_chars'] + a['additional_chars'] <= 2400 for a in trace['packing_attempts']
+                            if a['outcome'] == 'selected'))
+        self.assertEqual(selected, select_context(indicator, sources[::-1], max_chars=2400, semantic_ranker=ranker))
+
+    def test_review_is_retrieval_evidence_not_a_stop_word(self):
+        indicator = {'code': 'TEST', 'name': 'Resource oversight',
+                     'scoring_mode': 'independent_conditions',
+                     'conditions': [{'id': 'c', 'text': 'A review compares capacity with delivery needs.'}]}
+        # Both pages mention the same subject. Only one records a review.
+        sources = [{'id': 'catalogue', 'text': 'Capacity delivery needs capacity. ' + 'catalogue ' * 30},
+                   {'id': 'review', 'text': 'Capacity delivery needs review. ' + 'assessment ' * 30}]
+        selected = select_context(indicator, sources, max_chars=150)
+        self.assertEqual([s['id'] for s in selected], ['review'])
+        self.assertEqual(selected, select_context(indicator, sources[::-1], max_chars=150))
+        self.assertLessEqual(sum(len(s['text']) for s in selected), 150)
+        self.assertEqual(selected[0]['text'], sources[1]['text'][:150])
 
     def test_duplicate_candidates_do_not_fill_fusion_slots(self):
         source = {'id': 'page', 'text': 'x' * 1200 + 'y' * 1200}

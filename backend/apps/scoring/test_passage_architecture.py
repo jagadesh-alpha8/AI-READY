@@ -86,7 +86,9 @@ class PassageArchitectureTests(SimpleTestCase):
         class LastRowModel(Model):
             def passage_embed(self, texts, **kwargs):
                 return [[1., 0.] if 'Year: 99' in text else [0., 1.] for text in texts]
-        selected = select_context(indicator(), [source], semantic_ranker=synthetic_ranker(LastRowModel()), max_chars=1100)
+        ranker = synthetic_ranker(LastRowModel())
+        ranker.baseline_chars = 0  # Isolate the discovery lane; baseline preservation has its own contracts.
+        selected = select_context(indicator(), [source], semantic_ranker=ranker, max_chars=1100)
         self.assertTrue(selected)
         self.assertLessEqual(sum(len(s['text']) for s in selected), 1100)
         self.assertTrue(any(header in s['text'] for s in selected))
@@ -97,7 +99,9 @@ class PassageArchitectureTests(SimpleTestCase):
     def test_packing_never_clips_a_body_to_fill_remaining_budget(self):
         source = {'id': 'p', 'text': 'training ' * 200}
         trace = {}
-        selected = select_context(indicator(), [source], semantic_ranker=synthetic_ranker(Model()), max_chars=100, diagnostics=trace)
+        ranker = synthetic_ranker(Model())
+        ranker.baseline_chars = 0
+        selected = select_context(indicator(), [source], semantic_ranker=ranker, max_chars=100, diagnostics=trace)
         self.assertEqual(selected, [])
         self.assertTrue(any(a['outcome'] == 'budget_excluded' for a in trace['packing_attempts']))
 

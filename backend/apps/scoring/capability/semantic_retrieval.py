@@ -34,7 +34,9 @@ def _artifact_hash(root, signature):
     return digest.hexdigest()
 
 
-FUSION = 'source-passages-requirement-fusion-v2'
+FUSION = 'protected-bm25-discovery-v4'
+BASELINE_CHARS = 18000
+EXPANSION_CHARS = 6000
 BGE_QUERY_INSTRUCTION = 'Represent this sentence for searching relevant passages: '
 
 
@@ -63,11 +65,18 @@ def configured_policy(mode=None):
             'fusion': FUSION, 'representation': 'token-source-spans-v1', 'target_tokens': 240,
             'query_policy': 'evidence-record-profiles-1', **profiles,
             'query_instruction': query_instruction(settings.CAPABILITY_EMBEDDING_MODEL),
-            'lexical_weight': 2, 'semantic_weight': 1, 'lexical_budget_share': 0.5}
+            'lexical_weight': 2, 'semantic_weight': 1,
+            'allocation': 'protected-baseline-then-discovery-v1',
+            'baseline_chars': BASELINE_CHARS, 'expansion_chars': EXPANSION_CHARS,
+            'expansion_filter': 'instruction-heading-only-v2'}
 
 
 @lru_cache(maxsize=2)
 def _model(path, model_name, fingerprint):
+    import os
+    os.environ['ORT_DISABLE_TELEMETRY'] = '1'
+    import onnxruntime
+    onnxruntime.disable_telemetry_events()
     from fastembed import TextEmbedding
     return TextEmbedding(model_name=model_name, specific_model_path=path,
                          local_files_only=True, threads=2, providers=['CPUExecutionProvider'])
@@ -76,6 +85,8 @@ def _model(path, model_name, fingerprint):
 class SemanticRanker:
     def __init__(self, model, tokenizer=None, token_limit=None):
         self.model = model
+        self.baseline_chars = BASELINE_CHARS
+        self.context_chars = BASELINE_CHARS + EXPANSION_CHARS
         self.query_prefix = query_instruction(getattr(model, 'model_name', ''))
         # Private vectors live only for this run; no global source cache/index.
         self.vectors, self.queries, self._input_probes = {}, {}, {}
@@ -121,17 +132,25 @@ class SemanticRanker:
     def similarities(self, passages, queries):
         import numpy as np
         if self._matrix is None:
-            texts = list(dict.fromkeys(p.embedding_text for p in passages))
-            vectors = list(self.model.passage_embed(texts, batch_size=32))
+            from .evidence_retrieval import expansion_exclusion
+            eligible = [p for p in passages if not expansion_exclusion(p)]
+            texts = list(dict.fromkeys(p.embedding_text for p in eligible))
+            vectors = list(self.model.passage_embed(texts, batch_size=32)) if texts else []
             if len(vectors) != len(texts):
                 raise SemanticRetrievalUnavailable('Embedding response count mismatch.')
             for text, value in zip(texts, vectors):
                 self.vectors[text] = self._normalized(value)
-            self._matrix = np.stack([self.vectors[p.embedding_text] for p in passages])
+            dimensions = len(next(iter(self.vectors.values()))) if self.vectors else 0
+            self._matrix = np.stack([self.vectors[p.embedding_text] if not expansion_exclusion(p)
+                else np.zeros(dimensions, dtype=np.float32) for p in passages])
             self.stats['embedded_passages'] += len(texts)
+            self.stats['skipped_instruction_passages'] = len(passages) - len(eligible)
             self.stats['vector_bytes'] = self._matrix.nbytes
         result = []
         for query in queries:
+            if not self._matrix.shape[1]:
+                result.append(np.zeros(len(passages), dtype=np.float32))
+                continue
             if query not in self.queries:
                 values = list(self.model.query_embed(self.query_input(query)))
                 if len(values) != 1:
@@ -193,7 +212,10 @@ def ranker_for(policy):
             or any(policy.get(key) != value for key, value in profiles.items())
             or policy.get('query_instruction') != query_instruction(settings.CAPABILITY_EMBEDDING_MODEL)
             or policy.get('lexical_weight') != 2
-            or policy.get('semantic_weight') != 1 or policy.get('lexical_budget_share') != 0.5
+            or policy.get('semantic_weight') != 1
+            or policy.get('allocation') != 'protected-baseline-then-discovery-v1'
+            or policy.get('baseline_chars') != BASELINE_CHARS or policy.get('expansion_chars') != EXPANSION_CHARS
+            or policy.get('expansion_filter') != 'instruction-heading-only-v2'
             or policy.get('model') != settings.CAPABILITY_EMBEDDING_MODEL
             or policy.get('fastembed_version') != version('fastembed')
             or policy.get('artifact_hash') != artifact_hash(settings.CAPABILITY_EMBEDDING_PATH)):
