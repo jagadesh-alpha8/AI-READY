@@ -262,7 +262,8 @@ class RetrievalComparisonCommandTests(TestCase):
             with patch('apps.scoring.capability.semantic_retrieval.configured_policy', return_value={'mode': 'hybrid'}), patch(
                     'apps.scoring.capability.semantic_retrieval.ranker_for', return_value=ranker), patch(
                     'apps.extraction.services.ai_service.get_ai_service', side_effect=AssertionError('No evaluator calls')):
-                call_command('capability_retrieval_compare', str(run.pk), gold=str(gold), output=str(output), stdout=StringIO())
+                call_command('capability_retrieval_compare', str(run.pk), gold=str(gold), output=str(output),
+                             include_replay_inputs=True, stdout=StringIO())
                 missing = Path(directory) / 'missing.json'
                 gold.write_text(json.dumps([{'condition_id': cid, 'document_id': str(doc.pk), 'page': 1,
                                             'quote': 'A manually labelled quotation absent from the frozen page.'}]))
@@ -273,7 +274,10 @@ class RetrievalComparisonCommandTests(TestCase):
 
             self.assertEqual(configured_policy()['mode'], 'bm25')
             result = json.loads(output.read_text())
-            self.assertEqual(set(result['sets']['development']), {'bm25_1800', 'bm25_1200', 'profiled_bm25', 'hybrid_passages'})
+            self.assertEqual(result['replay_inputs']['sources'], run.inputs['sources'])
+            self.assertEqual(result['comparison_policy'], {'baseline_chars': 18000, 'expansion_chars': 6000})
+            self.assertEqual(set(result['sets']['development']), {'bm25_1800', 'bm25_1200', 'profiled_bm25', 'hybrid_passages',
+                'bm25_expanded', 'protected_profiled_expanded', 'hybrid_expanded'})
             self.assertTrue(all(r['retrieved'] == 1 for r in result['sets']['development'].values()))
             self.assertTrue(result['gold_traces']['development'][0]['retrieved'])
             self.assertEqual(result['gold_traces']['development'][0]['queries'][0]['lexical_rank'], 1)

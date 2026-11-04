@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
-    help = 'Compare BM25 and local hybrid retrieval against private gold evidence at the same character budget.'
+    help = 'Compare protected hybrid, profile discovery and BM25 at base and expanded budgets, without evaluator calls.'
 
     def add_arguments(self, parser):
         parser.add_argument('run_id')
@@ -15,6 +15,8 @@ class Command(BaseCommand):
         parser.add_argument('--holdout-gold', help='Additional labelled set; an inspected former holdout is a regression set.')
         parser.add_argument('--output', required=True, help='A new private JSON file outside the repository.')
         parser.add_argument('--budget', type=int, default=18000)
+        parser.add_argument('--expansion-budget', type=int, default=6000)
+        parser.add_argument('--include-replay-inputs', action='store_true', help='Include the private frozen corpus and labels for offline replay; never commit this output.')
 
     def handle(self, *args, **options):
         from apps.scoring.models import CapabilityRun
@@ -31,6 +33,8 @@ class Command(BaseCommand):
             raise CommandError('Choose a new private output file outside the repository.')
         if not 100 <= options['budget'] <= 100000:
             raise CommandError('Budget must be between 100 and 100000 characters.')
+        if not 0 <= options['expansion_budget'] <= 18000 or options['budget'] + options['expansion_budget'] > 100000:
+            raise CommandError('Expansion must be 0–18000 characters and total budget at most 100000.')
         run = CapabilityRun.objects.get(pk=options['run_id'])
         if digest(run.inputs) != run.inputs_hash:
             raise CommandError('Frozen input integrity mismatch.')
@@ -38,6 +42,7 @@ class Command(BaseCommand):
         model_started = perf_counter()
         policy = configured_policy(mode='hybrid')
         ranker = ranker_for(policy)
+        ranker.baseline_chars = options['budget']  # explicit diagnostic override, never a live setting change
         model_load_seconds = round(perf_counter() - model_started, 4)
         sources, rubric = run.inputs['sources'], run.inputs['rubric']
         conditions = {c['id'] for i in rubric['indicators'] for c in i['conditions']}
@@ -85,11 +90,19 @@ class Command(BaseCommand):
                 raise CommandError('Development and holdout labels must not overlap.')
         result = {'run_id': str(run.pk), 'inputs_hash': run.inputs_hash, 'hybrid_policy': policy,
                   'no_model_evaluation': True, 'model_load_seconds': model_load_seconds, 'sets': {}}
+        result['comparison_policy'] = {'baseline_chars': options['budget'], 'expansion_chars': options['expansion_budget']}
+        if options['include_replay_inputs']:
+            result['replay_inputs'] = {'sources': sources, 'rubric': rubric, 'gold_sets': sets}
+        expanded = options['budget'] + options['expansion_budget']
         from apps.scoring.capability.evidence_retrieval import retrieve_evidence
         methods = {'bm25_1800': lambda i, s, max_chars: select_context(i, s, max_chars=max_chars),
                    'bm25_1200': lambda i, s, max_chars: select_context(i, s, max_chars=max_chars, window_chars=1200),
                    'profiled_bm25': lambda i, s, max_chars: retrieve_evidence(i, s, ranker, max_chars=max_chars, include_semantic=False),
-                   'hybrid_passages': lambda i, s, max_chars: select_context(i, s, max_chars=max_chars, semantic_ranker=ranker)}
+                   'hybrid_passages': lambda i, s, max_chars: select_context(i, s, max_chars=max_chars, semantic_ranker=ranker),
+                   'bm25_expanded': lambda i, s, max_chars: select_context(i, s, max_chars=expanded),
+                   'protected_profiled_expanded': lambda i, s, max_chars: retrieve_evidence(i, s, ranker,
+                       max_chars=expanded, include_semantic=False, protect_baseline=True),
+                   'hybrid_expanded': lambda i, s, max_chars: select_context(i, s, max_chars=expanded, semantic_ranker=ranker)}
         from apps.scoring.capability.retrieval_diagnostics import gold_traces, trace_summary, readable_report
         result['gold_traces'] = {}
         result['trace_summary'] = {}
@@ -100,6 +113,7 @@ class Command(BaseCommand):
                 method_started = perf_counter()
                 measured = retrieval_recall(rubric, sources, gold, selector=selector, budget=options['budget'])
                 measured['elapsed_seconds'] = round(perf_counter() - method_started, 4)
+                measured['budget_chars'] = expanded if name.endswith('_expanded') else options['budget']
                 result['sets'][split][name] = measured
             baseline = result['sets'][split]['bm25_1800']['items']
             for name, measured in result['sets'][split].items():
@@ -107,7 +121,9 @@ class Command(BaseCommand):
                     kind: [{'gold_item': n + 1, **row} for n, (old, row) in enumerate(zip(baseline, measured['items']))
                            if (row['retrieved'] and not old['retrieved'] if kind == 'gained' else old['retrieved'] and not row['retrieved'])]
                     for kind in ('gained', 'lost')}
-            result['gold_traces'][split] = gold_traces(rubric, sources, gold, ranker, options['budget'])
+                if name in {'hybrid_passages', 'hybrid_expanded', 'protected_profiled_expanded'} and measured['versus_bm25_1800']['lost']:
+                    raise CommandError('Protected retrieval lost baseline evidence; do not enable this build.')
+            result['gold_traces'][split] = gold_traces(rubric, sources, gold, ranker, expanded)
             result['trace_summary'][split] = trace_summary(result['gold_traces'][split])
         result['elapsed_seconds'] = round(perf_counter() - started, 3)
         result['embedding_cache'] = ranker.stats

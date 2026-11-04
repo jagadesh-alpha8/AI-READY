@@ -97,7 +97,9 @@ class QueryProfileTests(SimpleTestCase):
         policy = {'mode': 'hybrid', 'fusion': FUSION, 'representation': 'token-source-spans-v1',
             'target_tokens': 240, 'query_policy': 'evidence-record-profiles-1',
             'query_instruction': query_instruction('BAAI/bge-small-en-v1.5'),
-            'lexical_weight': 2, 'semantic_weight': 1, 'lexical_budget_share': .5,
+            'lexical_weight': 2, 'semantic_weight': 1,
+            'allocation': 'protected-baseline-then-discovery-v1', 'baseline_chars': 18000,
+            'expansion_chars': 6000, 'expansion_filter': 'instruction-heading-only-v1',
             **profile_metadata()}
         policy['query_profiles_hash'] = 'wrong-checksum'
         with patch('apps.scoring.capability.semantic_retrieval._model', side_effect=AssertionError('Must not load a model')):

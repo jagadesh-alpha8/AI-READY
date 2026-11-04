@@ -45,7 +45,30 @@ def merged_spans(spans):
     return result
 
 
-def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=None, include_semantic=True):
+def expansion_exclusion(passage):
+    """Reject instruction-only bodies from discovery, never from the protected baseline.
+
+    Mixed passages and numerical tables remain candidates. This is a document
+    structure check, not a judgement that a requirement is met.
+    """
+    from .passages import section_heading
+    body = passage.text
+    meaningful = []
+    for line in body.splitlines():
+        text = line.strip()
+        if not text or text.startswith('[Table ') or re.fullmatch(r'[\d.\s]+', text):
+            continue
+        if re.search(r'File Description\s*:', text, re.I) and re.search(r'Document\s*:\s*(?:View Document|https?://)', text, re.I):
+            continue
+        if text.lower() in {'response:', 'response', 'view document', 'file description | document'}:
+            continue
+        if section_heading(text) and (text.endswith(':') or text.startswith('#') or re.match(r'^\d+(?:\.\d+)+\s', text)):
+            continue
+        meaningful.append(text)
+    return None if meaningful else 'instruction_or_heading_only'
+
+
+def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=None, include_semantic=True, protect_baseline=None):
     started = perf_counter()
     if len({s['id'] for s in sources}) != len(sources):
         raise ValueError('Source IDs must be unique.')
@@ -54,6 +77,8 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
         if diagnostics is not None:
             diagnostics.update(passages=passages, requirements=[], selected=[], packing_attempts=[], elapsed_seconds=0)
         return []
+    protect_baseline = include_semantic if protect_baseline is None else protect_baseline
+    exclusions = {n: reason for n, p in enumerate(passages) if (reason := expansion_exclusion(p))}
     from .evaluation import RETRIEVAL_TERMS
     words = [terms(p.embedding_text) for p in passages]
     lengths = [sum(w.values()) for w in words]
@@ -87,8 +112,9 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
         similarity = [max((float(values[n]) for values in semantic_variants), default=0.) for n in range(len(passages))]
         def ordered(values):
             return sorted(range(len(passages)), key=lambda n: (-values[n], ties[n]))
-        lexical, suppressed_lexical = diverse(ordered(boosted), passages)
-        semantic, suppressed_semantic = diverse(ordered(similarity), passages) if include_semantic else ([], {})
+        eligible = lambda order: [n for n in order if not protect_baseline or n not in exclusions]
+        lexical, suppressed_lexical = diverse(eligible([n for n in ordered(boosted) if boosted[n] > 0]), passages)
+        semantic, suppressed_semantic = diverse(eligible([n for n in ordered(similarity) if similarity[n] > 0]), passages) if include_semantic else ([], {})
         fused_scores = Counter()
         for weight, order in ((2, lexical[:60]), (1, semantic[:60])):
             for position, index in enumerate(order, 1):
@@ -104,6 +130,15 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
 
     # A candidate's heading is an exact additional source span and pays for its budget.
     source_spans, used, attempts = {}, 0, []
+    baseline, baseline_used = [], 0
+    if protect_baseline:
+        from .evaluation import select_context
+        baseline = select_context(indicator, sources,
+            max_chars=min(max_chars, getattr(ranker, 'baseline_chars', 18000)))
+        for source in baseline:
+            sid, start = source['id'], source['text_offset']
+            source_spans[sid] = merged_spans(source_spans.get(sid, []) + [(start, start + len(source['text']))])
+        used = baseline_used = sum(b - a for spans in source_spans.values() for a, b in spans)
     def add(index, requirement, phase, limit):
         nonlocal used
         passage = passages[index]
@@ -111,7 +146,9 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
         before = source_spans.get(sid, [])
         after = merged_spans(before + passage.spans)
         added = sum(b - a for a, b in after) - sum(b - a for a, b in before)
-        if not added:
+        if protect_baseline and index in exclusions:
+            outcome = exclusions[index]
+        elif not added:
             outcome = 'already_covered'
         elif used + added > max_chars:
             outcome = 'budget_excluded'
@@ -144,10 +181,15 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
                 break
             queues = pending
     # Whole passages only: no prefix truncation to force a window into remaining budget.
-    rounds('lexical', max_chars // 2 if include_semantic else max_chars)
-    if include_semantic:
-        rounds('semantic', max_chars, one_round=True)
-        rounds('fused', max_chars)
+    if protect_baseline:
+        # No semantic quota and no eviction. Discovery competes only for the
+        # explicitly separate remainder, with both routes contributing ranks.
+        discovery_limit = baseline_used + max(0, max_chars - min(max_chars, getattr(ranker, 'baseline_chars', 18000)))
+        if include_semantic:
+            rounds('semantic', discovery_limit, one_round=True)
+        rounds('fused', discovery_limit)
+    else:
+        rounds('lexical', max_chars)
     source_lookup = {s['id']: s for s in sources}
     selected = []
     for sid, spans in source_spans.items():
@@ -157,6 +199,9 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
                              'text': source['text'][start:end], 'text_offset': start})
     if diagnostics is not None:
         diagnostics.update(passages=passages, requirements=requirements, selected=selected,
+                           baseline_selected=baseline, baseline_chars=baseline_used,
+                           expansion_chars=used - baseline_used if protect_baseline else 0,
+                           expansion_exclusions=exclusions,
                            packing_attempts=attempts, used_chars=used,
                            elapsed_seconds=round(perf_counter() - started, 4), cache=dict(ranker.stats))
     return selected

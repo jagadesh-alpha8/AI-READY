@@ -37,14 +37,18 @@ class ProtectedRetrievalTests(SimpleTestCase):
         sources = [{'id': 'exact', 'text': 'LEXICAL Faculty completed accredited training. ' + 'x ' * 600}]
         sources += [{'id': f'noise-{n}', 'text': f'General background passage {n}. ' + 'y ' * 600} for n in range(80)]
         trace = {}
-        selected = select_context(indicator, sources, max_chars=2400, semantic_ranker=self.ranker(), diagnostics=trace)
+        ranker = self.ranker()
+        ranker.baseline_chars = 1200
+        selected = select_context(indicator, sources, max_chars=2400, semantic_ranker=ranker, diagnostics=trace)
         self.assertIn('exact', {s['id'] for s in selected})
         self.assertTrue(any(s['id'] != 'exact' for s in selected))
         self.assertLessEqual(sum(len(s['text']) for s in selected), 2400)
         self.assertEqual(trace['requirements'][0]['queries'][0], indicator['conditions'][0]['text'])
-        self.assertTrue(all(a['used_chars'] + a['additional_chars'] <= 1200 for a in trace['packing_attempts']
-                            if a['phase'] == 'lexical' and a['outcome'] == 'selected'))
-        self.assertEqual(selected, select_context(indicator, sources[::-1], max_chars=2400, semantic_ranker=self.ranker()))
+        self.assertLessEqual(trace['baseline_chars'], 1200)
+        self.assertTrue(any(a['phase'] == 'semantic' and a['outcome'] == 'selected' for a in trace['packing_attempts']))
+        self.assertTrue(all(a['used_chars'] + a['additional_chars'] <= 2400 for a in trace['packing_attempts']
+                            if a['outcome'] == 'selected'))
+        self.assertEqual(selected, select_context(indicator, sources[::-1], max_chars=2400, semantic_ranker=ranker))
 
     def test_duplicate_candidates_do_not_fill_fusion_slots(self):
         source = {'id': 'page', 'text': 'x' * 1200 + 'y' * 1200}
