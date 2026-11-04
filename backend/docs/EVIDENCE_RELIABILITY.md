@@ -96,6 +96,35 @@ separate from independently adjudicated expected assessment decisions. Do not
 remove difficult retrieval targets to improve a benchmark or infer a met state
 from a matching quotation alone.
 
+### Requirement-level support cases
+
+Add `--evidence-cases /private/requirement-evidence-cases.json` to the comparison
+to measure known support-bundle coverage separately from exact quotation recall.
+The private pack uses version `requirement-evidence-cases-1`, pins
+`source_corpus_hash` and `rubric_hash` using the canonical snapshot digest, and
+contains one case per requirement. Each case preserves the exact assertion,
+lists `positive_bundles`, and lists `insufficient_controls`.
+
+A positive bundle has an ID and source citations (`document_id`, `page`,
+`quote`). All quotations in one bundle must be present; any alternative bundle
+can satisfy the known-support check. Quotations are validated against their
+frozen page before the encoder loads. A control includes its citations, reason,
+and `expected_on_this_packet` of `unknown` or `adjudication_needed`. Controls
+describe isolated evaluator test packets, not the expected state of a production
+packet that might also contain positive evidence.
+
+Cases with no verified positive bundle are excluded from the positive-coverage
+denominator and reported explicitly. Their absence is not a not-met finding.
+The result preserves the pack's review status and hash. Provisional
+model-assisted bundles are not independently adjudicated gold; alternatives
+may be incomplete, and a missing known bundle does not prove context is
+inadequate. This diagnostic does not test evaluator decisions or award score.
+Positive assertion support still requires matching population and period.
+
+Keep institutional case packs and results outside the repository. Generic
+synthetic contracts exercise alternative support, multi-citation bundles,
+provenance, controls, hash binding and stale assertions.
+
 ONNX Runtime telemetry is disabled before encoder import in application settings
 and the model loader. Set `ORT_DISABLE_TELEMETRY=1` before starting an offline
 process too: disabling events via the API after import alone can be too late for

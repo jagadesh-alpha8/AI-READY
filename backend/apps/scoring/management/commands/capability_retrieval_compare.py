@@ -13,6 +13,7 @@ class Command(BaseCommand):
         parser.add_argument('run_id', nargs='?')
         parser.add_argument('--gold')
         parser.add_argument('--replay-inputs', help='Private comparison JSON containing replay_inputs; bypasses database access.')
+        parser.add_argument('--evidence-cases', help='Private requirement-level support bundles and insufficient-evidence controls.')
         parser.add_argument('--holdout-gold', help='Additional labelled set; an inspected former holdout is a regression set.')
         parser.add_argument('--output', required=True, help='A new private JSON file outside the repository.')
         parser.add_argument('--budget', type=int, default=18000)
@@ -60,6 +61,14 @@ class Command(BaseCommand):
                 raise CommandError('Frozen input integrity mismatch.')
             sources, rubric, manifest = run.inputs['sources'], run.inputs['rubric'], run.inputs['manifest']
             run_id, inputs_hash = str(run.pk), run.inputs_hash
+        case_pack = cases = None
+        if options['evidence_cases']:
+            from apps.scoring.capability.evidence_cases import validate_cases
+            case_pack = json.loads(Path(options['evidence_cases']).read_text())
+            try:
+                cases = validate_cases(case_pack, rubric, sources)
+            except ValueError as exc:
+                raise CommandError(str(exc)) from exc
         # Explicit offline candidate policy; the running application can remain BM25.
         model_started = perf_counter()
         policy = configured_policy(mode='hybrid')
@@ -164,6 +173,12 @@ class Command(BaseCommand):
             result['aggregate_requirement_coverage'][name] = {
                 'labelled_requirements': len({row['condition_id'] for row in rows}),
                 'requirements_with_any_target_retrieved': len({row['condition_id'] for row in rows if row['retrieved']})}
+        if cases is not None:
+            from apps.scoring.capability.evidence_cases import packet_coverage
+            result['evidence_case_review_status'] = case_pack.get('review_status', 'unspecified')
+            result['evidence_case_pack_hash'] = digest(case_pack)
+            result['evidence_case_coverage'] = {name: packet_coverage(cases, rubric, sources,
+                selector=selector, budget=options['budget']) for name, selector in methods.items()}
         result['elapsed_seconds'] = round(perf_counter() - started, 3)
         result['embedding_cache'] = ranker.stats
         output.parent.mkdir(parents=True, exist_ok=True)

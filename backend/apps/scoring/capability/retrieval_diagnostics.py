@@ -190,6 +190,14 @@ def readable_report(result):
     if result.get('aggregate_requirement_coverage'):
         lines += ['Distinct labelled requirement coverage across all sets (not assessment truth):',
                   str(result['aggregate_requirement_coverage']), '']
+    if result.get('evidence_case_coverage'):
+        lines += ['## Known support-bundle coverage', '',
+                  'Review status: ' + result.get('evidence_case_review_status', 'unspecified'),
+                  'Positive bundles are alternatives; missing a known bundle does not exclude unlabelled adequate evidence. Scope/period and evaluator decisions are not tested.', '',
+                  '| Method | Positive cases with a known bundle | Cases with no verified positive |', '|---|---:|---:|']
+        for name, measured in result['evidence_case_coverage'].items():
+            lines.append(f"| {name} | {measured['positive_cases_with_known_support']}/{measured['positive_cases']} | {measured['cases_without_verified_positive']} |")
+        lines += ['']
     for split, rows in result['gold_traces'].items():
         lines += [f'## {split}', '', str(result['trace_summary'][split]), '']
         if result.get('labelled_packet_oracle', {}).get(split):

@@ -265,11 +265,23 @@ class RetrievalComparisonCommandTests(TestCase):
                 call_command('capability_retrieval_compare', str(run.pk), gold=str(gold), output=str(output),
                              include_replay_inputs=True, stdout=StringIO())
                 replay_output = Path(directory) / 'replay.json'
+                evidence_cases = Path(directory) / 'evidence-cases.json'
+                from .capability.storage import digest
+                from .capability.evidence_cases import VERSION
+                evidence_cases.write_text(json.dumps({'version': VERSION,
+                    'source_corpus_hash': digest(run.inputs['sources']), 'rubric_hash': digest(run.inputs['rubric']),
+                    'review_status': 'synthetic_test', 'cases': [{'condition_id': cid,
+                        'assertion': run.inputs['rubric']['indicators'][0]['conditions'][0]['text'],
+                        'positive_bundles': [{'id': 'documented_strategy', 'citations': [
+                            {'document_id': str(doc.pk), 'page': 1, 'quote': quote}]}], 'insufficient_controls': []}]}))
                 with patch('apps.scoring.models.CapabilityRun.objects.get', side_effect=AssertionError('Replay must not read the database')):
-                    call_command('capability_retrieval_compare', replay_inputs=str(output), output=str(replay_output), stdout=StringIO())
+                    call_command('capability_retrieval_compare', replay_inputs=str(output), output=str(replay_output),
+                                 evidence_cases=str(evidence_cases), stdout=StringIO())
                 replayed = json.loads(replay_output.read_text())
                 self.assertEqual(replayed['input_verification'], 'replay_content_hash')
                 self.assertTrue(all(row['retrieved'] == 1 for row in replayed['sets']['development'].values()))
+                self.assertTrue(all(row['positive_cases_with_known_support'] == 1
+                                    for row in replayed['evidence_case_coverage'].values()))
                 missing = Path(directory) / 'missing.json'
                 gold.write_text(json.dumps([{'condition_id': cid, 'document_id': str(doc.pk), 'page': 1,
                                             'quote': 'A manually labelled quotation absent from the frozen page.'}]))
