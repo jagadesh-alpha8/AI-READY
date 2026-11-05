@@ -439,6 +439,15 @@ def _page_text(page):
             for row in rows[:2]
         ):
             header = []
+        elif (len(rows[0]) == 3
+                and [cell.casefold() for cell in rows[0]] == ['year', 'type of up-gradation / new purchase', 'remarks']
+                and _table_year(rows[1][0])):
+            # A section caption above the table can be detected as an external header.
+            header, rows = rows[0], rows[1:]
+        elif (len(header) == 3 and header == rows[0] and not any(header[:2])
+                and _table_year(rows[1][0])):
+            # Preserve a carry-over cell without guessing the preceding row's year or labels.
+            header = []
         elif header and rows[0] == header:
             rows = rows[1:]
         elif not any(header):
