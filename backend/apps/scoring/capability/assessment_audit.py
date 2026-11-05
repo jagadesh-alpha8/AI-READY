@@ -24,8 +24,7 @@ def issue_for(record):
 
 def _blocker_kind(row, issue):
     """Classify a foundation blocker by its structured cause, not by reason text."""
-    from .decision_causes import cause_of
-from .evidence_parts import APPROVAL_MISSING, NOT_EVALUATED, RESPONSE_INVALID, SCOPE_OR_PERIOD_UNSUPPORTED, REVIEW_GUARD
+    from .decision_causes import NOT_EVALUATED, RESPONSE_INVALID, SCOPE_OR_PERIOD_UNSUPPORTED, REVIEW_GUARD
     if not row:
         return 'evaluation_unavailable'
     cause = cause_of(row)
