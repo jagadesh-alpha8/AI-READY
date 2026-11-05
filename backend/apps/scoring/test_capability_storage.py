@@ -120,7 +120,9 @@ class CapabilityStorageTests(TestCase):
                 for cid in candidate_requirements(run)]
         event = publish(**args, evaluation={'records': rows},
                         inference={'provider': 'mock', 'model': 'mock', 'settings': {}, 'calls': []})
-        self.assertEqual(event.payload['result']['exact_score'], 100)
+        self.assertIsNone(event.payload['result']['exact_score'])
+        self.assertEqual([r['condition_id'] for r in event.payload['records'] if r['state'] == 'unknown'],
+                         ['AIQIF-C3.1.F1'])
         self.assertIsNone(event.payload['result']['highest_demonstrated_tier'])
         self.assertEqual(event.payload['result']['badge_policy'], 'not_calibrated')
         with self.assertRaises(ValueError):
