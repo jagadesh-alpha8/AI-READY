@@ -124,7 +124,9 @@ class CapabilityAPITests(APITestCase):
         response = self.client.get(f'{self.url}/{execution.run_id}')
         self.assertEqual(response.status_code, 200)
         assessment = response.data['assessment']
-        self.assertEqual(assessment['result']['exact_score'], 100)
+        self.assertIsNone(assessment['result']['exact_score'])
+        self.assertEqual([r['condition_id'] for r in assessment['records'] if r['state'] == 'unknown'],
+                         ['AIQIF-C3.1.F1'])
         self.assertEqual(len(assessment['records']), 216)
         self.assertEqual(len(assessment['pathways']), 3)
         calls = assessment['inference']['calls']

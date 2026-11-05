@@ -196,14 +196,15 @@ def publish(*, institution_id, run_id, evaluation, inference):
             prior = original[row['condition_id']]
             if row['state'] == 'unknown' and not row['validation_issue'] and prior.get('validation_issue'):
                 row['validation_issue'] = prior['validation_issue']
+                if 'withheld_state' in prior:
+                    row['withheld_state'] = prior['withheld_state']
             # The structured cause travels with the issue; a re-check of an already
             # withheld row must not relabel a processing failure as an assessed unknown.
             if (row['state'] == 'unknown' and row.get('cause') == 'assessed' and prior.get('validation_issue')
                     and prior.get('cause') not in (None, 'assessed')):
                 row['cause'] = prior['cause']
-                for key in ('cause_detail', 'withheld_state'):
-                    if key in prior:
-                        row[key] = prior[key]
+                if 'cause_detail' in prior:
+                    row['cause_detail'] = prior['cause_detail']
         validated.extend(checked)
     decisions = {r['condition_id']: r['state'] for r in validated}
     result = assess(decisions, rubric)

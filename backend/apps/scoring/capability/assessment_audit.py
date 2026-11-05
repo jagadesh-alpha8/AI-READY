@@ -7,8 +7,10 @@ as a validator error. Do not infer that the supplied corpus is the full institut
 from collections import Counter
 
 from .decision_causes import cause_of
+from .evidence_parts import APPROVAL_MISSING
 
 VALIDATION_REASONS = frozenset({
+    APPROVAL_MISSING,
     'Condition decision missing or duplicated.', 'Invalid state or missing rationale.',
     'Invalid citations.', 'Invalid citation record.', 'Quote does not match a supplied source passage.',
     'A substantive decision needs source support.', 'A conflict requires two distinct source passages.',
@@ -22,7 +24,7 @@ def issue_for(record):
 
 def _blocker_kind(row, issue):
     """Classify a foundation blocker by its structured cause, not by reason text."""
-    from .decision_causes import cause_of, NOT_EVALUATED, RESPONSE_INVALID, SCOPE_OR_PERIOD_UNSUPPORTED, REVIEW_GUARD
+    from .decision_causes import NOT_EVALUATED, RESPONSE_INVALID, SCOPE_OR_PERIOD_UNSUPPORTED, REVIEW_GUARD
     if not row:
         return 'evaluation_unavailable'
     cause = cause_of(row)
