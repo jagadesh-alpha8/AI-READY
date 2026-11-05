@@ -102,6 +102,11 @@ def read_scope(fact, *, stated=None):
     for key in ('entity', 'institution', 'department', 'programme'):
         if stated.get(key):
             scope[key] = str(stated[key]).strip().casefold()
+    from .measures import count_basis
+    basis = count_basis(fact.field_name)
+    if basis:
+        scope['count_basis'] = basis
+        sources['count_basis'] = 'field_label'
     scope['sources'] = sources
     return scope
 
@@ -110,7 +115,7 @@ def comparable(a, b):
     """(True, '') when two scopes can describe the same metric; (False, why) when a known part differs.
     Unknown parts (blank on either side) are listed in why only if nothing else differs."""
     diffs = []
-    for key in ('entity', 'institution', 'department', 'programme'):
+    for key in ('entity', 'institution', 'department', 'programme', 'count_basis'):
         if a.get(key) and b.get(key) and a[key] != b[key]:
             diffs.append(f'different {key} ({a[key]} vs {b[key]})')
     if a.get('period') and b.get('period') and _norm_period(a['period']) != _norm_period(b['period']):

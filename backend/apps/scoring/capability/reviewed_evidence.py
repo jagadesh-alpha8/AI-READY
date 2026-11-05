@@ -7,7 +7,7 @@ from apps.facts.models import ExtractedFact
 from apps.facts.verification.scope import read_scope
 from apps.gaps.models import GapItem
 
-VERSION = 'reviewed-evidence-1'
+VERSION = 'reviewed-evidence-2'
 
 
 def snapshot(sprint):
@@ -43,13 +43,26 @@ def snapshot(sprint):
                                 'page': f.original_source_page or f.source_page,
                                 'quote': (f.original_source_snippet or f.source_snippet) if original_valid else ''},
             'decisions': history})
+    from apps.facts.verification.conflicts import disagreements
+    live_by_id = {str(f.pk): f for f in live}
     issues = []
     for g in GapItem.objects.filter(sprint=sprint).prefetch_related('events').order_by('id'):
         ids = [str(x) for x in (g.source_fact_id, g.conflict_fact_b_id) if x]
         own = {c['id'] for c in claims}
+        comparison = {}
+        if g.gap_type == 'conflict':
+            # Field-wide gaps often record only one representative. Reconstruct
+            # every current alternative, as the conflict-review UI does.
+            linked = ([live_by_id[cid] for cid in ids if cid in live_by_id] if g.conflict_fact_b_id
+                      else [f for f in live if str(g.source_fact_id) in live_by_id and
+                            f.field_key.casefold() == live_by_id[str(g.source_fact_id)].field_key.casefold()])
+            ids = sorted(str(f.pk) for f in linked)
+            active = sorted({str(f.pk) for group in disagreements(linked) for f in group})
+            comparison = {'comparison_status': 'current_disagreement' if active else 'no_current_disagreement',
+                          'active_conflict_claim_ids': active}
         issues.append({'id': str(g.pk), 'revision': g.updated_at.isoformat(), 'kind': g.gap_type,
             'status': g.status, 'claim_ids': [x for x in ids if x in own],
-            'rationale': g.resolution, 'title': g.title,
+            'rationale': g.resolution, 'title': g.title, **comparison,
             'alternatives_at_detection': [g.conflict_value_a, g.conflict_value_b],
             'actor_id': str(g.resolved_by_id) if g.resolved_by_id else None,
             'timestamp': g.resolved_at.isoformat() if g.resolved_at else None,
@@ -58,7 +71,6 @@ def snapshot(sprint):
                         'timestamp': e.created_at.isoformat(), 'details': e.data} for e in g.events.all()]})
     # Reconcile the current corpus too: new evidence can challenge an older
     # resolution even before the extraction pipeline has emitted a new gap.
-    from apps.facts.verification.conflicts import disagreements
     by_field = {}
     for fact in live:
         by_field.setdefault(fact.field_key.casefold(), []).append(fact)
@@ -68,7 +80,8 @@ def snapshot(sprint):
             ids = sorted(str(f.pk) for f in group)
             if frozenset(ids) not in recorded_sets:
                 issues.append({'id': 'corpus-conflict:' + ':'.join(ids), 'kind': 'conflict', 'status': 'open',
-                    'claim_ids': ids, 'rationale': 'Current comparable source alternatives disagree. New or changed contradictory evidence requires a fresh scoped resolution.',
+                    'claim_ids': ids, 'comparison_status': 'current_disagreement',
+                    'active_conflict_claim_ids': ids, 'rationale': 'Current comparable source alternatives disagree. New or changed contradictory evidence requires a fresh scoped resolution.',
                     'prior_resolutions': [i['id'] for i in issues if i['status'] == 'resolved' and set(ids).intersection(i['claim_ids'])]})
     from apps.facts.models import ReviewBatch
     batch = ReviewBatch.objects.filter(sprint=sprint).first()
@@ -218,15 +231,20 @@ def bounded_packet(claims, issues, answers):
                 'kind': issue['kind'], 'status': issue['status'], 'claim_ids': retained,
                 'rationale': clip(issue.get('rationale', '')),
                 'alternative_count': len(issue['claim_ids']),
-                'omitted_alternatives': len(issue['claim_ids']) - len(retained)})
+                'omitted_alternatives': len(issue['claim_ids']) - len(retained),
+                **({'comparison_status': issue['comparison_status'],
+                    'active_conflict_claim_ids': [cid for cid in retained if cid in issue.get('active_conflict_claim_ids', [])],
+                    'active_alternative_count': len(issue.get('active_conflict_claim_ids', [])),
+                    'omitted_active_alternatives': len(set(issue.get('active_conflict_claim_ids', [])) - set(retained))}
+                   if 'comparison_status' in issue else {})})
             if len(selected_issues) == 8:
                 break
-        return {'version': 'review-context-3', 'claims': rows, 'issues': selected_issues,
+        return {'version': 'review-context-4', 'claims': rows, 'issues': selected_issues,
             'review_answers': [clip(a) for a in answers[:8]],
             'omissions': {'matching_claims': max(0, len(claims) - len(rows)),
                           'applicable_issues': max(0, len(issues) - len(selected_issues)),
                           'full_ledger_retained_for_validation': True},
-            'instruction': 'Only supplied passages are citable. This bounded packet may omit conflict alternatives and review details; omitted records do not establish agreement. Complete rejected, corrected and unresolved alternatives are enforced by local validation. Never award credit from review dispositions alone.'}
+            'instruction': 'A stored conflict with no_current_disagreement is historical review context, not a current contradiction or proof of agreement. Only supplied passages are citable. This bounded packet may omit conflict alternatives and review details; omitted records do not establish agreement. Complete rejected, corrected and unresolved alternatives are enforced by local validation. Never award credit from review dispositions alone.'}
     result = packet()
     while len(json.dumps(result)) > 24000 and rows:
         rows.pop()
@@ -246,7 +264,7 @@ def citation_issue(citations, ledger, sources, state=None):
     from .evaluation import _normal
     from apps.facts.verification.grounding import parse_pages
     by_id = {s['id']: s for s in sources}
-    unresolved = {cid for i in ledger.get('issues', []) if i['kind'] == 'conflict' and i['status'] != 'resolved' for cid in i['claim_ids']}
+    unresolved = {cid for i in ledger.get('issues', []) if i['kind'] == 'conflict' and i['status'] != 'resolved' for cid in i.get('active_conflict_claim_ids', i['claim_ids'])}
     for claim in ledger['claims']:
         unresolved_conflict = state in ('met', 'not_met') and claim['id'] in unresolved
         blocked = claim['disposition'] in ('rejected', 'evidence_requested') or claim.get('verification', {}).get('source_review_required', False)
