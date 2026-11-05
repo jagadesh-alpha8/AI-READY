@@ -44,6 +44,11 @@ def evidence_query(condition):
     # must match the versioned profile; no stale or unprofiled requirement is guessed.
     if not cid.startswith('AIQIF-'):
         return ''
+    if 'evidence_parts' in condition:
+        from .requirement_evidence import pilot_specs
+        spec = pilot_specs().get(cid)
+        if spec and all(condition.get(key) == value for key, value in spec.items()):
+            return ' '.join(spec['evidence_parts'].values())
     profile = _load()[0].get(cid)
     if profile is None or profile['assertion'] != condition['text']:
         raise ValueError('Requirement differs from its retrieval profile: ' + cid)
