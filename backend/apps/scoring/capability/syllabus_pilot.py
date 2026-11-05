@@ -89,7 +89,8 @@ def compare(sources, editions, budget=18000):
             return [row, companion]
         return []
 
-    baseline = select_balanced_context(indicator, sources, max_chars=budget)
+    # Keep both experimental arms independent of the production cohort heuristic.
+    baseline = select_balanced_context(indicator, sources, max_chars=budget, structural_seed=lambda rows: [])
     structural = select_balanced_context(indicator, sources, max_chars=budget, structural_seed=seed)
     return {'version': VERSION, 'indicator': INDICATOR, 'budget': budget, 'baseline': baseline,
             'structural': structural, 'link': link}
