@@ -3,6 +3,8 @@
 All database reads occur while storage freezes the evidence boundary. The payload
 contains no synthetic PDF quotations. Current and original citations are distinct.
 """
+import re
+
 from apps.facts.models import ExtractedFact
 from apps.facts.verification.scope import read_scope
 from apps.gaps.models import GapItem
@@ -281,6 +283,9 @@ def citation_issue(citations, ledger, sources, state=None):
             if (page.get('document_id') == source['document_id']
                     and page.get('page_number') in parse_pages(source['page'])
                     and text and (quote in text or text in quote)):
+                guarded_value = claim.get('original_value') if corrected else claim.get('value')
+                if not blocked and not (corrected and unresolved_conflict) and _independent_count(text, quote, guarded_value):
+                    continue
                 current = claim['source']
                 if (corrected and not unresolved_conflict and current['document_id'] == page.get('document_id')
                         and page.get('page_number') in parse_pages(current['page'])
@@ -293,3 +298,20 @@ def citation_issue(citations, ledger, sources, state=None):
                     continue
                 return 'Citation reuses a rejected or superseded claim; independent supporting evidence is required.'
     return ''
+
+
+def _independent_count(citation, claim_quote, guarded_value):
+    """Allow a neighbouring count only when the guarded number is identifiable."""
+    if not re.match(r'(?:and|while|whereas)\s', citation, re.IGNORECASE):
+        return False
+    preceding, found, _ = claim_quote.partition(citation)
+    if not found or not preceding or not preceding[-1].isspace():
+        return False
+    value = re.fullmatch(r'(?:more than |at least |over )?(\d+(?:,\d{3})*)',
+                         str(guarded_value).strip(), re.IGNORECASE)
+    if not value:
+        return False
+    number = value.group(1).replace(',', '')
+    counts = lambda text: {n.replace(',', '') for n in re.findall(r'\d+(?:,\d{3})*', text)}
+    cited_counts = counts(citation)
+    return number in counts(preceding) and bool(cited_counts) and number not in cited_counts
