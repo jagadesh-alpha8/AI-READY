@@ -9,11 +9,24 @@ from apps.sprints.models import Sprint
 from apps.documents.models import Document
 from apps.extraction.models import DocumentPage
 from .models import CapabilityExecution, CapabilityRunEvent
-from .capability.scope import intent, resolve
+from .capability.scope import context_scope, intent, resolve
 from .capability.storage import digest
 
 
 class ScopeContractTests(SimpleTestCase):
+    def test_projection_requires_complete_label_and_rebases_to_evidence_offsets(self):
+        stored = 'Repeated header\nAcademic year: 2023-24\nProgramme: BSc Computing\n'
+        scope = resolve(profile={'name': 'College'}, mode='default', requested={'scope_mode': 'default'},
+                        sources=[{'id': 'p', 'text': stored}])
+        evidence = 'The report records a completed review.\nAcademic year: 2023-24\nProgramme: BSc Computing\n'
+        offset = evidence.index('Academic year:')
+        window = {'id': 'p', 'text': evidence[offset:evidence.index('Programme:')], 'text_offset': offset}
+        declarations = context_scope(scope, [window, window])['source_declarations']
+        self.assertEqual([(d['kind'], d['value']) for d in declarations], [('activity_period', '2023-24')])
+        self.assertEqual(evidence[declarations[0]['start']:declarations[0]['end']], '2023-24')
+        for text in ('2023-24', 'Academic year: 2023'):
+            self.assertEqual(context_scope(scope, [{**window, 'text': text}])['source_declarations'], [])
+
     def test_source_local_declarations_preserve_distinct_dates_and_identity_issue(self):
         text = 'Institution name: Other College\nProgramme: BBA\nAcademic year: 2018-19\nPolicy effective: 2024 onwards\nCurriculum regulation: 2020\n'
         other = 'Reporting period: 2022-23\n'

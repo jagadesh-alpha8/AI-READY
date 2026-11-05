@@ -13,7 +13,7 @@ from copy import deepcopy
 
 from .engine import STATES, release
 
-PROMPT_VERSION = 'AIQIF-EVAL-0.14'
+PROMPT_VERSION = 'AIQIF-EVAL-0.15'
 RETRIEVAL_VERSION = 'AIQIF-source-passages-4'
 SYSTEM_PROMPT = """Assess institutional AI capability against the supplied experimental rubric.
 Keep reasons concise and cite the shortest exact passages that retain necessary scope and dates. Do not copy entire pages into the response.
@@ -38,6 +38,7 @@ A title mentioning AI does not add an AI-specific prerequisite to a digital-or-A
 For example, authority over relevant digital decisions can satisfy a digital-or-AI authority assertion
 without proof of AI-specific authority. Do not let a missing companion erase another assertion.
 Return separate exact citations rather than joining passages with ellipses.
+Ground population and period in cited evidence; scope metadata helps locate passages and does not supply independent evidence.
 Do not return numerical scores.
 met: evidence demonstrates the supplied assertion, for its actual required scope and applicable period.
 When scoring_mode is independent_conditions, evaluate each assertion independently. A missing companion

@@ -5,7 +5,7 @@ Dates remain verbatim and typed; filenames and upload times never establish curr
 """
 import re
 
-VERSION = 'source-local-scope-0.4'
+VERSION = 'source-local-scope-0.5'
 DEFAULT_POPULATION = 'Institutional overview; coverage established separately for each finding'
 DEFAULT_PERIOD = 'Source-specific evidence periods; currency not presumed'
 PATTERNS = {
@@ -43,25 +43,26 @@ def intent(population=None, reference_period=None, scope_mode=None, refines_run_
     return mode, value
 
 
-def resolve(*, profile, sources, requested, mode):
-    declarations, questions = [], []
-    for source in sources:
-        for kind, pattern in PATTERNS.items():
-            for match in re.finditer(pattern, source['text']):
-                if not match.group(1).strip():
-                    continue
-                declarations.append({'kind': kind, 'value': match.group(1).strip(),
-                    'source_id': source['id'], 'start': match.start(1), 'end': match.end(1),
-                    'quote': match.group(1), 'interpretation': 'explicit_label_candidate_unverified'})
+def _declarations(source):
+    for kind, pattern in PATTERNS.items():
+        for match in re.finditer(pattern, source['text']):
+            if match.group(1).strip():
+                yield {'kind': kind, 'value': match.group(1).strip(), 'source_id': source['id'],
+                       'start': match.start(1), 'end': match.end(1), 'quote': match.group(1),
+                       'interpretation': 'explicit_label_candidate_unverified'}
     # The standard SSR footer dates the report's claim only, never the activity itself.
     # Other bare timestamps are not interpreted as report dates.
-    for source in sources:
-        if (re.search(r'(?i)self\s+study\s+report\s+of', source['text'])
-                and re.search(r'(?i)Page\s+\d+\s*/\s*\d+', source['text'])):
-            for match in re.finditer(r'(?im)^[ \t]*(?:Page[ \t]+\d+[ \t]*/[ \t]*\d+[ \t]+)?(\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2})[ \t]*$', source['text']):
-                declarations.append({'kind': 'report_claim_date', 'value': match.group(1),
-                    'source_id': source['id'], 'start': match.start(1), 'end': match.end(1),
-                    'quote': match.group(1), 'interpretation': 'report_timestamp_only_not_activity_or_current_operation'})
+    if (re.search(r'(?i)self\s+study\s+report\s+of', source['text'])
+            and re.search(r'(?i)Page\s+\d+\s*/\s*\d+', source['text'])):
+        for match in re.finditer(r'(?im)^[ \t]*(?:Page[ \t]+\d+[ \t]*/[ \t]*\d+[ \t]+)?(\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2})[ \t]*$', source['text']):
+            yield {'kind': 'report_claim_date', 'value': match.group(1), 'source_id': source['id'],
+                   'start': match.start(1), 'end': match.end(1), 'quote': match.group(1),
+                   'interpretation': 'report_timestamp_only_not_activity_or_current_operation'}
+
+
+def resolve(*, profile, sources, requested, mode):
+    declarations = [declaration for source in sources for declaration in _declarations(source)]
+    questions = []
     identity = [d for d in declarations if d['kind'] == 'institution_identity']
     normalize = lambda name: ' '.join(re.findall(r'\w+', name.casefold()))
     mismatches = [d for d in identity if normalize(d['value']) != normalize(profile['name'])]
@@ -100,12 +101,23 @@ def resolve(*, profile, sources, requested, mode):
 
 
 def context_scope(scope, sources):
-    """Keep provider scope context bounded to its already-selected source windows."""
+    """Project frozen declarations onto exact spans of the supplied evidence text."""
     if scope is None:
         return None
-    ids = {s['id'] for s in sources}
+    def key(declaration):
+        return (declaration['source_id'], declaration['kind'], ' '.join(declaration['value'].split()))
+
+    frozen = {key(declaration) for declaration in scope['source_declarations']}
+    selected = {}
+    for source in sources:
+        offset = source.get('text_offset', 0)
+        for declaration in _declarations(source):
+            if key(declaration) in frozen:
+                declaration['start'] += offset
+                declaration['end'] += offset
+                selected.setdefault((key(declaration), declaration['start']), declaration)
     return {**{k: scope[k] for k in ('version', 'mode', 'institution', 'population_label', 'period_label',
                                     'coverage_policy', 'rubric_scope_policy', 'limitations')},
             'questions': [{k: q[k] for k in ('code', 'message')} for q in scope['questions']],
-            'source_declarations': [d for d in scope['source_declarations'] if d['source_id'] in ids][:100],
+            'source_declarations': list(selected.values())[:100],
             'declarations_are_subset': True}
