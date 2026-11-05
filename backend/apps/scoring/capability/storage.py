@@ -27,6 +27,7 @@ def digest(value):
 
 
 def evidence_snapshot(sprint):
+    from .scope import report_timestamps
     from apps.facts.models import ExtractedFact
     from apps.facts.verification.grounding import parse_pages
     hints = {}
@@ -68,9 +69,16 @@ def evidence_snapshot(sprint):
                     if match:
                         page_hints.extend({'indicator_code': code, 'start': match.start(), 'end': match.end()}
                                           for code in codes)
-                sources.append({'retrieval_hints': sorted(page_hints, key=lambda h: (h['indicator_code'], h['start'], h['end'])),
+                timestamps = list(report_timestamps({'id': str(page.pk), 'text': page.text}))
+                footer = {}
+                if len(timestamps) == 1 and timestamps[0]['quote'] not in text:
+                    stamp = timestamps[0]
+                    footer = {'report_timestamp': {'start': len(text) + 1,
+                                                   'raw_start': stamp['start'], 'raw_end': stamp['end']}}
+                    text += '\n' + stamp['quote']
+                sources.append({**footer, 'retrieval_hints': sorted(page_hints, key=lambda h: (h['indicator_code'], h['start'], h['end'])),
                                 'id': str(page.pk), 'document_id': str(document.pk),
-                                'page_number': page.page_number, 'text': rendered[page.page_number],
+                                'page_number': page.page_number, 'text': text,
                                 'text_source': page.text_source})
     return manifest, sources
 

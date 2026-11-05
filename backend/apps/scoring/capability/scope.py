@@ -50,13 +50,21 @@ def _declarations(source):
                 yield {'kind': kind, 'value': match.group(1).strip(), 'source_id': source['id'],
                        'start': match.start(1), 'end': match.end(1), 'quote': match.group(1),
                        'interpretation': 'explicit_label_candidate_unverified'}
-    # The standard SSR footer dates the report's claim only, never the activity itself.
-    # Other bare timestamps are not interpreted as report dates.
-    if (re.search(r'(?i)self\s+study\s+report\s+of', source['text'])
-            and re.search(r'(?i)Page\s+\d+\s*/\s*\d+', source['text'])):
-        for match in re.finditer(r'(?im)^[ \t]*(?:Page[ \t]+\d+[ \t]*/[ \t]*\d+[ \t]+)?(\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2})[ \t]*$', source['text']):
-            yield {'kind': 'report_claim_date', 'value': match.group(1), 'source_id': source['id'],
-                   'start': match.start(1), 'end': match.end(1), 'quote': match.group(1),
+    yield from report_timestamps(source)
+
+
+SSR_FOOTER = re.compile(
+    r'(?im)^[ \t]*Page[ \t]+\d+[ \t]*/[ \t]*\d+[ \t]*(?:\r?\n[ \t]*)?'
+    r'(\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2})[ \t]*$'
+)
+
+
+def report_timestamps(source):
+    text = source['text']
+    if re.search(r'(?i)self\s+study\s+report\s+of', text):
+        for match in SSR_FOOTER.finditer(text):
+            yield {'kind': 'report_claim_date', 'value': match[1], 'source_id': source['id'],
+                   'start': match.start(1), 'end': match.end(1), 'quote': match[1],
                    'interpretation': 'report_timestamp_only_not_activity_or_current_operation'}
 
 
@@ -111,7 +119,12 @@ def context_scope(scope, sources):
     selected = {}
     for source in sources:
         offset = source.get('text_offset', 0)
-        for declaration in _declarations(source):
+        declarations = list(_declarations(source))
+        if source.get('evidence_role') == 'report_timestamp':
+            declarations.append({'kind': 'report_claim_date', 'value': source['text'], 'quote': source['text'],
+                                 'source_id': source['id'], 'start': 0, 'end': len(source['text']),
+                                 'interpretation': 'report_timestamp_only_not_activity_or_current_operation'})
+        for declaration in declarations:
             if key(declaration) in frozen:
                 declaration['start'] += offset
                 declaration['end'] += offset

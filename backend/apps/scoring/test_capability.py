@@ -244,10 +244,12 @@ class EvaluationTests(unittest.TestCase):
         sources += [
             {'id': 'course', 'document_id': 'syllabus', 'page_number': 9, 'text': course},
             {'id': 'prior-edition', 'document_id': 'syllabus', 'page_number': 2,
-             'text': cohort.replace('2025–26', '2023–24')},
-            {'id': 'cohort', 'document_id': 'syllabus', 'page_number': 7, 'text': cohort},
+             'text': 'Regulations 2023\n' + cohort.replace('2025–26', '2023–24')},
+            {'id': 'cohort', 'document_id': 'syllabus', 'page_number': 7, 'text': 'Regulations 2025\n' + cohort},
+            {'id': 'roster', 'document_id': 'syllabus', 'page_number': 8,
+             'text': 'LIST OF ELECTIVE COURSES\nPattern Recognition'},
             {'id': 'next-edition', 'document_id': 'syllabus', 'page_number': 12,
-             'text': cohort.replace('2025–26', '2026–27')},
+             'text': 'Regulations 2026\n' + cohort.replace('2025–26', '2026–27')},
             {'id': 'other-cohort', 'document_id': 'other', 'page_number': 1, 'text': cohort},
         ]
         selected = select_context(indicator, sources)
@@ -255,6 +257,15 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual([s['text'] for s in selected[:2]], [course, cohort])
         self.assertLessEqual(sum(len(s['text']) for s in selected), 18000)
         self.assertEqual(selected, select_context(indicator, list(reversed(sources))))
+        self.assertEqual(selected[0]['syllabus_edition']['roster_source_id'], 'roster')
+        unlisted = [{**s, 'text': s['text'].replace('Pattern Recognition', 'Different Course')}
+                    if s['id'] == 'roster' else s for s in sources]
+        self.assertFalse(any('syllabus_edition' in s for s in select_context(indicator, unlisted)))
+        for text in ('Regulations 2024', 'Appendix', 'Effective from the Academic year 2026-27'):
+            with self.subTest(boundary=text):
+                shifted = [{**s, 'page_number': 10} if s['id'] == 'course' else s for s in sources]
+                shifted.append({'id': 'boundary', 'document_id': 'syllabus', 'page_number': 9, 'text': text})
+                self.assertFalse(any('syllabus_edition' in s for s in select_context(indicator, shifted)))
 
 
 if __name__ == '__main__':
