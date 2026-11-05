@@ -166,6 +166,8 @@ class OversizedProbeCaseTests(SharedProbeMeterTests):
 class ScopeProjectionProbeTests(SimpleTestCase):
     def test_whole_document_scope_is_projected_to_the_actual_windows(self):
         plan,ledger,corpus=fixture()
+        corpus[0]['text'] += '\nReport date: 2024-02-01\n'
+        plan['requests'][0]['payload']['sources'] = deepcopy(corpus)
         scope={k:'source-specific' for k in ('version','mode','institution','population_label','period_label',
             'coverage_policy','rubric_scope_policy','limitations')}
         scope['questions']=[]
@@ -175,7 +177,9 @@ class ScopeProjectionProbeTests(SimpleTestCase):
         plan['requests'][0]['payload_hash']=digest(plan['requests'][0]['payload'])
         old_hash=plan['requests'][0]['payload_hash']
         result=prepare(plan,ledger,corpus)['requests'][0]
-        self.assertEqual(result['payload']['scope']['source_declarations'],[scope['source_declarations'][-1]])
+        declarations = result['payload']['scope']['source_declarations']
+        self.assertEqual([(d['source_id'], d['kind'], d['value']) for d in declarations],
+                         [('p', 'report_claim_date', '2024-02-01')])
         self.assertTrue(result['payload']['scope']['declarations_are_subset'])
         self.assertEqual(result['original_payload_hash'],old_hash)
         self.assertNotEqual(result['payload_hash'],old_hash)
