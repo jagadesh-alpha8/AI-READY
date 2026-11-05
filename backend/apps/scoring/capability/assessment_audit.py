@@ -6,6 +6,8 @@ as a validator error. Do not infer that the supplied corpus is the full institut
 """
 from collections import Counter
 
+from .decision_causes import cause_of
+
 VALIDATION_REASONS = frozenset({
     'Condition decision missing or duplicated.', 'Invalid state or missing rationale.',
     'Invalid citations.', 'Invalid citation record.', 'Quote does not match a supplied source passage.',
@@ -16,6 +18,23 @@ VALIDATION_REASONS = frozenset({
 
 def issue_for(record):
     return record.get('validation_issue') or (record.get('reason') if record.get('reason') in VALIDATION_REASONS else '')
+
+
+def _blocker_kind(row, issue):
+    """Classify a foundation blocker by its structured cause, not by reason text."""
+    from .decision_causes import cause_of, NOT_EVALUATED, RESPONSE_INVALID, SCOPE_OR_PERIOD_UNSUPPORTED, REVIEW_GUARD
+    if not row:
+        return 'evaluation_unavailable'
+    cause = cause_of(row)
+    if cause == NOT_EVALUATED:
+        return 'evaluation_unavailable'
+    if cause == RESPONSE_INVALID:
+        return 'response_validation'
+    if cause == SCOPE_OR_PERIOD_UNSUPPORTED:
+        return 'scope_or_period_unsupported'
+    if cause == REVIEW_GUARD:
+        return 'review_guard'
+    return 'unresolved_evidence' if row.get('state') in ('unknown', 'conflicting') else 'documented_shortfall'
 
 
 def diagnose(assessment, *, rubric=None, manifest=None):
@@ -43,7 +62,8 @@ def diagnose(assessment, *, rubric=None, manifest=None):
                 blockers.append({'condition_id': c['id'], 'requirement': c['text'],
                     'state': row.get('state', 'unknown'), 'reason': row.get('reason', 'No saved decision.'),
                     'validation_issue': issue,
-                    'kind': ('response_validation' if issue in VALIDATION_REASONS else 'evaluation_unavailable') if issue else 'unresolved_evidence' if row.get('state') in ('unknown', 'conflicting') else 'documented_shortfall'})
+                    'cause': cause_of(row) if row else 'not_evaluated',
+                    'kind': _blocker_kind(row, issue)})
         if blockers:
             foundations.append({'indicator': indicator['code'], 'blockers': blockers})
     calls = assessment.get('inference', {}).get('calls', [])

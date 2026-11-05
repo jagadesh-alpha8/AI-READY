@@ -4,6 +4,7 @@ from copy import deepcopy
 from fractions import Fraction
 from pathlib import Path
 
+from .decision_causes import cause_of
 from .engine import LEVELS, _totals, number, assess, indicator_bounds
 from .planning import roadmap
 from .storage import digest
@@ -108,6 +109,7 @@ def build_inputs(run, event, execution_policy):
                 'operation': OPERATIONS[kind], 'requirement': condition['text'],
                 'completion_evidence': condition['completion_evidence'], 'state': record['state'],
                 'reason': record['reason'], 'citations': record['citations'],
+                'cause': cause_of(record),
                 'suggestion': condition['improvement_pattern'] if kind == 'develop_capability' else
                     'Supply current scoped evidence; capability is not yet established.' if kind == 'supply_evidence' else
                     'Reconcile conflicting sources before selecting a capability intervention.',
@@ -126,15 +128,17 @@ def build_inputs(run, event, execution_policy):
 
 
 # Saved reasons that mean the assessment produced no judgement for the requirement.
-PROCESSING_PREFIXES = ('Reviewed-evidence context exceeds', 'No readable source context', 'Evaluation call budget reached',
-                       'Model evaluation failed', 'Citation reuses a rejected or superseded claim')
 
 
 def processing_failure(action):
-    """True when an unknown action reflects processing (never evaluated, or output failed validation)."""
-    from .assessment_audit import VALIDATION_REASONS
-    reason = action.get('reason') or ''
-    return action['state'] == 'unknown' and (reason in VALIDATION_REASONS or reason.startswith(PROCESSING_PREFIXES))
+    """True when an unknown action reflects processing (never evaluated, or output failed validation).
+
+    Uses the structured decision cause. An unknown whose applicable population or period
+    was not established, or whose citation hit a review guard, is evidentiary: it asks for
+    evidence or a review decision, never a processing rerun.
+    """
+    from .decision_causes import is_processing
+    return is_processing(action)
 
 
 def validate_advice(response, actions, established_strengths=None, sources=None, dependency_actions=None):

@@ -30,6 +30,13 @@ def deterministic_advice(action, inputs, origin, note=''):
         steps = [action['suggestion']]
     elif action['type'] == 'resolve_contradiction':
         steps = [f'Reconcile the conflicting sources for "{requirement}" before choosing an intervention.']
+    elif action.get('cause') == 'scope_or_period_unsupported':
+        # The passages appeared relevant but did not establish who was covered or when.
+        steps = [f'Supply a record for "{requirement}" that states the population or programme it covers '
+                 'and the dated period of the activity. The assessed passages did not establish both.']
+    elif action.get('cause') == 'review_guard':
+        steps = [f'The cited passage for "{requirement}" is tied to a rejected, corrected or disputed review item. '
+                 'Resolve that review item or supply independent evidence.']
     else:
         steps = [f"Request evidence for {requirement} covering {inputs['population']} in {inputs['reference_period']}."]
     row = {'condition_id': action['id'], 'operation': action['operation'], 'steps': steps,
