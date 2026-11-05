@@ -232,6 +232,30 @@ class EvaluationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             select_context(self.item, self.sources * 2)
 
+    def test_syllabus_retrieval_pairs_course_detail_with_its_own_cohort(self):
+        indicator = next(i for i in release()['indicators'] if i['code'] == 'AIQIF-C3.1')
+        outline = 'Syllabus curriculum regulation AI machine learning course outcomes. ' * 27
+        sources = [
+            {'id': f'outline-{n}', 'document_id': 'outline', 'page_number': n, 'text': outline}
+            for n in range(1, 15)
+        ]
+        course = 'Pattern Recognition\nCourse Objective\nApply machine learning to classification.\nUNIT I: Decision trees.'
+        cohort = 'Applicable to candidates admitted from academic year 2025–26 onward.'
+        sources += [
+            {'id': 'course', 'document_id': 'syllabus', 'page_number': 9, 'text': course},
+            {'id': 'prior-edition', 'document_id': 'syllabus', 'page_number': 2,
+             'text': cohort.replace('2025–26', '2023–24')},
+            {'id': 'cohort', 'document_id': 'syllabus', 'page_number': 7, 'text': cohort},
+            {'id': 'next-edition', 'document_id': 'syllabus', 'page_number': 12,
+             'text': cohort.replace('2025–26', '2026–27')},
+            {'id': 'other-cohort', 'document_id': 'other', 'page_number': 1, 'text': cohort},
+        ]
+        selected = select_context(indicator, sources)
+        self.assertEqual([s['id'] for s in selected[:2]], ['course', 'cohort'])
+        self.assertEqual([s['text'] for s in selected[:2]], [course, cohort])
+        self.assertLessEqual(sum(len(s['text']) for s in selected), 18000)
+        self.assertEqual(selected, select_context(indicator, list(reversed(sources))))
+
 
 if __name__ == '__main__':
     unittest.main()

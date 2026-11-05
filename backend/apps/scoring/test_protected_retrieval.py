@@ -2,7 +2,7 @@
 from django.test import SimpleTestCase
 from .retrieval_test_fixtures import synthetic_ranker
 from .capability.evaluation import select_context
-from .capability.evidence_retrieval import expansion_exclusion
+from .capability.evidence_retrieval import expansion_exclusion, retrieve_evidence
 from .capability.passages import Passage
 
 
@@ -51,6 +51,16 @@ class ProtectedBaselineTests(SimpleTestCase):
         self.assertGreater(trace['expansion_chars'], 0)
         self.assertLessEqual(sum(len(s['text']) for s in selected), 3000)
         self.assertEqual(selected, select_context(indicator(), sources[::-1], max_chars=3000, semantic_ranker=ranker))
+
+    def test_matched_routes_can_select_different_evidence_with_the_same_budget(self):
+        sources = self.sources()
+        ranker = synthetic_ranker(Model())
+        lexical = retrieve_evidence(indicator(), sources, ranker, 1800, comparison_route='lexical')
+        dense = retrieve_evidence(indicator(), sources, ranker, 1800, comparison_route='semantic')
+        self.assertNotIn('novel', {s['id'] for s in lexical})
+        self.assertIn('novel', {s['id'] for s in dense})
+        for selected in (lexical, dense):
+            self.assertLessEqual(sum(len(s['text']) for s in selected), 1800)
 
     def test_boilerplate_is_removed_before_the_semantic_shortlist(self):
         class BoilerplateFirst(Model):

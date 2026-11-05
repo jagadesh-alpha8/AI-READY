@@ -18,6 +18,8 @@ class Command(BaseCommand):
         parser.add_argument('--output', required=True, help='A new private JSON file outside the repository.')
         parser.add_argument('--budget', type=int, default=18000)
         parser.add_argument('--expansion-budget', type=int, default=6000)
+        parser.add_argument('--matched-routes', action='store_true',
+                            help='Also compare lexical, dense and fused ranking with the same packer and base budget.')
         parser.add_argument('--include-replay-inputs', action='store_true', help='Include the private frozen corpus and labels for offline replay; never commit this output.')
 
     def handle(self, *args, **options):
@@ -143,6 +145,12 @@ class Command(BaseCommand):
                    'protected_profiled_expanded': lambda i, s, max_chars: retrieve_evidence(i, s, ranker,
                        max_chars=expanded, include_semantic=False, protect_baseline=True),
                    'hybrid_expanded': lambda i, s, max_chars: select_context(i, s, max_chars=expanded, semantic_ranker=ranker)}
+        if options['matched_routes']:
+            methods.update({
+                f'matched_{route}': lambda i, s, max_chars, route=route: retrieve_evidence(
+                    i, s, ranker, max_chars=max_chars, comparison_route=route)
+                for route in ('lexical', 'semantic', 'fused')
+            })
         from apps.scoring.capability.retrieval_diagnostics import gold_traces, trace_summary, readable_report, labelled_packet_oracle
         result['gold_traces'] = {}
         result['trace_summary'] = {}

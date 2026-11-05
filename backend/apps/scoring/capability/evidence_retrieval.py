@@ -76,7 +76,13 @@ def expansion_exclusion(passage):
     return None if meaningful else 'instruction_or_heading_only'
 
 
-def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=None, include_semantic=True, protect_baseline=None):
+def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=None,
+                      include_semantic=True, protect_baseline=None, comparison_route=None):
+    if comparison_route is not None:
+        if comparison_route not in ('lexical', 'semantic', 'fused') or protect_baseline:
+            raise ValueError('Matched comparison needs one route and no protected baseline.')
+        include_semantic = comparison_route != 'lexical'
+        protect_baseline = False
     started = perf_counter()
     if len({s['id'] for s in sources}) != len(sources):
         raise ValueError('Source IDs must be unique.')
@@ -120,7 +126,7 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
         similarity = [max((float(values[n]) for values in semantic_variants), default=0.) for n in range(len(passages))]
         def ordered(values):
             return sorted(range(len(passages)), key=lambda n: (-values[n], ties[n]))
-        eligible = lambda order: [n for n in order if not protect_baseline or n not in exclusions]
+        eligible = lambda order: [n for n in order if not (protect_baseline or comparison_route) or n not in exclusions]
         lexical, suppressed_lexical = diverse(eligible([n for n in ordered(boosted) if boosted[n] > 0]), passages)
         semantic, suppressed_semantic = diverse(eligible([n for n in ordered(similarity) if similarity[n] > 0]), passages) if include_semantic else ([], {})
         fused_scores = Counter()
@@ -154,7 +160,7 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
         before = source_spans.get(sid, [])
         after = merged_spans(before + passage.spans)
         added = sum(b - a for a, b in after) - sum(b - a for a, b in before)
-        if protect_baseline and index in exclusions:
+        if (protect_baseline or comparison_route) and index in exclusions:
             outcome = exclusions[index]
         elif not added:
             outcome = 'already_covered'
@@ -197,7 +203,7 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
             rounds('semantic', discovery_limit, one_round=True)
         rounds('fused', discovery_limit)
     else:
-        rounds('lexical', max_chars)
+        rounds(comparison_route or 'lexical', max_chars)
     source_lookup = {s['id']: s for s in sources}
     selected = []
     for sid, spans in source_spans.items():
