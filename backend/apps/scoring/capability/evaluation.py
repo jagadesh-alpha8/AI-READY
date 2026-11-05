@@ -13,7 +13,7 @@ from copy import deepcopy
 
 from .engine import STATES, release
 
-PROMPT_VERSION = 'AIQIF-EVAL-0.14'
+PROMPT_VERSION = 'AIQIF-EVAL-0.16'
 RETRIEVAL_VERSION = 'AIQIF-source-passages-5'
 SYSTEM_PROMPT = """Assess institutional AI capability against the supplied experimental rubric.
 Keep reasons concise and cite the shortest exact passages that retain necessary scope and dates. Do not copy entire pages into the response.
@@ -38,6 +38,7 @@ A title mentioning AI does not add an AI-specific prerequisite to a digital-or-A
 For example, authority over relevant digital decisions can satisfy a digital-or-AI authority assertion
 without proof of AI-specific authority. Do not let a missing companion erase another assertion.
 Return separate exact citations rather than joining passages with ellipses.
+Ground population and period in cited evidence; scope metadata helps locate passages and does not supply independent evidence.
 Do not return numerical scores.
 met: evidence demonstrates the supplied assertion, for its actual required scope and applicable period.
 When scoring_mode is independent_conditions, evaluate each assertion independently. A missing companion
@@ -66,6 +67,7 @@ cannot establish the required actual activity or completed review interval. A re
 (such as annually or at the end of each academic year) is not an identified activity interval.
 If only a report timestamp or unspecified recurring frequency is available for such an assertion,
 set period_supported false and state unknown even when the substantive content fits.
+A syllabus cohort declaration must be shown to govern the cited course. Being earlier in the same PDF alone does not establish that link.
 A supplied report_claim_date declaration dates only the source claim, not an activity. Filesystem/upload timestamps cannot establish even that report claim date. If no applicable source
 period or report claim date exists, leave the period unresolved.
 Scope declarations are unverified source claims. If source institution identity is mismatched or
@@ -256,7 +258,7 @@ RETRIEVAL_TERMS = {
 }
 
 
-def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker=None, window_chars=None, diagnostics=None):
+def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker=None, window_chars=None, diagnostics=None, *, structural_seed=None):
     """Assertion-diverse exact windows. Bounded retrieval, never a recall guarantee."""
     if len({s['id'] for s in sources}) != len(sources):
         raise ValueError('Source IDs must be unique.')
@@ -334,10 +336,15 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
         used += added
         return True
 
-    # A dated syllabus declaration is a companion to course evidence. Use the
-    # nearest preceding declaration, since one PDF may contain several editions.
-    # The companion is charged at its exact length, leaving room for other assertions.
-    if any('syllabus' in query for query in queries) and max_chars >= 6 * size:
+    if structural_seed is not None:
+        # Seed before ordinary packing. Admit all exact spans or none.
+        bundle = structural_seed(ranked(set().union(*queries)))
+        if sum(len(row[2]) for row in bundle) <= max_chars:
+            for source, start, text, _ in bundle:
+                spans.append([source, start, start + len(text)])
+                used += len(text)
+    # Proximity retrieves a candidate declaration. It cannot prove applicability.
+    elif any('syllabus' in query for query in queries) and max_chars >= 6 * size:
         cohorts = defaultdict(list)
         for source in sources:
             if not source.get('document_id') or not source.get('page_number'):
@@ -370,9 +377,10 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
                 key=lambda c: (c[0]['page_number'], c[1], c[0]['id']),
                 default=None,
             )
-            if companion:
-                add(row)
-                add(companion)
+            if companion and len(row[2]) + len(companion[2]) <= max_chars:
+                for candidate_source, start, excerpt, _ in (row, companion):
+                    spans.append([candidate_source, start, start + len(excerpt)])
+                    used += len(excerpt)
                 break
 
     # Give each assertion a turn; later candidates on chosen text extend it rather than repeat it.

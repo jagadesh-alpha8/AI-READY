@@ -21,6 +21,7 @@ not guessed at, not silently treated as empty.
 """
 import logging
 import os
+import re
 
 import pymupdf
 import numpy as np
@@ -430,7 +431,15 @@ def _page_text(page):
         if len(rows) < 2 or max(len(r) for r in rows) < 2:
             continue  # one line or one column: not a table worth restructuring
         header = [_cell(c) for c in (table.header.names if table.header and table.header.names else [])]
-        if header and rows[0] == header:
+        # PyMuPDF can promote the first data row of a continuation to the
+        # header. Keep dated rows as data when both rows have a year in the
+        # first column and a non-date description in the second.
+        if (not any(header) or rows[0] == header) and all(
+            len(row) >= 2 and _table_year(row[0]) and row[1] and not _table_year(row[1])
+            for row in rows[:2]
+        ):
+            header = []
+        elif header and rows[0] == header:
             rows = rows[1:]
         elif not any(header):
             header, rows = rows[0], rows[1:]
@@ -453,3 +462,7 @@ def _page_text(page):
 
 def _cell(value):
     return ' '.join(str(value).split()) if value is not None else ''
+
+
+def _table_year(value):
+    return re.fullmatch(r'(?:19|20)\d{2}(?:\s*[-–/]\s*(?:\d{4}|\d{2}))?', value)
