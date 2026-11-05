@@ -256,7 +256,7 @@ RETRIEVAL_TERMS = {
 }
 
 
-def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker=None, window_chars=None, diagnostics=None):
+def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker=None, window_chars=None, diagnostics=None, *, structural_seed=None):
     """Assertion-diverse exact windows. Bounded retrieval, never a recall guarantee."""
     if len({s['id'] for s in sources}) != len(sources):
         raise ValueError('Source IDs must be unique.')
@@ -333,6 +333,14 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
         spans[:] = [s for s in spans if s is first or s not in joined]
         used += added
         return True
+
+    if structural_seed is not None:
+        # Seed before ordinary packing. Admit all exact spans or none.
+        bundle = structural_seed(ranked(set().union(*queries)))
+        if sum(len(row[2]) for row in bundle) <= max_chars:
+            for source, start, text, _ in bundle:
+                spans.append([source, start, start + len(text)])
+                used += len(text)
 
     # Give each assertion a turn; later candidates on chosen text extend it rather than repeat it.
     # Keep a bounded fallback even with no lexical hit: missing keywords are
