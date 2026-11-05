@@ -256,3 +256,40 @@ class IndependentCountTests(UnitTestCase):
             self.assertTrue(_independent_count(citation, source, '3000'))
         for citation in ('3000 students', 'faculty members.', '00 faculty members.'):
             self.assertFalse(_independent_count(citation, source, '3000'))
+
+
+class ReportTimestampPacketTests(TestCase):
+    def test_stripped_ssr_stamp_is_citable_at_its_frozen_offset_but_cannot_score_alone(self):
+        from .capability.citations import expand_citation
+        from .capability.engine import release
+        from .capability.evaluation import validate_decisions
+        from .capability.scope import context_scope, resolve
+        from .capability.storage import label_sources
+
+        sprint = Sprint.objects.create(institution=Institution.objects.create(name='College'))
+        document = Document.objects.create(sprint=sprint, document_type='naac_ssr')
+        stamp = '07-08-2024 09:21:39'
+        for n in range(1, 5):
+            DocumentPage.objects.create(document=document, page_number=n, text=(
+                f'Self Study Report of College\nPublished strategy document number {n} supports the plan.\n'
+                f'Page {n}/4 {stamp}'))
+        _, sources = evidence_snapshot(sprint)
+        self.assertTrue(all(s.get('report_timestamp') for s in sources))
+        scope = resolve(profile={'name': 'College'}, sources=label_sources(sources), requested={}, mode='default')
+        indicator = release()['indicators'][0]
+        context = select_context(indicator, sources, max_chars=500)
+        footer, = [s for s in context if s.get('evidence_role') == 'report_timestamp']
+        frozen = next(s for s in sources if s['id'] == footer['id'])
+        self.assertEqual(frozen['text'][footer['text_offset']:], stamp)
+        self.assertEqual(context_scope(scope, context)['source_declarations'][0]['kind'], 'report_claim_date')
+        cite = {'source_id': footer['id'], 'quote': stamp}
+        self.assertEqual(expand_citation(cite, [footer]), [cite])
+        self.assertEqual(expand_citation(cite, [frozen]), [cite])
+        response = {'conditions': [{'condition_id': indicator['conditions'][0]['id'], 'state': 'met',
+            'reason': 'Uses the timestamp', 'citations': [cite], 'scope_supported': True, 'period_supported': True}]}
+        for supplied in (context, sources):
+            result = next(r for r in validate_decisions(indicator, response, supplied)
+                          if r['condition_id'] == response['conditions'][0]['condition_id'])
+            self.assertEqual(result['cause'], 'scope_or_period_unsupported')
+            self.assertEqual(result['state'], 'unknown')
+        self.assertLessEqual(sum(len(s['text']) for s in context), 500)

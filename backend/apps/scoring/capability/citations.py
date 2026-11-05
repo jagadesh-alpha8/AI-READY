@@ -12,6 +12,10 @@ def expand_citation(citation, windows):
         raise ValueError('Invalid citation record.')
     quote = normalize(citation['quote'])
     texts = [normalize(w['text']) for w in windows]
+    if any((w.get('evidence_role') == 'report_timestamp' and quote == w['text'])
+           or (w.get('report_timestamp') and quote == w['text'][w['report_timestamp']['start']:])
+           for w in windows):
+        return [{'source_id': citation['source_id'], 'quote': quote}]
     if len(quote) < 20:
         raise ValueError('Quotation is too short.')
     if any(quote in text for text in texts):

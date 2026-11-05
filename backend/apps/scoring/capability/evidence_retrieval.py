@@ -205,12 +205,14 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
     else:
         rounds(comparison_route or 'lexical', max_chars)
     source_lookup = {s['id']: s for s in sources}
+    verified_editions = {s['id']: s['syllabus_edition'] for s in baseline if 'syllabus_edition' in s}
     selected = []
     for sid, spans in source_spans.items():
         source = source_lookup[sid]
         for start, end in spans:
             selected.append({**{k: v for k, v in source.items() if k != 'retrieval_hints'},
-                             'text': source['text'][start:end], 'text_offset': start})
+                             'text': source['text'][start:end], 'text_offset': start,
+                             **({'syllabus_edition': verified_editions[sid]} if sid in verified_editions else {})})
     if diagnostics is not None:
         diagnostics.update(passages=passages, requirements=requirements, selected=selected,
                            baseline_selected=baseline, baseline_chars=baseline_used,

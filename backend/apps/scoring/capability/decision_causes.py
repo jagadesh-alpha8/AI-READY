@@ -41,7 +41,7 @@ def for_issue(issue):
     """The cause for a validation issue raised by validate_decisions (or '' for none)."""
     if not issue:
         return ASSESSED
-    if issue == SCOPE_OR_PERIOD_ISSUE:
+    if issue in (SCOPE_OR_PERIOD_ISSUE, 'A report timestamp alone cannot support a finding.'):
         return SCOPE_OR_PERIOD_UNSUPPORTED
     if issue.startswith(REVIEW_GUARD_PREFIX) or issue.startswith('Citation reuses'):
         return REVIEW_GUARD
