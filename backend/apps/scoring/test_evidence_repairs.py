@@ -224,3 +224,35 @@ class RetrievalRepairTests(UnitTestCase):
         result = select_context(self.indicator, [source], max_chars=1800)
         self.assertIn('Annual register entry ZX17.', result[0]['text'])
         self.assertNotIn('retrieval_hints', result[0])
+
+
+class AnnexTableHeaderTests(UnitTestCase):
+    def test_caption_is_not_a_column_header_and_blank_year_row_is_preserved(self):
+        from apps.extraction.services.pdf_reader import _page_text
+
+        labels = ['Year', 'Type of Up-gradation / New Purchase', 'Remarks']
+        data = ['2023', 'Switch', 'Installed eight switches']
+        carry_over = ['', '', 'Nursing Department']
+        for header, rows, expected_header, expected_rows in [
+            (['Network', 'Infrastructure Up-gradation', ''], [labels, data], labels, [data]),
+            (carry_over, [carry_over, data], [], [carry_over, data]),
+        ]:
+            table = SimpleNamespace(header=SimpleNamespace(names=header), extract=lambda: rows,
+                                    bbox=(0, 0, 100, 100))
+            page = SimpleNamespace(get_text=lambda kind, **kwargs: [] if kind == 'blocks' else 'table',
+                                   find_tables=lambda: SimpleNamespace(tables=[table]))
+            with self.subTest(header=header):
+                _, tables = _page_text(page)
+                self.assertEqual(tables[0]['header'], expected_header)
+                self.assertEqual(tables[0]['rows'], expected_rows)
+
+
+class IndependentCountTests(UnitTestCase):
+    def test_exact_independent_clause_can_start_after_conjunction(self):
+        from .capability.reviewed_evidence import _independent_count
+
+        source = 'The institution has 3000 students and 100 faculty members.'
+        for citation in ('and 100 faculty members.', '100 faculty members.'):
+            self.assertTrue(_independent_count(citation, source, '3000'))
+        for citation in ('3000 students', 'faculty members.', '00 faculty members.'):
+            self.assertFalse(_independent_count(citation, source, '3000'))

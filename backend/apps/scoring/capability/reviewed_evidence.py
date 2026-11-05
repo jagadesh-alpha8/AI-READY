@@ -302,10 +302,12 @@ def citation_issue(citations, ledger, sources, state=None):
 
 def _independent_count(citation, claim_quote, guarded_value):
     """Allow a neighbouring count only when the guarded number is identifiable."""
-    if not re.match(r'(?:and|while|whereas)\s', citation, re.IGNORECASE):
-        return False
     preceding, found, _ = claim_quote.partition(citation)
     if not found or not preceding or not preceding[-1].isspace():
+        return False
+    conjunction = r'(?:and|while|whereas)'
+    if not (re.match(conjunction + r'\s', citation, re.IGNORECASE)
+            or re.search(r'\b' + conjunction + r'\s+$', preceding, re.IGNORECASE)):
         return False
     value = re.fullmatch(r'(?:more than |at least |over )?(\d+(?:,\d{3})*)',
                          str(guarded_value).strip(), re.IGNORECASE)
