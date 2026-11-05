@@ -106,6 +106,22 @@ class QueryProfileTests(SimpleTestCase):
             with self.assertRaises(SemanticRetrievalUnavailable):
                 ranker_for(policy)
 
+    @override_settings(CAPABILITY_EMBEDDING_MODEL='BAAI/bge-small-en-v1.5')
+    def test_hybrid_budget_is_versioned_and_legacy_policy_keeps_its_budget(self):
+        from .capability.semantic_retrieval import configured_policy
+
+        with (patch('importlib.metadata.version', return_value='test-version'),
+              patch('apps.scoring.capability.semantic_retrieval.artifact_hash', return_value='test-artifact'),
+              patch('apps.scoring.capability.semantic_retrieval._model', return_value=Model())):
+            current = configured_policy('hybrid')
+            legacy = {**current, 'allocation': 'protected-baseline-then-discovery-v1',
+                      'baseline_chars': 18000}
+            for policy, expected in ((current, (30000, 36000)), (legacy, (18000, 24000))):
+                ranker = ranker_for(policy)
+                self.assertEqual((ranker.baseline_chars, ranker.context_chars), expected)
+            with self.assertRaises(SemanticRetrievalUnavailable):
+                ranker_for({**legacy, 'baseline_chars': 30000})
+
     def test_profiled_lexical_ablation_never_requests_vectors(self):
         class NoEmbeddings(Model):
             def passage_embed(self, texts, **kwargs):

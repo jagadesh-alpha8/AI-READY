@@ -35,8 +35,13 @@ def _artifact_hash(root, signature):
 
 
 FUSION = 'protected-bm25-discovery-v4'
-BASELINE_CHARS = 18000
+BASELINE_CHARS = 30000
 EXPANSION_CHARS = 6000
+ALLOCATION = 'protected-baseline-then-discovery-v2'
+ALLOCATION_BUDGETS = {
+    'protected-baseline-then-discovery-v1': (18000, 6000),
+    ALLOCATION: (BASELINE_CHARS, EXPANSION_CHARS),
+}
 BGE_QUERY_INSTRUCTION = 'Represent this sentence for searching relevant passages: '
 
 
@@ -66,7 +71,7 @@ def configured_policy(mode=None):
             'query_policy': 'evidence-record-profiles-1', **profiles,
             'query_instruction': query_instruction(settings.CAPABILITY_EMBEDDING_MODEL),
             'lexical_weight': 2, 'semantic_weight': 1,
-            'allocation': 'protected-baseline-then-discovery-v1',
+            'allocation': ALLOCATION,
             'baseline_chars': BASELINE_CHARS, 'expansion_chars': EXPANSION_CHARS,
             'expansion_filter': 'instruction-heading-only-v2'}
 
@@ -206,6 +211,7 @@ def ranker_for(policy):
     from importlib.metadata import version
     from .query_profiles import profile_metadata
     profiles = profile_metadata()
+    budgets = (policy.get('baseline_chars'), policy.get('expansion_chars'))
     if (policy.get('mode') != 'hybrid' or policy.get('fusion') != FUSION
             or policy.get('representation') != 'token-source-spans-v1' or policy.get('target_tokens') != 240
             or policy.get('query_policy') != 'evidence-record-profiles-1'
@@ -213,11 +219,13 @@ def ranker_for(policy):
             or policy.get('query_instruction') != query_instruction(settings.CAPABILITY_EMBEDDING_MODEL)
             or policy.get('lexical_weight') != 2
             or policy.get('semantic_weight') != 1
-            or policy.get('allocation') != 'protected-baseline-then-discovery-v1'
-            or policy.get('baseline_chars') != BASELINE_CHARS or policy.get('expansion_chars') != EXPANSION_CHARS
+            or budgets != ALLOCATION_BUDGETS.get(policy.get('allocation'))
             or policy.get('expansion_filter') != 'instruction-heading-only-v2'
             or policy.get('model') != settings.CAPABILITY_EMBEDDING_MODEL
             or policy.get('fastembed_version') != version('fastembed')
             or policy.get('artifact_hash') != artifact_hash(settings.CAPABILITY_EMBEDDING_PATH)):
         raise SemanticRetrievalUnavailable('Frozen embedding model does not match the worker artifacts.')
-    return SemanticRanker(_model(settings.CAPABILITY_EMBEDDING_PATH, policy['model'], policy['artifact_hash']))
+    ranker = SemanticRanker(_model(settings.CAPABILITY_EMBEDDING_PATH, policy['model'], policy['artifact_hash']))
+    ranker.baseline_chars = budgets[0]
+    ranker.context_chars = sum(budgets)
+    return ranker

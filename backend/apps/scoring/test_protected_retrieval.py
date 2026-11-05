@@ -110,12 +110,12 @@ class ProtectedBaselineTests(SimpleTestCase):
 
     def test_default_hybrid_allowance_is_explicit_and_bm25_unchanged(self):
         ranker = synthetic_ranker(Model())
-        self.assertEqual((ranker.baseline_chars, ranker.context_chars), (18000, 24000))
+        self.assertEqual((ranker.baseline_chars, ranker.context_chars), (30000, 36000))
         sources = self.sources()
         baseline = select_context(indicator(), sources)
         selected = select_context(indicator(), sources, semantic_ranker=ranker)
         self.assert_preserved(baseline, selected)
-        self.assertLessEqual(sum(len(s['text']) for s in selected), 24000)
+        self.assertLessEqual(sum(len(s['text']) for s in selected), 36000)
 
     def test_narrative_inside_rendered_column_caption_is_embedded_and_retrieved(self):
         narrative = 'The academic board approved the learning outcomes. They are evaluated every semester.'
