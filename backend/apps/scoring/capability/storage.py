@@ -188,10 +188,20 @@ def publish(*, institution_id, run_id, evaluation, inference):
             prior = original[row['condition_id']]
             if row['state'] == 'unknown' and not row['validation_issue'] and prior.get('validation_issue'):
                 row['validation_issue'] = prior['validation_issue']
+            # The structured cause travels with the issue; a re-check of an already
+            # withheld row must not relabel a processing failure as an assessed unknown.
+            if (row['state'] == 'unknown' and row.get('cause') == 'assessed' and prior.get('validation_issue')
+                    and prior.get('cause') not in (None, 'assessed')):
+                row['cause'] = prior['cause']
+                for key in ('cause_detail', 'withheld_state'):
+                    if key in prior:
+                        row[key] = prior[key]
         validated.extend(checked)
     decisions = {r['condition_id']: r['state'] for r in validated}
     result = assess(decisions, rubric)
+    from .decision_causes import summary as cause_summary
     payload = {'records': validated, 'result': result, 'actions': actions_for(result),
+               'decision_causes': cause_summary(validated),
                'pathways': [roadmap(decisions, t['name'], rubric) for t in rubric['tiers']],
                'inference': inference, 'traces': evaluation.get('traces', []),
                'inputs_hash': run.inputs_hash, 'engine_version': result['engine_version']}

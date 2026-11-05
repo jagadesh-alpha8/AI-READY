@@ -400,9 +400,18 @@ def validate_decisions(indicator, response, sources, reviewed_evidence=None):
         if not issue and state != 'unknown':
             from .reviewed_evidence import citation_issue
             issue = citation_issue(citations, reviewed_evidence, sources, state=state)
+        from .decision_causes import SCOPE_OR_PERIOD_UNSUPPORTED, for_issue
+        cause = for_issue(issue)
+        if not issue and state == 'unknown':
+            scope_ok, period_ok = row.get('scope_supported'), row.get('period_supported')
+            if (scope_ok is True and period_ok is False) or (scope_ok is False and period_ok is True):
+                cause = SCOPE_OR_PERIOD_UNSUPPORTED
         result.append({'condition_id': cid, 'state': 'unknown' if issue else state,
                        'reason': issue or reason, 'citations': [] if issue else citations,
-                       'validation_issue': issue,
+                       'validation_issue': issue, 'cause': cause,
+                       # The proposal that validation withheld, so a scoped/dated evidence
+                       # request can say what was found. Never credited.
+                       **({'withheld_state': state if isinstance(state, str) and state in STATES else None} if issue else {}),
                        'scope_supported': not issue and len(candidates) == 1 and candidates[0].get('scope_supported') is True,
                        'period_supported': not issue and len(candidates) == 1 and candidates[0].get('period_supported') is True})
     return result
@@ -484,17 +493,19 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                 if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
                     raise
                 correction_audit = {'error': f'Correction failed ({type(exc).__name__}).'}
+        from .decision_causes import NOT_EVALUATED
         for record in validated:
             if record['condition_id'] in processing_errors:
                 reason = 'Model evaluation failed (' + processing_errors[record['condition_id']] + '). Capability is unknown.'
-                record.update(state='unknown', reason=reason, validation_issue=reason, citations=[], scope_supported=False, period_supported=False)
+                record.update(state='unknown', reason=reason, validation_issue=reason, citations=[], scope_supported=False, period_supported=False,
+                              cause=NOT_EVALUATED, cause_detail=processing_errors[record['condition_id']])
         if attempted:
             unavailable = issue.startswith('Model evaluation failed') or (processing_errors and
                 len(processing_errors) == len(indicator['conditions']))
             provider_failure_streak = provider_failure_streak + 1 if unavailable else 0
         if issue:
             for record in validated:
-                record.update(reason=issue, validation_issue=issue)
+                record.update(reason=issue, validation_issue=issue, cause=NOT_EVALUATED)
         records.extend(validated)
         traces.append({'indicator': indicator['code'], 'model_call_attempted': attempted, 'prompt_version': PROMPT_VERSION,
                        'retrieval_version': RETRIEVAL_VERSION, 'retrieval_policy': retrieval_policy or {'mode': 'bm25'},
