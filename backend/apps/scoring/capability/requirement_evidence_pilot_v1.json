@@ -1,0 +1,45 @@
+{
+  "AIQIF-C2.1.F1": {
+    "text": "The institution issued guidance that explicitly governs AI use for an identifiable group or activity, and the evidence establishes when it was in effect.",
+    "evidence_parts": {
+      "ai_guidance": "AI-use rules naming the covered group or activity, such as acceptable-use or academic integrity guidance.",
+      "effective_status": "An effective date, adoption notice or equivalent evidence that those rules took effect."
+    },
+    "evidence_link_rule": "Match the adoption or effective record to the same guidance version and covered group or activity. A dated draft or publication date alone is insufficient."
+  },
+  "AIQIF-C2.1.A1": {
+    "text": "A completed deployment or onboarding check records how a specific AI policy requirement was applied to an identified AI use.",
+    "evidence_parts": {
+      "policy_requirement": "The specific AI policy provision applied, in the policy text or recorded by the check.",
+      "ai_deployment": "The named AI system, use, deployment or onboarding activity.",
+      "completed_policy_check": "A dated completed checklist, review or sign-off describing the application of that provision."
+    },
+    "evidence_link_rule": "Connect the provision and the completed check to the same AI use and period. A blank checklist or generic IT sign-off is insufficient."
+  },
+  "AIQIF-C6.1.O1": {
+    "text": "A completed review compares measured performance of an identified computing service with a stated capacity or availability target for a compatible period.",
+    "evidence_parts": {
+      "service_measurement": "Measured capacity or availability for the named service, with units and period.",
+      "service_target": "A stated capacity or availability target, such as an SLA or capacity plan.",
+      "service_comparison": "A completed review recording the comparison, regardless of whether the service met the target."
+    },
+    "evidence_link_rule": "Match the service, metric, units and applicable period. A chart and an unrelated target are insufficient."
+  },
+  "AIQIF-C9.4.A2": {
+    "text": "A completed check records whether an identified corrective action was carried out.",
+    "evidence_parts": {
+      "corrective_action": "The specific corrective action, such as an action-register entry.",
+      "completion_check": "A dated verification, closure entry or follow-up minute recording whether the action was carried out."
+    },
+    "evidence_link_rule": "Match the completion check to the action by identifier or an unambiguous description. Assignment, a due date or a bare closed status does not establish a check."
+  },
+  "AIQIF-C9.4.O1": {
+    "text": "A completed follow-up review evaluates what happened after an identified change made in response to feedback.",
+    "evidence_parts": {
+      "feedback_finding": "The feedback finding that prompted the change.",
+      "implemented_change": "A record that the identified change was implemented in response to that feedback.",
+      "subsequent_result": "A completed follow-up review, measurement or survey evaluating the subsequent result."
+    },
+    "evidence_link_rule": "Match the initiative and change across records and establish feedback, implementation and subsequent review in order. A separate survey or implementation check alone is insufficient. A formal control group is optional."
+  }
+}
