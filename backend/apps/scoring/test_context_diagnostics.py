@@ -156,6 +156,40 @@ class MeasurementTests(SimpleTestCase):
         self.assertEqual(rebuilt['input_hash'], trace['input_hash'])
         self.assertEqual(rebuilt['schema'], recorder.requests[0]['schema'])
 
+    def test_gemini_omits_only_citation_enums_and_still_validates_quotes(self):
+        pages, _, ledger = fixture()
+
+        class GeminiRecorder(Recorder):
+            provider = 'gemini'
+
+            def extract_structured_data(self, **kwargs):
+                response = super().extract_structured_data(**kwargs)
+                for cid, source_id in zip(response['conditions'], ('outside-packet', pages[0]['id'])):
+                    response['conditions'][cid].update(
+                        state='met', scope_supported=True, period_supported=True,
+                        citations=[{'source_id': source_id, 'quote': 'This quotation was fabricated.'}],
+                    )
+                return response
+
+        recorder = GeminiRecorder()
+        item = indicator()
+        result = evaluate(pages, service=recorder, population='Institutional overview', reference_period='Source-specific',
+                          rubric={'indicators': [item]}, reviewed_evidence=ledger)
+        trace = result['traces'][0]
+        expected = diag.indicator_schema(item, trace['source_excerpts'])
+        for decision in expected['properties']['conditions']['properties'].values():
+            del decision['properties']['citations']['items']['properties']['source_id']['enum']
+        self.assertEqual(recorder.requests[0]['schema'], expected)
+        self.assertEqual(trace['schema_binding_version'], 'required-condition-properties-gemini-0.3')
+        self.assertEqual(len(recorder.requests), 2)
+        self.assertTrue(all(r['state'] == 'unknown' for r in result['records']))
+        for request in recorder.requests:
+            for decision in request['schema']['properties']['conditions']['properties'].values():
+                citation = decision['properties']['citations']['items']
+                self.assertEqual(citation['properties']['source_id'], {'type': 'string'})
+                self.assertIn('source_id', citation['required'])
+        self.assertEqual(sum(bool(r['validation_issue']) for r in result['records']), 2)
+
     def test_named_parts_account_for_every_user_message_character(self):
         _, context, ledger = fixture()
         request = request_for(context, ledger)

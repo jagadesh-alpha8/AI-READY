@@ -481,6 +481,11 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
         raise ValueError('Indicator budget must be an integer from 0 to 36.')
     from .semantic_retrieval import ranker_for
     semantic_ranker = ranker_for(retrieval_policy)
+    from apps.extraction.services.provider_features import direct_gemini
+    base_url = getattr(service, 'base_url', None)
+    gemini = getattr(service, 'provider', None) == 'gemini' or (
+        isinstance(base_url, str) and direct_gemini(base_url)
+    )
     from .request_recovery import request_with_split, recoverable_failure
     records, traces, calls, repair_calls = [], [], 0, 0
     provider_failure_streak = 0
@@ -489,7 +494,10 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
         response, issue = {}, ''
         recovery_audit, processing_errors = {}, {}
         attempted = False
-        schema = indicator_schema(indicator, context)
+        # Repeating the packet ID enum in each condition can exceed Gemini's
+        # schema complexity limit. validate_decisions still checks exact citations.
+        schema_sources = None if gemini else context
+        schema = indicator_schema(indicator, schema_sources)
         from .scope import context_scope
         from .reviewed_evidence import for_context
         attachment_audit = {}
@@ -513,7 +521,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                     return {**data, 'indicator': {**indicator, 'conditions': group}}
                 response, recovery_audit, processing_errors = request_with_split(service=service,
                     items=indicator['conditions'], identity=lambda item: item['id'], payload_for=payload_for,
-                    schema_for=lambda group: indicator_schema({**indicator, 'conditions': group}, context),
+                    schema_for=lambda group: indicator_schema({**indicator, 'conditions': group}, schema_sources),
                     rows_for=decision_rows, prompt=SYSTEM_PROMPT, name='capability_conditions', result_key='conditions')
             except Exception as exc:
                 if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
@@ -539,7 +547,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
             try:
                 correction = service.extract_structured_data(system_prompt=SYSTEM_PROMPT,
                     user_content=json.dumps(correction_payload, sort_keys=True),
-                    response_schema=indicator_schema(subset, context), schema_name='capability_conditions_correction')
+                    response_schema=indicator_schema(subset, schema_sources), schema_name='capability_conditions_correction')
                 repaired = validate_decisions(subset, correction, context, reviewed_evidence=reviewed_evidence, edition_sources=sources)
                 correction_audit = response_audit(subset, correction, repaired)
                 by_id = {r['condition_id']: r for r in validated}
@@ -570,7 +578,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                        'prompt_hash': hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
                        'schema_hash': hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest(),
                        'schema_template_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest(),
-                       'schema_binding_version': 'required-condition-properties-0.2',
+                       'schema_binding_version': ('required-condition-properties-gemini-0.3' if gemini
+                                                  else 'required-condition-properties-0.2'),
                        'response_recovery': recovery_audit, 'processing_errors': processing_errors,
                        'initial_response_audit': initial_audit, 'correction_response_audit': correction_audit,
                        'response_assembly': 'split_responses' if recovery_audit.get('split_attempted') else 'validated_initial_plus_correction' if correction_audit and 'error' not in correction_audit else 'initial_response',

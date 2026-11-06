@@ -158,13 +158,13 @@ def system_prompt_for(prompt_hash):
 
 
 def evaluation_request(indicator, context, *, ledger, scope, population, reference_period, compatible_endpoint=True,
-                       projection=for_context, system_prompt=SYSTEM_PROMPT):
+                       projection=for_context, system_prompt=SYSTEM_PROMPT, bind_source_ids=True):
     """The user payload, schema and instructions evaluate() builds for one indicator batch."""
     review = projection(ledger, context)
     scope_part = context_scope(scope, context)
     payload = json.dumps({'reviewed_evidence': review, 'indicator': indicator, 'population': population,
                           'reference_period': reference_period, 'scope': scope_part, 'sources': context}, sort_keys=True)
-    schema = indicator_schema(indicator, context)
+    schema = indicator_schema(indicator, context if bind_source_ids else None)
     system = system_prompt
     if compatible_endpoint:
         system += _JSON_INSTRUCTIONS.format(schema=json.dumps(schema, separators=(',', ':')))
@@ -429,7 +429,8 @@ def analyse(export, *, sources=None):
     calls = assessment.get('inference', {}).get('calls', [])
     reservations = [c for c in calls if c.get('kind') == 'request_reserved']
     output_tokens = assessment.get('inference', {}).get('settings', {}).get('output_tokens')
-    compatible = assessment.get('inference', {}).get('provider') == 'openai_compatible'
+    provider = assessment.get('inference', {}).get('provider')
+    compatible = provider == 'openai_compatible'
     rows, samples, attempted = [], [], 0
     claimed = set()
     for indicator, trace in zip(rubric['indicators'], assessment['traces']):
@@ -439,10 +440,12 @@ def analyse(export, *, sources=None):
         prompt = system_prompt_for(trace.get('prompt_hash'))
         common = dict(ledger=ledger, scope=scope, population=export['population'],
                       reference_period=export['reference_period'], compatible_endpoint=compatible)
+        bound_ids = trace.get('schema_binding_version') != 'required-condition-properties-gemini-0.3'
         request = evaluation_request(indicator, context, projection=projection_for(trace.get('prompt_version')),
+                                     bind_source_ids=bound_ids,
                                      system_prompt=prompt or SYSTEM_PROMPT, **common)
         limit, ledger_chars = gate(request, calls_before=attempted)
-        today = evaluation_request(indicator, context, **common)
+        today = evaluation_request(indicator, context, bind_source_ids=provider != 'gemini', **common)
         today_limit, today_chars = gate(today)
         row = {'indicator': indicator['code'], 'requirements': len(indicator['conditions']),
                'prompt_version': trace.get('prompt_version'), 'prompt_reproduced': prompt is not None,
@@ -471,7 +474,7 @@ def analyse(export, *, sources=None):
                 correction['correction'] = {
                     'instruction': 'Return every requested decision, including unknown, in the required conditions object. Re-evaluate only these requirements from the supplied exact passages; never invent a quotation or infer missing evidence.',
                     'issues': trace['initial_response_audit']['validation_issues']}
-                schema = indicator_schema(subset, context)
+                schema = indicator_schema(subset, context if bound_ids else None)
                 system = request['base_prompt'] + (_JSON_INSTRUCTIONS.format(schema=json.dumps(schema, separators=(',', ':'))) if compatible else '')
                 requests.append(('correction', system, json.dumps(correction, sort_keys=True), schema, 'capability_conditions_correction'))
         row['provider_requests'] = []
