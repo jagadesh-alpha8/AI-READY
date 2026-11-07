@@ -48,16 +48,18 @@ def policy(stage='assessment'):
     timeout = settings.CAPABILITY_REQUEST_TIMEOUT_SECONDS if timeout is None else timeout
     input_limit = settings.CAPABILITY_MAX_INPUT_TOKEN_BOUND
     duration = settings.CAPABILITY_MAX_DURATION_SECONDS
-    effort = settings.AI_GEMINI_REASONING_EFFORT
+    effort = getattr(settings, 'CAPABILITY_GEMINI_REASONING_EFFORT', None) or settings.AI_GEMINI_REASONING_EFFORT
+    passes = getattr(settings, 'CAPABILITY_AGREEMENT_PASSES', 1)
     if (type(calls) is not int or not 1 <= calls <= 108 or not cost.is_finite() or not 0 < cost <= 100
             or type(output) is not int or not 256 <= output <= 65536
             or type(timeout) is not int or not 1 <= timeout <= 600
             or type(input_limit) is not int or not 4096 <= input_limit <= 1000000
             or type(duration) is not int or not 1 <= duration <= 21600
-            or effort not in {'default', 'minimal', 'low', 'medium', 'high'}):
+            or effort not in {'default', 'minimal', 'low', 'medium', 'high'}
+            or passes not in (1, 2) or (passes == 2 and calls < 74)):
         raise AssessmentDisabled('Assessment budget configuration is invalid.')
     return {'request_policy_version': 'bounded-stage-1', 'stage': stage, 'input_token_bound_limit': input_limit, 'max_duration_seconds': duration,
-            'gemini_reasoning_effort': effort, 'response_recovery_requests': 2,
+            'gemini_reasoning_effort': effort, 'response_recovery_requests': 2, 'agreement_passes': passes,
             'prompt_version': PROMPT_VERSION, 'prompt_hash': digest(SYSTEM_PROMPT),
             'schema_hash': digest(DECISION_SCHEMA), 'max_http_calls': calls, 'max_cost_usd': str(cost), 'output_tokens': output,
             'timeout_seconds': timeout, 'sdk_retries': 0, 'transient_retries_per_indicator': 1,

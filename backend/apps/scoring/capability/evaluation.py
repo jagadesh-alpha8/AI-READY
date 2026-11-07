@@ -13,7 +13,7 @@ from copy import deepcopy
 
 from .engine import STATES, release
 
-PROMPT_VERSION = 'AIQIF-EVAL-0.18'
+PROMPT_VERSION = 'AIQIF-EVAL-0.19'
 RETRIEVAL_VERSION = 'AIQIF-source-passages-7'
 SYSTEM_PROMPT = """Assess institutional AI capability against the supplied experimental rubric.
 Keep reasons concise and cite the shortest exact passages that retain necessary scope and dates. Do not copy entire pages into the response.
@@ -70,6 +70,22 @@ set period_supported false and state unknown even when the substantive content f
 A syllabus cohort declaration must be shown to govern the cited course. Being earlier in the same PDF alone does not establish that link. A syllabus_edition record identifies a verified link to the programme cohort declaration and course roster. It does not establish approval.
 For C3.1.F1, cite recorded approval by a governing body naming the applicable edition, as well as substantive course content from that edition. A committee roster or a procedure for future revisions does not establish approval.
 For C6.1.F2, cite the specifications, the explicitly stated introductory AI workload, and evidence that the identified resources support it. Inventory and syllabus excerpts alone do not establish a link between them.
+A project's title or description can state its objective. A named project to develop a stated thing for a stated
+purpose (for example, developing an AI-assisted tool for a named diagnostic use) has a defined objective. Do not
+require a charter, milestones or boundaries unless the assertion itself asks for them.
+A plan table that gives each priority's target and its achieved value for an explicit plan period is a completed
+comparison of measured results with stated objectives for that period. It can satisfy a measured_result assertion
+that asks only for such a comparison (a plan, portfolio or adoption review) within that plan's scope. A target
+without an achieved value is not a comparison, and such a table never establishes service performance, competence,
+AI deployment or AI benefit.
+Authority over digital decisions needs a passage in which a named body decides, approves or oversees a matter that
+the passage itself identifies as digital, IT, data or AI. A list of bodies, their general academic or administrative
+remit, or a reporting hierarchy establishes neither that authority nor an escalation route for digital decisions.
+Security products, firewall changes, biometric attendance and general monitoring do not establish an access-control
+procedure. Corrective actions passed on to departments do not establish a follow-up register; credit one only when
+a record names the owner of each resulting action.
+When an assertion concerns an identified project, participant or service, cite the passage that names it together
+with the passage recording the decision or activity about it.
 A report_timestamp excerpt may be cited for the report's date. It dates only the source claim, not an activity, and cannot alone support a finding. Filesystem/upload timestamps cannot establish even that report claim date. If no applicable source
 period or report claim date exists, leave the period unresolved.
 Scope declarations are unverified source claims. If source institution identity is mismatched or
@@ -473,8 +489,55 @@ def validate_decisions(indicator, response, sources, reviewed_evidence=None, *, 
     return result
 
 
-def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False):
+AGREEMENT_REASON = ('Two independent assessments of the same evidence disagreed ({first} and {second}). '
+                    'Not credited; routed to review.')
+
+
+def _agreement_pass(indicator, validated, *, service, payload, schema_sources, context, sources, reviewed_evidence,
+                    strict_errors, recover_provider_errors):
+    """Assess the same frozen packet once more; a state the two passes do not share becomes unknown for review.
+
+    The second pass never adds credit: agreement keeps the first pass's validated record and citations. A second
+    response that fails validation for a requirement leaves the first record unchanged (no third request)."""
+    from .decision_causes import ASSESSOR_DISAGREEMENT
+    from .evidence_parts import APPROVAL_MISSING
+    from .request_recovery import request_with_split, recoverable_failure
+    data = json.loads(payload)
+    try:
+        second, recovery, errors = request_with_split(
+            service=service, items=indicator['conditions'], identity=lambda item: item['id'],
+            payload_for=lambda group: {**data, 'indicator': {**indicator, 'conditions': group}},
+            schema_for=lambda group: indicator_schema({**indicator, 'conditions': group}, schema_sources),
+            rows_for=decision_rows, prompt=SYSTEM_PROMPT, name='capability_conditions', result_key='conditions')
+    except Exception as exc:
+        if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
+            raise
+        return validated, {'passes': 2, 'error': f'Second pass failed ({type(exc).__name__}); first pass kept.'}
+    rechecked = validate_decisions(indicator, second, context, reviewed_evidence=reviewed_evidence, edition_sources=sources)
+    by_id = {r['condition_id']: r for r in rechecked}
+    disagreements, unusable = [], []
+    for record in validated:
+        other = by_id.get(record['condition_id'])
+        if other is None or record['condition_id'] in errors or (
+                other.get('validation_issue') and other['validation_issue'] != APPROVAL_MISSING):
+            unusable.append(record['condition_id'])
+            continue
+        if other['state'] != record['state']:
+            disagreements.append({'condition_id': record['condition_id'],
+                                  'first': {k: record.get(k) for k in ('state', 'reason', 'citations')},
+                                  'second': {k: other.get(k) for k in ('state', 'reason', 'citations')}})
+            record.update(state='unknown', citations=[], scope_supported=False, period_supported=False,
+                          reason=AGREEMENT_REASON.format(first=record['state'], second=other['state']),
+                          cause=ASSESSOR_DISAGREEMENT)
+    return validated, {'passes': 2, 'disagreements': disagreements, 'second_pass_unusable': unusable,
+                       'second_response_recovery': recovery,
+                       'second_response_audit': response_audit(indicator, second, rechecked)}
+
+
+def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1):
     rubric = rubric or release()
+    if agreement_passes not in (1, 2):
+        raise ValueError('agreement_passes must be 1 or 2.')
     if not population.strip() or not reference_period.strip():
         raise ValueError('Institutional population and reporting period are required.')
     if type(max_calls) is not int or not 0 <= max_calls <= 36:
@@ -565,6 +628,12 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                 reason = 'Model evaluation failed (' + processing_errors[record['condition_id']] + '). Capability is unknown.'
                 record.update(state='unknown', reason=reason, validation_issue=reason, citations=[], scope_supported=False, period_supported=False,
                               cause=NOT_EVALUATED, cause_detail=processing_errors[record['condition_id']])
+        agreement_audit = None
+        if agreement_passes > 1 and attempted and not issue and not processing_errors:
+            validated, agreement_audit = _agreement_pass(
+                indicator, validated, service=service, payload=payload, schema_sources=schema_sources,
+                context=context, sources=sources, reviewed_evidence=reviewed_evidence,
+                strict_errors=strict_errors, recover_provider_errors=recover_provider_errors)
         if attempted:
             unavailable = issue.startswith('Model evaluation failed') or (processing_errors and
                 len(processing_errors) == len(indicator['conditions']))
@@ -584,6 +653,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                        'initial_response_audit': initial_audit, 'correction_response_audit': correction_audit,
                        'response_assembly': 'split_responses' if recovery_audit.get('split_attempted') else 'validated_initial_plus_correction' if correction_audit and 'error' not in correction_audit else 'initial_response',
                        'response_audit': response_audit(indicator, response, validated),
+                       'agreement_audit': agreement_audit,
                        'input_hash': hashlib.sha256(payload.encode()).hexdigest(),
                        'source_ids': [s['id'] for s in context],
                        'source_excerpts': context,

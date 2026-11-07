@@ -774,6 +774,12 @@ CAPABILITY_ASSESSMENT_ENABLED = os.getenv('CAPABILITY_ASSESSMENT_ENABLED', 'fals
 CAPABILITY_MAX_HTTP_CALLS = int(os.getenv('CAPABILITY_MAX_HTTP_CALLS', '72'))
 CAPABILITY_MAX_COST_USD = os.getenv('CAPABILITY_MAX_COST_USD', '2.00')
 CAPABILITY_OUTPUT_TOKENS = int(os.getenv('CAPABILITY_OUTPUT_TOKENS', '12000'))
+# Accuracy: 2 assesses every indicator packet twice and leaves any requirement the two passes disagree on unknown,
+# routed to review (never credited). Doubles assessment requests: raise CAPABILITY_MAX_HTTP_CALLS (about 90) and
+# CAPABILITY_MAX_COST_USD accordingly. Assessment cost does not grow with corpus size (packets are bounded).
+CAPABILITY_AGREEMENT_PASSES = int(os.getenv('CAPABILITY_AGREEMENT_PASSES', '1'))
+# Gemini thinking level for the assessor only; empty = AI_GEMINI_REASONING_EFFORT (which extraction keeps using).
+CAPABILITY_GEMINI_REASONING_EFFORT = os.getenv('CAPABILITY_GEMINI_REASONING_EFFORT', '').strip() or None
 CAPABILITY_REQUEST_TIMEOUT_SECONDS = int(os.getenv('CAPABILITY_REQUEST_TIMEOUT_SECONDS', str(AI_REQUEST_TIMEOUT_SECONDS)))
 # Optional stage overrides; selected values are frozen when an execution starts.
 CAPABILITY_ASSESSMENT_OUTPUT_TOKENS = int(os.environ['CAPABILITY_ASSESSMENT_OUTPUT_TOKENS']) if os.getenv('CAPABILITY_ASSESSMENT_OUTPUT_TOKENS') else None
