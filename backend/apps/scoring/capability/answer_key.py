@@ -95,6 +95,34 @@ def instability(results):
             for cid, (expected, states) in sorted(by_condition.items()) if len(set(states)) > 1]
 
 
+def consensus(results):
+    """Score the agreement of repeated runs: a decision stands only when every run agrees; any disagreement
+    becomes a review question instead of a decision. Reports how many unanimous decisions are still wrong
+    (the dangerous errors, which repetition does not catch) and how many conditions go to review."""
+    rows = {}
+    for result in results:
+        for row in result['conditions']:
+            entry = rows.setdefault(row['condition_id'], {'expected': row['expected'], 'statuses': set(), 'states': []})
+            entry['statuses'].add(row['status'])
+            entry['states'].append(row['got'])
+    counts, wrong, review = Counter(), [], []
+    for cid, entry in sorted(rows.items()):
+        if not entry['statuses'] & set(SCORED) or 'out_of_scope' in entry['statuses']:
+            continue
+        if len(set(entry['states'])) > 1:
+            counts['review'] += 1
+            review.append({'condition_id': cid, 'expected': entry['expected'], 'states': entry['states']})
+        elif entry['states'][0] == entry['expected']:
+            counts['correct'] += 1
+        else:
+            counts['wrong'] += 1
+            wrong.append({'condition_id': cid, 'expected': entry['expected'], 'got': entry['states'][0]})
+    decided = counts['correct'] + counts['wrong']
+    return {'runs': len(results), 'correct': counts['correct'], 'wrong_unanimous': counts['wrong'],
+            'to_review': counts['review'], 'accuracy_of_decided': round(counts['correct'] / decided, 4) if decided else None,
+            'wrong': wrong, 'review': review}
+
+
 def _first_failure(expected, trace, page_id, frozen, outcome):
     if outcome != 'missed_credit' or not expected.get('evidence'):
         return {'stage': 'judgment', 'detail': 'The decision is not supported by the answer key evidence.'

@@ -9,7 +9,7 @@ from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase
 
 from apps.institutions.models import Institution
-from apps.scoring.capability.answer_key import check, instability
+from apps.scoring.capability.answer_key import check, consensus, instability
 from apps.scoring.capability.storage import digest
 from apps.scoring.models import CapabilityRun
 from apps.sprints.models import Sprint
@@ -89,6 +89,17 @@ class AnswerKeyCheckTests(SimpleTestCase):
         self.assertEqual(instability([a, b]), [
             {'condition_id': 'AIQIF-C7.1.F1', 'expected': 'met', 'states': ['met', 'unknown']}])
 
+    def test_agreement_routes_disagreements_to_review_and_keeps_unanimous_errors_visible(self):
+        a = check(export({**self.states, 'AIQIF-C7.1.F2': 'met'}, citations={
+            'AIQIF-C7.1.F2': [{'source_id': 'p3', 'quote': 'x'}]}), KEY)
+        b = check(export({**self.states, 'AIQIF-C7.1.F1': 'unknown', 'AIQIF-C7.1.F2': 'met'}, citations={
+            'AIQIF-C7.1.F2': [{'source_id': 'p3', 'quote': 'x'}]}), KEY)
+        agreed = consensus([a, b])
+        self.assertEqual((agreed['correct'], agreed['wrong_unanimous'], agreed['to_review']), (1, 1, 1))
+        self.assertEqual(agreed['wrong'], [{'condition_id': 'AIQIF-C7.1.F2', 'expected': 'unknown', 'got': 'met'}])
+        self.assertEqual(agreed['review'][0]['condition_id'], 'AIQIF-C7.1.F1')
+        self.assertEqual(agreed['accuracy_of_decided'], 0.5)
+
     def test_command_scores_several_exports_and_reports_instability(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = []
@@ -103,6 +114,7 @@ class AnswerKeyCheckTests(SimpleTestCase):
         self.assertIn('accuracy 3/3 = 1.0', out.getvalue())
         self.assertIn('accuracy 2/3', out.getvalue())
         self.assertIn('Unstable across the 2 runs (1 conditions)', out.getvalue())
+        self.assertIn('correct 2, unanimous but wrong 0, to review 1', out.getvalue())
 
 
 class ExportRunSourcesTests(TestCase):

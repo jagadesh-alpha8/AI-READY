@@ -9,7 +9,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.scoring.capability.answer_key import SCORED, check, instability
+from apps.scoring.capability.answer_key import SCORED, check, consensus, instability
 
 
 class Command(BaseCommand):
@@ -34,7 +34,8 @@ class Command(BaseCommand):
             repository = Path(settings.BASE_DIR).resolve().parent
             if target.exists() or repository in target.parents:
                 raise CommandError('Choose a new output path outside the repository.')
-            target.write_text(json.dumps({'results': results, 'unstable_conditions': flips}, indent=1))
+            target.write_text(json.dumps({'results': results, 'unstable_conditions': flips,
+                                          'agreement': consensus(results) if len(results) > 1 else None}, indent=1))
         out = self.stdout.write
         for result in results:
             out(f"\nrun {result['run_id']} | key {result['answer_key']} | document {result['document']}")
@@ -52,3 +53,10 @@ class Command(BaseCommand):
             out(f'\nUnstable across the {len(results)} runs ({len(flips)} conditions):')
             for flip in flips:
                 out(f"  {flip['condition_id']:16} expected {flip['expected']:8} states {' / '.join(flip['states'])}")
+        if len(results) > 1:
+            agreed = consensus(results)
+            out(f"\nAgreement of {agreed['runs']} runs (disagreements go to review): correct {agreed['correct']}, "
+                f"unanimous but wrong {agreed['wrong_unanimous']}, to review {agreed['to_review']}, "
+                f"accuracy of decided {agreed['accuracy_of_decided']}")
+            for item in agreed['wrong']:
+                out(f"  unanimous but wrong: {item['condition_id']:16} expected {item['expected']:8} got {item['got']}")
