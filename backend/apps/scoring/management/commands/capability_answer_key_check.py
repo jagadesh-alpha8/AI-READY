@@ -42,6 +42,9 @@ class Command(BaseCommand):
             out(f"accuracy {result['correct']}/{result['scored_conditions']} = {result['accuracy']} | "
                 f"outcomes {result['outcomes']} | first failed stage {result['first_failed_stage']} | "
                 f"not scored {result['not_scored']}")
+            if result['correct_but_citation_off_key_evidence']:
+                out(f"  correct state but no citation on a key evidence page: "
+                    f"{', '.join(result['correct_but_citation_off_key_evidence'])}")
             for row in result['conditions']:
                 if row['outcome'] != 'correct' and row['status'] in SCORED:
                     out(f"  {row['condition_id']:16} {row['outcome']:19} expected {row['expected']:8} got {row['got']:8} "

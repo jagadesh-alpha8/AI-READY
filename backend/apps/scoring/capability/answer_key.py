@@ -51,6 +51,10 @@ def check(export, key):
                'cited_other_documents': sum(c.get('source_id') not in number for c in (record or {}).get('citations', []))}
         if got == want:
             row['outcome'] = 'correct'
+            key_pages = {e['page'] for e in expected.get('evidence', [])}
+            if want == 'met' and key_pages and not key_pages & set(row['cited_pages']):
+                # Right state, but no citation on a page the key accepts: credit for the wrong reason.
+                row['citation_off_key_evidence'] = True
         elif got == 'met' and not row['cited_pages'] and row['cited_other_documents']:
             # The key covers one document; a credit resting only on another document is outside its scope.
             row['outcome'], row['status'] = 'other_document_credit', 'out_of_scope'
@@ -79,6 +83,8 @@ def check(export, key):
         'outcomes': dict(outcomes),
         'first_failed_stage': dict(stages),
         'not_scored': dict(Counter(r['status'] for r in rows if r['status'] not in SCORED)),
+        'correct_but_citation_off_key_evidence': sorted(r['condition_id'] for r in rows
+                                                        if r.get('citation_off_key_evidence') and r['status'] in SCORED),
         'conditions': rows,
         'limitations': 'Accuracy is only as good as the answer key. Excerpt checks use the excerpts saved in the '
                        'export; a quotation split across two windows counts as missing from the packet.',

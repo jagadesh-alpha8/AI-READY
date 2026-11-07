@@ -79,6 +79,12 @@ class AnswerKeyCheckTests(SimpleTestCase):
         self.assertEqual((result['scored_conditions'], result['not_scored']),
                          (2, {'out_of_scope': 1, 'needs_decision': 1}))
 
+    def test_correct_credit_citing_no_key_evidence_page_is_flagged(self):
+        cited = lambda page: check(export(self.states, citations={
+            'AIQIF-C7.1.F1': [{'source_id': page, 'quote': 'q'}]}), KEY)
+        self.assertEqual(cited('p3')['correct_but_citation_off_key_evidence'], ['AIQIF-C7.1.F1'])
+        self.assertEqual(cited('p2')['correct_but_citation_off_key_evidence'], [])
+
     def test_key_document_must_match_exactly_one_export_document(self):
         with self.assertRaises(ValueError):
             check(export(self.states), {**KEY, 'document': {'match': '.pdf'}})
