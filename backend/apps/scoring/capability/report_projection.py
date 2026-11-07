@@ -218,8 +218,10 @@ def build_report_view(report, actions):
         'priority_note': ('Foundation goals reuse verified strengths and separate evidence checks from conditional development. Timing is illustrative; no achievement is awarded.' if foundation else 'These starting points use the earliest unresolved capability steps, with contradictions first within each step. Institutional benefit, cost and feasibility have not been assessed. All areas remain available in the detail.'),
         'evidence_summary': (f"{diagnostics['source_documents']} source "
                              f"{'document' if diagnostics['source_documents'] == 1 else 'documents'} and "
-                             f"{diagnostics['readable_pages']} readable "
-                             f"{'page' if diagnostics['readable_pages'] == 1 else 'pages'} were included in this saved assessment."),
+                             f"{diagnostics['readable_pages']}"
+                             + (f" of {diagnostics['readable_pages'] + diagnostics['unreadable_or_unavailable_pages']} expected"
+                                if diagnostics.get('unreadable_or_unavailable_pages') else ' readable')
+                             + f" {'page' if diagnostics['readable_pages'] == 1 else 'pages'} were included in this saved assessment."),
         'limitations': [
             'Missing or unreadable records do not establish that an activity is absent.',
             'Findings apply only to the recorded population and period; historical evidence does not establish current performance.',
