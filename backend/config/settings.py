@@ -832,6 +832,8 @@ CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '
 # Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
 # every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.
 CAPABILITY_EMBEDDING_CACHE_DIR = os.getenv('CAPABILITY_EMBEDDING_CACHE_DIR', '')
+# CPU threads for the local encoder (was fixed at 2). Vectors are identical whatever the thread count.
+CAPABILITY_EMBEDDING_THREADS = max(1, int(os.getenv('CAPABILITY_EMBEDDING_THREADS', '2')))
 # New runs store each frozen page text once in the shared FrozenText table and keep only its sha256 in the run's
 # inputs (storage.frozen_sources reads it back and refuses altered text). Older runs are read as before.
 CAPABILITY_FROZEN_TEXT_STORE = os.getenv('CAPABILITY_FROZEN_TEXT_STORE', 'false').strip().lower() in ('1', 'true', 'yes', 'on')

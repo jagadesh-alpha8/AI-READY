@@ -91,14 +91,14 @@ def configured_policy(mode=None):
 
 
 @lru_cache(maxsize=2)
-def _model(path, model_name, fingerprint):
+def _model(path, model_name, fingerprint, threads=2):
     import os
     os.environ['ORT_DISABLE_TELEMETRY'] = '1'
     import onnxruntime
     onnxruntime.disable_telemetry_events()
     from fastembed import TextEmbedding
     return TextEmbedding(model_name=model_name, specific_model_path=path,
-                         local_files_only=True, threads=2, providers=['CPUExecutionProvider'])
+                         local_files_only=True, threads=threads, providers=['CPUExecutionProvider'])
 
 
 class EmbeddingCache:
@@ -286,7 +286,8 @@ def ranker_for(policy):
             or policy.get('artifact_hash') != artifact_hash(settings.CAPABILITY_EMBEDDING_PATH)):
         raise SemanticRetrievalUnavailable('Frozen embedding model does not match the worker artifacts.')
     cache_dir = getattr(settings, 'CAPABILITY_EMBEDDING_CACHE_DIR', '')
-    ranker = SemanticRanker(_model(settings.CAPABILITY_EMBEDDING_PATH, policy['model'], policy['artifact_hash']),
+    threads = getattr(settings, 'CAPABILITY_EMBEDDING_THREADS', 2)
+    ranker = SemanticRanker(_model(settings.CAPABILITY_EMBEDDING_PATH, policy['model'], policy['artifact_hash'], threads),
                             cache=EmbeddingCache(cache_dir, policy['artifact_hash']) if cache_dir else None)
     ranker.baseline_chars = budgets[0]
     ranker.context_chars = sum(budgets)
