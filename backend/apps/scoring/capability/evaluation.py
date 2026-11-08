@@ -620,7 +620,7 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
         return request_with_split(service=service, items=indicator['conditions'], identity=lambda item: item['id'],
             payload_for=lambda group: {**data, 'indicator': part_judgment.indicator_with_parts(indicator, group)},
             schema_for=lambda group: part_judgment.schema(indicator, group), rows_for=part_judgment.rows,
-            prompt=part_judgment.PART_PROMPT, name='capability_parts', result_key='conditions')
+            prompt=part_judgment.prompt(), name='capability_parts', result_key='conditions')
 
     response, recovery_audit, processing_errors = {}, {}, {}
     if attempted:

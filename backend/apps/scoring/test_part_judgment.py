@@ -168,7 +168,9 @@ class EvaluateTests(SimpleTestCase):
         service = Parts()
         result = evaluate([SOURCE], service=service, population='All programmes', reference_period='2025-26',
                           judgment='parts', agreement_passes=2)
-        self.assertEqual(service.prompts, {pj.PART_PROMPT})
+        self.assertEqual(service.prompts, {pj.prompt()})
+        self.assertIn('Never resurrect rejected or superseded', pj.prompt())
+        self.assertIn('Scope declarations are unverified source claims.', pj.prompt())
         records = {r['condition_id']: r for r in result['records']}
         self.assertEqual(records['AIQIF-C1.1.F2']['state'], 'met')
         self.assertEqual(records['AIQIF-C1.1.F2']['credit'], 1.0)

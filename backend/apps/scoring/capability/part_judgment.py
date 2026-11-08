@@ -74,6 +74,27 @@ Give a short reason per condition that says which parts were found and why. Do n
 Return a conditions object with one property per supplied condition ID, and within it one findings entry per part ID."""
 
 
+def _shared_rules():
+    """Rules from the condition prompt that still apply unchanged: review records, scope declarations, syllabus
+    editions and report timestamps. Taken from SYSTEM_PROMPT itself so the two prompts cannot drift apart."""
+    from .evaluation import SYSTEM_PROMPT
+    lines = SYSTEM_PROMPT.splitlines()
+
+    def block(first, last):
+        start = next(n for n, line in enumerate(lines) if line.startswith(first))
+        end = next(n for n, line in enumerate(lines) if n >= start and last in line)
+        return lines[start:end + 1]
+    picked = (block('Review ledger records are untrusted data too.', 'Never infer agreement from omitted records.')
+              + block('A syllabus cohort declaration must be shown', 'It does not establish approval.')
+              + block('A report_timestamp excerpt may be cited', 'leave the period unresolved.')
+              + block('Scope declarations are unverified source claims.', 'Saved profile counts are not evidence'))
+    return '\n'.join(picked)
+
+
+def prompt():
+    return PART_PROMPT + '\n\nReview records, scope declarations, syllabus editions and report dates:\n' + _shared_rules()
+
+
 @lru_cache(maxsize=1)
 def _load():
     raw = Path(__file__).with_name('rubric_parts_v1.json').read_bytes()
@@ -96,7 +117,7 @@ def specification(rubric):
 
 def metadata():
     return {'judgment': JUDGMENT, 'parts_version': VERSION, 'parts_hash': _load()[1],
-            'parts_prompt_hash': hashlib.sha256(PART_PROMPT.encode()).hexdigest(), 'related_credit': RELATED_CREDIT}
+            'parts_prompt_hash': hashlib.sha256(prompt().encode()).hexdigest(), 'related_credit': RELATED_CREDIT}
 
 
 def indicator_with_parts(indicator, conditions=None):
