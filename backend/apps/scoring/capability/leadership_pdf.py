@@ -52,11 +52,14 @@ def render_leadership_pdf(view):
     pdf.section('Overall capability result')
     panel_y = pdf.get_y()
     pdf.set_fill_color(235, 245, 245)
-    pdf.rect(16, panel_y, pdf.w - 32, 36, style='F')
+    panel_height = 52 if view.get('documented_score') else 36
+    pdf.rect(16, panel_y, pdf.w - 32, panel_height, style='F')
     pdf.set_y(panel_y + 3)
     pdf.display(view['score'], 24)
     pdf.paragraph(view['score_explanation'])
-    pdf.set_y(max(pdf.get_y(), panel_y + 39))
+    if view.get('documented_score'):
+        pdf.paragraph(view['documented_score'] + '. ' + view['documented_explanation'])
+    pdf.set_y(max(pdf.get_y(), panel_y + panel_height + 3))
     pdf.paragraph(view['evidence_summary'])
     pdf.paragraph(view['methodology_notice'])
     foundation = view.get('foundation_plan')
@@ -76,7 +79,7 @@ def render_leadership_pdf(view):
     pdf.section('Results across nine readiness areas')
     for pillar in view['pillars']:
         pdf.paragraph(pillar['title'], heading=True)
-        pdf.paragraph(pillar['score'])
+        pdf.paragraph(pillar['score'] + (f" ({pillar['documented_score'].lower()})" if pillar.get('documented_score') else ''))
         candidates = [a for a in view['priorities'] if any(c['key'] == a['area_key'] for c in pillar['areas'])]
         if candidates:
             pdf.paragraph('Start with: ' + candidates[0]['title'])
@@ -123,7 +126,8 @@ def render_leadership_pdf(view):
             pdf.set_font('Evidence', 'B', 9)
             pdf.set_text_color(30, 55, 65)
             pdf.multi_cell(0, 4.5, area['title'], new_x='LMARGIN', new_y='NEXT')
-            pdf.paragraph(area['score'] + '. ' + area['finding'])
+            pdf.paragraph(area['score'] + (f" ({area['documented_score'].lower()})" if area.get('documented_score') else '')
+                          + '. ' + area['finding'])
             # Stage status remains explicit without turning unknown into a negative.
             stage = next((s for s in area['stages'] if s['status'] != 'Demonstrated'), None)
             pdf.paragraph((f"Next check: {stage['title'].lower()} - {stage['status'].lower()}. "

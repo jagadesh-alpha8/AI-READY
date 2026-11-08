@@ -37,6 +37,11 @@ class ExecutionDeadlineExceeded(BudgetExceeded):
     pass
 
 
+def _parts_metadata():
+    from .part_judgment import metadata
+    return {k: v for k, v in metadata().items() if k != 'judgment'}
+
+
 def policy(stage='assessment'):
     from .evaluation import PROMPT_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA
     calls = settings.CAPABILITY_MAX_HTTP_CALLS
@@ -49,6 +54,7 @@ def policy(stage='assessment'):
     input_limit = settings.CAPABILITY_MAX_INPUT_TOKEN_BOUND
     effort = getattr(settings, 'CAPABILITY_GEMINI_REASONING_EFFORT', None) or settings.AI_GEMINI_REASONING_EFFORT
     passes = getattr(settings, 'CAPABILITY_AGREEMENT_PASSES', 1)
+    judgment = getattr(settings, 'CAPABILITY_JUDGMENT', 'conditions')
     concurrency = getattr(settings, 'CAPABILITY_INDICATOR_CONCURRENCY', 1)
     if stage == 'assessment' and effort == 'high':
         # Measured on Gemini 3 at high effort: 60-160 s per request and up to ~23k reasoning tokens.
@@ -67,10 +73,12 @@ def policy(stage='assessment'):
             or type(duration) is not int or not 1 <= duration <= 21600
             or effort not in {'default', 'minimal', 'low', 'medium', 'high'}
             or passes not in (1, 2) or (passes == 2 and calls < 74)
-            or type(concurrency) is not int or not 1 <= concurrency <= 8):
+            or type(concurrency) is not int or not 1 <= concurrency <= 8
+            or judgment not in ('conditions', 'parts')):
         raise AssessmentDisabled('Assessment budget configuration is invalid.')
     return {'request_policy_version': 'bounded-stage-1', 'stage': stage, 'input_token_bound_limit': input_limit, 'max_duration_seconds': duration,
             'gemini_reasoning_effort': effort, 'response_recovery_requests': 2, 'agreement_passes': passes, 'indicator_concurrency': concurrency,
+            **({'judgment': 'parts', **_parts_metadata()} if judgment == 'parts' else {}),
             'prompt_version': PROMPT_VERSION, 'prompt_hash': digest(SYSTEM_PROMPT),
             'schema_hash': digest(DECISION_SCHEMA), 'max_http_calls': calls, 'max_cost_usd': str(cost), 'output_tokens': output,
             'timeout_seconds': timeout, 'sdk_retries': 0, 'transient_retries_per_indicator': 1,

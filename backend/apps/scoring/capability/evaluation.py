@@ -605,9 +605,75 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
             'review_context': review_context, 'payload': payload, 'issue': issue}
 
 
+def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, strict_errors, recover_provider_errors,
+                 agreement_passes):
+    """Part-level judgment (part_judgment.py): request(s) with split, part validation, part-level agreement.
+
+    No correction call: a part whose quotation fails validation counts as not found."""
+    from . import part_judgment
+    from .request_recovery import request_with_split, recoverable_failure
+    from .decision_causes import NOT_EVALUATED
+    indicator, context, payload = job['indicator'], job['context'], job['payload']
+    data = json.loads(payload)
+
+    def one_pass():
+        return request_with_split(service=service, items=indicator['conditions'], identity=lambda item: item['id'],
+            payload_for=lambda group: {**data, 'indicator': part_judgment.indicator_with_parts(indicator, group)},
+            schema_for=lambda group: part_judgment.schema(indicator, group), rows_for=part_judgment.rows,
+            prompt=part_judgment.PART_PROMPT, name='capability_parts', result_key='conditions')
+
+    response, recovery_audit, processing_errors = {}, {}, {}
+    if attempted:
+        try:
+            response, recovery_audit, processing_errors = one_pass()
+        except Exception as exc:
+            if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
+                raise
+            issue = f'Model evaluation failed ({type(exc).__name__}). Capability is unknown.'
+    validated = part_judgment.judge_rows(indicator, part_judgment.rows(response), context,
+                                         reviewed_evidence=reviewed_evidence, sources=sources)
+    for record in validated:
+        if record['condition_id'] in processing_errors:
+            reason = 'Model evaluation failed (' + processing_errors[record['condition_id']] + '). Capability is unknown.'
+            record.update(state='unknown', reason=reason, validation_issue=reason, citations=[], scope_supported=False,
+                          period_supported=False, cause=NOT_EVALUATED, cause_detail=processing_errors[record['condition_id']],
+                          credit=0.0)
+    agreement_audit = None
+    if agreement_passes > 1 and attempted and not issue and not processing_errors:
+        try:
+            second, second_recovery, second_errors = one_pass()
+        except Exception as exc:
+            if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
+                raise
+            second, second_recovery, second_errors = None, {}, {'*': type(exc).__name__}
+        if second is None or second_errors:
+            agreement_audit = {'passes': 2, 'error': 'Second pass failed or was split incompletely; first pass kept.',
+                               'second_response_recovery': second_recovery}
+        else:
+            rechecked = part_judgment.judge_rows(indicator, part_judgment.rows(second), context,
+                                                 reviewed_evidence=reviewed_evidence, sources=sources)
+            validated, disagreements = part_judgment.combine(validated, rechecked)
+            agreement_audit = {'passes': 2, 'disagreements': disagreements, 'second_response_recovery': second_recovery,
+                               'second_response_audit': response_audit(indicator, {'conditions': rechecked}, rechecked)}
+    unavailable = attempted and (issue.startswith('Model evaluation failed') or bool(
+        processing_errors and len(processing_errors) == len(indicator['conditions'])))
+    if issue:
+        for record in validated:
+            record.update(reason=issue, validation_issue=issue, cause=NOT_EVALUATED, state='unknown', credit=0.0,
+                          citations=[])
+    return {'validated': validated, 'response': {'conditions': part_judgment.rows(response)},
+            'recovery_audit': recovery_audit, 'processing_errors': processing_errors, 'initial_audit': None,
+            'correction_audit': None, 'agreement_audit': agreement_audit, 'issue': issue, 'attempted': attempted,
+            'repaired_call': False, 'unavailable': unavailable}
+
+
 def _judge(job, attempted, issue, *, service, sources, reviewed_evidence, strict_errors, recover_provider_errors,
-           agreement_passes):
+           agreement_passes, judgment='conditions'):
     """Model work for one prepared indicator: request (with split), validation, one correction, agreement pass."""
+    if judgment == 'parts':
+        return _judge_parts(job, attempted, issue, service=service, sources=sources, reviewed_evidence=reviewed_evidence,
+                            strict_errors=strict_errors, recover_provider_errors=recover_provider_errors,
+                            agreement_passes=agreement_passes)
     from .request_recovery import request_with_split, recoverable_failure
     from .evidence_parts import APPROVAL_MISSING
     from .decision_causes import NOT_EVALUATED
@@ -709,7 +775,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources):
             'error': outcome['issue']}
 
 
-def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1):
+def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions'):
     """Assess every indicator. Packets are built in rubric order; with concurrency > 1 the model work for up to
     that many indicators runs at once. Records, traces and on_indicator calls stay in rubric order, so results
     do not depend on concurrency; only request numbering in the billing ledger interleaves."""
@@ -729,8 +795,13 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     gemini = getattr(service, 'provider', None) == 'gemini' or (
         isinstance(base_url, str) and direct_gemini(base_url)
     )
+    if judgment not in ('conditions', 'parts'):
+        raise ValueError('judgment must be conditions or parts.')
+    if judgment == 'parts':
+        from . import part_judgment
+        part_judgment.specification(rubric)
     judge = dict(service=service, sources=sources, reviewed_evidence=reviewed_evidence, strict_errors=strict_errors,
-                 recover_provider_errors=recover_provider_errors, agreement_passes=agreement_passes)
+                 recover_provider_errors=recover_provider_errors, agreement_passes=agreement_passes, judgment=judgment)
     structure = None
     frozen_policy = retrieval_policy or {}
     if frozen_policy.get('structure') is not None or frozen_policy.get('deduplicate') is not None:
@@ -770,7 +841,11 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
 
     def emit(job, outcome):
         records.extend(outcome['validated'])
-        traces.append(_trace(job, outcome, gemini=gemini, retrieval_policy=retrieval_policy, sources=sources))
+        trace = _trace(job, outcome, gemini=gemini, retrieval_policy=retrieval_policy, sources=sources)
+        if judgment == 'parts':
+            from . import part_judgment
+            trace['judgment'] = part_judgment.metadata()
+        traces.append(trace)
         if on_indicator is not None:
             on_indicator(outcome['validated'], traces[-1])
 

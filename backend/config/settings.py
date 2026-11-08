@@ -780,6 +780,10 @@ CAPABILITY_OUTPUT_TOKENS = int(os.getenv('CAPABILITY_OUTPUT_TOKENS', '12000'))
 # With CAPABILITY_GEMINI_REASONING_EFFORT=high, Gemini 3 requests take 60-160 s and can use ~23k thinking tokens; unless
 # set explicitly, the policy then uses a 300 s request timeout and 48000 output tokens for the assessment stage.
 CAPABILITY_AGREEMENT_PASSES = int(os.getenv('CAPABILITY_AGREEMENT_PASSES', '1'))
+# 'conditions' (default): the model states each condition. 'parts': the model reports evidence per part of each
+# condition (rubric_parts_v1.json) and code computes the state and a credit fraction (part_judgment.py), which adds
+# a documented-readiness score beside the strict range. Frozen into each run's execution policy.
+CAPABILITY_JUDGMENT = os.getenv('CAPABILITY_JUDGMENT', 'conditions').strip().lower()
 # Gemini thinking level for the assessor only; empty = AI_GEMINI_REASONING_EFFORT (which extraction keeps using).
 CAPABILITY_GEMINI_REASONING_EFFORT = os.getenv('CAPABILITY_GEMINI_REASONING_EFFORT', '').strip() or None
 CAPABILITY_REQUEST_TIMEOUT_SECONDS = int(os.getenv('CAPABILITY_REQUEST_TIMEOUT_SECONDS', str(AI_REQUEST_TIMEOUT_SECONDS)))

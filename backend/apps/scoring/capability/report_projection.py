@@ -101,8 +101,20 @@ def advisory_state(recommendation):
             'explanation': explanations.get(status, 'The selected version contains basic guidance; bespoke institutional advice is not established.')}
 
 
+DOCUMENTED_NOTE = ('Documented readiness counts what the supplied documents evidence, including partial credit for '
+                   'conditions with some of their parts evidenced or with related but weaker evidence. The range '
+                   'above counts only fully demonstrated conditions.')
+
+
+def documented_label(value):
+    return f'Documented readiness {value:g} / 100'
+
+
 def build_report_view(report, actions):
     result = report['assessment']['result']
+    documented = result.get('documented')
+    documented_areas = {i['code']: i['score'] for i in documented['indicators']} if documented else {}
+    documented_pillars = {p['code']: p['score'] for p in documented['pillars']} if documented else {}
     decisions = {r['condition_id']: r for r in report['assessment']['records']}
     action_by_id = {a['id']: a for a in actions}
     state = advisory_state(report.get('recommendation'))
@@ -128,6 +140,7 @@ def build_report_view(report, actions):
         area = {'key': indicator['code'], 'pillar_key': indicator['pillar'], 'title': title,
                 'score': score_label(indicator['lower'], indicator['upper']),
                 'score_explanation': bounds_note(indicator['lower'], indicator['upper']),
+                **({'documented_score': documented_label(documented_areas[indicator['code']])} if documented else {}),
                 'finding': finding(counts), 'stages': stage_results,
                 'next_step': 'Maintain the demonstrated capability and retain supporting evidence.'}
         if first:
@@ -165,6 +178,7 @@ def build_report_view(report, actions):
         pillars.append({'title': PILLARS.get(pillar['code'], 'Assessment area'),
                         'score': score_label(pillar['lower'], pillar['upper']),
                         'score_explanation': bounds_note(pillar['lower'], pillar['upper']),
+                        **({'documented_score': documented_label(documented_pillars[pillar['code']])} if documented else {}),
                         'areas': children, 'next_step': followup['next_step'] if followup else
                         'Maintain demonstrated capability and review new evidence.'})
     counts = Counter(row['state'] for row in decisions.values())
@@ -212,6 +226,8 @@ def build_report_view(report, actions):
         'methodology_notice': ('This report uses independent assertion credit under the experimental readiness method. Source-period findings do not prove current operation. Achievement levels are not calibrated.' if result.get('aggregation') == 'independent_conditions' else 'This report uses its recorded historical capability method. Start a new assessment to use the revised readiness method. Experimental results do not constitute accreditation.'),
         'score': score_label(result['lower'], result['upper']),
         'score_explanation': bounds_note(result['lower'], result['upper']),
+        **({'documented_score': documented_label(documented['overall']), 'documented_explanation': DOCUMENTED_NOTE}
+           if documented else {}),
         'assessment_state': 'Evidence review required — readiness baseline not established' if foundation and foundation['baseline']['status'] == 'needs_evidence_review' else 'Provisional findings' if counts['unknown'] or counts['conflicting'] or needs_scope_review else 'Assessment completed',
         'advisory': state, 'pillars': pillars, 'areas': areas, 'priorities': priorities, 'foundation_plan': foundation,
         'followup_count': len(followups),

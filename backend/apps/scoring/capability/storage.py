@@ -206,8 +206,20 @@ def publish(*, institution_id, run_id, evaluation, inference):
                 if 'cause_detail' in prior:
                     row['cause_detail'] = prior['cause_detail']
         validated.extend(checked)
+    if any('credit' in r for r in rows):
+        # Part judgment: keep each row's part findings and credit through revalidation. A row that revalidation
+        # newly withholds keeps no credit.
+        original = {r['condition_id']: r for r in rows}
+        for row in validated:
+            prior = original[row['condition_id']]
+            newly_withheld = row.get('validation_issue') and not prior.get('validation_issue')
+            row['parts'] = prior.get('parts', [])
+            row['credit'] = 0.0 if newly_withheld else prior.get('credit', 0.0)
     decisions = {r['condition_id']: r['state'] for r in validated}
     result = assess(decisions, rubric)
+    if any('credit' in r for r in validated):
+        from .engine import documented
+        result['documented'] = documented({r['condition_id']: r['credit'] for r in validated}, rubric)
     from .decision_causes import summary as cause_summary
     payload = {'records': validated, 'result': result, 'actions': actions_for(result),
                'decision_causes': cause_summary(validated),

@@ -1,0 +1,3593 @@
+{
+ "version": "AIQIF-PARTS-1",
+ "rubric_version": "AIQIF-CAP-0.3",
+ "conditions": {
+  "AIQIF-C1.1.F1": {
+   "assertion": "An approved institutional plan identifies a digital or AI priority.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An institutional plan that the institution has adopted exists: a named strategic, perspective, development, digital or AI plan that is approved, adopted, or stated to be deployed or implemented by the institution",
+     "related": "a draft, proposal, vision or mission statement"
+    },
+    {
+     "id": "p2",
+     "full": "The plan names a digital, IT, e-governance, data or AI priority, goal or initiative",
+     "related": "the plan names a general modernisation or infrastructure goal that includes technology only implicitly"
+    }
+   ],
+   "not_enough": [
+    "A mission statement alone",
+    "A list of completed ICT facilities that is not part of a plan"
+   ]
+  },
+  "AIQIF-C1.1.F2": {
+   "assertion": "A responsible owner is assigned to that priority.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A digital, IT, e-governance, data or AI priority is identified (the priority from F1 or another stated one)",
+     "related": "a general plan priority that includes technology only implicitly"
+    },
+    {
+     "id": "p2",
+     "full": "A named role, office, committee or person is assigned responsibility for that priority",
+     "related": "a body is said to implement or monitor the plan in general, without linking it to the digital priority"
+    }
+   ],
+   "not_enough": [
+    "An organisation chart or list of committees with no stated responsibility for the priority"
+   ]
+  },
+  "AIQIF-C1.1.A1": {
+   "assertion": "Delivery records demonstrate an AI initiative operating in an identified institutional function.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An artificial intelligence or machine learning initiative is named or described",
+     "related": "the same kind of record for a digital, IT or data service that is not AI"
+    },
+    {
+     "id": "p2",
+     "full": "A delivery record shows it operating (in use, deployed, running, delivered), not only planned",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p3",
+     "full": "It operates in an identified institutional function or department",
+     "related": "the function is implied but not named"
+    }
+   ],
+   "not_enough": [
+    "An AI course or student project (that is teaching, not an institutional initiative)",
+    "Funding or incubation of an external startup"
+   ]
+  },
+  "AIQIF-C1.1.A2": {
+   "assertion": "A portfolio review records a decision about an AI initiative.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A review covers a set (portfolio) of the institution's initiatives that includes an artificial intelligence or machine learning initiative",
+     "related": "a review of digital or IT initiatives with no AI initiative"
+    },
+    {
+     "id": "p2",
+     "full": "The review records a decision (continue, expand, change, stop, fund) about that AI initiative",
+     "related": "the review records findings or discussion without a decision"
+    }
+   ],
+   "not_enough": [
+    "A plan table of generic targets",
+    "A startup funding decision"
+   ]
+  },
+  "AIQIF-C1.1.O1": {
+   "assertion": "A completed portfolio review compares a measured result with its stated objective.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed portfolio review concerns an artificial intelligence or machine learning initiative",
+     "related": "a completed review of a digital initiative that is not AI"
+    },
+    {
+     "id": "p2",
+     "full": "The review reports a measured result of the initiative",
+     "related": "the review reports activity counts or qualitative impressions only"
+    },
+    {
+     "id": "p3",
+     "full": "The measured result is compared with the initiative's stated objective or target",
+     "related": "an objective is stated elsewhere but not compared"
+    }
+   ],
+   "not_enough": [
+    "ICT or institutional KPIs that are not about an AI initiative"
+   ]
+  },
+  "AIQIF-C1.1.O2": {
+   "assertion": "A subsequent record evaluates the effect of a portfolio decision.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A portfolio decision about an artificial intelligence or machine learning initiative is recorded",
+     "related": "a decision about a digital initiative that is not AI"
+    },
+    {
+     "id": "p2",
+     "full": "A later record evaluates the effect of that decision with a stated result",
+     "related": "a later record mentions the decision's implementation without evaluating its effect"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.2.F1": {
+   "assertion": "An institutional body has authority over relevant digital or AI decisions.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A named institutional body exists (council, board, committee, cell, IQAC)",
+     "related": "a role or office rather than a body"
+    },
+    {
+     "id": "p2",
+     "full": "The passage states the body decides, approves or oversees a matter it identifies as digital, IT, data, e-governance or AI",
+     "related": "the body has a general administrative or academic remit that could include digital matters"
+    }
+   ],
+   "not_enough": [
+    "A list of bodies or a reporting hierarchy without a digital matter"
+   ]
+  },
+  "AIQIF-C1.2.F2": {
+   "assertion": "An escalation route is defined for those decisions.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Digital, IT, data or AI decisions are identified as the subject",
+     "related": "general decisions or grievances that are not about digital matters"
+    },
+    {
+     "id": "p2",
+     "full": "An escalation or referral route (who refers to whom, and to which higher body) is defined for those decisions",
+     "related": "a general grievance or reporting route not specific to digital decisions"
+    }
+   ],
+   "not_enough": [
+    "An organogram alone"
+   ]
+  },
+  "AIQIF-C1.2.A1": {
+   "assertion": "A dated governance decision concerns an actual AI use.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A governance body made a decision (resolution, approval, minute)",
+     "related": "a body discussed or reviewed a matter without a recorded decision"
+    },
+    {
+     "id": "p2",
+     "full": "The decision is dated",
+     "related": "the decision is undated or only the report date is available"
+    },
+    {
+     "id": "p3",
+     "full": "The decision concerns an actual artificial intelligence or machine learning use",
+     "related": "the decision concerns a digital or IT system that is not AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.2.A2": {
+   "assertion": "An assigned governance action has a recorded follow-up.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A governance action is assigned to a named owner",
+     "related": "an action is listed without an owner"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up record reports on that action (status, completion, outcome)",
+     "related": "a stated recurring practice (e.g. \"every semester\") without an identified, dated instance"
+    }
+   ],
+   "not_enough": [
+    "Corrective actions passed on to departments without a named owner and a follow-up record"
+   ]
+  },
+  "AIQIF-C1.2.O1": {
+   "assertion": "A review evaluates governance performance using an identified incident or delivery result.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A review evaluates how governance performed",
+     "related": "a review of institutional performance in general"
+    },
+    {
+     "id": "p2",
+     "full": "The review uses an identified incident or delivery result as its basis",
+     "related": "the review cites general outcomes without an identified incident or result"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.2.O2": {
+   "assertion": "A follow-up checks implementation of a revised governance rule.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A governance rule was revised",
+     "related": "a rule exists without a recorded revision"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up checks whether the revised rule was implemented",
+     "related": "a stated recurring practice (e.g. \"every semester\") without an identified, dated instance"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.3.F1": {
+   "assertion": "A resource commitment supports relevant computing, teaching or innovation capacity.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A resource commitment exists: allocated funds, budget, grant, expenditure or dedicated resources",
+     "related": "a statement of support with no resource named"
+    },
+    {
+     "id": "p2",
+     "full": "The commitment supports computing, teaching or innovation capacity relevant to digital or AI work",
+     "related": "the commitment supports facilities in general"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.3.F2": {
+   "assertion": "An allocation decision identifies the intended beneficiary group or function.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An allocation decision is recorded (funds or resources allocated, earmarked, sanctioned or spent)",
+     "related": "resources are mentioned without an allocation"
+    },
+    {
+     "id": "p2",
+     "full": "The allocation identifies its intended beneficiary group or function (e.g. students, faculty, a lab, an innovation centre)",
+     "related": "the beneficiary is implied but not stated"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.3.A1": {
+   "assertion": "A review compares committed resources with an identified delivery need.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A review examines committed resources",
+     "related": "a budget or expenditure table without review"
+    },
+    {
+     "id": "p2",
+     "full": "The review compares them with an identified delivery need or demand",
+     "related": "the need is stated separately but not compared"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.3.A2": {
+   "assertion": "A resource decision responds to a documented capacity shortfall.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A capacity shortfall is documented (insufficient computers, lab space, bandwidth, staff, funding)",
+     "related": "a general statement that facilities are being improved"
+    },
+    {
+     "id": "p2",
+     "full": "A resource decision responds to that shortfall",
+     "related": "resources were added without stating they respond to the shortfall"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.3.O1": {
+   "assertion": "A completed review compares a stated resource cost with a measured benefit or capacity result.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review states a resource cost",
+     "related": "costs appear only in an expenditure table without a review"
+    },
+    {
+     "id": "p2",
+     "full": "The review reports a measured benefit or capacity result",
+     "related": "benefits are described qualitatively"
+    },
+    {
+     "id": "p3",
+     "full": "Cost and result are compared",
+     "related": "both appear but are not compared"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.3.O2": {
+   "assertion": "A follow-up evaluates the effect of a resource allocation change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A change in resource allocation is recorded",
+     "related": "allocations differ across years without a recorded change decision"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates the effect of that change",
+     "related": "the change is described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.4.F1": {
+   "assertion": "A process exists for introducing a digital service or teaching tool.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A process exists for introducing something: defined steps, a periodic assessment that decides additions, an approval route, or a role charged with introducing it",
+     "related": "a single past introduction without a stated process"
+    },
+    {
+     "id": "p2",
+     "full": "What it introduces is a digital service or teaching tool (ERP module, LMS, e-content, ICT tool, online system)",
+     "related": "the process concerns teaching or administrative changes in general"
+    }
+   ],
+   "not_enough": [
+    "A list of tools already in use"
+   ]
+  },
+  "AIQIF-C1.4.F2": {
+   "assertion": "Users have an identified support contact for that service or tool.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A digital service or teaching tool is identified",
+     "related": "digital services in general"
+    },
+    {
+     "id": "p2",
+     "full": "Users are told whom to contact for help with it (helpdesk, named office, coordinator, support email)",
+     "related": "a team maintains or repairs it, but the passage does not say users contact it"
+    }
+   ],
+   "not_enough": [
+    "A maintenance team or lab staff that the passage does not present as a user contact"
+   ]
+  },
+  "AIQIF-C1.4.A1": {
+   "assertion": "Usage records demonstrate repeated use within an identified deployment scope.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Usage records (counts, logs, statistics, frequency) are quoted",
+     "related": "use is asserted without records"
+    },
+    {
+     "id": "p2",
+     "full": "The use is repeated (several sessions, users or periods)",
+     "related": "a single use"
+    },
+    {
+     "id": "p3",
+     "full": "The deployment scope is identified (programme, department, user group)",
+     "related": "scope unclear"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.4.A2": {
+   "assertion": "A support action responds to a documented adoption barrier.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An adoption barrier is documented (users not using, lacking skills, access problems)",
+     "related": "a general training need"
+    },
+    {
+     "id": "p2",
+     "full": "A support action responds to it (training, guide, help)",
+     "related": "support is provided without linking to a barrier"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C1.4.O1": {
+   "assertion": "A completed review compares adoption with an explicit target.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review measures adoption",
+     "related": "adoption is asserted"
+    },
+    {
+     "id": "p2",
+     "full": "Adoption is compared with an explicit target",
+     "related": "a target exists but is not compared"
+    }
+   ],
+   "not_enough": [
+    "Generic institutional KPIs not about adoption of the service or tool"
+   ]
+  },
+  "AIQIF-C1.4.O2": {
+   "assertion": "A follow-up evaluates an adoption or user-experience change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An adoption or user-experience change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "the change is described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.1.F1": {
+   "assertion": "Effective institutional guidance explicitly addresses AI use.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Institutional guidance or policy is in effect (adopted, published, effective)",
+     "related": "draft or proposed guidance"
+    },
+    {
+     "id": "p2",
+     "full": "The guidance explicitly addresses artificial intelligence or machine learning use",
+     "related": "guidance on IT use, academic integrity or ethics that does not mention AI"
+    }
+   ],
+   "not_enough": [
+    "A general code of conduct that does not mention AI"
+   ]
+  },
+  "AIQIF-C2.1.F2": {
+   "assertion": "The guidance defines a restriction on unsafe or inappropriate AI use.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Guidance concerning artificial intelligence or machine learning use exists",
+     "related": "IT or academic integrity guidance that does not mention AI"
+    },
+    {
+     "id": "p2",
+     "full": "It defines a restriction on unsafe or inappropriate AI use (prohibited uses, limits, conditions)",
+     "related": "it states principles without a restriction"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.1.A1": {
+   "assertion": "A deployment or onboarding check applies an AI policy requirement.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A deployment or onboarding check for an artificial intelligence or machine learning use is recorded",
+     "related": "a check for a digital system that is not AI"
+    },
+    {
+     "id": "p2",
+     "full": "The check applies a requirement from the AI policy",
+     "related": "the check applies general IT requirements"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.1.A2": {
+   "assertion": "A sampled-use review records the disposition of a policy exception.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A review samples actual AI use",
+     "related": "a review of policy compliance in general"
+    },
+    {
+     "id": "p2",
+     "full": "It records how a policy exception was handled",
+     "related": "exceptions are mentioned without disposition"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.1.O1": {
+   "assertion": "A policy review evaluates an identified incident or assurance finding.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A policy review is completed",
+     "related": "the policy is described"
+    },
+    {
+     "id": "p2",
+     "full": "It evaluates an identified AI incident or assurance finding",
+     "related": "a general review without an incident or finding"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.1.O2": {
+   "assertion": "A follow-up tests the effect of a revised responsible-use control.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A responsible-use control was revised",
+     "related": "a control exists without revision"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up tests the effect of the revision",
+     "related": "the revision is described without a test"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.2.F1": {
+   "assertion": "Responsibility for personal or sensitive institutional data is assigned.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Personal or sensitive institutional data is identified (student records, personnel data, exam data)",
+     "related": "data in general"
+    },
+    {
+     "id": "p2",
+     "full": "Responsibility for it is assigned to a named role, office or body",
+     "related": "data is said to be handled securely without a responsible party"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.2.F2": {
+   "assertion": "An access-control procedure covers the relevant information system.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An information system is identified (ERP, exam system, LMS, network)",
+     "related": "IT systems in general"
+    },
+    {
+     "id": "p2",
+     "full": "An access-control procedure covers it (role-based access, user accounts and permissions, authorisation steps)",
+     "related": "security products or measures without an access procedure"
+    }
+   ],
+   "not_enough": [
+    "Firewalls, antivirus, CCTV, biometric attendance or general monitoring"
+   ]
+  },
+  "AIQIF-C2.2.A1": {
+   "assertion": "A risk assessment covers an identified deployed use.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A risk assessment is recorded",
+     "related": "risks are mentioned in general"
+    },
+    {
+     "id": "p2",
+     "full": "It covers an identified deployed artificial intelligence or machine learning use",
+     "related": "it covers a digital system that is not AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.2.A2": {
+   "assertion": "A recorded risk decision responds to an identified access or supplier change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An access or supplier change is identified",
+     "related": "changes in general"
+    },
+    {
+     "id": "p2",
+     "full": "A recorded risk decision responds to it",
+     "related": "the change is described without a risk decision"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.2.O1": {
+   "assertion": "A completed risk review compares exposure with a stated risk criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed risk review reports exposure",
+     "related": "risks are listed without measurement"
+    },
+    {
+     "id": "p2",
+     "full": "Exposure is compared with a stated risk criterion",
+     "related": "a criterion exists but is not compared"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.2.O2": {
+   "assertion": "A follow-up tests the effectiveness of an implemented remediation.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A remediation was implemented",
+     "related": "a remediation is planned"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up tests its effectiveness",
+     "related": "the remediation is described without a test"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.3.F1": {
+   "assertion": "An inventory identifies the AI services in use within the assessed scope.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An inventory, register or list of services in use is quoted",
+     "related": "services are mentioned individually"
+    },
+    {
+     "id": "p2",
+     "full": "The inventory identifies artificial intelligence or machine learning services",
+     "related": "the inventory lists digital services that are not AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.3.F2": {
+   "assertion": "A responsible owner is assigned to each inventoried service.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An inventory of artificial intelligence or machine learning services exists",
+     "related": "an inventory of digital services"
+    },
+    {
+     "id": "p2",
+     "full": "Each inventoried service has a named owner",
+     "related": "some services have owners or a general IT owner is named"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.3.A1": {
+   "assertion": "An evaluation record concerns an actual AI service release or change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An actual artificial intelligence or machine learning service release or change is identified",
+     "related": "a digital service change that is not AI"
+    },
+    {
+     "id": "p2",
+     "full": "An evaluation record concerns it (test results, acceptance, validation)",
+     "related": "the release is described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.3.A2": {
+   "assertion": "A change record identifies data provenance for that service.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A change record for an artificial intelligence or machine learning service exists",
+     "related": "a change record for a digital service"
+    },
+    {
+     "id": "p2",
+     "full": "It identifies the data provenance (source of training or input data)",
+     "related": "data is mentioned without its source"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.3.O1": {
+   "assertion": "A monitored release compares operational behaviour with a stated evaluation criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An artificial intelligence or machine learning release is monitored in operation",
+     "related": "monitoring of digital systems in general"
+    },
+    {
+     "id": "p2",
+     "full": "Operational behaviour is compared with a stated evaluation criterion",
+     "related": "behaviour is described without a criterion"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.3.O2": {
+   "assertion": "A rollback or retirement exercise records its observed result.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A rollback or retirement exercise for an artificial intelligence or machine learning service took place",
+     "related": "one for a digital service"
+    },
+    {
+     "id": "p2",
+     "full": "The observed result is recorded",
+     "related": "the exercise is described without its result"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.4.F1": {
+   "assertion": "A human intervention route is defined for an identified consequential AI use.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A consequential artificial intelligence or machine learning use is identified (one that affects people's grades, admission, employment, health or rights)",
+     "related": "an AI use without stated consequence"
+    },
+    {
+     "id": "p2",
+     "full": "A human intervention route (review, override, approval by a person) is defined for it",
+     "related": "human review exists for decisions in general"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.4.F2": {
+   "assertion": "Affected users have an error or appeal reporting route for that use.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A consequential artificial intelligence or machine learning use is identified",
+     "related": "an AI use without stated consequence"
+    },
+    {
+     "id": "p2",
+     "full": "Affected users have a route to report errors or appeal that use",
+     "related": "a general grievance or appeal mechanism not linked to the AI use"
+    }
+   ],
+   "not_enough": [
+    "A general examination revaluation or grievance mechanism without an AI use"
+   ]
+  },
+  "AIQIF-C2.4.A1": {
+   "assertion": "A record demonstrates human oversight of an actual consequential AI use.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An actual consequential artificial intelligence or machine learning use is identified",
+     "related": "an AI use without stated consequence"
+    },
+    {
+     "id": "p2",
+     "full": "A record shows a person overseeing it (reviews, approvals, overrides)",
+     "related": "oversight is stated as policy without a record"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.4.A2": {
+   "assertion": "An assurance test examines a specified failure or fairness risk in that use.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An assurance test of a consequential artificial intelligence or machine learning use is recorded",
+     "related": "testing of a digital system"
+    },
+    {
+     "id": "p2",
+     "full": "The test examines a specified failure or fairness risk",
+     "related": "a general test"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.4.O1": {
+   "assertion": "A reviewer separate from the delivery decision evaluates an identified harm or oversight result.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A reviewer separate from the delivery decision evaluates the AI use",
+     "related": "a review by those who delivered it"
+    },
+    {
+     "id": "p2",
+     "full": "The evaluation concerns an identified harm or oversight result",
+     "related": "a general evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C2.4.O2": {
+   "assertion": "A follow-up tests the effect of an oversight change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An oversight change was made",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up tests its effect",
+     "related": "the change is described without a test"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.1.F1": {
+   "assertion": "An approved syllabus includes substantive AI or ML content.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A governing body (Board of Studies, Academic Council) records approval of a syllabus or curriculum, naming the applicable edition or programme",
+     "related": "the syllabus is presented as the institution's current syllabus without an approval record"
+    },
+    {
+     "id": "p2",
+     "full": "That syllabus includes substantive artificial intelligence or machine learning content (course or units with AI/ML topics)",
+     "related": "AI appears only in a course title or a single listed topic"
+    }
+   ],
+   "not_enough": [
+    "A committee roster or a procedure for future revisions"
+   ]
+  },
+  "AIQIF-C3.1.F2": {
+   "assertion": "An explicit learning objective addresses that AI or ML content.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A syllabus or course with artificial intelligence or machine learning content is identified",
+     "related": "a course title alone"
+    },
+    {
+     "id": "p2",
+     "full": "An explicit learning objective or course outcome addresses that AI/ML content",
+     "related": "outcomes are stated for the course but do not mention the AI content"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.1.A1": {
+   "assertion": "Teaching records demonstrate delivery of substantive AI content to an identified programme group.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Teaching records (timetables, attendance, delivery reports, course completion) are quoted",
+     "related": "the course is listed as offered"
+    },
+    {
+     "id": "p2",
+     "full": "The delivered content is substantive artificial intelligence or machine learning content",
+     "related": "the delivered course is digital or computing without AI"
+    },
+    {
+     "id": "p3",
+     "full": "The programme group taught is identified",
+     "related": "the group is implied"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.1.A2": {
+   "assertion": "Assessed student work demonstrates attainment against an explicit AI learning criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Assessed student work is recorded (marks, graded projects, exam results)",
+     "related": "assessment is described in general"
+    },
+    {
+     "id": "p2",
+     "full": "It is assessed against an explicit artificial intelligence or machine learning learning criterion",
+     "related": "work in an AI course without a stated criterion"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.1.O1": {
+   "assertion": "A completed course review compares AI learning attainment with a stated objective.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed course review concerns artificial intelligence or machine learning learning",
+     "related": "a general course or programme review"
+    },
+    {
+     "id": "p2",
+     "full": "Attainment is compared with a stated objective (outcome attainment against target)",
+     "related": "attainment is reported without comparison"
+    }
+   ],
+   "not_enough": [
+    "Programme-wide pass percentages"
+   ]
+  },
+  "AIQIF-C3.1.O2": {
+   "assertion": "A subsequent assessment evaluates the effect of a curriculum revision.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A curriculum revision is recorded for AI content",
+     "related": "a general syllabus revision"
+    },
+    {
+     "id": "p2",
+     "full": "A subsequent assessment evaluates its effect",
+     "related": "the revision is described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.2.F1": {
+   "assertion": "An AI literacy learning offer is defined.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A learning offer (course, module, value-added course, workshop series) is defined with its content",
+     "related": "an offer is named without content"
+    },
+    {
+     "id": "p2",
+     "full": "Its content is AI literacy (what artificial intelligence or machine learning is, how to use it, its limits)",
+     "related": "digital or computer literacy without AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.2.F2": {
+   "assertion": "A delivery route makes that offer available to an identified learner group.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An AI literacy offer is identified",
+     "related": "a digital literacy offer"
+    },
+    {
+     "id": "p2",
+     "full": "A delivery route (elective, compulsory course, online platform, schedule) makes it available to an identified learner group",
+     "related": "availability is implied"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.2.A1": {
+   "assertion": "Delivery records demonstrate an AI literacy activity for an identified discipline.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Delivery records (sessions held, participants, dates) are quoted",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "The activity is AI literacy",
+     "related": "digital literacy without AI"
+    },
+    {
+     "id": "p3",
+     "full": "The discipline served is identified",
+     "related": "discipline unclear"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.2.A2": {
+   "assertion": "A support response addresses a documented discipline-specific access or learning gap.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A discipline-specific access or learning gap is documented",
+     "related": "a general need"
+    },
+    {
+     "id": "p2",
+     "full": "A support response addresses it",
+     "related": "support is provided without linking it to the gap"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.2.O1": {
+   "assertion": "An assessment reports AI literacy attainment for an identified discipline.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An assessment reports AI literacy attainment",
+     "related": "participation counts only"
+    },
+    {
+     "id": "p2",
+     "full": "It is for an identified discipline",
+     "related": "discipline unclear"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.2.O2": {
+   "assertion": "A follow-up assessment evaluates the effect of targeted literacy support.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Targeted literacy support was provided",
+     "related": "general support"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up assessment evaluates its effect",
+     "related": "the support is described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.3.F1": {
+   "assertion": "A course design specifies an AI-supported learning or feedback activity.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A course design or teaching plan is identified",
+     "related": "teaching practice in general"
+    },
+    {
+     "id": "p2",
+     "full": "It specifies a learning or feedback activity supported by artificial intelligence or machine learning (AI tutor, AI feedback, AI tool in class)",
+     "related": "an ICT-enabled activity without AI"
+    }
+   ],
+   "not_enough": [
+    "LMS, smart classrooms, online quizzes or videos without AI"
+   ]
+  },
+  "AIQIF-C3.3.F2": {
+   "assertion": "Learner instructions define acceptable AI use for that activity.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An AI-supported learning activity is identified",
+     "related": "an ICT activity"
+    },
+    {
+     "id": "p2",
+     "full": "Learner instructions define acceptable AI use for it",
+     "related": "general academic integrity rules"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.3.A1": {
+   "assertion": "Course records demonstrate repeated use of an identified AI-supported learning activity.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Course records show the activity being used",
+     "related": "the activity is described as available"
+    },
+    {
+     "id": "p2",
+     "full": "The use is repeated",
+     "related": "a single use"
+    },
+    {
+     "id": "p3",
+     "full": "The activity is AI-supported",
+     "related": "ICT-supported without AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.3.A2": {
+   "assertion": "An assessment check evaluates inappropriate dependence on AI in that activity.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An assessment check is recorded",
+     "related": "assessment in general"
+    },
+    {
+     "id": "p2",
+     "full": "It evaluates inappropriate dependence on AI in the activity",
+     "related": "a general plagiarism check"
+    }
+   ],
+   "not_enough": [
+    "A plagiarism-detection tool used on theses"
+   ]
+  },
+  "AIQIF-C3.3.O1": {
+   "assertion": "A completed evaluation compares learning or feedback results with a stated baseline.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed evaluation reports learning or feedback results for the AI-supported activity",
+     "related": "results for ICT-enabled teaching in general"
+    },
+    {
+     "id": "p2",
+     "full": "The results are compared with a stated baseline",
+     "related": "no baseline"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.3.O2": {
+   "assertion": "A follow-up evaluates the effect of a change to the AI-supported learning design.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "The AI-supported learning design was changed",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates the effect of the change",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.4.F1": {
+   "assertion": "A student project or lab route includes substantive AI work.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A student project or laboratory route exists (project course, lab, capstone, internship project)",
+     "related": "projects in general"
+    },
+    {
+     "id": "p2",
+     "full": "It includes substantive artificial intelligence or machine learning work",
+     "related": "computing work without AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.4.F2": {
+   "assertion": "A mentoring route is provided for that work.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Student AI project or lab work is identified",
+     "related": "student projects in general"
+    },
+    {
+     "id": "p2",
+     "full": "A mentoring route (assigned mentor, guide, supervisor) is provided for it",
+     "related": "mentoring for students in general"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.4.A1": {
+   "assertion": "Assessed project work demonstrates an implemented AI application for an identified student group.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Assessed project work is recorded",
+     "related": "projects listed without assessment"
+    },
+    {
+     "id": "p2",
+     "full": "The work implements an artificial intelligence or machine learning application",
+     "related": "a non-AI application"
+    },
+    {
+     "id": "p3",
+     "full": "The student group is identified",
+     "related": "group unclear"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.4.A2": {
+   "assertion": "A moderation record checks individual contribution to that work.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A moderation record exists for the AI project work",
+     "related": "project assessment in general"
+    },
+    {
+     "id": "p2",
+     "full": "It checks each student's individual contribution",
+     "related": "group grading only"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.4.O1": {
+   "assertion": "A completed project review evaluates work against an explicit capability criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review of AI project work exists",
+     "related": "project outcomes are listed"
+    },
+    {
+     "id": "p2",
+     "full": "Work is evaluated against an explicit capability criterion",
+     "related": "evaluation without a criterion"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C3.4.O2": {
+   "assertion": "Later work is evaluated against a comparable criterion after a mentoring or design change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A mentoring or design change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "Later work is evaluated against a comparable criterion",
+     "related": "later work is described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.1.F1": {
+   "assertion": "An AI-focused faculty learning activity has defined content.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A faculty learning activity (FDP, workshop, training, course) is identified",
+     "related": "faculty training in general"
+    },
+    {
+     "id": "p2",
+     "full": "It is focused on artificial intelligence or machine learning",
+     "related": "ICT, e-content or pedagogy without AI"
+    },
+    {
+     "id": "p3",
+     "full": "Its content is defined (topics, modules, agenda)",
+     "related": "only the title is given"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.1.F2": {
+   "assertion": "Participation in an AI-focused learning activity is documented for an identified faculty group.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An AI-focused learning activity is identified",
+     "related": "ICT or pedagogy training"
+    },
+    {
+     "id": "p2",
+     "full": "Participation is documented (names, counts, certificates) for an identified faculty group",
+     "related": "participation is asserted"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.1.A1": {
+   "assertion": "An assessment demonstrates AI literacy for an identified faculty group.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An assessment of faculty is recorded (test, evaluation, certification)",
+     "related": "attendance only"
+    },
+    {
+     "id": "p2",
+     "full": "It demonstrates AI literacy",
+     "related": "ICT skills"
+    },
+    {
+     "id": "p3",
+     "full": "The faculty group is identified",
+     "related": "unclear"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.1.A2": {
+   "assertion": "A support response addresses a documented faculty literacy gap.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A faculty AI literacy gap is documented",
+     "related": "a general training need"
+    },
+    {
+     "id": "p2",
+     "full": "A support response addresses it",
+     "related": "training without linking to the gap"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.1.O1": {
+   "assertion": "A completed assessment compares faculty literacy with a stated competency criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed assessment measures faculty AI literacy",
+     "related": "participation counts"
+    },
+    {
+     "id": "p2",
+     "full": "It is compared with a stated competency criterion",
+     "related": "no criterion"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.1.O2": {
+   "assertion": "A follow-up assessment evaluates the effect of a faculty learning revision.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A faculty AI learning activity was revised",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up assessment evaluates the effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.2.F1": {
+   "assertion": "A faculty AI learning offer targets an identified academic role.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A faculty AI learning offer exists",
+     "related": "faculty ICT training"
+    },
+    {
+     "id": "p2",
+     "full": "It targets an identified academic role (e.g. examiners, researchers, course designers)",
+     "related": "all faculty in general"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.2.F2": {
+   "assertion": "A practice task develops a specific AI-related academic skill for that role.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A practice task is part of the offer (hands-on exercise, assignment)",
+     "related": "lectures only"
+    },
+    {
+     "id": "p2",
+     "full": "The task develops a specific AI-related academic skill for the role",
+     "related": "a general ICT skill"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.2.A1": {
+   "assertion": "An assessed role-relevant task demonstrates a faculty AI skill.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An assessed role-relevant task is recorded",
+     "related": "a task without assessment"
+    },
+    {
+     "id": "p2",
+     "full": "It demonstrates a faculty AI skill",
+     "related": "a general ICT skill"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.2.A2": {
+   "assertion": "A support action addresses a documented role-specific skill gap.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A role-specific faculty AI skill gap is documented",
+     "related": "a general need"
+    },
+    {
+     "id": "p2",
+     "full": "A support action addresses it",
+     "related": "support without linking to the gap"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.2.O1": {
+   "assertion": "An academic work sample demonstrates application of the assessed skill.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An academic work sample (paper, course material, assessment) is identified",
+     "related": "work in general"
+    },
+    {
+     "id": "p2",
+     "full": "It demonstrates application of the assessed AI skill",
+     "related": "AI is mentioned without showing application"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.2.O2": {
+   "assertion": "A subsequent task evaluation tests the effect of a role-pathway revision.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A role pathway was revised",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A subsequent task evaluation tests the effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.3.F1": {
+   "assertion": "A faculty work record demonstrates AI use in an academic task.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A faculty work record (research output, teaching material, project report) is quoted",
+     "related": "faculty activity in general"
+    },
+    {
+     "id": "p2",
+     "full": "It shows artificial intelligence or machine learning used in an academic task",
+     "related": "AI as a research topic without its use as a tool, or digital tools without AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.3.F2": {
+   "assertion": "A human review step is defined for the AI-supported task.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An AI-supported faculty task is identified",
+     "related": "an ICT-supported task"
+    },
+    {
+     "id": "p2",
+     "full": "A human review step is defined for it",
+     "related": "review of academic work in general"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.3.A1": {
+   "assertion": "Work samples demonstrate repeated AI use in an identified faculty practice.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Work samples show AI use",
+     "related": "a single mention"
+    },
+    {
+     "id": "p2",
+     "full": "The use is repeated in an identified faculty practice",
+     "related": "repetition or practice unclear"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.3.A2": {
+   "assertion": "A quality check evaluates the AI-supported academic work.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A quality check is recorded",
+     "related": "quality assurance in general"
+    },
+    {
+     "id": "p2",
+     "full": "It evaluates AI-supported academic work",
+     "related": "it evaluates work in general"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.3.O1": {
+   "assertion": "A completed evaluation compares an academic quality, time or research result with a stated baseline.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed evaluation reports an academic quality, time or research result of AI use",
+     "related": "results in general"
+    },
+    {
+     "id": "p2",
+     "full": "It is compared with a stated baseline",
+     "related": "no baseline"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.3.O2": {
+   "assertion": "A follow-up evaluates a practice change responding to an identified failure.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An identified failure in AI-supported practice is recorded",
+     "related": "problems in general"
+    },
+    {
+     "id": "p2",
+     "full": "A practice change responding to it is evaluated",
+     "related": "the change is described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.4.F1": {
+   "assertion": "A digital or workflow learning offer targets an identified non-teaching staff role.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A digital, workflow or AI learning offer exists (training, workshop)",
+     "related": "training in general"
+    },
+    {
+     "id": "p2",
+     "full": "It targets an identified non-teaching staff role (administrative, technical, library, office staff)",
+     "related": "staff in general including faculty"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.4.F2": {
+   "assertion": "A support route is available to staff applying that learning.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Staff digital or AI learning is identified",
+     "related": "general training"
+    },
+    {
+     "id": "p2",
+     "full": "A support route is available to staff applying it (helpdesk, mentor, coordinator)",
+     "related": "general staff welfare"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.4.A1": {
+   "assertion": "An assessed task demonstrates a relevant digital or AI skill for an identified staff role.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An assessed task for an identified staff role is recorded",
+     "related": "training attendance"
+    },
+    {
+     "id": "p2",
+     "full": "It demonstrates a relevant digital or AI skill",
+     "related": "a general skill"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.4.A2": {
+   "assertion": "A support action addresses a documented staff workflow error.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A staff workflow error is documented",
+     "related": "problems in general"
+    },
+    {
+     "id": "p2",
+     "full": "A support action addresses it",
+     "related": "support without linking to the error"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.4.O1": {
+   "assertion": "A completed evaluation compares staff task performance with a stated role criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed evaluation measures staff task performance",
+     "related": "attendance or satisfaction"
+    },
+    {
+     "id": "p2",
+     "full": "It is compared with a stated role criterion",
+     "related": "no criterion"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C4.4.O2": {
+   "assertion": "A follow-up evaluates the effect of a staff training or support change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A staff training or support change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.1.F1": {
+   "assertion": "An AI literacy offer is accessible to an identified student group.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An artificial intelligence or machine learning literacy offer exists (course, module, value-added course, workshop)",
+     "related": "a digital or computer literacy offer"
+    },
+    {
+     "id": "p2",
+     "full": "It is accessible to an identified student group",
+     "related": "availability unclear"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.1.F2": {
+   "assertion": "A learning objective defines what that offer intends students to learn.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A student AI literacy offer is identified",
+     "related": "a digital literacy offer"
+    },
+    {
+     "id": "p2",
+     "full": "A learning objective defines what it intends students to learn",
+     "related": "content is listed without an objective"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.1.A1": {
+   "assertion": "Delivery records demonstrate AI literacy provision to an identified student cohort.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Delivery records for an AI literacy offer are quoted",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "The student cohort is identified",
+     "related": "cohort unclear"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.1.A2": {
+   "assertion": "A support response addresses a documented participation or attainment gap.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A participation or attainment gap is documented",
+     "related": "a general need"
+    },
+    {
+     "id": "p2",
+     "full": "A support response addresses it",
+     "related": "support without linking to the gap"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.1.O1": {
+   "assertion": "An assessment reports student AI literacy attainment against an explicit criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An assessment reports student AI literacy attainment",
+     "related": "participation counts"
+    },
+    {
+     "id": "p2",
+     "full": "It is measured against an explicit criterion",
+     "related": "no criterion"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.1.O2": {
+   "assertion": "A follow-up evaluates the effect of a change addressing an access or learning gap.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A change addressing an access or learning gap is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.2.F1": {
+   "assertion": "An advanced AI or ML skills pathway is defined for an identified student group.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An advanced artificial intelligence or machine learning skills pathway is defined (specialisation, programme, minor, track, sequence of courses)",
+     "related": "a single AI course"
+    },
+    {
+     "id": "p2",
+     "full": "It is for an identified student group",
+     "related": "unclear"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.2.F2": {
+   "assertion": "The pathway includes a practical assessment task.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An advanced AI/ML pathway is identified",
+     "related": "a single course"
+    },
+    {
+     "id": "p2",
+     "full": "It includes a practical assessment task (lab exam, project, practical)",
+     "related": "theory assessment only"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.2.A1": {
+   "assertion": "Student work demonstrates an advanced or role-specific AI skill against an explicit criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Student work shows an advanced or role-specific AI skill",
+     "related": "work in an AI course without described skill"
+    },
+    {
+     "id": "p2",
+     "full": "It is judged against an explicit criterion",
+     "related": "no criterion"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.2.A2": {
+   "assertion": "A delivery change responds to identified employer or disciplinary feedback.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Employer or disciplinary feedback about the pathway is identified",
+     "related": "general feedback"
+    },
+    {
+     "id": "p2",
+     "full": "A delivery change responds to it",
+     "related": "a change without linking to the feedback"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.2.O1": {
+   "assertion": "A completed pathway review evaluates a relevant skill or progression result.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review of the AI pathway exists",
+     "related": "pathway results are listed"
+    },
+    {
+     "id": "p2",
+     "full": "It evaluates a relevant skill or progression result",
+     "related": "general outcomes"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.2.O2": {
+   "assertion": "A subsequent task evaluation tests the effect of a pathway revision.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "The pathway was revised",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A subsequent task evaluation tests the effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.3.F1": {
+   "assertion": "An AI project or portfolio opportunity is available to an identified student group.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An artificial intelligence or machine learning project or portfolio opportunity exists for students",
+     "related": "a project opportunity without AI"
+    },
+    {
+     "id": "p2",
+     "full": "It is available to an identified student group",
+     "related": "unclear"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.3.F2": {
+   "assertion": "An evaluation criterion addresses individual contribution to the project or portfolio.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A student AI project or portfolio is identified",
+     "related": "student projects in general"
+    },
+    {
+     "id": "p2",
+     "full": "An evaluation criterion addresses individual contribution",
+     "related": "group evaluation only"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.3.A1": {
+   "assertion": "A reviewed portfolio identifies the student's substantive AI contribution.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A reviewed student portfolio or project record is quoted",
+     "related": "projects listed"
+    },
+    {
+     "id": "p2",
+     "full": "It identifies the student's substantive AI contribution",
+     "related": "AI project without the student's role"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.3.A2": {
+   "assertion": "A moderation record evaluates a participating student's project or portfolio.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A moderation record exists",
+     "related": "assessment in general"
+    },
+    {
+     "id": "p2",
+     "full": "It evaluates a participating student's AI project or portfolio",
+     "related": "a non-AI project"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.3.O1": {
+   "assertion": "A completed evaluation assesses AI work quality or real-user value against an explicit criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed evaluation of AI work quality or real-user value exists",
+     "related": "project outcomes listed"
+    },
+    {
+     "id": "p2",
+     "full": "It uses an explicit criterion",
+     "related": "no criterion"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.3.O2": {
+   "assertion": "A follow-up evaluates the effect of a project or mentoring change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A project or mentoring change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.4.F1": {
+   "assertion": "An AI-relevant internship or career opportunity is documented.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An internship or career opportunity is documented",
+     "related": "career services in general"
+    },
+    {
+     "id": "p2",
+     "full": "It is AI-relevant (artificial intelligence or machine learning role, project or employer activity)",
+     "related": "an IT or computing opportunity without AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.4.F2": {
+   "assertion": "An eligibility rule identifies who can access the opportunity.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An AI-relevant opportunity is identified",
+     "related": "an IT opportunity"
+    },
+    {
+     "id": "p2",
+     "full": "An eligibility rule says who can access it",
+     "related": "availability in general"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.4.A1": {
+   "assertion": "A verified record demonstrates participation in an AI-relevant internship or career opportunity.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A verified record of participation (named students, offer letters, certificates)",
+     "related": "counts without verification"
+    },
+    {
+     "id": "p2",
+     "full": "The internship or opportunity is AI-relevant",
+     "related": "IT without AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.4.A2": {
+   "assertion": "A cohort register identifies the denominator used to interpret participation or progression.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A cohort register gives the denominator (total eligible or enrolled students)",
+     "related": "a total without the cohort"
+    },
+    {
+     "id": "p2",
+     "full": "It is used to interpret AI-related participation or progression",
+     "related": "used for general placement statistics"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.4.O1": {
+   "assertion": "A completed review compares a verified AI-related career result with a stated target.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review reports a verified AI-related career result",
+     "related": "general placement results"
+    },
+    {
+     "id": "p2",
+     "full": "It is compared with a stated target",
+     "related": "no target"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C5.4.O2": {
+   "assertion": "A follow-up evaluates the effect of a career-pathway change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A career-pathway change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.1.F1": {
+   "assertion": "Relevant learners or researchers have access to computing resources.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Computing resources are described (computers, labs, servers, cloud, software, internet)",
+     "related": "facilities in general"
+    },
+    {
+     "id": "p2",
+     "full": "Learners or researchers are stated to have access to them",
+     "related": "resources are listed without stating who uses them"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.1.F2": {
+   "assertion": "Resource specifications support one explicitly stated introductory AI workload.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Resource specifications are quoted (processors, memory, GPUs, bandwidth, software)",
+     "related": "resources described without specifications"
+    },
+    {
+     "id": "p2",
+     "full": "An introductory artificial intelligence or machine learning workload is explicitly stated (e.g. training small ML models in a named course)",
+     "related": "AI courses exist without a stated workload"
+    },
+    {
+     "id": "p3",
+     "full": "The passages link the specifications to that workload",
+     "related": "both appear but are not linked"
+    }
+   ],
+   "not_enough": [
+    "An inventory and a syllabus excerpt that are not linked"
+   ]
+  },
+  "AIQIF-C6.1.A1": {
+   "assertion": "Usage records show relevant computing capacity serving an identified user group.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Usage records of computing capacity are quoted (hours, users, logs)",
+     "related": "availability statements"
+    },
+    {
+     "id": "p2",
+     "full": "The user group served is identified and relevant to digital or AI work",
+     "related": "users in general"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.1.A2": {
+   "assertion": "A support response addresses a documented capacity or access failure.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A capacity or access failure is documented",
+     "related": "general improvement"
+    },
+    {
+     "id": "p2",
+     "full": "A support response addresses it",
+     "related": "an upgrade without linking to the failure"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.1.O1": {
+   "assertion": "A completed review compares service performance with a stated capacity or availability target.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review reports service performance (uptime, availability, utilisation)",
+     "related": "descriptions without measures"
+    },
+    {
+     "id": "p2",
+     "full": "It is compared with a stated capacity or availability target",
+     "related": "no target"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.1.O2": {
+   "assertion": "A continuity exercise records recovery performance for that environment.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A continuity or recovery exercise for the computing environment took place",
+     "related": "backup is described"
+    },
+    {
+     "id": "p2",
+     "full": "Recovery performance is recorded",
+     "related": "the exercise is described without results"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.2.F1": {
+   "assertion": "A register identifies relevant institutional datasets or systems.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A register, catalogue or list identifies institutional datasets or information systems",
+     "related": "systems mentioned individually"
+    },
+    {
+     "id": "p2",
+     "full": "The identified assets are relevant (student, academic, administrative, research data or systems)",
+     "related": "unclear relevance"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.2.F2": {
+   "assertion": "A responsible data custodian is assigned to the identified assets.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Institutional datasets or systems are identified",
+     "related": "data in general"
+    },
+    {
+     "id": "p2",
+     "full": "A responsible custodian is assigned to them",
+     "related": "systems are said to be managed without a responsible party"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.2.A1": {
+   "assertion": "A data-quality check operates for an identified AI use or preparation activity.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A data-quality check operates",
+     "related": "data is said to be accurate"
+    },
+    {
+     "id": "p2",
+     "full": "It is for an identified AI use or AI preparation activity",
+     "related": "for a digital system without AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.2.A2": {
+   "assertion": "A tracked data-quality issue has a recorded disposition.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A data-quality issue is tracked",
+     "related": "errors in general"
+    },
+    {
+     "id": "p2",
+     "full": "Its disposition is recorded",
+     "related": "the issue is described without disposition"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.2.O1": {
+   "assertion": "A completed review compares data quality with a stated fitness criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review measures data quality",
+     "related": "descriptions"
+    },
+    {
+     "id": "p2",
+     "full": "It is compared with a stated fitness criterion",
+     "related": "no criterion"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.2.O2": {
+   "assertion": "A follow-up measures the effect of a data-quality change on downstream work.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A data-quality change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up measures its effect on downstream work",
+     "related": "described without measurement"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.3.F1": {
+   "assertion": "Responsibility for security of the relevant computing environment is assigned.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "The computing environment is identified (network, servers, labs, systems)",
+     "related": "IT in general"
+    },
+    {
+     "id": "p2",
+     "full": "Responsibility for its security is assigned to a named role, office or body",
+     "related": "security measures without a responsible party"
+    }
+   ],
+   "not_enough": [
+    "Security products or firewall upgrades alone"
+   ]
+  },
+  "AIQIF-C6.3.F2": {
+   "assertion": "A recovery procedure covers that environment.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "The computing environment is identified",
+     "related": "IT in general"
+    },
+    {
+     "id": "p2",
+     "full": "A recovery procedure covers it (backup and restore, disaster recovery steps)",
+     "related": "backups are mentioned without a procedure"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.3.A1": {
+   "assertion": "A security test examines an identified AI-related threat in the assessed environment.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A security test was carried out in the assessed environment",
+     "related": "security tools in use"
+    },
+    {
+     "id": "p2",
+     "full": "It examines an identified AI-related threat",
+     "related": "a general threat"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.3.A2": {
+   "assertion": "An incident or exercise record demonstrates a response action.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An incident or exercise is recorded",
+     "related": "security in general"
+    },
+    {
+     "id": "p2",
+     "full": "A response action is recorded",
+     "related": "the incident without a response"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.3.O1": {
+   "assertion": "A completed security review compares remediation or recovery performance with a stated criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed security review reports remediation or recovery performance",
+     "related": "descriptions"
+    },
+    {
+     "id": "p2",
+     "full": "It is compared with a stated criterion",
+     "related": "no criterion"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.3.O2": {
+   "assertion": "A follow-up test evaluates a control change responding to a documented threat.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A control change responds to a documented threat",
+     "related": "a control change without a threat"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up test evaluates it",
+     "related": "described without a test"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.4.F1": {
+   "assertion": "An environment supports one specified introductory AI learning activity.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A learning environment is identified (lab, platform, software environment)",
+     "related": "facilities in general"
+    },
+    {
+     "id": "p2",
+     "full": "It supports a specified introductory artificial intelligence or machine learning learning activity",
+     "related": "it supports computing or ICT learning without AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.4.F2": {
+   "assertion": "Learners have a defined access route to that environment.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An AI learning environment is identified",
+     "related": "a general computing environment"
+    },
+    {
+     "id": "p2",
+     "full": "Learners have a defined access route (lab hours, login, booking, remote access)",
+     "related": "access implied"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.4.A1": {
+   "assertion": "Usage records demonstrate learner access to an identified AI learning environment.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Usage records show learner access",
+     "related": "availability statements"
+    },
+    {
+     "id": "p2",
+     "full": "The environment is an AI learning environment",
+     "related": "a general computing lab"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.4.A2": {
+   "assertion": "A support response addresses a documented accessibility or capacity issue.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An accessibility or capacity issue is documented",
+     "related": "general improvements"
+    },
+    {
+     "id": "p2",
+     "full": "A support response addresses it",
+     "related": "support without linking to the issue"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.4.O1": {
+   "assertion": "A completed review compares learner access with a stated service or equity criterion.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review reports learner access",
+     "related": "descriptions"
+    },
+    {
+     "id": "p2",
+     "full": "It is compared with a stated service or equity criterion",
+     "related": "no criterion"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C6.4.O2": {
+   "assertion": "A follow-up evaluates the effect of an environment improvement.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An environment improvement is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.1.F1": {
+   "assertion": "An AI research or applied-inquiry project has a defined objective.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An artificial intelligence or machine learning research or applied-inquiry project is named",
+     "related": "research in a field without AI"
+    },
+    {
+     "id": "p2",
+     "full": "It has a defined objective (its title or description can state what it develops and for what purpose)",
+     "related": "the topic is named without purpose"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.1.F2": {
+   "assertion": "A responsible lead is assigned to the project.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An AI research project is identified",
+     "related": "research in general"
+    },
+    {
+     "id": "p2",
+     "full": "A responsible lead (principal investigator, named faculty or student lead) is assigned",
+     "related": "the department is named"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.1.A1": {
+   "assertion": "An active AI research or applied-inquiry project has a reviewed work output.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An AI research project is active in the period",
+     "related": "project completed long before or only proposed"
+    },
+    {
+     "id": "p2",
+     "full": "A reviewed work output exists (publication, patent, prototype, report reviewed by others)",
+     "related": "an output without review"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.1.A2": {
+   "assertion": "A progress review records a decision about that project.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A progress review of the AI project is recorded",
+     "related": "progress is described"
+    },
+    {
+     "id": "p2",
+     "full": "It records a decision about the project",
+     "related": "review without decision"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.1.O1": {
+   "assertion": "A completed review evaluates inquiry output quality or application against a stated objective.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review evaluates output quality or application",
+     "related": "outputs listed"
+    },
+    {
+     "id": "p2",
+     "full": "It is evaluated against the stated objective",
+     "related": "no objective comparison"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.1.O2": {
+   "assertion": "A follow-up evaluates the effect of an agenda or resource change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An agenda or resource change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.2.F1": {
+   "assertion": "An AI centre or distributed innovation function has a defined remit.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An innovation function exists (centre, cell, incubator, distributed function)",
+     "related": "innovation activities in general"
+    },
+    {
+     "id": "p2",
+     "full": "Its remit is defined (focus areas, purpose) and includes AI or digital innovation",
+     "related": "the remit is stated without AI or digital areas"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.2.F2": {
+   "assertion": "A project or mentoring service is available through that function.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An innovation function is identified",
+     "related": "innovation in general"
+    },
+    {
+     "id": "p2",
+     "full": "A project or mentoring service is available through it",
+     "related": "the function exists without a stated service"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.2.A1": {
+   "assertion": "A service record demonstrates an AI project or mentoring engagement.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A service record shows a project or mentoring engagement through the function (named project, mentor assignment)",
+     "related": "services described as available"
+    },
+    {
+     "id": "p2",
+     "full": "The engagement concerns artificial intelligence or machine learning",
+     "related": "a non-AI project"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.2.A2": {
+   "assertion": "A service review records a decision responding to use or delivery evidence.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A service review is recorded",
+     "related": "service described"
+    },
+    {
+     "id": "p2",
+     "full": "It records a decision responding to use or delivery evidence",
+     "related": "review without decision"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.2.O1": {
+   "assertion": "A completed review evaluates an output or institutional benefit against the function's objective.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review evaluates an output or institutional benefit of the function",
+     "related": "outputs listed"
+    },
+    {
+     "id": "p2",
+     "full": "It is evaluated against the function's objective",
+     "related": "no comparison"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.2.O2": {
+   "assertion": "A follow-up evaluates the effect of a service change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A service change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.3.F1": {
+   "assertion": "A funding, IP or incubation support route is available to eligible projects.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A funding, IP or incubation support route exists (seed fund, grant scheme, IPR cell, incubator)",
+     "related": "support described in general"
+    },
+    {
+     "id": "p2",
+     "full": "It is available to eligible projects (eligibility or who can apply is stated or evident)",
+     "related": "availability implied"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.3.F2": {
+   "assertion": "A contact or application route enables access to that support.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A funding, IP or incubation support route is identified",
+     "related": "support in general"
+    },
+    {
+     "id": "p2",
+     "full": "A contact or application route enables access (apply to, pitch event, submission process, named contact)",
+     "related": "availability without a route"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.3.A1": {
+   "assertion": "A project record demonstrates use of a funding, IP or incubation support route.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A named project is recorded",
+     "related": "projects in general"
+    },
+    {
+     "id": "p2",
+     "full": "The project used a funding, IP or incubation support route",
+     "related": "support available without a project using it"
+    },
+    {
+     "id": "p3",
+     "full": "The project concerns AI",
+     "related": "a non-AI project"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.3.A2": {
+   "assertion": "A review records a funding or translation decision about an identified project.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A review records a funding or translation decision (selected, funded, patent filed)",
+     "related": "a review without decision"
+    },
+    {
+     "id": "p2",
+     "full": "The decision concerns an identified AI project",
+     "related": "a non-AI project"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.3.O1": {
+   "assertion": "A completed review evaluates verified project progression against a stated milestone.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review evaluates verified project progression",
+     "related": "progress described"
+    },
+    {
+     "id": "p2",
+     "full": "It is against a stated milestone",
+     "related": "no milestone"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.3.O2": {
+   "assertion": "A follow-up evaluates the effect of a project-support change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A project-support change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.4.F1": {
+   "assertion": "A collaboration work plan specifies substantive AI research or application.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A collaboration work plan exists (MoU activities, joint project plan)",
+     "related": "an agreement without planned work"
+    },
+    {
+     "id": "p2",
+     "full": "It specifies substantive artificial intelligence or machine learning research or application",
+     "related": "collaboration in a non-AI area"
+    }
+   ],
+   "not_enough": [
+    "An MoU listing alone"
+   ]
+  },
+  "AIQIF-C7.4.F2": {
+   "assertion": "A partner responsibility is assigned for the planned AI work.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Planned AI collaboration work is identified",
+     "related": "collaboration in general"
+    },
+    {
+     "id": "p2",
+     "full": "A partner responsibility is assigned for it",
+     "related": "partner named without responsibility"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.4.A1": {
+   "assertion": "A delivery record demonstrates substantive AI collaboration beyond an agreement.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A delivery record shows collaboration work carried out",
+     "related": "an agreement only"
+    },
+    {
+     "id": "p2",
+     "full": "The work is substantive AI work",
+     "related": "non-AI work"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.4.A2": {
+   "assertion": "Partner or beneficiary feedback evaluates an identified delivered contribution.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Partner or beneficiary feedback is recorded",
+     "related": "feedback in general"
+    },
+    {
+     "id": "p2",
+     "full": "It evaluates an identified delivered AI contribution",
+     "related": "a general contribution"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.4.O1": {
+   "assertion": "A completed review evaluates knowledge transfer or a beneficiary result against a stated objective.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review evaluates knowledge transfer or a beneficiary result",
+     "related": "results listed"
+    },
+    {
+     "id": "p2",
+     "full": "It is against a stated objective",
+     "related": "no comparison"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C7.4.O2": {
+   "assertion": "A follow-up evaluates the effect of a collaboration change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A collaboration change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.1.F1": {
+   "assertion": "An institutional digital service has a defined purpose.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An institutional digital service is identified (ERP, e-governance module, online admission, exam system, grievance portal)",
+     "related": "digital tools in general"
+    },
+    {
+     "id": "p2",
+     "full": "Its purpose is defined (what it does or which operation it serves)",
+     "related": "named without purpose"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.1.F2": {
+   "assertion": "A responsible owner is assigned to that service.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An institutional digital service is identified",
+     "related": "digital tools in general"
+    },
+    {
+     "id": "p2",
+     "full": "A responsible owner (office, role, body) is assigned to it",
+     "related": "the service is said to be maintained without a responsible party"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.1.A1": {
+   "assertion": "Operational records demonstrate repeated AI use in an identified institutional service.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Operational records of an institutional service are quoted",
+     "related": "the service is described"
+    },
+    {
+     "id": "p2",
+     "full": "They show artificial intelligence or machine learning used in that service",
+     "related": "digital automation without AI"
+    },
+    {
+     "id": "p3",
+     "full": "The use is repeated",
+     "related": "a single use"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.1.A2": {
+   "assertion": "A monitoring record evaluates an AI-related service exception.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A monitoring record exists for the service",
+     "related": "monitoring in general"
+    },
+    {
+     "id": "p2",
+     "full": "It evaluates an AI-related exception",
+     "related": "a general exception"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.1.O1": {
+   "assertion": "A completed evaluation compares service benefit with a stated baseline while disclosing quality limitations.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed evaluation reports service benefit",
+     "related": "benefits described"
+    },
+    {
+     "id": "p2",
+     "full": "It is compared with a stated baseline",
+     "related": "no baseline"
+    },
+    {
+     "id": "p3",
+     "full": "It discloses quality limitations",
+     "related": "no limitations stated"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.1.O2": {
+   "assertion": "A follow-up tests the effect of a workflow or control change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A workflow or control change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up tests its effect",
+     "related": "described without a test"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.2.F1": {
+   "assertion": "An industry work plan specifies an AI-related activity.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An industry work plan exists (planned activities with an industry partner)",
+     "related": "an MoU listing without planned activities"
+    },
+    {
+     "id": "p2",
+     "full": "It specifies an AI-related activity",
+     "related": "a non-AI activity"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.2.F2": {
+   "assertion": "The activity defines a contribution to skills, curriculum or projects.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An AI-related industry activity is identified",
+     "related": "industry activity in general"
+    },
+    {
+     "id": "p2",
+     "full": "It defines a contribution to skills, curriculum or projects",
+     "related": "purpose unstated"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.2.A1": {
+   "assertion": "A delivery record demonstrates an AI-related activity with an industry partner.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A delivery record shows the activity carried out with an industry partner",
+     "related": "agreement only"
+    },
+    {
+     "id": "p2",
+     "full": "The activity is AI-related",
+     "related": "non-AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.2.A2": {
+   "assertion": "A review evaluates the partner's delivered contribution to skills, projects or opportunities.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A review of the partner's delivered contribution is recorded",
+     "related": "contribution listed"
+    },
+    {
+     "id": "p2",
+     "full": "The contribution concerns AI skills, projects or opportunities",
+     "related": "non-AI"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.2.O1": {
+   "assertion": "A completed partnership review evaluates a relevant output or outcome against a stated objective.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed partnership review evaluates an output or outcome",
+     "related": "results listed"
+    },
+    {
+     "id": "p2",
+     "full": "It is against a stated objective",
+     "related": "no comparison"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.2.O2": {
+   "assertion": "A follow-up evaluates the effect of a jointly agreed delivery change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A jointly agreed delivery change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.3.F1": {
+   "assertion": "An employment, enterprise or workforce pathway explicitly addresses AI skills.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An employment, enterprise or workforce pathway exists (placement programme, incubation, training-to-employment route)",
+     "related": "career support in general"
+    },
+    {
+     "id": "p2",
+     "full": "It explicitly addresses AI skills",
+     "related": "general employability skills"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.3.F2": {
+   "assertion": "An opportunity or referral route connects eligible participants to the pathway.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An AI-skills pathway is identified",
+     "related": "a general pathway"
+    },
+    {
+     "id": "p2",
+     "full": "An opportunity or referral route connects eligible participants to it",
+     "related": "availability in general"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.3.A1": {
+   "assertion": "A verified record links an AI pathway participant to an opportunity or venture.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A verified record names a participant or venture",
+     "related": "counts only"
+    },
+    {
+     "id": "p2",
+     "full": "It links them to an opportunity or venture through an AI pathway (e.g. an AI venture supported, an AI placement)",
+     "related": "a non-AI venture or placement"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.3.A2": {
+   "assertion": "A review examines the relationship between pathway participation and an observed result.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A review examines pathway participation",
+     "related": "participation counts"
+    },
+    {
+     "id": "p2",
+     "full": "It relates participation to an observed result",
+     "related": "results reported separately"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.3.O1": {
+   "assertion": "A completed review evaluates a verified progression or enterprise result against a stated objective.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review evaluates a verified progression or enterprise result",
+     "related": "results listed"
+    },
+    {
+     "id": "p2",
+     "full": "It is against a stated objective",
+     "related": "no comparison"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.3.O2": {
+   "assertion": "A follow-up evaluates the effect of a pathway portfolio change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A pathway portfolio change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.4.F1": {
+   "assertion": "An identified AI intervention has an explicit intended outcome.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An identified artificial intelligence or machine learning intervention is named",
+     "related": "a digital intervention without AI"
+    },
+    {
+     "id": "p2",
+     "full": "It has an explicit intended outcome",
+     "related": "purpose implied"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.4.F2": {
+   "assertion": "A prospective measurement method is defined for that outcome.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An AI intervention outcome is identified",
+     "related": "outcomes in general"
+    },
+    {
+     "id": "p2",
+     "full": "A prospective measurement method is defined for it",
+     "related": "measured after the fact without a defined method"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.4.A1": {
+   "assertion": "Recorded results compare an AI intervention's outcome with a stated baseline using a disclosed method.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Recorded results of an AI intervention are quoted",
+     "related": "results of a non-AI intervention"
+    },
+    {
+     "id": "p2",
+     "full": "They are compared with a stated baseline",
+     "related": "no baseline"
+    },
+    {
+     "id": "p3",
+     "full": "The method is disclosed",
+     "related": "method unstated"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.4.A2": {
+   "assertion": "A review examines an alternative explanation or potential harm affecting interpretation.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A review of an AI intervention's results is recorded",
+     "related": "results only"
+    },
+    {
+     "id": "p2",
+     "full": "It examines an alternative explanation or potential harm",
+     "related": "no such examination"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.4.O1": {
+   "assertion": "A completed measurement review evaluates benefit within explicitly stated limitations.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed measurement review evaluates benefit of an AI intervention",
+     "related": "benefits described"
+    },
+    {
+     "id": "p2",
+     "full": "It states its limitations explicitly",
+     "related": "no limitations"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C8.4.O2": {
+   "assertion": "A subsequent measurement evaluates the effect of an intervention change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An intervention change is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A subsequent measurement evaluates its effect",
+     "related": "described without measurement"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.1.F1": {
+   "assertion": "An institutional review process uses defined indicators.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An institutional review process exists (academic audit, IQAC review, quality audit)",
+     "related": "reviews mentioned in general"
+    },
+    {
+     "id": "p2",
+     "full": "It uses defined indicators (criteria, questionnaire items, metrics)",
+     "related": "indicators implied"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.1.F2": {
+   "assertion": "Responsibility for producing the indicator-based review is assigned.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An indicator-based institutional review is identified",
+     "related": "reviews in general"
+    },
+    {
+     "id": "p2",
+     "full": "Responsibility for producing it is assigned (IQAC, named office or committee)",
+     "related": "a body participates without stated responsibility"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.1.A1": {
+   "assertion": "A repeated institutional assessment uses traceable evidence with reproducible calculations.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An institutional assessment is repeated (more than one cycle)",
+     "related": "a single assessment"
+    },
+    {
+     "id": "p2",
+     "full": "It uses traceable evidence with reproducible calculations",
+     "related": "evidence without traceability"
+    }
+   ],
+   "not_enough": [
+    "This assessment software itself"
+   ]
+  },
+  "AIQIF-C9.1.A2": {
+   "assertion": "A change record distinguishes institutional evidence changes from methodology changes.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A change record for the assessment exists",
+     "related": "changes in general"
+    },
+    {
+     "id": "p2",
+     "full": "It distinguishes evidence changes from methodology changes",
+     "related": "no distinction"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.1.O1": {
+   "assertion": "A completed review evaluates an improvement priority using the assessment's results.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review uses the assessment's results",
+     "related": "results reported"
+    },
+    {
+     "id": "p2",
+     "full": "It evaluates an improvement priority",
+     "related": "no priority"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.1.O2": {
+   "assertion": "A follow-up evaluates the effect of a measurement-method revision.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A measurement-method revision is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.2.F1": {
+   "assertion": "An evidence index identifies the source records used for assessment.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An evidence index identifies source records used for assessment (document list, evidence register)",
+     "related": "documents uploaded without an index"
+    },
+    {
+     "id": "p2",
+     "full": "It is used for an assessment",
+     "related": "an index for other purposes"
+    }
+   ],
+   "not_enough": [
+    "\"View Document\" links alone"
+   ]
+  },
+  "AIQIF-C9.2.F2": {
+   "assertion": "A custodian is assigned to preserve those records.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Assessment source records are identified",
+     "related": "records in general"
+    },
+    {
+     "id": "p2",
+     "full": "A custodian is assigned to preserve them",
+     "related": "records are said to be maintained without a custodian"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.2.A1": {
+   "assertion": "A sampled assessment finding is traceable to its requirement and source passage.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A sampled assessment finding is identified",
+     "related": "findings in general"
+    },
+    {
+     "id": "p2",
+     "full": "It is traced to its requirement and source passage",
+     "related": "traceability claimed without a trace"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.2.A2": {
+   "assertion": "An evidence correction preserves the earlier record and reason for change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A record shows an evidence value before and after a correction",
+     "related": "a corrected value only"
+    },
+    {
+     "id": "p2",
+     "full": "It states a remark or reason for the change",
+     "related": "the change without reason"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.2.O1": {
+   "assertion": "A completed audit evaluates traceability against an explicit checking procedure.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed audit evaluates traceability",
+     "related": "audits in general"
+    },
+    {
+     "id": "p2",
+     "full": "It follows an explicit checking procedure",
+     "related": "procedure unstated"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.2.O2": {
+   "assertion": "A follow-up measures the effect of an evidence-process improvement.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "An evidence-process improvement is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up measures its effect",
+     "related": "described without measurement"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.3.F1": {
+   "assertion": "A process monitors relevant accreditation, curriculum or technology changes.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A process exists that monitors changes (stakeholder feedback, regulatory updates, industry or technology trends)",
+     "related": "changes happen without a monitoring process"
+    },
+    {
+     "id": "p2",
+     "full": "The monitored changes are relevant accreditation, curriculum or technology changes",
+     "related": "general monitoring"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.3.F2": {
+   "assertion": "A review schedule defines when those changes are considered.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A body or process that considers such changes is identified",
+     "related": "changes in general"
+    },
+    {
+     "id": "p2",
+     "full": "A review schedule defines when changes are considered (meeting frequency, review cycle)",
+     "related": "\"as needed\" without a schedule"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.3.A1": {
+   "assertion": "A change review identifies a requirement affected by an external change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A change review is recorded",
+     "related": "changes made"
+    },
+    {
+     "id": "p2",
+     "full": "It identifies a requirement affected by an external change",
+     "related": "general revision"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.3.A2": {
+   "assertion": "A versioned reassessment preserves the prior result with an explanation of the change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A versioned reassessment is recorded",
+     "related": "a single assessment"
+    },
+    {
+     "id": "p2",
+     "full": "It preserves the prior result with an explanation of the change",
+     "related": "only the new result"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.3.O1": {
+   "assertion": "A completed review evaluates the timeliness of a detected relevant change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A completed review of a detected relevant change exists",
+     "related": "changes listed"
+    },
+    {
+     "id": "p2",
+     "full": "It evaluates the timeliness of detection or response",
+     "related": "no timeliness evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.3.O2": {
+   "assertion": "A follow-up evaluates the effect of a monitoring-process revision.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A monitoring-process revision is recorded",
+     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+    },
+    {
+     "id": "p2",
+     "full": "A follow-up evaluates its effect",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.4.F1": {
+   "assertion": "A feedback process covers an institutional digital or learning initiative.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A feedback process exists (survey, poll, structured feedback)",
+     "related": "feedback mentioned in general"
+    },
+    {
+     "id": "p2",
+     "full": "It covers an institutional digital or learning initiative (e.g. teaching-learning, an online service)",
+     "related": "feedback on facilities or events in general"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.4.F2": {
+   "assertion": "A follow-up register assigns ownership of resulting actions.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "Actions resulting from feedback are recorded (a follow-up register or action-taken report)",
+     "related": "actions mentioned in general"
+    },
+    {
+     "id": "p2",
+     "full": "Ownership of each action is assigned",
+     "related": "actions without owners"
+    }
+   ],
+   "not_enough": [
+    "Corrective actions passed on to departments without named owners"
+   ]
+  },
+  "AIQIF-C9.4.A1": {
+   "assertion": "A user acceptance or outcome review evaluates an identified deployed initiative.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A user acceptance or outcome review is recorded (survey results, evaluation)",
+     "related": "a review planned"
+    },
+    {
+     "id": "p2",
+     "full": "It evaluates an identified deployed initiative",
+     "related": "initiatives in general"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.4.A2": {
+   "assertion": "A corrective action has a recorded completion check.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A corrective action is recorded",
+     "related": "actions in general"
+    },
+    {
+     "id": "p2",
+     "full": "A completion check of that action is recorded",
+     "related": "the action without a check"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.4.O1": {
+   "assertion": "A completed review evaluates the subsequent result of a feedback-driven change.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A feedback-driven change is recorded",
+     "related": "changes in general"
+    },
+    {
+     "id": "p2",
+     "full": "A completed review evaluates its subsequent result",
+     "related": "described without evaluation"
+    }
+   ],
+   "not_enough": []
+  },
+  "AIQIF-C9.4.O2": {
+   "assertion": "A later initiative demonstrably applies a lesson from that review.",
+   "parts": [
+    {
+     "id": "p1",
+     "full": "A review identified a lesson",
+     "related": "reviews in general"
+    },
+    {
+     "id": "p2",
+     "full": "A later initiative demonstrably applies that lesson",
+     "related": "later initiatives without the link"
+    }
+   ],
+   "not_enough": []
+  }
+ }
+}
