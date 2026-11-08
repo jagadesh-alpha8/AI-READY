@@ -49,7 +49,20 @@ class SpecificationTests(SimpleTestCase):
     def test_schema_requires_every_part(self):
         schema = pj.schema(c11())
         f1 = schema['properties']['conditions']['properties']['AIQIF-C1.1.F1']
-        self.assertEqual(f1['properties']['parts']['required'], ['p1', 'p2'])
+        findings = f1['properties']['findings']
+        self.assertEqual((findings['minItems'], findings['maxItems']), (2, 2))
+        self.assertEqual(findings['items']['properties']['part_id']['enum'], ['p1', 'p2'])
+
+    def test_findings_array_and_duplicate_parts(self):
+        r = judged(response(F2={'reason': 'x', 'scope_supported': True, 'period_supported': True, 'findings': [
+            {'part_id': 'p1', 'finding': 'full', 'citations': [{'source_id': 'doc:1', 'quote': QUOTE_OWNER}]},
+            {'part_id': 'p2', 'finding': 'full', 'citations': [{'source_id': 'doc:1', 'quote': QUOTE_OWNER}]}]}))['F2']
+        self.assertEqual((r['state'], r['credit']), ('met', 1.0))
+        r = judged(response(F2={'reason': 'x', 'scope_supported': True, 'period_supported': True, 'findings': [
+            {'part_id': 'p1', 'finding': 'full', 'citations': [{'source_id': 'doc:1', 'quote': QUOTE_OWNER}]},
+            {'part_id': 'p1', 'finding': 'not_found', 'citations': []},
+            {'part_id': 'p2', 'finding': 'full', 'citations': [{'source_id': 'doc:1', 'quote': QUOTE_OWNER}]}]}))['F2']
+        self.assertEqual((r['state'], r['credit']), ('unknown', 0.0))  # the subject part was reported twice
 
 
 class JudgeTests(SimpleTestCase):
@@ -144,7 +157,9 @@ class Parts:
         for c in payload['indicator']['conditions']:
             ids = [p['id'] for p in c['parts']]
             found = c['id'] == 'AIQIF-C1.1.F2'
-            rows[c['id']] = condition({pid: part('full', QUOTE_OWNER) if found else part('not_found') for pid in ids})
+            rows[c['id']] = {'reason': 'Checked.', 'scope_supported': True, 'period_supported': True,
+                             'findings': [{'part_id': pid, **(part('full', QUOTE_OWNER) if found else part('not_found'))}
+                                          for pid in ids]}
         return {'conditions': rows}
 
 

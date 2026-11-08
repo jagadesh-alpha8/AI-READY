@@ -71,7 +71,7 @@ Scope and period, per condition:
   activity period.
 
 Give a short reason per condition that says which parts were found and why. Do not return scores.
-Return a conditions object with one property per supplied condition ID, and within it one property per part ID."""
+Return a conditions object with one property per supplied condition ID, and within it one findings entry per part ID."""
 
 
 @lru_cache(maxsize=1)
@@ -108,26 +108,42 @@ def indicator_with_parts(indicator, conditions=None):
 
 
 def schema(indicator, conditions=None):
+    """Per condition: reason, scope/period flags and a findings array with one entry per part.
+
+    An array keeps the schema about as small as the condition schema (Gemini rejects schemas that are too
+    large or deep); a part the model leaves out counts as not found."""
     spec = _load()[0]['conditions']
     chosen = indicator['conditions'] if conditions is None else conditions
     citation = {'type': 'object', 'additionalProperties': False, 'required': ['source_id', 'quote'],
                 'properties': {'source_id': {'type': 'string'}, 'quote': {'type': 'string'}}}
-    part = {'type': 'object', 'additionalProperties': False, 'required': ['finding', 'citations'],
-            'properties': {'finding': {'type': 'string', 'enum': list(FINDINGS)},
-                           'citations': {'type': 'array', 'items': citation}}}
     properties = {}
     for condition in chosen:
         ids = [p['id'] for p in spec[condition['id']]['parts']]
+        finding = {'type': 'object', 'additionalProperties': False, 'required': ['part_id', 'finding', 'citations'],
+                   'properties': {'part_id': {'type': 'string', 'enum': ids},
+                                  'finding': {'type': 'string', 'enum': list(FINDINGS)},
+                                  'citations': {'type': 'array', 'items': deepcopy(citation)}}}
         properties[condition['id']] = {
             'type': 'object', 'additionalProperties': False,
-            'required': ['reason', 'scope_supported', 'period_supported', 'parts'],
+            'required': ['reason', 'scope_supported', 'period_supported', 'findings'],
             'properties': {'reason': {'type': 'string'}, 'scope_supported': {'type': 'boolean'},
                            'period_supported': {'type': 'boolean'},
-                           'parts': {'type': 'object', 'additionalProperties': False, 'required': ids,
-                                     'properties': {pid: deepcopy(part) for pid in ids}}}}
+                           'findings': {'type': 'array', 'minItems': len(ids), 'maxItems': len(ids), 'items': finding}}}
     return {'type': 'object', 'additionalProperties': False, 'required': ['conditions'],
             'properties': {'conditions': {'type': 'object', 'additionalProperties': False,
                                           'required': list(properties), 'properties': properties}}}
+
+
+def _reported_parts(row):
+    """{part id: finding record} from a findings array (current schema) or a parts object (earlier drafts).
+    A part reported twice counts as not found."""
+    if isinstance(row.get('findings'), list):
+        seen = {}
+        for item in row['findings']:
+            if isinstance(item, dict) and isinstance(item.get('part_id'), str):
+                seen.setdefault(item['part_id'], []).append(item)
+        return {pid: items[0] for pid, items in seen.items() if len(items) == 1}
+    return row.get('parts') if isinstance(row.get('parts'), dict) else {}
 
 
 def rows(response):
@@ -178,7 +194,7 @@ def judge_rows(indicator, response_rows, context, *, reviewed_evidence=None, sou
         cid = condition['id']
         candidates = by_id.get(cid, [])
         row = candidates[0] if len(candidates) == 1 else {}
-        reported = row.get('parts') if isinstance(row.get('parts'), dict) else {}
+        reported = _reported_parts(row)
         scope_ok = row.get('scope_supported') is True
         period_ok = row.get('period_supported') is True
         parts, citations, issues = [], [], []
