@@ -38,9 +38,12 @@ FUSION = 'protected-bm25-discovery-v4'
 BASELINE_CHARS = 30000
 EXPANSION_CHARS = 6000
 ALLOCATION = 'protected-baseline-then-discovery-v2'
+WIDE_ALLOCATION = 'protected-baseline-then-discovery-wide-v1'
 ALLOCATION_BUDGETS = {
     'protected-baseline-then-discovery-v1': (18000, 6000),
     ALLOCATION: (BASELINE_CHARS, EXPANSION_CHARS),
+    # Multi-document sprints: a 90,000-character keyword lane (about three times the default packet).
+    WIDE_ALLOCATION: (90000, EXPANSION_CHARS),
 }
 BGE_QUERY_INSTRUCTION = 'Represent this sentence for searching relevant passages: '
 
@@ -56,8 +59,19 @@ def configured_policy(mode=None):
     mode = mode or settings.CAPABILITY_RETRIEVAL_MODE
     if mode not in ('bm25', 'hybrid'):
         raise SemanticRetrievalUnavailable('CAPABILITY_RETRIEVAL_MODE must be bm25 or hybrid.')
+    from . import structure
+    routing = {}
+    if settings.CAPABILITY_DEDUPLICATE_PAGES:
+        routing['deduplicate'] = structure.DEDUPLICATE_VERSION
+    if settings.CAPABILITY_STRUCTURE_ROUTING:
+        routing['structure'] = structure.VERSION
+    allocation = settings.CAPABILITY_RETRIEVAL_ALLOCATION or ALLOCATION
+    if allocation not in (ALLOCATION, WIDE_ALLOCATION):
+        raise SemanticRetrievalUnavailable(f'CAPABILITY_RETRIEVAL_ALLOCATION must be {ALLOCATION} or {WIDE_ALLOCATION}.')
     if mode == 'bm25':
-        return {'mode': 'bm25'}
+        if allocation != ALLOCATION:
+            raise SemanticRetrievalUnavailable('The wide allocation needs hybrid retrieval.')
+        return {'mode': 'bm25', **routing}
     from .query_profiles import profile_metadata
     profiles = profile_metadata()
     from importlib.metadata import version, PackageNotFoundError
@@ -71,9 +85,9 @@ def configured_policy(mode=None):
             'query_policy': 'evidence-record-profiles-1', **profiles,
             'query_instruction': query_instruction(settings.CAPABILITY_EMBEDDING_MODEL),
             'lexical_weight': 2, 'semantic_weight': 1,
-            'allocation': ALLOCATION,
-            'baseline_chars': BASELINE_CHARS, 'expansion_chars': EXPANSION_CHARS,
-            'expansion_filter': 'instruction-heading-only-v2'}
+            'allocation': allocation,
+            'baseline_chars': ALLOCATION_BUDGETS[allocation][0], 'expansion_chars': ALLOCATION_BUDGETS[allocation][1],
+            'expansion_filter': 'instruction-heading-only-v2', **routing}
 
 
 @lru_cache(maxsize=2)

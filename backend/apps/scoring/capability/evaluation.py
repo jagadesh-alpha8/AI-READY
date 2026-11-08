@@ -178,7 +178,7 @@ def _normal(text):
     return ' '.join(text.split())
 
 
-def select_context(indicator, sources, max_chars=None, semantic_ranker=None, window_chars=None, diagnostics=None):
+def select_context(indicator, sources, max_chars=None, semantic_ranker=None, window_chars=None, diagnostics=None, structure=None):
     """Rank requirement-aware page windows, including evidence beyond the page prefix.
 
     Independent assertions retain distinct windows under the canonical page ID; the
@@ -195,7 +195,7 @@ def select_context(indicator, sources, max_chars=None, semantic_ranker=None, win
                   for s in sources]
         allowance = 19 if max_chars >= 120 else 0
         context = select_context(indicator, bodies, max_chars=max_chars - allowance, semantic_ranker=semantic_ranker,
-                                 window_chars=window_chars, diagnostics=diagnostics)
+                                 window_chars=window_chars, diagnostics=diagnostics, structure=structure)
         # A single companion from a selected page keeps repeated timestamps out of ranking.
         anchor = next((s for s in context if s['id'] in footers), None)
         if anchor and allowance:
@@ -209,9 +209,12 @@ def select_context(indicator, sources, max_chars=None, semantic_ranker=None, win
         return context
     if semantic_ranker is not None:
         from .evidence_retrieval import retrieve_evidence
-        return retrieve_evidence(indicator, sources, semantic_ranker, max_chars=max_chars, diagnostics=diagnostics)
+        return retrieve_evidence(indicator, sources, semantic_ranker, max_chars=max_chars, diagnostics=diagnostics,
+                                 structure=structure)
     if indicator.get('scoring_mode') == 'independent_conditions':
-        return select_balanced_context(indicator, sources, max_chars=max_chars, semantic_ranker=semantic_ranker, window_chars=window_chars, diagnostics=diagnostics)
+        return select_balanced_context(indicator, sources, max_chars=max_chars, semantic_ranker=semantic_ranker, window_chars=window_chars, diagnostics=diagnostics, structure=structure)
+    if structure is not None:
+        raise ValueError('Structure routing applies only to independent-condition indicators.')
     ids = [s['id'] for s in sources]
     if len(ids) != len(set(ids)):
         raise ValueError('Source IDs must be unique.')
@@ -262,6 +265,10 @@ def select_context(indicator, sources, max_chars=None, semantic_ranker=None, win
 
 
 
+ROUTE_SHARE = 1 / 3     # of the keyword lane, for routed picks
+ROUTE_PICKS = 2         # routed windows per assertion
+DOCUMENT_SHARE = 0.5    # of the keyword lane, per document, before the final fill
+
 RETRIEVAL_TERMS = {
     'AIQIF-C1.1': 'strategy priorities perspective plan roadmap governance',
     'AIQIF-C1.2': 'governance board council IQAC committee authority escalation',
@@ -302,7 +309,7 @@ RETRIEVAL_TERMS = {
 }
 
 
-def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker=None, window_chars=None, diagnostics=None, *, structural_seed=None):
+def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker=None, window_chars=None, diagnostics=None, *, structural_seed=None, structure=None):
     """Assertion-diverse exact windows. Bounded retrieval, never a recall guarantee."""
     if len({s['id'] for s in sources}) != len(sources):
         raise ValueError('Source IDs must be unique.')
@@ -334,6 +341,13 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
     frequency = Counter(t for row in windows for t in row[3])
     average_length = sum(sum(w[3].values()) for w in windows) / len(windows) or 1
     terms = tokens(RETRIEVAL_TERMS.get(indicator['code'], indicator['name']))
+    # Structure routing (off unless the frozen retrieval policy names it): after each assertion's first
+    # pick, its best query-matching windows inside NAAC metric sections routed to this indicator join the
+    # packet within a bounded quota. Routing never reorders ranking and never adds a non-matching window.
+    routed = {}
+    if structure is not None:
+        from .structure import routed_spans
+        routed = routed_spans(structure['sections'], indicator['code'])
     queries = [tokens(c['text']) for c in indicator.get('conditions', [])] or [terms]
     def score(row, query):
         words = row[3]
@@ -357,10 +371,16 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
     # into one contiguous span and pay only for new characters, so no text repeats and a passage
     # straddling a window boundary stays inside a single citable window.
     spans, used = [], 0
-    def add(row):
+    # With structure, no single document may take more than DOCUMENT_SHARE of the packet until a final
+    # uncapped fill; with one document the fill restores the uncapped packet's size.
+    document_cap = int(max_chars * DOCUMENT_SHARE) if structure is not None and structure.get('routing', True) else None
+    document_used = Counter()
+    def add(row, capped=True):
         nonlocal used
         source, offset, excerpt, _ = row
         remaining = max_chars - used
+        if document_cap is not None and capped:
+            remaining = min(remaining, document_cap - document_used[source.get('document_id') or source['id']])
         if remaining < 100:
             return False
         start, end = offset, offset + len(excerpt)
@@ -369,6 +389,7 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
             end = min(end, start + remaining)
             spans.append([source, start, end])
             used += end - start
+            document_used[source.get('document_id') or source['id']] += end - start
             return True
         low, high = min([start] + [s[1] for s in joined]), max([end] + [s[2] for s in joined])
         added = (high - low) - sum(s[2] - s[1] for s in joined)
@@ -378,6 +399,7 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
         first[1], first[2] = low, high
         spans[:] = [s for s in spans if s is first or s not in joined]
         used += added
+        document_used[source.get('document_id') or source['id']] += added
         return True
 
     bundle = []
@@ -408,8 +430,19 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
         ordered = ranked(query)
         if ordered:
             add(ordered[0])
+    if routed:
+        def inside(row):
+            return any(a < row[1] + len(row[2]) and row[1] < b for a, b in routed.get(row[0]['id'], ()))
+        route_limit, route_start = int(max_chars * ROUTE_SHARE), used
+        for query in queries:
+            for row in [w for w in ranked(query) if inside(w) and score(w, query) > 0][:ROUTE_PICKS]:
+                if used - route_start + len(row[2]) <= route_limit:
+                    add(row)
     for row in ranked(set().union(*queries)):
         add(row)
+    if document_cap is not None:
+        for row in ranked(set().union(*queries)):
+            add(row, capped=False)
     return [{**{k: v for k, v in source.items() if k != 'retrieval_hints'},
              'text': source['text'][start:end], 'text_offset': start} for source, start, end in spans]
 
@@ -541,16 +574,25 @@ def _agreement_pass(indicator, validated, *, service, payload, schema_sources, c
                        'second_response_audit': response_audit(indicator, second, rechecked)}
 
 
-def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope):
+def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope,
+             structure=None):
     """Build one indicator's frozen packet and request payload (local work, no model call)."""
     from .scope import context_scope
     from .reviewed_evidence import for_context
-    context = select_context(indicator, sources, semantic_ranker=semantic_ranker)
+    if structure is None:
+        context = select_context(indicator, sources, semantic_ranker=semantic_ranker)
+    else:
+        # Retrieval reads the duplicate-free pages; validation still accepts any frozen source.
+        context = select_context(indicator, structure['sources'], semantic_ranker=semantic_ranker, structure=structure)
     # Repeating the packet ID enum in each condition can exceed Gemini's
     # schema complexity limit. validate_decisions still checks exact citations.
     schema_sources = None if gemini else context
     attachment_audit = {}
-    review_context = for_context(reviewed_evidence, context, diagnostics=attachment_audit)
+    aliases = None
+    if structure is not None and structure.get('dropped'):
+        from .structure import page_aliases
+        aliases = page_aliases(structure)
+    review_context = for_context(reviewed_evidence, context, diagnostics=attachment_audit, aliases=aliases)
     payload = json.dumps({'reviewed_evidence': review_context, 'indicator': indicator, 'population': population,
                           'reference_period': reference_period, 'scope': context_scope(scope, context), 'sources': context}, sort_keys=True)
     issue = ''
@@ -689,8 +731,18 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     )
     judge = dict(service=service, sources=sources, reviewed_evidence=reviewed_evidence, strict_errors=strict_errors,
                  recover_provider_errors=recover_provider_errors, agreement_passes=agreement_passes)
+    structure = None
+    frozen_policy = retrieval_policy or {}
+    if frozen_policy.get('structure') is not None or frozen_policy.get('deduplicate') is not None:
+        from . import structure as document_structure
+        if frozen_policy.get('structure') not in (None, document_structure.VERSION):
+            raise ValueError('Frozen structure routing version does not match this worker.')
+        if frozen_policy.get('deduplicate') not in (None, document_structure.DEDUPLICATE_VERSION):
+            raise ValueError('Frozen page deduplication version does not match this worker.')
+        structure = document_structure.build(sources, deduplicate_pages=frozen_policy.get('deduplicate') is not None,
+                                             routing=frozen_policy.get('structure') is not None)
     prepare = dict(sources=sources, semantic_ranker=semantic_ranker, gemini=gemini, reviewed_evidence=reviewed_evidence,
-                   population=population, reference_period=reference_period, scope=scope)
+                   population=population, reference_period=reference_period, scope=scope, structure=structure)
     records, traces = [], []
     state = {'calls': 0, 'repairs': 0, 'streak': 0}
     lock = threading.Lock()

@@ -815,3 +815,13 @@ CAPABILITY_PLANS_ENABLED = os.getenv('CAPABILITY_PLANS_ENABLED', 'false').lower(
 CAPABILITY_EMBEDDING_PATH = os.getenv('CAPABILITY_EMBEDDING_PATH', '')
 CAPABILITY_EMBEDDING_MODEL = os.getenv('CAPABILITY_EMBEDDING_MODEL', 'BAAI/bge-small-en-v1.5')
 CAPABILITY_RETRIEVAL_MODE = os.getenv('CAPABILITY_RETRIEVAL_MODE', 'bm25')
+# Retrieval options for multi-document sprints (apps/scoring/capability/structure.py). All off by
+# default; each is frozen into a run's retrieval policy when on, so a run keeps the options it started with.
+# Exact duplicate pages (whitespace and case ignored) are read once.
+CAPABILITY_DEDUPLICATE_PAGES = os.getenv('CAPABILITY_DEDUPLICATE_PAGES', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Experimental: routed picks inside NAAC metric sections plus a per-document share cap of the keyword
+# lane. Offline tests showed no recall gain yet; keep off for assessments.
+CAPABILITY_STRUCTURE_ROUTING = os.getenv('CAPABILITY_STRUCTURE_ROUTING', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Empty for the default 30,000 + 6,000 character packet; 'protected-baseline-then-discovery-wide-v1' for a
+# 90,000-character keyword lane (hybrid mode only).
+CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '')

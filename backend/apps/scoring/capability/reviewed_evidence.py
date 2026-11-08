@@ -92,7 +92,7 @@ def snapshot(sprint):
                             if batch else None}
 
 
-def for_context(ledger, sources, diagnostics=None):
+def for_context(ledger, sources, diagnostics=None, aliases=None):
     """Project review controls onto the exact excerpts, without copying quotations.
 
     Source passages are supplied separately. The frozen ledger remains the local
@@ -106,7 +106,11 @@ def for_context(ledger, sources, diagnostics=None):
     from .evaluation import _normal
     pages = {}
     for source in sources:
-        pages.setdefault((source['document_id'], source['page_number']), []).append(source)
+        key = (source['document_id'], source['page_number'])
+        pages.setdefault(key, []).append(source)
+        # A deduplicated page also stands for its identical dropped copies (structure.page_aliases).
+        for alias in (aliases or {}).get(key, ()):
+            pages.setdefault(alias, []).append(source)
 
     def references(source):
         quote = _normal(source.get('quote') or '')
