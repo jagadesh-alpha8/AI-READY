@@ -216,6 +216,8 @@ def publish(*, institution_id, run_id, evaluation, inference):
             row['parts'] = prior.get('parts', [])
             row['credit'] = 0.0 if newly_withheld else prior.get('credit', 0.0)
             row['digital_credit'] = 0.0 if newly_withheld else prior.get('digital_credit', row['credit'])
+            if 'follow_up' in prior:  # what the targeted extra search changed, for review
+                row['follow_up'] = prior['follow_up']
     decisions = {r['condition_id']: r['state'] for r in validated}
     result = assess(decisions, rubric)
     if any('credit' in r for r in validated):
