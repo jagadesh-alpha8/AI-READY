@@ -391,17 +391,17 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
     def add(row, capped=True):
         nonlocal used
         source, offset, excerpt, _ = row
-        if skip_repeats:
-            from .structure import words, repeats
-            document = source.get('document_id') or source['id']
-            candidate = words(excerpt)
-            if repeats(candidate, document, chosen_words):
-                return False
         remaining = max_chars - used
         if document_cap is not None and capped:
             remaining = min(remaining, document_cap - document_used[source.get('document_id') or source['id']])
         if remaining < 100:
             return False
+        if skip_repeats:  # after the budget check: once the packet is full, no word sets are computed
+            from .structure import words, repeats
+            document = source.get('document_id') or source['id']
+            candidate = words(excerpt)
+            if repeats(candidate, document, chosen_words):
+                return False
         start, end = offset, offset + len(excerpt)
         joined = [s for s in spans if s[0]['id'] == source['id'] and s[1] < end and start < s[2]]
         if not joined:

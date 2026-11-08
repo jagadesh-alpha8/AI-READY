@@ -65,10 +65,15 @@ def policy(stage='assessment'):
         call_floor = 146 if passes == 2 else 74
     if stage == 'assessment' and effort == 'high':
         # Measured on Gemini 3 at high effort: 60-160 s per request and up to ~23k reasoning tokens.
+        # With the 30,000 packet (run 3e7c001f) the slowest request took 256 s and the longest used 40,883 output
+        # tokens, so the 90,000 and 200,000 packets (3 to 7 times the input) get the full output allowance and
+        # twice the time. Gemini 3.8 Flash allows 65,536 output tokens.
+        from .semantic_retrieval import WIDE_ALLOCATION, XWIDE_ALLOCATION
+        wide = getattr(settings, 'CAPABILITY_RETRIEVAL_ALLOCATION', '') in (WIDE_ALLOCATION, XWIDE_ALLOCATION)
         if getattr(settings, prefix + '_TIMEOUT_SECONDS') is None and type(timeout) is int:
-            timeout = max(timeout, 300)
+            timeout = max(timeout, 600 if wide else 300)
         if getattr(settings, prefix + '_OUTPUT_TOKENS') is None and type(output) is int:
-            output = max(output, 48000)
+            output = max(output, 64000 if wide else 48000)
     duration = getattr(settings, 'CAPABILITY_MAX_DURATION_SECONDS', None)
     if duration is None and type(calls) is int and type(timeout) is int and type(concurrency) is int and concurrency >= 1:
         # A safety stop, not a pace target: every request could use its full timeout, plus packet building.
