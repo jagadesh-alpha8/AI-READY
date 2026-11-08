@@ -3840,7 +3840,8 @@
     }
    ],
    "not_enough": [
-    "\"View Document\" links alone"
+    "\"View Document\" links or \"File Description | Document\" tables listing supporting files",
+    "A list of quality certifications"
    ]
   },
   "AIQIF-C9.2.F2": {
@@ -3992,8 +3993,8 @@
    "parts": [
     {
      "id": "p1",
-     "full": "A versioned reassessment is recorded",
-     "related": "a single assessment",
+     "full": "A versioned reassessment of readiness or compliance is recorded after an external change in requirements, benchmarks or technology",
+     "related": "a repeated assessment not linked to an external change",
      "gate": "subject"
     },
     {
@@ -4003,7 +4004,9 @@
      "gate": null
     }
    ],
-   "not_enough": []
+   "not_enough": [
+    "A verification or correction of reported values, such as a DVV deviation list; that is an evidence correction (C9.2.A2), not a reassessment after an external change"
+   ]
   },
   "AIQIF-C9.3.O1": {
    "assertion": "A completed review evaluates the timeliness of a detected relevant change.",

@@ -1465,7 +1465,7 @@ SPEC = {
             'An evidence index identifies source records used for assessment (document list, evidence register) || documents uploaded without an index',
             'It is used for an assessment || an index for other purposes',
         ],
-        'not': ['"View Document" links alone'],
+        'not': ['"View Document" links or "File Description | Document" tables listing supporting files', 'A list of quality certifications'],
     },
     'AIQIF-C9.2.F2': {
         'parts': [
@@ -1526,10 +1526,10 @@ SPEC = {
     },
     'AIQIF-C9.3.A2': {
         'parts': [
-            'A versioned reassessment is recorded || a single assessment',
+            'A versioned reassessment of readiness or compliance is recorded after an external change in requirements, benchmarks or technology || a repeated assessment not linked to an external change',
             'It preserves the prior result with an explanation of the change || only the new result',
         ],
-        'not': [],
+        'not': ['A verification or correction of reported values, such as a DVV deviation list; that is an evidence correction (C9.2.A2), not a reassessment after an external change'],
     },
     'AIQIF-C9.3.O1': {
         'parts': [
