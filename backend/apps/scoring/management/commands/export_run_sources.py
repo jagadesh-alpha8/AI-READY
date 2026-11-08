@@ -45,6 +45,6 @@ class Command(BaseCommand):
             'document': {k: document.get(k) for k in ('document_id', 'filename', 'checksum', 'version', 'expected_pages')},
             'pages': [{'id': s['id'], 'page_number': s['page_number'], 'text_source': s.get('text_source'),
                        'text': s['text']} for s in pages],
-        }, ensure_ascii=False, indent=1))
+        }, ensure_ascii=False, indent=1), encoding='utf-8')
         self.stdout.write(f"Wrote {len(pages)} of {document.get('expected_pages')} pages of "
                           f"{document['filename']} to {target}.")

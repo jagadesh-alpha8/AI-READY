@@ -23,8 +23,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
-            key = json.loads(Path(options['key']).read_text())
-            exports = [json.loads(Path(p).read_text()) for p in options['exports']]
+            key = json.loads(Path(options['key']).read_text(encoding='utf-8'))
+            exports = [json.loads(Path(p).read_text(encoding='utf-8')) for p in options['exports']]
             results = [check(export, key) for export in exports]
         except (OSError, ValueError, KeyError) as exc:
             raise CommandError(f'Could not check the export: {exc}') from exc
@@ -35,7 +35,8 @@ class Command(BaseCommand):
             if target.exists() or repository in target.parents:
                 raise CommandError('Choose a new output path outside the repository.')
             target.write_text(json.dumps({'results': results, 'unstable_conditions': flips,
-                                          'agreement': consensus(results) if len(results) > 1 else None}, indent=1))
+                                          'agreement': consensus(results) if len(results) > 1 else None}, indent=1),
+                              encoding='utf-8')
         out = self.stdout.write
         for result in results:
             out(f"\nrun {result['run_id']} | key {result['answer_key']} | document {result['document']}")
