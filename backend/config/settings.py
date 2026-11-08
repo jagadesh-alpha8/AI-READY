@@ -829,3 +829,6 @@ CAPABILITY_STRUCTURE_ROUTING = os.getenv('CAPABILITY_STRUCTURE_ROUTING', 'false'
 # Empty for the default 30,000 + 6,000 character packet; 'protected-baseline-then-discovery-wide-v1' for a
 # 90,000-character keyword lane (hybrid mode only).
 CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '')
+# Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
+# every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.
+CAPABILITY_EMBEDDING_CACHE_DIR = os.getenv('CAPABILITY_EMBEDDING_CACHE_DIR', '')

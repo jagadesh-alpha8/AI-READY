@@ -101,9 +101,50 @@ def _model(path, model_name, fingerprint):
                          local_files_only=True, threads=2, providers=['CPUExecutionProvider'])
 
 
+class EmbeddingCache:
+    """Passage vectors on disk, keyed by the model artifact hash and the exact passage text.
+
+    The encoder gives byte-identical vectors whatever the batch (checked: batch order and single-text
+    calls match exactly), so a cached vector equals a fresh one and packets do not change. One SQLite file
+    per model artifact; a different artifact never reads another's vectors."""
+
+    def __init__(self, directory, artifact):
+        import sqlite3
+        root = Path(directory)
+        root.mkdir(parents=True, exist_ok=True)
+        self.path = root / f'passages-{artifact[:16]}.sqlite3'
+        self.connection = sqlite3.connect(str(self.path), check_same_thread=False)
+        self.connection.execute('CREATE TABLE IF NOT EXISTS vectors (text_hash TEXT PRIMARY KEY, vector BLOB NOT NULL)')
+        self.connection.commit()
+
+    @staticmethod
+    def key(text):
+        return hashlib.sha256(text.encode()).hexdigest()
+
+    def get_many(self, texts):
+        import numpy as np
+        found = {}
+        keys = {self.key(t): t for t in texts}
+        items = list(keys)
+        for start in range(0, len(items), 500):
+            chunk = items[start:start + 500]
+            rows = self.connection.execute(
+                f'SELECT text_hash, vector FROM vectors WHERE text_hash IN ({",".join("?" * len(chunk))})', chunk)
+            for text_hash, blob in rows:
+                found[keys[text_hash]] = np.frombuffer(blob, dtype=np.float32).copy()
+        return found
+
+    def put_many(self, pairs):
+        import numpy as np
+        self.connection.executemany('INSERT OR IGNORE INTO vectors (text_hash, vector) VALUES (?, ?)',
+                                    [(self.key(t), np.asarray(v, dtype=np.float32).tobytes()) for t, v in pairs])
+        self.connection.commit()
+
+
 class SemanticRanker:
-    def __init__(self, model, tokenizer=None, token_limit=None):
+    def __init__(self, model, tokenizer=None, token_limit=None, cache=None):
         self.model = model
+        self.cache = cache
         self.baseline_chars = BASELINE_CHARS
         self.context_chars = BASELINE_CHARS + EXPANSION_CHARS
         self.query_prefix = query_instruction(getattr(model, 'model_name', ''))
@@ -154,15 +195,20 @@ class SemanticRanker:
             from .evidence_retrieval import expansion_exclusion
             eligible = [p for p in passages if not expansion_exclusion(p)]
             texts = list(dict.fromkeys(p.embedding_text for p in eligible))
-            vectors = list(self.model.passage_embed(texts, batch_size=32)) if texts else []
-            if len(vectors) != len(texts):
+            cached = self.cache.get_many(texts) if self.cache is not None and texts else {}
+            missing = [t for t in texts if t not in cached]
+            vectors = list(self.model.passage_embed(missing, batch_size=32)) if missing else []
+            if len(vectors) != len(missing):
                 raise SemanticRetrievalUnavailable('Embedding response count mismatch.')
-            for text, value in zip(texts, vectors):
+            if self.cache is not None and missing:
+                self.cache.put_many(zip(missing, vectors))
+            for text, value in list(cached.items()) + list(zip(missing, vectors)):
                 self.vectors[text] = self._normalized(value)
+            self.stats['cached_passages'] = len(cached)
             dimensions = len(next(iter(self.vectors.values()))) if self.vectors else 0
             self._matrix = np.stack([self.vectors[p.embedding_text] if not expansion_exclusion(p)
                 else np.zeros(dimensions, dtype=np.float32) for p in passages])
-            self.stats['embedded_passages'] += len(texts)
+            self.stats['embedded_passages'] += len(missing)
             self.stats['skipped_instruction_passages'] = len(passages) - len(eligible)
             self.stats['vector_bytes'] = self._matrix.nbytes
         result = []
@@ -239,7 +285,9 @@ def ranker_for(policy):
             or policy.get('fastembed_version') != version('fastembed')
             or policy.get('artifact_hash') != artifact_hash(settings.CAPABILITY_EMBEDDING_PATH)):
         raise SemanticRetrievalUnavailable('Frozen embedding model does not match the worker artifacts.')
-    ranker = SemanticRanker(_model(settings.CAPABILITY_EMBEDDING_PATH, policy['model'], policy['artifact_hash']))
+    cache_dir = getattr(settings, 'CAPABILITY_EMBEDDING_CACHE_DIR', '')
+    ranker = SemanticRanker(_model(settings.CAPABILITY_EMBEDDING_PATH, policy['model'], policy['artifact_hash']),
+                            cache=EmbeddingCache(cache_dir, policy['artifact_hash']) if cache_dir else None)
     ranker.baseline_chars = budgets[0]
     ranker.context_chars = sum(budgets)
     return ranker
