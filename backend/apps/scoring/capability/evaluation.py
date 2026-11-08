@@ -13,7 +13,7 @@ from copy import deepcopy
 
 from .engine import STATES, release
 
-PROMPT_VERSION = 'AIQIF-EVAL-0.19'
+PROMPT_VERSION = 'AIQIF-EVAL-0.20'
 RETRIEVAL_VERSION = 'AIQIF-source-passages-7'
 SYSTEM_PROMPT = """Assess institutional AI capability against the supplied experimental rubric.
 Keep reasons concise and cite the shortest exact passages that retain necessary scope and dates. Do not copy entire pages into the response.
@@ -73,11 +73,16 @@ For C6.1.F2, cite the specifications, the explicitly stated introductory AI work
 A project's title or description can state its objective. A named project to develop a stated thing for a stated
 purpose (for example, developing an AI-assisted tool for a named diagnostic use) has a defined objective. Do not
 require a charter, milestones or boundaries unless the assertion itself asks for them.
-A plan table that gives each priority's target and its achieved value for an explicit plan period is a completed
-comparison of measured results with stated objectives for that period. It can satisfy a measured_result assertion
-that asks only for such a comparison (a plan, portfolio or adoption review) within that plan's scope. A target
-without an achieved value is not a comparison, and such a table never establishes service performance, competence,
-AI deployment or AI benefit.
+Within an indicator, activity and result assertions build on its AI-specific steps: a portfolio, adoption or outcome
+review must concern the AI initiative, use or activity those steps describe. A plan table of generic targets (for
+example classrooms, admissions or publications) is not an AI portfolio, adoption or outcome review.
+Funding, incubation or mentoring of an external venture or startup is that venture's project. It can support
+assertions about innovation support, funding decisions or venture records; it is not an institutional AI initiative,
+deployment or portfolio decision.
+A team that maintains or repairs infrastructure is not a user support contact unless the passage says users contact
+it for help with the service or tool.
+A verification or deviation record that shows a value before and after correction together with a stated remark or
+reason preserves the earlier record and the reason for the change, whoever made the correction.
 Authority over digital decisions needs a passage in which a named body decides, approves or oversees a matter that
 the passage itself identifies as digital, IT, data or AI. A list of bodies, their general academic or administrative
 remit, or a reporting hierarchy establishes neither that authority nor an escalation route for digital decisions.

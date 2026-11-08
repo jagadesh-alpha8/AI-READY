@@ -777,6 +777,8 @@ CAPABILITY_OUTPUT_TOKENS = int(os.getenv('CAPABILITY_OUTPUT_TOKENS', '12000'))
 # Accuracy: 2 assesses every indicator packet twice and leaves any requirement the two passes disagree on unknown,
 # routed to review (never credited). Doubles assessment requests: raise CAPABILITY_MAX_HTTP_CALLS (about 90) and
 # CAPABILITY_MAX_COST_USD accordingly. Assessment cost does not grow with corpus size (packets are bounded).
+# With CAPABILITY_GEMINI_REASONING_EFFORT=high, Gemini 3 requests take 60-160 s and can use ~23k thinking tokens:
+# raise CAPABILITY_MAX_DURATION_SECONDS (about 14400 for two passes) and CAPABILITY_ASSESSMENT_OUTPUT_TOKENS (48000).
 CAPABILITY_AGREEMENT_PASSES = int(os.getenv('CAPABILITY_AGREEMENT_PASSES', '1'))
 # Gemini thinking level for the assessor only; empty = AI_GEMINI_REASONING_EFFORT (which extraction keeps using).
 CAPABILITY_GEMINI_REASONING_EFFORT = os.getenv('CAPABILITY_GEMINI_REASONING_EFFORT', '').strip() or None
