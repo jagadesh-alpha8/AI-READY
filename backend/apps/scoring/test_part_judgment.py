@@ -50,7 +50,7 @@ class SpecificationTests(SimpleTestCase):
         schema = pj.schema(c11())
         f1 = schema['properties']['conditions']['properties']['AIQIF-C1.1.F1']
         findings = f1['properties']['findings']
-        self.assertEqual((findings['minItems'], findings['maxItems']), (2, 2))
+        self.assertNotIn('minItems', findings)
         self.assertEqual(findings['items']['properties']['part_id']['enum'], ['p1', 'p2'])
 
     def test_findings_array_and_duplicate_parts(self):
@@ -81,7 +81,7 @@ class JudgeTests(SimpleTestCase):
     def test_unverifiable_quote_counts_as_not_found(self):
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER),
                                           'p2': part('full', 'An invented passage that is not on the page at all.')})))['F2']
-        self.assertEqual((r['state'], r['credit']), ('unknown', 0.5))
+        self.assertEqual((r['state'], r['credit']), ('unknown', 0.0))  # only the subject is evidenced
         self.assertEqual([p['finding'] for p in r['parts']], ['full', 'not_found'])
         self.assertTrue(r['part_issues'])
 
@@ -92,7 +92,7 @@ class JudgeTests(SimpleTestCase):
 
     def test_contradicted_part_is_not_met(self):
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('contradicted', QUOTE_OWNER)})))['F2']
-        self.assertEqual((r['state'], r['credit']), ('not_met', 0.5))
+        self.assertEqual((r['state'], r['credit']), ('not_met', 0.0))
 
     def test_missing_condition_is_unknown_with_no_credit(self):
         resp = response()
@@ -113,7 +113,7 @@ class CombineTests(SimpleTestCase):
         f2 = next(r for r in combined if r['condition_id'].endswith('F2'))
         self.assertEqual(f2['state'], 'unknown')
         self.assertEqual(f2['cause'], 'assessor_disagreement')
-        self.assertEqual(f2['credit'], 0.75)  # (1 + 0.5) / 2
+        self.assertEqual(f2['credit'], 0.5)  # (1 + 0) / 2: the second pass found only the subject
         self.assertEqual(disagreements, [{'condition_id': 'AIQIF-C1.1.F2', 'first': 'met', 'second': 'unknown'}])
 
     def test_identical_passes_are_unchanged(self):

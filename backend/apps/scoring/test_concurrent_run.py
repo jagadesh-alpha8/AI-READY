@@ -46,3 +46,45 @@ class ConcurrentRunTests(APITransactionTestCase):
         self.assertEqual(len(assessment['inference']['calls']), 72)  # one reservation and one outcome per request
         self.assertEqual(len({c['request_number'] for c in assessment['inference']['calls'] if 'request_number' in c}), 36)
         self.assertEqual(assessment['inference']['settings']['indicator_concurrency'], 4)
+
+
+class PartJudgmentRunTests(APITransactionTestCase):
+    """The part-judgment path end to end: two passes, four workers, publication, documented readiness."""
+    setUp = CapabilityAPITests.setUp
+    start = CapabilityAPITests.start
+    execute = CapabilityAPITests.execute
+    captureOnCommitCallbacks = ConcurrentRunTests.captureOnCommitCallbacks
+
+    def response(self, **kwargs):
+        import json
+        from types import SimpleNamespace
+        payload = json.loads(kwargs['messages'][1]['content'])
+        quote = payload['sources'][0]
+        rows = {c['id']: {'reason': 'Every part shown.', 'scope_supported': True, 'period_supported': True,
+                          'findings': [{'part_id': p['id'], 'finding': 'full',
+                                        'citations': [{'source_id': quote['id'], 'quote': quote['text']}]}
+                                       for p in c['parts']]}
+                for c in payload['indicator']['conditions']}
+        return SimpleNamespace(model='actual-test-model',
+            usage=SimpleNamespace(prompt_tokens=200, completion_tokens=150, prompt_tokens_details=None,
+                                  completion_tokens_details=None, total_tokens=350),
+            choices=[SimpleNamespace(finish_reason='stop', message=SimpleNamespace(
+                content=json.dumps({'conditions': rows}), refusal=None))])
+
+    def test_part_run_publishes_credits_and_documented_readiness(self):
+        with override_settings(**{**SETTINGS, 'CAPABILITY_MAX_HTTP_CALLS': 90}, CAPABILITY_INDICATOR_CONCURRENCY=4,
+                               CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_JUDGMENT='parts'):
+            execution = self.execute(self.start('parts-1'))
+        self.assertEqual(execution.status, 'completed')
+        self.assertEqual(execution.requests_reserved, 72)
+        assessment = self.client.get(f'{self.url}/{execution.run_id}').data['assessment']
+        records = {r['condition_id']: r for r in assessment['records']}
+        self.assertEqual(len(records), 216)
+        self.assertEqual(assessment['inference']['settings']['judgment'], 'parts')
+        # The syllabus-approval rule still withholds C3.1.F1; its evidenced parts count as related.
+        self.assertEqual(records['AIQIF-C3.1.F1']['state'], 'unknown')
+        self.assertEqual(records['AIQIF-C3.1.F1']['credit'], 0.5)
+        self.assertTrue(all(r['credit'] == 1.0 for cid, r in records.items() if cid != 'AIQIF-C3.1.F1'))
+        result = assessment['result']
+        self.assertGreater(result['documented']['overall'], result['lower'])
+        self.assertLessEqual(result['documented']['overall'], result['upper'])

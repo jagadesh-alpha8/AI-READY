@@ -239,7 +239,7 @@ SPEC = {
     },
     'AIQIF-C2.1.O2': {
         'parts': [
-            'A responsible-use control was revised || a control exists without revision',
+            'A control in the institution\'s guidance on responsible AI use was revised || a control exists without revision',
             'A follow-up tests the effect of the revision || the revision is described without a test',
         ],
         'not': [],
@@ -368,7 +368,7 @@ SPEC = {
     },
     'AIQIF-C2.4.O2': {
         'parts': [
-            'An oversight change was made || ' + PLANNED,
+            'An oversight change for a consequential AI use was made || ' + PLANNED,
             'A follow-up tests its effect || the change is described without a test',
         ],
         'not': [],
@@ -442,7 +442,7 @@ SPEC = {
     },
     'AIQIF-C3.2.A2': {
         'parts': [
-            'A discipline-specific access or learning gap is documented || a general need',
+            'A discipline-specific access or learning gap in AI literacy is documented || a general need',
             'A support response addresses it || support is provided without linking it to the gap',
         ],
         'not': [],
@@ -456,7 +456,7 @@ SPEC = {
     },
     'AIQIF-C3.2.O2': {
         'parts': [
-            'Targeted literacy support was provided || general support',
+            'Targeted AI literacy support was provided || general support',
             'A follow-up assessment evaluates its effect || the support is described without evaluation',
         ],
         'not': [],
@@ -544,7 +544,7 @@ SPEC = {
     },
     'AIQIF-C3.4.O2': {
         'parts': [
-            'A mentoring or design change is recorded || ' + PLANNED,
+            'A mentoring or design change for student AI project or lab work is recorded || ' + PLANNED,
             'Later work is evaluated against a comparable criterion || later work is described without evaluation',
         ],
         'not': [],
@@ -632,7 +632,7 @@ SPEC = {
     },
     'AIQIF-C4.2.O2': {
         'parts': [
-            'A role pathway was revised || ' + PLANNED,
+            'A faculty AI role pathway was revised || ' + PLANNED,
             'A subsequent task evaluation tests the effect || described without evaluation',
         ],
         'not': [],
@@ -747,7 +747,7 @@ SPEC = {
     },
     'AIQIF-C5.1.A2': {
         'parts': [
-            'A participation or attainment gap is documented || a general need',
+            'A participation or attainment gap in a student AI literacy offer is documented || a general need',
             'A support response addresses it || support without linking to the gap',
         ],
         'not': [],
@@ -761,7 +761,7 @@ SPEC = {
     },
     'AIQIF-C5.1.O2': {
         'parts': [
-            'A change addressing an access or learning gap is recorded || ' + PLANNED,
+            'A change addressing an access or learning gap in student AI literacy is recorded || ' + PLANNED,
             'A follow-up evaluates its effect || described without evaluation',
         ],
         'not': [],
@@ -790,7 +790,7 @@ SPEC = {
     },
     'AIQIF-C5.2.A2': {
         'parts': [
-            'Employer or disciplinary feedback about the pathway is identified || general feedback',
+            'Employer or disciplinary feedback about the advanced AI/ML pathway is identified || general feedback',
             'A delivery change responds to it || a change without linking to the feedback',
         ],
         'not': [],
@@ -804,7 +804,7 @@ SPEC = {
     },
     'AIQIF-C5.2.O2': {
         'parts': [
-            'The pathway was revised || ' + PLANNED,
+            'The advanced AI/ML pathway was revised || ' + PLANNED,
             'A subsequent task evaluation tests the effect || described without evaluation',
         ],
         'not': [],
@@ -847,7 +847,7 @@ SPEC = {
     },
     'AIQIF-C5.3.O2': {
         'parts': [
-            'A project or mentoring change is recorded || ' + PLANNED,
+            'A change to student AI projects or their mentoring is recorded || ' + PLANNED,
             'A follow-up evaluates its effect || described without evaluation',
         ],
         'not': [],
@@ -890,7 +890,7 @@ SPEC = {
     },
     'AIQIF-C5.4.O2': {
         'parts': [
-            'A career-pathway change is recorded || ' + PLANNED,
+            'A change to an AI-relevant career pathway is recorded || ' + PLANNED,
             'A follow-up evaluates its effect || described without evaluation',
         ],
         'not': [],
@@ -1049,21 +1049,21 @@ SPEC = {
     },
     'AIQIF-C6.4.A2': {
         'parts': [
-            'An accessibility or capacity issue is documented || general improvements',
+            'An accessibility or capacity issue in an AI learning environment is documented || general improvements',
             'A support response addresses it || support without linking to the issue',
         ],
         'not': [],
     },
     'AIQIF-C6.4.O1': {
         'parts': [
-            'A completed review reports learner access || descriptions',
+            'A completed review reports learner access to an AI learning environment || descriptions',
             'It is compared with a stated service or equity criterion || no criterion',
         ],
         'not': [],
     },
     'AIQIF-C6.4.O2': {
         'parts': [
-            'An environment improvement is recorded || ' + PLANNED,
+            'An improvement to an AI learning environment is recorded || ' + PLANNED,
             'A follow-up evaluates its effect || described without evaluation',
         ],
         'not': [],
@@ -1099,14 +1099,14 @@ SPEC = {
     },
     'AIQIF-C7.1.O1': {
         'parts': [
-            'A completed review evaluates output quality or application || outputs listed',
+            'A completed review evaluates the output quality or application of an AI research project || outputs listed',
             'It is evaluated against the stated objective || no objective comparison',
         ],
         'not': [],
     },
     'AIQIF-C7.1.O2': {
         'parts': [
-            'An agenda or resource change is recorded || ' + PLANNED,
+            'A change to an AI research agenda or its resources is recorded || ' + PLANNED,
             'A follow-up evaluates its effect || described without evaluation',
         ],
         'not': [],
@@ -1186,14 +1186,14 @@ SPEC = {
     },
     'AIQIF-C7.3.O1': {
         'parts': [
-            'A completed review evaluates verified project progression || progress described',
+            'A completed review evaluates verified progression of an AI project that used funding, IP or incubation support || progress described',
             'It is against a stated milestone || no milestone',
         ],
         'not': [],
     },
     'AIQIF-C7.3.O2': {
         'parts': [
-            'A project-support change is recorded || ' + PLANNED,
+            'A change to support for AI projects is recorded || ' + PLANNED,
             'A follow-up evaluates its effect || described without evaluation',
         ],
         'not': [],
@@ -1229,14 +1229,14 @@ SPEC = {
     },
     'AIQIF-C7.4.O1': {
         'parts': [
-            'A completed review evaluates knowledge transfer or a beneficiary result || results listed',
+            'A completed review evaluates knowledge transfer or a beneficiary result of AI collaboration || results listed',
             'It is against a stated objective || no comparison',
         ],
         'not': [],
     },
     'AIQIF-C7.4.O2': {
         'parts': [
-            'A collaboration change is recorded || ' + PLANNED,
+            'A change to an AI collaboration is recorded || ' + PLANNED,
             'A follow-up evaluates its effect || described without evaluation',
         ],
         'not': [],
@@ -1273,7 +1273,7 @@ SPEC = {
     },
     'AIQIF-C8.1.O1': {
         'parts': [
-            'A completed evaluation reports service benefit || benefits described',
+            'A completed evaluation reports the benefit of an AI-enabled institutional service || benefits described',
             'It is compared with a stated baseline || no baseline',
             'It discloses quality limitations || no limitations stated',
         ],
@@ -1281,7 +1281,7 @@ SPEC = {
     },
     'AIQIF-C8.1.O2': {
         'parts': [
-            'A workflow or control change is recorded || ' + PLANNED,
+            'A workflow or control change in an AI-enabled institutional service is recorded || ' + PLANNED,
             'A follow-up tests its effect || described without a test',
         ],
         'not': [],
@@ -1317,14 +1317,14 @@ SPEC = {
     },
     'AIQIF-C8.2.O1': {
         'parts': [
-            'A completed partnership review evaluates an output or outcome || results listed',
+            'A completed review of an AI-related industry partnership evaluates an output or outcome || results listed',
             'It is against a stated objective || no comparison',
         ],
         'not': [],
     },
     'AIQIF-C8.2.O2': {
         'parts': [
-            'A jointly agreed delivery change is recorded || ' + PLANNED,
+            'A jointly agreed change to AI-related industry delivery is recorded || ' + PLANNED,
             'A follow-up evaluates its effect || described without evaluation',
         ],
         'not': [],
@@ -1353,21 +1353,21 @@ SPEC = {
     },
     'AIQIF-C8.3.A2': {
         'parts': [
-            'A review examines pathway participation || participation counts',
+            'A review examines participation in an AI-skills pathway || participation counts',
             'It relates participation to an observed result || results reported separately',
         ],
         'not': [],
     },
     'AIQIF-C8.3.O1': {
         'parts': [
-            'A completed review evaluates a verified progression or enterprise result || results listed',
+            'A completed review evaluates a verified progression or enterprise result of an AI-skills pathway || results listed',
             'It is against a stated objective || no comparison',
         ],
         'not': [],
     },
     'AIQIF-C8.3.O2': {
         'parts': [
-            'A pathway portfolio change is recorded || ' + PLANNED,
+            'A change to the portfolio of AI-skills pathways is recorded || ' + PLANNED,
             'A follow-up evaluates its effect || described without evaluation',
         ],
         'not': [],
@@ -1411,7 +1411,7 @@ SPEC = {
     },
     'AIQIF-C8.4.O2': {
         'parts': [
-            'An intervention change is recorded || ' + PLANNED,
+            'A change to an AI intervention is recorded || ' + PLANNED,
             'A subsequent measurement evaluates its effect || described without measurement',
         ],
         'not': [],

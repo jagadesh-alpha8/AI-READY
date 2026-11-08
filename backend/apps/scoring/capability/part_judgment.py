@@ -6,7 +6,8 @@ Off by default (CAPABILITY_JUDGMENT=parts turns it on; the choice is frozen in t
 
 Arithmetic, per condition (all deterministic):
 * part credit: full = 1, related = RELATED_CREDIT, not found or contradicted = 0. Gates: if the first part (the
-  condition's subject) or the AI-specific part of an AI condition has no evidence, the condition credit is 0. A finding other than
+  condition's subject) or the AI-specific part of an AI condition has no evidence, or only the subject has
+  evidence, the condition credit is 0. A finding other than
   not_found needs at least one citation that validates against the packet; otherwise it counts as not found.
 * If scope or period is not supported, a full part counts as related.
 * state: met when every part is full; not_met when a part is contradicted; otherwise unknown.
@@ -149,7 +150,7 @@ def schema(indicator, conditions=None):
             'required': ['reason', 'scope_supported', 'period_supported', 'findings'],
             'properties': {'reason': {'type': 'string'}, 'scope_supported': {'type': 'boolean'},
                            'period_supported': {'type': 'boolean'},
-                           'findings': {'type': 'array', 'minItems': len(ids), 'maxItems': len(ids), 'items': finding}}}
+                           'findings': {'type': 'array', 'items': finding}}}
     return {'type': 'object', 'additionalProperties': False, 'required': ['conditions'],
             'properties': {'conditions': {'type': 'object', 'additionalProperties': False,
                                           'required': list(properties), 'properties': properties}}}
@@ -272,11 +273,14 @@ def judge_rows(indicator, response_rows, context, *, reviewed_evidence=None, sou
 def credit(parts, spec_parts=None):
     """Mean part credit, or 0 when a gate part has no evidence: the subject (first part) of every condition,
     and the AI-specific part of an AI condition. Without its subject, or without anything AI for an AI
-    condition, the other parts are not evidence of this condition."""
+    condition, the other parts are not evidence of this condition. Evidence for the subject alone earns 0 too."""
     if not parts:
         return 0.0
     gates = {p['id'] for p in (spec_parts or []) if p.get('gate')} or {parts[0]['id']}
     if any(p['id'] in gates and p['credited_as'] not in ('full', 'related') for p in parts):
+        return 0.0
+    # The subject alone only restates what the condition is about; at least one other part needs evidence.
+    if not any(p['credited_as'] in ('full', 'related') for p in parts[1:]):
         return 0.0
     value = {'full': 1.0, 'related': RELATED_CREDIT}
     return round(sum(value.get(p['credited_as'], 0.0) for p in parts) / len(parts), 4)
