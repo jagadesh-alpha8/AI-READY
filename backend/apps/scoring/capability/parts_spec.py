@@ -10,6 +10,7 @@ The condition texts and their meaning are unchanged from AIQIF-CAP-0.3; this fil
 what each assertion already requires.
 """
 import json
+import re
 from pathlib import Path
 
 VERSION = 'AIQIF-PARTS-1'
@@ -1590,6 +1591,14 @@ SPEC = {
 }
 
 
+AI_WORDS = re.compile(r'\bAI\b|artificial intelligence|machine learning|\bML\b')
+NON_AI = re.compile(r'not AI|non-AI|without AI|no AI|does not mention AI|not about an AI', re.I)
+DIGITAL_OR_AI = re.compile(r'digital or AI|digital, IT|relevant digital or AI|AI centre or distributed innovation', re.I)
+AI_GATE_RELATED = ('wording that may describe AI but does not say so (an "intelligent", "smart" or "predictive" system '
+                   'that is not said to use artificial intelligence or machine learning); a digital system that is not AI '
+                   'is not found')
+
+
 def build(rubric):
     expected = {c['id']: c['text'] for i in rubric['indicators'] for c in i['conditions']}
     if set(SPEC) != set(expected):
@@ -1598,11 +1607,23 @@ def build(rubric):
     conditions = {}
     for cid, text in expected.items():
         parts = []
+        # In a condition that asks for AI (not "digital or AI"), the part that names AI is a gate: digital
+        # evidence is not AI evidence. Its related evidence stays AI-related (a weaker AI version) or, where the
+        # spec described a non-AI alternative, becomes ambiguous AI wording.
+        asks_ai = not DIGITAL_OR_AI.search(text)
         for n, line in enumerate(SPEC[cid]['parts']):
             full, _, related = (piece.strip() for piece in line.partition('||'))
             if not full or not related:
                 raise ValueError(f'{cid} part {n + 1} needs full and related evidence.')
-            parts.append({'id': f'p{n + 1}', 'full': full, 'related': related})
+            # A part that accepts "digital ... or AI" is not an AI gate.
+            gate_part = asks_ai and bool(AI_WORDS.search(full)) and not re.search(r'digital', full, re.I)
+            # Replace related evidence that describes a non-AI alternative; keep a weaker AI alternative.
+            ai_gate = gate_part and (bool(NON_AI.search(related)) or not AI_WORDS.search(related))
+            parts.append({'id': f'p{n + 1}', 'full': full, 'related': AI_GATE_RELATED if ai_gate else related,
+                          'gate': 'subject' if n == 0 else 'ai' if gate_part else None,
+                          **({'ai_gate': True} if gate_part else {})})
+        if asks_ai and AI_WORDS.search(text) and not any(p.get('ai_gate') for p in parts):
+            raise ValueError(f'{cid} asks for AI but no part names it.')
         if not 2 <= len(parts) <= 4:
             raise ValueError(f'{cid} needs 2 to 4 parts.')
         conditions[cid] = {'assertion': text, 'parts': parts, 'not_enough': SPEC[cid].get('not', [])}

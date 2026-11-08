@@ -5,14 +5,15 @@ Code, not the model, turns part findings into a condition state and a credit fra
 Off by default (CAPABILITY_JUDGMENT=parts turns it on; the choice is frozen in the execution policy).
 
 Arithmetic, per condition (all deterministic):
-* part credit: full = 1, related = RELATED_CREDIT, not found or contradicted = 0. A finding other than
+* part credit: full = 1, related = RELATED_CREDIT, not found or contradicted = 0. Gates: if the first part (the
+  condition's subject) or the AI-specific part of an AI condition has no evidence, the condition credit is 0. A finding other than
   not_found needs at least one citation that validates against the packet; otherwise it counts as not found.
 * If scope or period is not supported, a full part counts as related.
 * state: met when every part is full; not_met when a part is contradicted; otherwise unknown.
 * credit: the mean of the part credits. The condition-level validator (exact quotes, reviewed-evidence
   rules, syllabus approval) still runs; an approval or scope/period issue caps full parts at related, any
   other issue zeroes the condition.
-* two passes: each part's credit is the mean of the two passes; met only when both passes say met; a
+* two passes: the condition credit is the mean of the two passes' credits; met only when both passes say met; a
   state the passes do not share becomes unknown for review (its averaged credit is kept).
 """
 import hashlib
@@ -46,6 +47,8 @@ Rules:
   chatbots, natural language processing, computer vision or predictive analytics described as AI or ML. ERP, LMS,
   e-governance, ICT, smart classrooms, online quizzes and other software are digital, not AI.
 - Where a condition says "digital or AI", digital evidence is full evidence.
+- A part marked ai_gate asks for AI. For it, related means wording that may describe AI but does not say so; a
+  digital, IT or software system that is not said to use AI is not_found, however advanced.
 - Funding, incubation or mentoring of an external startup is that startup's project, not an institutional AI initiative.
 - A project's title or description can state its objective.
 - A team that maintains or repairs infrastructure is not a user support contact unless the passage says users contact it.
@@ -224,14 +227,22 @@ def judge_rows(indicator, response_rows, context, *, reviewed_evidence=None, sou
             record['citations'] = [c for p in parts for c in p['citations']]
         record['parts'] = parts
         record['part_issues'] = issues
-        record['credit'] = credit(parts)
+        record['credit'] = credit(parts, spec[record['condition_id']]['parts'])
         records.append(record)
     return records
 
 
-def credit(parts):
+def credit(parts, spec_parts=None):
+    """Mean part credit, or 0 when a gate part has no evidence: the subject (first part) of every condition,
+    and the AI-specific part of an AI condition. Without its subject, or without anything AI for an AI
+    condition, the other parts are not evidence of this condition."""
+    if not parts:
+        return 0.0
+    gates = {p['id'] for p in (spec_parts or []) if p.get('gate')} or {parts[0]['id']}
+    if any(p['id'] in gates and p['credited_as'] not in ('full', 'related') for p in parts):
+        return 0.0
     value = {'full': 1.0, 'related': RELATED_CREDIT}
-    return round(sum(value.get(p['credited_as'], 0.0) for p in parts) / len(parts), 4) if parts else 0.0
+    return round(sum(value.get(p['credited_as'], 0.0) for p in parts) / len(parts), 4)
 
 
 def combine(first, second):
@@ -254,8 +265,8 @@ def combine(first, second):
                           'citations': part['citations'] or match['citations'],
                           'part_credit': round((value.get(part['credited_as'], 0.0)
                                                 + value.get(match['credited_as'], 0.0)) / 2, 4)})
-        merged = {**record, 'parts': parts,
-                  'credit': round(sum(p['part_credit'] for p in parts) / len(parts), 4) if parts else 0.0}
+        # Gates apply within each pass, so the condition credit is the mean of the two passes' credits.
+        merged = {**record, 'parts': parts, 'credit': round((record['credit'] + twin['credit']) / 2, 4)}
         if twin['state'] != record['state']:
             disagreements.append({'condition_id': record['condition_id'], 'first': record['state'], 'second': twin['state']})
             merged.update(state='unknown', reason=AGREEMENT_REASON.format(first=record['state'], second=twin['state']),

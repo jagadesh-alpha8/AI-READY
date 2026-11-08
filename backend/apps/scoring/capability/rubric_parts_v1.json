@@ -8,12 +8,14 @@
     {
      "id": "p1",
      "full": "An institutional plan that the institution has adopted exists: a named strategic, perspective, development, digital or AI plan that is approved, adopted, or stated to be deployed or implemented by the institution",
-     "related": "a draft, proposal, vision or mission statement"
+     "related": "a draft, proposal, vision or mission statement",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The plan names a digital, IT, e-governance, data or AI priority, goal or initiative",
-     "related": "the plan names a general modernisation or infrastructure goal that includes technology only implicitly"
+     "related": "the plan names a general modernisation or infrastructure goal that includes technology only implicitly",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -27,12 +29,14 @@
     {
      "id": "p1",
      "full": "A digital, IT, e-governance, data or AI priority is identified (the priority from F1 or another stated one)",
-     "related": "a general plan priority that includes technology only implicitly"
+     "related": "a general plan priority that includes technology only implicitly",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A named role, office, committee or person is assigned responsibility for that priority",
-     "related": "a body is said to implement or monitor the plan in general, without linking it to the digital priority"
+     "related": "a body is said to implement or monitor the plan in general, without linking it to the digital priority",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -45,17 +49,21 @@
     {
      "id": "p1",
      "full": "An artificial intelligence or machine learning initiative is named or described",
-     "related": "the same kind of record for a digital, IT or data service that is not AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A delivery record shows it operating (in use, deployed, running, delivered), not only planned",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": null
     },
     {
      "id": "p3",
      "full": "It operates in an identified institutional function or department",
-     "related": "the function is implied but not named"
+     "related": "the function is implied but not named",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -69,12 +77,16 @@
     {
      "id": "p1",
      "full": "A review covers a set (portfolio) of the institution's initiatives that includes an artificial intelligence or machine learning initiative",
-     "related": "a review of digital or IT initiatives with no AI initiative"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "The review records a decision (continue, expand, change, stop, fund) about that AI initiative",
-     "related": "the review records findings or discussion without a decision"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": [
@@ -88,17 +100,21 @@
     {
      "id": "p1",
      "full": "A completed portfolio review concerns an artificial intelligence or machine learning initiative",
-     "related": "a completed review of a digital initiative that is not AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "The review reports a measured result of the initiative",
-     "related": "the review reports activity counts or qualitative impressions only"
+     "related": "the review reports activity counts or qualitative impressions only",
+     "gate": null
     },
     {
      "id": "p3",
      "full": "The measured result is compared with the initiative's stated objective or target",
-     "related": "an objective is stated elsewhere but not compared"
+     "related": "an objective is stated elsewhere but not compared",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -111,12 +127,15 @@
     {
      "id": "p1",
      "full": "A portfolio decision about an artificial intelligence or machine learning initiative is recorded",
-     "related": "a decision about a digital initiative that is not AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A later record evaluates the effect of that decision with a stated result",
-     "related": "a later record mentions the decision's implementation without evaluating its effect"
+     "related": "a later record mentions the decision's implementation without evaluating its effect",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -127,12 +146,14 @@
     {
      "id": "p1",
      "full": "A named institutional body exists (council, board, committee, cell, IQAC)",
-     "related": "a role or office rather than a body"
+     "related": "a role or office rather than a body",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The passage states the body decides, approves or oversees a matter it identifies as digital, IT, data, e-governance or AI",
-     "related": "the body has a general administrative or academic remit that could include digital matters"
+     "related": "the body has a general administrative or academic remit that could include digital matters",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -145,12 +166,14 @@
     {
      "id": "p1",
      "full": "Digital, IT, data or AI decisions are identified as the subject",
-     "related": "general decisions or grievances that are not about digital matters"
+     "related": "general decisions or grievances that are not about digital matters",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "An escalation or referral route (who refers to whom, and to which higher body) is defined for those decisions",
-     "related": "a general grievance or reporting route not specific to digital decisions"
+     "related": "a general grievance or reporting route not specific to digital decisions",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -163,17 +186,21 @@
     {
      "id": "p1",
      "full": "A governance body made a decision (resolution, approval, minute)",
-     "related": "a body discussed or reviewed a matter without a recorded decision"
+     "related": "a body discussed or reviewed a matter without a recorded decision",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The decision is dated",
-     "related": "the decision is undated or only the report date is available"
+     "related": "the decision is undated or only the report date is available",
+     "gate": null
     },
     {
      "id": "p3",
      "full": "The decision concerns an actual artificial intelligence or machine learning use",
-     "related": "the decision concerns a digital or IT system that is not AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -184,12 +211,14 @@
     {
      "id": "p1",
      "full": "A governance action is assigned to a named owner",
-     "related": "an action is listed without an owner"
+     "related": "an action is listed without an owner",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up record reports on that action (status, completion, outcome)",
-     "related": "a stated recurring practice (e.g. \"every semester\") without an identified, dated instance"
+     "related": "a stated recurring practice (e.g. \"every semester\") without an identified, dated instance",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -202,12 +231,14 @@
     {
      "id": "p1",
      "full": "A review evaluates how governance performed",
-     "related": "a review of institutional performance in general"
+     "related": "a review of institutional performance in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The review uses an identified incident or delivery result as its basis",
-     "related": "the review cites general outcomes without an identified incident or result"
+     "related": "the review cites general outcomes without an identified incident or result",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -218,12 +249,14 @@
     {
      "id": "p1",
      "full": "A governance rule was revised",
-     "related": "a rule exists without a recorded revision"
+     "related": "a rule exists without a recorded revision",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up checks whether the revised rule was implemented",
-     "related": "a stated recurring practice (e.g. \"every semester\") without an identified, dated instance"
+     "related": "a stated recurring practice (e.g. \"every semester\") without an identified, dated instance",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -234,12 +267,14 @@
     {
      "id": "p1",
      "full": "A resource commitment exists: allocated funds, budget, grant, expenditure or dedicated resources",
-     "related": "a statement of support with no resource named"
+     "related": "a statement of support with no resource named",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The commitment supports computing, teaching or innovation capacity relevant to digital or AI work",
-     "related": "the commitment supports facilities in general"
+     "related": "the commitment supports facilities in general",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -250,12 +285,14 @@
     {
      "id": "p1",
      "full": "An allocation decision is recorded (funds or resources allocated, earmarked, sanctioned or spent)",
-     "related": "resources are mentioned without an allocation"
+     "related": "resources are mentioned without an allocation",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The allocation identifies its intended beneficiary group or function (e.g. students, faculty, a lab, an innovation centre)",
-     "related": "the beneficiary is implied but not stated"
+     "related": "the beneficiary is implied but not stated",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -266,12 +303,14 @@
     {
      "id": "p1",
      "full": "A review examines committed resources",
-     "related": "a budget or expenditure table without review"
+     "related": "a budget or expenditure table without review",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The review compares them with an identified delivery need or demand",
-     "related": "the need is stated separately but not compared"
+     "related": "the need is stated separately but not compared",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -282,12 +321,14 @@
     {
      "id": "p1",
      "full": "A capacity shortfall is documented (insufficient computers, lab space, bandwidth, staff, funding)",
-     "related": "a general statement that facilities are being improved"
+     "related": "a general statement that facilities are being improved",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A resource decision responds to that shortfall",
-     "related": "resources were added without stating they respond to the shortfall"
+     "related": "resources were added without stating they respond to the shortfall",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -298,17 +339,20 @@
     {
      "id": "p1",
      "full": "A completed review states a resource cost",
-     "related": "costs appear only in an expenditure table without a review"
+     "related": "costs appear only in an expenditure table without a review",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The review reports a measured benefit or capacity result",
-     "related": "benefits are described qualitatively"
+     "related": "benefits are described qualitatively",
+     "gate": null
     },
     {
      "id": "p3",
      "full": "Cost and result are compared",
-     "related": "both appear but are not compared"
+     "related": "both appear but are not compared",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -319,12 +363,14 @@
     {
      "id": "p1",
      "full": "A change in resource allocation is recorded",
-     "related": "allocations differ across years without a recorded change decision"
+     "related": "allocations differ across years without a recorded change decision",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates the effect of that change",
-     "related": "the change is described without evaluation"
+     "related": "the change is described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -335,12 +381,14 @@
     {
      "id": "p1",
      "full": "A process exists for introducing something: defined steps, a periodic assessment that decides additions, an approval route, or a role charged with introducing it",
-     "related": "a single past introduction without a stated process"
+     "related": "a single past introduction without a stated process",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "What it introduces is a digital service or teaching tool (ERP module, LMS, e-content, ICT tool, online system)",
-     "related": "the process concerns teaching or administrative changes in general"
+     "related": "the process concerns teaching or administrative changes in general",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -353,12 +401,14 @@
     {
      "id": "p1",
      "full": "A digital service or teaching tool is identified",
-     "related": "digital services in general"
+     "related": "digital services in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Users are told whom to contact for help with it (helpdesk, named office, coordinator, support email)",
-     "related": "a team maintains or repairs it, but the passage does not say users contact it"
+     "related": "a team maintains or repairs it, but the passage does not say users contact it",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -371,17 +421,20 @@
     {
      "id": "p1",
      "full": "Usage records (counts, logs, statistics, frequency) are quoted",
-     "related": "use is asserted without records"
+     "related": "use is asserted without records",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The use is repeated (several sessions, users or periods)",
-     "related": "a single use"
+     "related": "a single use",
+     "gate": null
     },
     {
      "id": "p3",
      "full": "The deployment scope is identified (programme, department, user group)",
-     "related": "scope unclear"
+     "related": "scope unclear",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -392,12 +445,14 @@
     {
      "id": "p1",
      "full": "An adoption barrier is documented (users not using, lacking skills, access problems)",
-     "related": "a general training need"
+     "related": "a general training need",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A support action responds to it (training, guide, help)",
-     "related": "support is provided without linking to a barrier"
+     "related": "support is provided without linking to a barrier",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -408,12 +463,14 @@
     {
      "id": "p1",
      "full": "A completed review measures adoption",
-     "related": "adoption is asserted"
+     "related": "adoption is asserted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Adoption is compared with an explicit target",
-     "related": "a target exists but is not compared"
+     "related": "a target exists but is not compared",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -426,12 +483,14 @@
     {
      "id": "p1",
      "full": "An adoption or user-experience change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "the change is described without evaluation"
+     "related": "the change is described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -442,12 +501,15 @@
     {
      "id": "p1",
      "full": "Institutional guidance or policy is in effect (adopted, published, effective)",
-     "related": "draft or proposed guidance"
+     "related": "draft or proposed guidance",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The guidance explicitly addresses artificial intelligence or machine learning use",
-     "related": "guidance on IT use, academic integrity or ethics that does not mention AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": [
@@ -460,12 +522,16 @@
     {
      "id": "p1",
      "full": "Guidance concerning artificial intelligence or machine learning use exists",
-     "related": "IT or academic integrity guidance that does not mention AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It defines a restriction on unsafe or inappropriate AI use (prohibited uses, limits, conditions)",
-     "related": "it states principles without a restriction"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -476,12 +542,16 @@
     {
      "id": "p1",
      "full": "A deployment or onboarding check for an artificial intelligence or machine learning use is recorded",
-     "related": "a check for a digital system that is not AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "The check applies a requirement from the AI policy",
-     "related": "the check applies general IT requirements"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -492,12 +562,15 @@
     {
      "id": "p1",
      "full": "A review samples actual AI use",
-     "related": "a review of policy compliance in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It records how a policy exception was handled",
-     "related": "exceptions are mentioned without disposition"
+     "related": "exceptions are mentioned without disposition",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -508,12 +581,15 @@
     {
      "id": "p1",
      "full": "A policy review is completed",
-     "related": "the policy is described"
+     "related": "the policy is described",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It evaluates an identified AI incident or assurance finding",
-     "related": "a general review without an incident or finding"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -524,12 +600,14 @@
     {
      "id": "p1",
      "full": "A responsible-use control was revised",
-     "related": "a control exists without revision"
+     "related": "a control exists without revision",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up tests the effect of the revision",
-     "related": "the revision is described without a test"
+     "related": "the revision is described without a test",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -540,12 +618,14 @@
     {
      "id": "p1",
      "full": "Personal or sensitive institutional data is identified (student records, personnel data, exam data)",
-     "related": "data in general"
+     "related": "data in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Responsibility for it is assigned to a named role, office or body",
-     "related": "data is said to be handled securely without a responsible party"
+     "related": "data is said to be handled securely without a responsible party",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -556,12 +636,14 @@
     {
      "id": "p1",
      "full": "An information system is identified (ERP, exam system, LMS, network)",
-     "related": "IT systems in general"
+     "related": "IT systems in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "An access-control procedure covers it (role-based access, user accounts and permissions, authorisation steps)",
-     "related": "security products or measures without an access procedure"
+     "related": "security products or measures without an access procedure",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -574,12 +656,15 @@
     {
      "id": "p1",
      "full": "A risk assessment is recorded",
-     "related": "risks are mentioned in general"
+     "related": "risks are mentioned in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It covers an identified deployed artificial intelligence or machine learning use",
-     "related": "it covers a digital system that is not AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -590,12 +675,14 @@
     {
      "id": "p1",
      "full": "An access or supplier change is identified",
-     "related": "changes in general"
+     "related": "changes in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A recorded risk decision responds to it",
-     "related": "the change is described without a risk decision"
+     "related": "the change is described without a risk decision",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -606,12 +693,14 @@
     {
      "id": "p1",
      "full": "A completed risk review reports exposure",
-     "related": "risks are listed without measurement"
+     "related": "risks are listed without measurement",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Exposure is compared with a stated risk criterion",
-     "related": "a criterion exists but is not compared"
+     "related": "a criterion exists but is not compared",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -622,12 +711,14 @@
     {
      "id": "p1",
      "full": "A remediation was implemented",
-     "related": "a remediation is planned"
+     "related": "a remediation is planned",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up tests its effectiveness",
-     "related": "the remediation is described without a test"
+     "related": "the remediation is described without a test",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -638,12 +729,15 @@
     {
      "id": "p1",
      "full": "An inventory, register or list of services in use is quoted",
-     "related": "services are mentioned individually"
+     "related": "services are mentioned individually",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The inventory identifies artificial intelligence or machine learning services",
-     "related": "the inventory lists digital services that are not AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -654,12 +748,15 @@
     {
      "id": "p1",
      "full": "An inventory of artificial intelligence or machine learning services exists",
-     "related": "an inventory of digital services"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "Each inventoried service has a named owner",
-     "related": "some services have owners or a general IT owner is named"
+     "related": "some services have owners or a general IT owner is named",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -670,12 +767,15 @@
     {
      "id": "p1",
      "full": "An actual artificial intelligence or machine learning service release or change is identified",
-     "related": "a digital service change that is not AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "An evaluation record concerns it (test results, acceptance, validation)",
-     "related": "the release is described without evaluation"
+     "related": "the release is described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -686,12 +786,15 @@
     {
      "id": "p1",
      "full": "A change record for an artificial intelligence or machine learning service exists",
-     "related": "a change record for a digital service"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It identifies the data provenance (source of training or input data)",
-     "related": "data is mentioned without its source"
+     "related": "data is mentioned without its source",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -702,12 +805,15 @@
     {
      "id": "p1",
      "full": "An artificial intelligence or machine learning release is monitored in operation",
-     "related": "monitoring of digital systems in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "Operational behaviour is compared with a stated evaluation criterion",
-     "related": "behaviour is described without a criterion"
+     "related": "behaviour is described without a criterion",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -718,12 +824,15 @@
     {
      "id": "p1",
      "full": "A rollback or retirement exercise for an artificial intelligence or machine learning service took place",
-     "related": "one for a digital service"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "The observed result is recorded",
-     "related": "the exercise is described without its result"
+     "related": "the exercise is described without its result",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -734,12 +843,15 @@
     {
      "id": "p1",
      "full": "A consequential artificial intelligence or machine learning use is identified (one that affects people's grades, admission, employment, health or rights)",
-     "related": "an AI use without stated consequence"
+     "related": "an AI use without stated consequence",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A human intervention route (review, override, approval by a person) is defined for it",
-     "related": "human review exists for decisions in general"
+     "related": "human review exists for decisions in general",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -750,12 +862,15 @@
     {
      "id": "p1",
      "full": "A consequential artificial intelligence or machine learning use is identified",
-     "related": "an AI use without stated consequence"
+     "related": "an AI use without stated consequence",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "Affected users have a route to report errors or appeal that use",
-     "related": "a general grievance or appeal mechanism not linked to the AI use"
+     "related": "a general grievance or appeal mechanism not linked to the AI use",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -768,12 +883,15 @@
     {
      "id": "p1",
      "full": "An actual consequential artificial intelligence or machine learning use is identified",
-     "related": "an AI use without stated consequence"
+     "related": "an AI use without stated consequence",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A record shows a person overseeing it (reviews, approvals, overrides)",
-     "related": "oversight is stated as policy without a record"
+     "related": "oversight is stated as policy without a record",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -784,12 +902,15 @@
     {
      "id": "p1",
      "full": "An assurance test of a consequential artificial intelligence or machine learning use is recorded",
-     "related": "testing of a digital system"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "The test examines a specified failure or fairness risk",
-     "related": "a general test"
+     "related": "a general test",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -800,12 +921,15 @@
     {
      "id": "p1",
      "full": "A reviewer separate from the delivery decision evaluates the AI use",
-     "related": "a review by those who delivered it"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "The evaluation concerns an identified harm or oversight result",
-     "related": "a general evaluation"
+     "related": "a general evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -816,12 +940,14 @@
     {
      "id": "p1",
      "full": "An oversight change was made",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up tests its effect",
-     "related": "the change is described without a test"
+     "related": "the change is described without a test",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -832,12 +958,15 @@
     {
      "id": "p1",
      "full": "A governing body (Board of Studies, Academic Council) records approval of a syllabus or curriculum, naming the applicable edition or programme",
-     "related": "the syllabus is presented as the institution's current syllabus without an approval record"
+     "related": "the syllabus is presented as the institution's current syllabus without an approval record",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "That syllabus includes substantive artificial intelligence or machine learning content (course or units with AI/ML topics)",
-     "related": "AI appears only in a course title or a single listed topic"
+     "related": "AI appears only in a course title or a single listed topic",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": [
@@ -850,12 +979,16 @@
     {
      "id": "p1",
      "full": "A syllabus or course with artificial intelligence or machine learning content is identified",
-     "related": "a course title alone"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "An explicit learning objective or course outcome addresses that AI/ML content",
-     "related": "outcomes are stated for the course but do not mention the AI content"
+     "related": "outcomes are stated for the course but do not mention the AI content",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -866,17 +999,21 @@
     {
      "id": "p1",
      "full": "Teaching records (timetables, attendance, delivery reports, course completion) are quoted",
-     "related": "the course is listed as offered"
+     "related": "the course is listed as offered",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The delivered content is substantive artificial intelligence or machine learning content",
-     "related": "the delivered course is digital or computing without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     },
     {
      "id": "p3",
      "full": "The programme group taught is identified",
-     "related": "the group is implied"
+     "related": "the group is implied",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -887,12 +1024,15 @@
     {
      "id": "p1",
      "full": "Assessed student work is recorded (marks, graded projects, exam results)",
-     "related": "assessment is described in general"
+     "related": "assessment is described in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is assessed against an explicit artificial intelligence or machine learning learning criterion",
-     "related": "work in an AI course without a stated criterion"
+     "related": "work in an AI course without a stated criterion",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -903,12 +1043,15 @@
     {
      "id": "p1",
      "full": "A completed course review concerns artificial intelligence or machine learning learning",
-     "related": "a general course or programme review"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "Attainment is compared with a stated objective (outcome attainment against target)",
-     "related": "attainment is reported without comparison"
+     "related": "attainment is reported without comparison",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -921,12 +1064,15 @@
     {
      "id": "p1",
      "full": "A curriculum revision is recorded for AI content",
-     "related": "a general syllabus revision"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A subsequent assessment evaluates its effect",
-     "related": "the revision is described without evaluation"
+     "related": "the revision is described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -937,12 +1083,15 @@
     {
      "id": "p1",
      "full": "A learning offer (course, module, value-added course, workshop series) is defined with its content",
-     "related": "an offer is named without content"
+     "related": "an offer is named without content",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Its content is AI literacy (what artificial intelligence or machine learning is, how to use it, its limits)",
-     "related": "digital or computer literacy without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -953,12 +1102,15 @@
     {
      "id": "p1",
      "full": "An AI literacy offer is identified",
-     "related": "a digital literacy offer"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A delivery route (elective, compulsory course, online platform, schedule) makes it available to an identified learner group",
-     "related": "availability is implied"
+     "related": "availability is implied",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -969,17 +1121,21 @@
     {
      "id": "p1",
      "full": "Delivery records (sessions held, participants, dates) are quoted",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The activity is AI literacy",
-     "related": "digital literacy without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     },
     {
      "id": "p3",
      "full": "The discipline served is identified",
-     "related": "discipline unclear"
+     "related": "discipline unclear",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -990,12 +1146,14 @@
     {
      "id": "p1",
      "full": "A discipline-specific access or learning gap is documented",
-     "related": "a general need"
+     "related": "a general need",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A support response addresses it",
-     "related": "support is provided without linking it to the gap"
+     "related": "support is provided without linking it to the gap",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1006,12 +1164,15 @@
     {
      "id": "p1",
      "full": "An assessment reports AI literacy attainment",
-     "related": "participation counts only"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It is for an identified discipline",
-     "related": "discipline unclear"
+     "related": "discipline unclear",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1022,12 +1183,14 @@
     {
      "id": "p1",
      "full": "Targeted literacy support was provided",
-     "related": "general support"
+     "related": "general support",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up assessment evaluates its effect",
-     "related": "the support is described without evaluation"
+     "related": "the support is described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1038,12 +1201,15 @@
     {
      "id": "p1",
      "full": "A course design or teaching plan is identified",
-     "related": "teaching practice in general"
+     "related": "teaching practice in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It specifies a learning or feedback activity supported by artificial intelligence or machine learning (AI tutor, AI feedback, AI tool in class)",
-     "related": "an ICT-enabled activity without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": [
@@ -1056,12 +1222,16 @@
     {
      "id": "p1",
      "full": "An AI-supported learning activity is identified",
-     "related": "an ICT activity"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "Learner instructions define acceptable AI use for it",
-     "related": "general academic integrity rules"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1072,17 +1242,21 @@
     {
      "id": "p1",
      "full": "Course records show the activity being used",
-     "related": "the activity is described as available"
+     "related": "the activity is described as available",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The use is repeated",
-     "related": "a single use"
+     "related": "a single use",
+     "gate": null
     },
     {
      "id": "p3",
      "full": "The activity is AI-supported",
-     "related": "ICT-supported without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1093,12 +1267,15 @@
     {
      "id": "p1",
      "full": "An assessment check is recorded",
-     "related": "assessment in general"
+     "related": "assessment in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It evaluates inappropriate dependence on AI in the activity",
-     "related": "a general plagiarism check"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": [
@@ -1111,12 +1288,15 @@
     {
      "id": "p1",
      "full": "A completed evaluation reports learning or feedback results for the AI-supported activity",
-     "related": "results for ICT-enabled teaching in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "The results are compared with a stated baseline",
-     "related": "no baseline"
+     "related": "no baseline",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1127,12 +1307,15 @@
     {
      "id": "p1",
      "full": "The AI-supported learning design was changed",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates the effect of the change",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1143,12 +1326,15 @@
     {
      "id": "p1",
      "full": "A student project or laboratory route exists (project course, lab, capstone, internship project)",
-     "related": "projects in general"
+     "related": "projects in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It includes substantive artificial intelligence or machine learning work",
-     "related": "computing work without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1159,12 +1345,15 @@
     {
      "id": "p1",
      "full": "Student AI project or lab work is identified",
-     "related": "student projects in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A mentoring route (assigned mentor, guide, supervisor) is provided for it",
-     "related": "mentoring for students in general"
+     "related": "mentoring for students in general",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1175,17 +1364,21 @@
     {
      "id": "p1",
      "full": "Assessed project work is recorded",
-     "related": "projects listed without assessment"
+     "related": "projects listed without assessment",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The work implements an artificial intelligence or machine learning application",
-     "related": "a non-AI application"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     },
     {
      "id": "p3",
      "full": "The student group is identified",
-     "related": "group unclear"
+     "related": "group unclear",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1196,12 +1389,15 @@
     {
      "id": "p1",
      "full": "A moderation record exists for the AI project work",
-     "related": "project assessment in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It checks each student's individual contribution",
-     "related": "group grading only"
+     "related": "group grading only",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1212,12 +1408,15 @@
     {
      "id": "p1",
      "full": "A completed review of AI project work exists",
-     "related": "project outcomes are listed"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "Work is evaluated against an explicit capability criterion",
-     "related": "evaluation without a criterion"
+     "related": "evaluation without a criterion",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1228,12 +1427,14 @@
     {
      "id": "p1",
      "full": "A mentoring or design change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Later work is evaluated against a comparable criterion",
-     "related": "later work is described without evaluation"
+     "related": "later work is described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1244,17 +1445,21 @@
     {
      "id": "p1",
      "full": "A faculty learning activity (FDP, workshop, training, course) is identified",
-     "related": "faculty training in general"
+     "related": "faculty training in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is focused on artificial intelligence or machine learning",
-     "related": "ICT, e-content or pedagogy without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     },
     {
      "id": "p3",
      "full": "Its content is defined (topics, modules, agenda)",
-     "related": "only the title is given"
+     "related": "only the title is given",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1265,12 +1470,15 @@
     {
      "id": "p1",
      "full": "An AI-focused learning activity is identified",
-     "related": "ICT or pedagogy training"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "Participation is documented (names, counts, certificates) for an identified faculty group",
-     "related": "participation is asserted"
+     "related": "participation is asserted",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1281,17 +1489,21 @@
     {
      "id": "p1",
      "full": "An assessment of faculty is recorded (test, evaluation, certification)",
-     "related": "attendance only"
+     "related": "attendance only",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It demonstrates AI literacy",
-     "related": "ICT skills"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     },
     {
      "id": "p3",
      "full": "The faculty group is identified",
-     "related": "unclear"
+     "related": "unclear",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1302,12 +1514,15 @@
     {
      "id": "p1",
      "full": "A faculty AI literacy gap is documented",
-     "related": "a general training need"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A support response addresses it",
-     "related": "training without linking to the gap"
+     "related": "training without linking to the gap",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1318,12 +1533,15 @@
     {
      "id": "p1",
      "full": "A completed assessment measures faculty AI literacy",
-     "related": "participation counts"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It is compared with a stated competency criterion",
-     "related": "no criterion"
+     "related": "no criterion",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1334,12 +1552,15 @@
     {
      "id": "p1",
      "full": "A faculty AI learning activity was revised",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A follow-up assessment evaluates the effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1350,12 +1571,15 @@
     {
      "id": "p1",
      "full": "A faculty AI learning offer exists",
-     "related": "faculty ICT training"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It targets an identified academic role (e.g. examiners, researchers, course designers)",
-     "related": "all faculty in general"
+     "related": "all faculty in general",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1366,12 +1590,15 @@
     {
      "id": "p1",
      "full": "A practice task is part of the offer (hands-on exercise, assignment)",
-     "related": "lectures only"
+     "related": "lectures only",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The task develops a specific AI-related academic skill for the role",
-     "related": "a general ICT skill"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1382,12 +1609,15 @@
     {
      "id": "p1",
      "full": "An assessed role-relevant task is recorded",
-     "related": "a task without assessment"
+     "related": "a task without assessment",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It demonstrates a faculty AI skill",
-     "related": "a general ICT skill"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1398,12 +1628,15 @@
     {
      "id": "p1",
      "full": "A role-specific faculty AI skill gap is documented",
-     "related": "a general need"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A support action addresses it",
-     "related": "support without linking to the gap"
+     "related": "support without linking to the gap",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1414,12 +1647,15 @@
     {
      "id": "p1",
      "full": "An academic work sample (paper, course material, assessment) is identified",
-     "related": "work in general"
+     "related": "work in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It demonstrates application of the assessed AI skill",
-     "related": "AI is mentioned without showing application"
+     "related": "AI is mentioned without showing application",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1430,12 +1666,14 @@
     {
      "id": "p1",
      "full": "A role pathway was revised",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A subsequent task evaluation tests the effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1446,12 +1684,15 @@
     {
      "id": "p1",
      "full": "A faculty work record (research output, teaching material, project report) is quoted",
-     "related": "faculty activity in general"
+     "related": "faculty activity in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It shows artificial intelligence or machine learning used in an academic task",
-     "related": "AI as a research topic without its use as a tool, or digital tools without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1462,12 +1703,15 @@
     {
      "id": "p1",
      "full": "An AI-supported faculty task is identified",
-     "related": "an ICT-supported task"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A human review step is defined for it",
-     "related": "review of academic work in general"
+     "related": "review of academic work in general",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1478,12 +1722,15 @@
     {
      "id": "p1",
      "full": "Work samples show AI use",
-     "related": "a single mention"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "The use is repeated in an identified faculty practice",
-     "related": "repetition or practice unclear"
+     "related": "repetition or practice unclear",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1494,12 +1741,15 @@
     {
      "id": "p1",
      "full": "A quality check is recorded",
-     "related": "quality assurance in general"
+     "related": "quality assurance in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It evaluates AI-supported academic work",
-     "related": "it evaluates work in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1510,12 +1760,15 @@
     {
      "id": "p1",
      "full": "A completed evaluation reports an academic quality, time or research result of AI use",
-     "related": "results in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It is compared with a stated baseline",
-     "related": "no baseline"
+     "related": "no baseline",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1526,12 +1779,15 @@
     {
      "id": "p1",
      "full": "An identified failure in AI-supported practice is recorded",
-     "related": "problems in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A practice change responding to it is evaluated",
-     "related": "the change is described without evaluation"
+     "related": "the change is described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1542,12 +1798,14 @@
     {
      "id": "p1",
      "full": "A digital, workflow or AI learning offer exists (training, workshop)",
-     "related": "training in general"
+     "related": "training in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It targets an identified non-teaching staff role (administrative, technical, library, office staff)",
-     "related": "staff in general including faculty"
+     "related": "staff in general including faculty",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1558,12 +1816,14 @@
     {
      "id": "p1",
      "full": "Staff digital or AI learning is identified",
-     "related": "general training"
+     "related": "general training",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A support route is available to staff applying it (helpdesk, mentor, coordinator)",
-     "related": "general staff welfare"
+     "related": "general staff welfare",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1574,12 +1834,14 @@
     {
      "id": "p1",
      "full": "An assessed task for an identified staff role is recorded",
-     "related": "training attendance"
+     "related": "training attendance",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It demonstrates a relevant digital or AI skill",
-     "related": "a general skill"
+     "related": "a general skill",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1590,12 +1852,14 @@
     {
      "id": "p1",
      "full": "A staff workflow error is documented",
-     "related": "problems in general"
+     "related": "problems in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A support action addresses it",
-     "related": "support without linking to the error"
+     "related": "support without linking to the error",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1606,12 +1870,14 @@
     {
      "id": "p1",
      "full": "A completed evaluation measures staff task performance",
-     "related": "attendance or satisfaction"
+     "related": "attendance or satisfaction",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is compared with a stated role criterion",
-     "related": "no criterion"
+     "related": "no criterion",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1622,12 +1888,14 @@
     {
      "id": "p1",
      "full": "A staff training or support change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1638,12 +1906,15 @@
     {
      "id": "p1",
      "full": "An artificial intelligence or machine learning literacy offer exists (course, module, value-added course, workshop)",
-     "related": "a digital or computer literacy offer"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It is accessible to an identified student group",
-     "related": "availability unclear"
+     "related": "availability unclear",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1654,12 +1925,15 @@
     {
      "id": "p1",
      "full": "A student AI literacy offer is identified",
-     "related": "a digital literacy offer"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A learning objective defines what it intends students to learn",
-     "related": "content is listed without an objective"
+     "related": "content is listed without an objective",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1670,12 +1944,15 @@
     {
      "id": "p1",
      "full": "Delivery records for an AI literacy offer are quoted",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "The student cohort is identified",
-     "related": "cohort unclear"
+     "related": "cohort unclear",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1686,12 +1963,14 @@
     {
      "id": "p1",
      "full": "A participation or attainment gap is documented",
-     "related": "a general need"
+     "related": "a general need",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A support response addresses it",
-     "related": "support without linking to the gap"
+     "related": "support without linking to the gap",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1702,12 +1981,15 @@
     {
      "id": "p1",
      "full": "An assessment reports student AI literacy attainment",
-     "related": "participation counts"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It is measured against an explicit criterion",
-     "related": "no criterion"
+     "related": "no criterion",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1718,12 +2000,14 @@
     {
      "id": "p1",
      "full": "A change addressing an access or learning gap is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1734,12 +2018,15 @@
     {
      "id": "p1",
      "full": "An advanced artificial intelligence or machine learning skills pathway is defined (specialisation, programme, minor, track, sequence of courses)",
-     "related": "a single AI course"
+     "related": "a single AI course",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It is for an identified student group",
-     "related": "unclear"
+     "related": "unclear",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1750,12 +2037,15 @@
     {
      "id": "p1",
      "full": "An advanced AI/ML pathway is identified",
-     "related": "a single course"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It includes a practical assessment task (lab exam, project, practical)",
-     "related": "theory assessment only"
+     "related": "theory assessment only",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1766,12 +2056,15 @@
     {
      "id": "p1",
      "full": "Student work shows an advanced or role-specific AI skill",
-     "related": "work in an AI course without described skill"
+     "related": "work in an AI course without described skill",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It is judged against an explicit criterion",
-     "related": "no criterion"
+     "related": "no criterion",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1782,12 +2075,14 @@
     {
      "id": "p1",
      "full": "Employer or disciplinary feedback about the pathway is identified",
-     "related": "general feedback"
+     "related": "general feedback",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A delivery change responds to it",
-     "related": "a change without linking to the feedback"
+     "related": "a change without linking to the feedback",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1798,12 +2093,15 @@
     {
      "id": "p1",
      "full": "A completed review of the AI pathway exists",
-     "related": "pathway results are listed"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It evaluates a relevant skill or progression result",
-     "related": "general outcomes"
+     "related": "general outcomes",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1814,12 +2112,14 @@
     {
      "id": "p1",
      "full": "The pathway was revised",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A subsequent task evaluation tests the effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1830,12 +2130,15 @@
     {
      "id": "p1",
      "full": "An artificial intelligence or machine learning project or portfolio opportunity exists for students",
-     "related": "a project opportunity without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It is available to an identified student group",
-     "related": "unclear"
+     "related": "unclear",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1846,12 +2149,15 @@
     {
      "id": "p1",
      "full": "A student AI project or portfolio is identified",
-     "related": "student projects in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "An evaluation criterion addresses individual contribution",
-     "related": "group evaluation only"
+     "related": "group evaluation only",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1862,12 +2168,15 @@
     {
      "id": "p1",
      "full": "A reviewed student portfolio or project record is quoted",
-     "related": "projects listed"
+     "related": "projects listed",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It identifies the student's substantive AI contribution",
-     "related": "AI project without the student's role"
+     "related": "AI project without the student's role",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1878,12 +2187,15 @@
     {
      "id": "p1",
      "full": "A moderation record exists",
-     "related": "assessment in general"
+     "related": "assessment in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It evaluates a participating student's AI project or portfolio",
-     "related": "a non-AI project"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1894,12 +2206,15 @@
     {
      "id": "p1",
      "full": "A completed evaluation of AI work quality or real-user value exists",
-     "related": "project outcomes listed"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It uses an explicit criterion",
-     "related": "no criterion"
+     "related": "no criterion",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1910,12 +2225,14 @@
     {
      "id": "p1",
      "full": "A project or mentoring change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1926,12 +2243,15 @@
     {
      "id": "p1",
      "full": "An internship or career opportunity is documented",
-     "related": "career services in general"
+     "related": "career services in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is AI-relevant (artificial intelligence or machine learning role, project or employer activity)",
-     "related": "an IT or computing opportunity without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1942,12 +2262,15 @@
     {
      "id": "p1",
      "full": "An AI-relevant opportunity is identified",
-     "related": "an IT opportunity"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "An eligibility rule says who can access it",
-     "related": "availability in general"
+     "related": "availability in general",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -1958,12 +2281,15 @@
     {
      "id": "p1",
      "full": "A verified record of participation (named students, offer letters, certificates)",
-     "related": "counts without verification"
+     "related": "counts without verification",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The internship or opportunity is AI-relevant",
-     "related": "IT without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1974,12 +2300,15 @@
     {
      "id": "p1",
      "full": "A cohort register gives the denominator (total eligible or enrolled students)",
-     "related": "a total without the cohort"
+     "related": "a total without the cohort",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is used to interpret AI-related participation or progression",
-     "related": "used for general placement statistics"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -1990,12 +2319,15 @@
     {
      "id": "p1",
      "full": "A completed review reports a verified AI-related career result",
-     "related": "general placement results"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It is compared with a stated target",
-     "related": "no target"
+     "related": "no target",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2006,12 +2338,14 @@
     {
      "id": "p1",
      "full": "A career-pathway change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2022,12 +2356,14 @@
     {
      "id": "p1",
      "full": "Computing resources are described (computers, labs, servers, cloud, software, internet)",
-     "related": "facilities in general"
+     "related": "facilities in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Learners or researchers are stated to have access to them",
-     "related": "resources are listed without stating who uses them"
+     "related": "resources are listed without stating who uses them",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2038,17 +2374,21 @@
     {
      "id": "p1",
      "full": "Resource specifications are quoted (processors, memory, GPUs, bandwidth, software)",
-     "related": "resources described without specifications"
+     "related": "resources described without specifications",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "An introductory artificial intelligence or machine learning workload is explicitly stated (e.g. training small ML models in a named course)",
-     "related": "AI courses exist without a stated workload"
+     "related": "AI courses exist without a stated workload",
+     "gate": "ai",
+     "ai_gate": true
     },
     {
      "id": "p3",
      "full": "The passages link the specifications to that workload",
-     "related": "both appear but are not linked"
+     "related": "both appear but are not linked",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -2061,12 +2401,14 @@
     {
      "id": "p1",
      "full": "Usage records of computing capacity are quoted (hours, users, logs)",
-     "related": "availability statements"
+     "related": "availability statements",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The user group served is identified and relevant to digital or AI work",
-     "related": "users in general"
+     "related": "users in general",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2077,12 +2419,14 @@
     {
      "id": "p1",
      "full": "A capacity or access failure is documented",
-     "related": "general improvement"
+     "related": "general improvement",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A support response addresses it",
-     "related": "an upgrade without linking to the failure"
+     "related": "an upgrade without linking to the failure",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2093,12 +2437,14 @@
     {
      "id": "p1",
      "full": "A completed review reports service performance (uptime, availability, utilisation)",
-     "related": "descriptions without measures"
+     "related": "descriptions without measures",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is compared with a stated capacity or availability target",
-     "related": "no target"
+     "related": "no target",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2109,12 +2455,14 @@
     {
      "id": "p1",
      "full": "A continuity or recovery exercise for the computing environment took place",
-     "related": "backup is described"
+     "related": "backup is described",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Recovery performance is recorded",
-     "related": "the exercise is described without results"
+     "related": "the exercise is described without results",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2125,12 +2473,14 @@
     {
      "id": "p1",
      "full": "A register, catalogue or list identifies institutional datasets or information systems",
-     "related": "systems mentioned individually"
+     "related": "systems mentioned individually",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The identified assets are relevant (student, academic, administrative, research data or systems)",
-     "related": "unclear relevance"
+     "related": "unclear relevance",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2141,12 +2491,14 @@
     {
      "id": "p1",
      "full": "Institutional datasets or systems are identified",
-     "related": "data in general"
+     "related": "data in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A responsible custodian is assigned to them",
-     "related": "systems are said to be managed without a responsible party"
+     "related": "systems are said to be managed without a responsible party",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2157,12 +2509,15 @@
     {
      "id": "p1",
      "full": "A data-quality check operates",
-     "related": "data is said to be accurate"
+     "related": "data is said to be accurate",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is for an identified AI use or AI preparation activity",
-     "related": "for a digital system without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2173,12 +2528,14 @@
     {
      "id": "p1",
      "full": "A data-quality issue is tracked",
-     "related": "errors in general"
+     "related": "errors in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Its disposition is recorded",
-     "related": "the issue is described without disposition"
+     "related": "the issue is described without disposition",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2189,12 +2546,14 @@
     {
      "id": "p1",
      "full": "A completed review measures data quality",
-     "related": "descriptions"
+     "related": "descriptions",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is compared with a stated fitness criterion",
-     "related": "no criterion"
+     "related": "no criterion",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2205,12 +2564,14 @@
     {
      "id": "p1",
      "full": "A data-quality change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up measures its effect on downstream work",
-     "related": "described without measurement"
+     "related": "described without measurement",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2221,12 +2582,14 @@
     {
      "id": "p1",
      "full": "The computing environment is identified (network, servers, labs, systems)",
-     "related": "IT in general"
+     "related": "IT in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Responsibility for its security is assigned to a named role, office or body",
-     "related": "security measures without a responsible party"
+     "related": "security measures without a responsible party",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -2239,12 +2602,14 @@
     {
      "id": "p1",
      "full": "The computing environment is identified",
-     "related": "IT in general"
+     "related": "IT in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A recovery procedure covers it (backup and restore, disaster recovery steps)",
-     "related": "backups are mentioned without a procedure"
+     "related": "backups are mentioned without a procedure",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2255,12 +2620,15 @@
     {
      "id": "p1",
      "full": "A security test was carried out in the assessed environment",
-     "related": "security tools in use"
+     "related": "security tools in use",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It examines an identified AI-related threat",
-     "related": "a general threat"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2271,12 +2639,14 @@
     {
      "id": "p1",
      "full": "An incident or exercise is recorded",
-     "related": "security in general"
+     "related": "security in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A response action is recorded",
-     "related": "the incident without a response"
+     "related": "the incident without a response",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2287,12 +2657,14 @@
     {
      "id": "p1",
      "full": "A completed security review reports remediation or recovery performance",
-     "related": "descriptions"
+     "related": "descriptions",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is compared with a stated criterion",
-     "related": "no criterion"
+     "related": "no criterion",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2303,12 +2675,14 @@
     {
      "id": "p1",
      "full": "A control change responds to a documented threat",
-     "related": "a control change without a threat"
+     "related": "a control change without a threat",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up test evaluates it",
-     "related": "described without a test"
+     "related": "described without a test",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2319,12 +2693,15 @@
     {
      "id": "p1",
      "full": "A learning environment is identified (lab, platform, software environment)",
-     "related": "facilities in general"
+     "related": "facilities in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It supports a specified introductory artificial intelligence or machine learning learning activity",
-     "related": "it supports computing or ICT learning without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2335,12 +2712,15 @@
     {
      "id": "p1",
      "full": "An AI learning environment is identified",
-     "related": "a general computing environment"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "Learners have a defined access route (lab hours, login, booking, remote access)",
-     "related": "access implied"
+     "related": "access implied",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2351,12 +2731,15 @@
     {
      "id": "p1",
      "full": "Usage records show learner access",
-     "related": "availability statements"
+     "related": "availability statements",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The environment is an AI learning environment",
-     "related": "a general computing lab"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2367,12 +2750,14 @@
     {
      "id": "p1",
      "full": "An accessibility or capacity issue is documented",
-     "related": "general improvements"
+     "related": "general improvements",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A support response addresses it",
-     "related": "support without linking to the issue"
+     "related": "support without linking to the issue",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2383,12 +2768,14 @@
     {
      "id": "p1",
      "full": "A completed review reports learner access",
-     "related": "descriptions"
+     "related": "descriptions",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is compared with a stated service or equity criterion",
-     "related": "no criterion"
+     "related": "no criterion",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2399,12 +2786,14 @@
     {
      "id": "p1",
      "full": "An environment improvement is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2415,12 +2804,15 @@
     {
      "id": "p1",
      "full": "An artificial intelligence or machine learning research or applied-inquiry project is named",
-     "related": "research in a field without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It has a defined objective (its title or description can state what it develops and for what purpose)",
-     "related": "the topic is named without purpose"
+     "related": "the topic is named without purpose",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2431,12 +2823,15 @@
     {
      "id": "p1",
      "full": "An AI research project is identified",
-     "related": "research in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A responsible lead (principal investigator, named faculty or student lead) is assigned",
-     "related": "the department is named"
+     "related": "the department is named",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2447,12 +2842,15 @@
     {
      "id": "p1",
      "full": "An AI research project is active in the period",
-     "related": "project completed long before or only proposed"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A reviewed work output exists (publication, patent, prototype, report reviewed by others)",
-     "related": "an output without review"
+     "related": "an output without review",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2463,12 +2861,15 @@
     {
      "id": "p1",
      "full": "A progress review of the AI project is recorded",
-     "related": "progress is described"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It records a decision about the project",
-     "related": "review without decision"
+     "related": "review without decision",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2479,12 +2880,14 @@
     {
      "id": "p1",
      "full": "A completed review evaluates output quality or application",
-     "related": "outputs listed"
+     "related": "outputs listed",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is evaluated against the stated objective",
-     "related": "no objective comparison"
+     "related": "no objective comparison",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2495,12 +2898,14 @@
     {
      "id": "p1",
      "full": "An agenda or resource change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2511,12 +2916,14 @@
     {
      "id": "p1",
      "full": "An innovation function exists (centre, cell, incubator, distributed function)",
-     "related": "innovation activities in general"
+     "related": "innovation activities in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Its remit is defined (focus areas, purpose) and includes AI or digital innovation",
-     "related": "the remit is stated without AI or digital areas"
+     "related": "the remit is stated without AI or digital areas",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2527,12 +2934,14 @@
     {
      "id": "p1",
      "full": "An innovation function is identified",
-     "related": "innovation in general"
+     "related": "innovation in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A project or mentoring service is available through it",
-     "related": "the function exists without a stated service"
+     "related": "the function exists without a stated service",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2543,12 +2952,15 @@
     {
      "id": "p1",
      "full": "A service record shows a project or mentoring engagement through the function (named project, mentor assignment)",
-     "related": "services described as available"
+     "related": "services described as available",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The engagement concerns artificial intelligence or machine learning",
-     "related": "a non-AI project"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2559,12 +2971,14 @@
     {
      "id": "p1",
      "full": "A service review is recorded",
-     "related": "service described"
+     "related": "service described",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It records a decision responding to use or delivery evidence",
-     "related": "review without decision"
+     "related": "review without decision",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2575,12 +2989,14 @@
     {
      "id": "p1",
      "full": "A completed review evaluates an output or institutional benefit of the function",
-     "related": "outputs listed"
+     "related": "outputs listed",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is evaluated against the function's objective",
-     "related": "no comparison"
+     "related": "no comparison",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2591,12 +3007,14 @@
     {
      "id": "p1",
      "full": "A service change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2607,12 +3025,14 @@
     {
      "id": "p1",
      "full": "A funding, IP or incubation support route exists (seed fund, grant scheme, IPR cell, incubator)",
-     "related": "support described in general"
+     "related": "support described in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is available to eligible projects (eligibility or who can apply is stated or evident)",
-     "related": "availability implied"
+     "related": "availability implied",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2623,12 +3043,14 @@
     {
      "id": "p1",
      "full": "A funding, IP or incubation support route is identified",
-     "related": "support in general"
+     "related": "support in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A contact or application route enables access (apply to, pitch event, submission process, named contact)",
-     "related": "availability without a route"
+     "related": "availability without a route",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2639,17 +3061,21 @@
     {
      "id": "p1",
      "full": "A named project is recorded",
-     "related": "projects in general"
+     "related": "projects in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The project used a funding, IP or incubation support route",
-     "related": "support available without a project using it"
+     "related": "support available without a project using it",
+     "gate": null
     },
     {
      "id": "p3",
      "full": "The project concerns AI",
-     "related": "a non-AI project"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2660,12 +3086,15 @@
     {
      "id": "p1",
      "full": "A review records a funding or translation decision (selected, funded, patent filed)",
-     "related": "a review without decision"
+     "related": "a review without decision",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The decision concerns an identified AI project",
-     "related": "a non-AI project"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2676,12 +3105,14 @@
     {
      "id": "p1",
      "full": "A completed review evaluates verified project progression",
-     "related": "progress described"
+     "related": "progress described",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is against a stated milestone",
-     "related": "no milestone"
+     "related": "no milestone",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2692,12 +3123,14 @@
     {
      "id": "p1",
      "full": "A project-support change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2708,12 +3141,15 @@
     {
      "id": "p1",
      "full": "A collaboration work plan exists (MoU activities, joint project plan)",
-     "related": "an agreement without planned work"
+     "related": "an agreement without planned work",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It specifies substantive artificial intelligence or machine learning research or application",
-     "related": "collaboration in a non-AI area"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": [
@@ -2726,12 +3162,15 @@
     {
      "id": "p1",
      "full": "Planned AI collaboration work is identified",
-     "related": "collaboration in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A partner responsibility is assigned for it",
-     "related": "partner named without responsibility"
+     "related": "partner named without responsibility",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2742,12 +3181,15 @@
     {
      "id": "p1",
      "full": "A delivery record shows collaboration work carried out",
-     "related": "an agreement only"
+     "related": "an agreement only",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The work is substantive AI work",
-     "related": "non-AI work"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2758,12 +3200,15 @@
     {
      "id": "p1",
      "full": "Partner or beneficiary feedback is recorded",
-     "related": "feedback in general"
+     "related": "feedback in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It evaluates an identified delivered AI contribution",
-     "related": "a general contribution"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2774,12 +3219,14 @@
     {
      "id": "p1",
      "full": "A completed review evaluates knowledge transfer or a beneficiary result",
-     "related": "results listed"
+     "related": "results listed",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is against a stated objective",
-     "related": "no comparison"
+     "related": "no comparison",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2790,12 +3237,14 @@
     {
      "id": "p1",
      "full": "A collaboration change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2806,12 +3255,14 @@
     {
      "id": "p1",
      "full": "An institutional digital service is identified (ERP, e-governance module, online admission, exam system, grievance portal)",
-     "related": "digital tools in general"
+     "related": "digital tools in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Its purpose is defined (what it does or which operation it serves)",
-     "related": "named without purpose"
+     "related": "named without purpose",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2822,12 +3273,14 @@
     {
      "id": "p1",
      "full": "An institutional digital service is identified",
-     "related": "digital tools in general"
+     "related": "digital tools in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A responsible owner (office, role, body) is assigned to it",
-     "related": "the service is said to be maintained without a responsible party"
+     "related": "the service is said to be maintained without a responsible party",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2838,17 +3291,21 @@
     {
      "id": "p1",
      "full": "Operational records of an institutional service are quoted",
-     "related": "the service is described"
+     "related": "the service is described",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "They show artificial intelligence or machine learning used in that service",
-     "related": "digital automation without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     },
     {
      "id": "p3",
      "full": "The use is repeated",
-     "related": "a single use"
+     "related": "a single use",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2859,12 +3316,15 @@
     {
      "id": "p1",
      "full": "A monitoring record exists for the service",
-     "related": "monitoring in general"
+     "related": "monitoring in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It evaluates an AI-related exception",
-     "related": "a general exception"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2875,17 +3335,20 @@
     {
      "id": "p1",
      "full": "A completed evaluation reports service benefit",
-     "related": "benefits described"
+     "related": "benefits described",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is compared with a stated baseline",
-     "related": "no baseline"
+     "related": "no baseline",
+     "gate": null
     },
     {
      "id": "p3",
      "full": "It discloses quality limitations",
-     "related": "no limitations stated"
+     "related": "no limitations stated",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2896,12 +3359,14 @@
     {
      "id": "p1",
      "full": "A workflow or control change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up tests its effect",
-     "related": "described without a test"
+     "related": "described without a test",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2912,12 +3377,15 @@
     {
      "id": "p1",
      "full": "An industry work plan exists (planned activities with an industry partner)",
-     "related": "an MoU listing without planned activities"
+     "related": "an MoU listing without planned activities",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It specifies an AI-related activity",
-     "related": "a non-AI activity"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2928,12 +3396,15 @@
     {
      "id": "p1",
      "full": "An AI-related industry activity is identified",
-     "related": "industry activity in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It defines a contribution to skills, curriculum or projects",
-     "related": "purpose unstated"
+     "related": "purpose unstated",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2944,12 +3415,15 @@
     {
      "id": "p1",
      "full": "A delivery record shows the activity carried out with an industry partner",
-     "related": "agreement only"
+     "related": "agreement only",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The activity is AI-related",
-     "related": "non-AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2960,12 +3434,15 @@
     {
      "id": "p1",
      "full": "A review of the partner's delivered contribution is recorded",
-     "related": "contribution listed"
+     "related": "contribution listed",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The contribution concerns AI skills, projects or opportunities",
-     "related": "non-AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -2976,12 +3453,14 @@
     {
      "id": "p1",
      "full": "A completed partnership review evaluates an output or outcome",
-     "related": "results listed"
+     "related": "results listed",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is against a stated objective",
-     "related": "no comparison"
+     "related": "no comparison",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -2992,12 +3471,14 @@
     {
      "id": "p1",
      "full": "A jointly agreed delivery change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3008,12 +3489,15 @@
     {
      "id": "p1",
      "full": "An employment, enterprise or workforce pathway exists (placement programme, incubation, training-to-employment route)",
-     "related": "career support in general"
+     "related": "career support in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It explicitly addresses AI skills",
-     "related": "general employability skills"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -3024,12 +3508,15 @@
     {
      "id": "p1",
      "full": "An AI-skills pathway is identified",
-     "related": "a general pathway"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "An opportunity or referral route connects eligible participants to it",
-     "related": "availability in general"
+     "related": "availability in general",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3040,12 +3527,15 @@
     {
      "id": "p1",
      "full": "A verified record names a participant or venture",
-     "related": "counts only"
+     "related": "counts only",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It links them to an opportunity or venture through an AI pathway (e.g. an AI venture supported, an AI placement)",
-     "related": "a non-AI venture or placement"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "ai",
+     "ai_gate": true
     }
    ],
    "not_enough": []
@@ -3056,12 +3546,14 @@
     {
      "id": "p1",
      "full": "A review examines pathway participation",
-     "related": "participation counts"
+     "related": "participation counts",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It relates participation to an observed result",
-     "related": "results reported separately"
+     "related": "results reported separately",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3072,12 +3564,14 @@
     {
      "id": "p1",
      "full": "A completed review evaluates a verified progression or enterprise result",
-     "related": "results listed"
+     "related": "results listed",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is against a stated objective",
-     "related": "no comparison"
+     "related": "no comparison",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3088,12 +3582,14 @@
     {
      "id": "p1",
      "full": "A pathway portfolio change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3104,12 +3600,15 @@
     {
      "id": "p1",
      "full": "An identified artificial intelligence or machine learning intervention is named",
-     "related": "a digital intervention without AI"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It has an explicit intended outcome",
-     "related": "purpose implied"
+     "related": "purpose implied",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3120,12 +3619,15 @@
     {
      "id": "p1",
      "full": "An AI intervention outcome is identified",
-     "related": "outcomes in general"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "A prospective measurement method is defined for it",
-     "related": "measured after the fact without a defined method"
+     "related": "measured after the fact without a defined method",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3136,17 +3638,21 @@
     {
      "id": "p1",
      "full": "Recorded results of an AI intervention are quoted",
-     "related": "results of a non-AI intervention"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "They are compared with a stated baseline",
-     "related": "no baseline"
+     "related": "no baseline",
+     "gate": null
     },
     {
      "id": "p3",
      "full": "The method is disclosed",
-     "related": "method unstated"
+     "related": "method unstated",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3157,12 +3663,15 @@
     {
      "id": "p1",
      "full": "A review of an AI intervention's results is recorded",
-     "related": "results only"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It examines an alternative explanation or potential harm",
-     "related": "no such examination"
+     "related": "no such examination",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3173,12 +3682,15 @@
     {
      "id": "p1",
      "full": "A completed measurement review evaluates benefit of an AI intervention",
-     "related": "benefits described"
+     "related": "wording that may describe AI but does not say so (an \"intelligent\", \"smart\" or \"predictive\" system that is not said to use artificial intelligence or machine learning); a digital system that is not AI is not found",
+     "gate": "subject",
+     "ai_gate": true
     },
     {
      "id": "p2",
      "full": "It states its limitations explicitly",
-     "related": "no limitations"
+     "related": "no limitations",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3189,12 +3701,14 @@
     {
      "id": "p1",
      "full": "An intervention change is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A subsequent measurement evaluates its effect",
-     "related": "described without measurement"
+     "related": "described without measurement",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3205,12 +3719,14 @@
     {
      "id": "p1",
      "full": "An institutional review process exists (academic audit, IQAC review, quality audit)",
-     "related": "reviews mentioned in general"
+     "related": "reviews mentioned in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It uses defined indicators (criteria, questionnaire items, metrics)",
-     "related": "indicators implied"
+     "related": "indicators implied",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3221,12 +3737,14 @@
     {
      "id": "p1",
      "full": "An indicator-based institutional review is identified",
-     "related": "reviews in general"
+     "related": "reviews in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Responsibility for producing it is assigned (IQAC, named office or committee)",
-     "related": "a body participates without stated responsibility"
+     "related": "a body participates without stated responsibility",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3237,12 +3755,14 @@
     {
      "id": "p1",
      "full": "An institutional assessment is repeated (more than one cycle)",
-     "related": "a single assessment"
+     "related": "a single assessment",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It uses traceable evidence with reproducible calculations",
-     "related": "evidence without traceability"
+     "related": "evidence without traceability",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -3255,12 +3775,14 @@
     {
      "id": "p1",
      "full": "A change record for the assessment exists",
-     "related": "changes in general"
+     "related": "changes in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It distinguishes evidence changes from methodology changes",
-     "related": "no distinction"
+     "related": "no distinction",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3271,12 +3793,14 @@
     {
      "id": "p1",
      "full": "A completed review uses the assessment's results",
-     "related": "results reported"
+     "related": "results reported",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It evaluates an improvement priority",
-     "related": "no priority"
+     "related": "no priority",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3287,12 +3811,14 @@
     {
      "id": "p1",
      "full": "A measurement-method revision is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3303,12 +3829,14 @@
     {
      "id": "p1",
      "full": "An evidence index identifies source records used for assessment (document list, evidence register)",
-     "related": "documents uploaded without an index"
+     "related": "documents uploaded without an index",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is used for an assessment",
-     "related": "an index for other purposes"
+     "related": "an index for other purposes",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -3321,12 +3849,14 @@
     {
      "id": "p1",
      "full": "Assessment source records are identified",
-     "related": "records in general"
+     "related": "records in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A custodian is assigned to preserve them",
-     "related": "records are said to be maintained without a custodian"
+     "related": "records are said to be maintained without a custodian",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3337,12 +3867,14 @@
     {
      "id": "p1",
      "full": "A sampled assessment finding is identified",
-     "related": "findings in general"
+     "related": "findings in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It is traced to its requirement and source passage",
-     "related": "traceability claimed without a trace"
+     "related": "traceability claimed without a trace",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3353,12 +3885,14 @@
     {
      "id": "p1",
      "full": "A record shows an evidence value before and after a correction",
-     "related": "a corrected value only"
+     "related": "a corrected value only",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It states a remark or reason for the change",
-     "related": "the change without reason"
+     "related": "the change without reason",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3369,12 +3903,14 @@
     {
      "id": "p1",
      "full": "A completed audit evaluates traceability",
-     "related": "audits in general"
+     "related": "audits in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It follows an explicit checking procedure",
-     "related": "procedure unstated"
+     "related": "procedure unstated",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3385,12 +3921,14 @@
     {
      "id": "p1",
      "full": "An evidence-process improvement is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up measures its effect",
-     "related": "described without measurement"
+     "related": "described without measurement",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3401,12 +3939,14 @@
     {
      "id": "p1",
      "full": "A process exists that monitors changes (stakeholder feedback, regulatory updates, industry or technology trends)",
-     "related": "changes happen without a monitoring process"
+     "related": "changes happen without a monitoring process",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "The monitored changes are relevant accreditation, curriculum or technology changes",
-     "related": "general monitoring"
+     "related": "general monitoring",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3417,12 +3957,14 @@
     {
      "id": "p1",
      "full": "A body or process that considers such changes is identified",
-     "related": "changes in general"
+     "related": "changes in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A review schedule defines when changes are considered (meeting frequency, review cycle)",
-     "related": "\"as needed\" without a schedule"
+     "related": "\"as needed\" without a schedule",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3433,12 +3975,14 @@
     {
      "id": "p1",
      "full": "A change review is recorded",
-     "related": "changes made"
+     "related": "changes made",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It identifies a requirement affected by an external change",
-     "related": "general revision"
+     "related": "general revision",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3449,12 +3993,14 @@
     {
      "id": "p1",
      "full": "A versioned reassessment is recorded",
-     "related": "a single assessment"
+     "related": "a single assessment",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It preserves the prior result with an explanation of the change",
-     "related": "only the new result"
+     "related": "only the new result",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3465,12 +4011,14 @@
     {
      "id": "p1",
      "full": "A completed review of a detected relevant change exists",
-     "related": "changes listed"
+     "related": "changes listed",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It evaluates the timeliness of detection or response",
-     "related": "no timeliness evaluation"
+     "related": "no timeliness evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3481,12 +4029,14 @@
     {
      "id": "p1",
      "full": "A monitoring-process revision is recorded",
-     "related": "the activity is planned, approved or announced but no delivery record is quoted"
+     "related": "the activity is planned, approved or announced but no delivery record is quoted",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A follow-up evaluates its effect",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3497,12 +4047,14 @@
     {
      "id": "p1",
      "full": "A feedback process exists (survey, poll, structured feedback)",
-     "related": "feedback mentioned in general"
+     "related": "feedback mentioned in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It covers an institutional digital or learning initiative (e.g. teaching-learning, an online service)",
-     "related": "feedback on facilities or events in general"
+     "related": "feedback on facilities or events in general",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3513,12 +4065,14 @@
     {
      "id": "p1",
      "full": "Actions resulting from feedback are recorded (a follow-up register or action-taken report)",
-     "related": "actions mentioned in general"
+     "related": "actions mentioned in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "Ownership of each action is assigned",
-     "related": "actions without owners"
+     "related": "actions without owners",
+     "gate": null
     }
    ],
    "not_enough": [
@@ -3531,12 +4085,14 @@
     {
      "id": "p1",
      "full": "A user acceptance or outcome review is recorded (survey results, evaluation)",
-     "related": "a review planned"
+     "related": "a review planned",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "It evaluates an identified deployed initiative",
-     "related": "initiatives in general"
+     "related": "initiatives in general",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3547,12 +4103,14 @@
     {
      "id": "p1",
      "full": "A corrective action is recorded",
-     "related": "actions in general"
+     "related": "actions in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A completion check of that action is recorded",
-     "related": "the action without a check"
+     "related": "the action without a check",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3563,12 +4121,14 @@
     {
      "id": "p1",
      "full": "A feedback-driven change is recorded",
-     "related": "changes in general"
+     "related": "changes in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A completed review evaluates its subsequent result",
-     "related": "described without evaluation"
+     "related": "described without evaluation",
+     "gate": null
     }
    ],
    "not_enough": []
@@ -3579,12 +4139,14 @@
     {
      "id": "p1",
      "full": "A review identified a lesson",
-     "related": "reviews in general"
+     "related": "reviews in general",
+     "gate": "subject"
     },
     {
      "id": "p2",
      "full": "A later initiative demonstrably applies that lesson",
-     "related": "later initiatives without the link"
+     "related": "later initiatives without the link",
+     "gate": null
     }
    ],
    "not_enough": []
