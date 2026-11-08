@@ -219,3 +219,54 @@ class EmbeddingCacheTests(SimpleTestCase):
             self.assertTrue(np.array_equal(first[0], second[0]))
             # A different model artifact never reads these vectors.
             self.assertEqual(EmbeddingCache(tmp, 'b' * 64).get_many(['alpha passage text']), {})
+
+
+class RepeatSkipTests(SimpleTestCase):
+    """Repeat skipping: a window that mostly repeats one chosen from another document gives way to new text."""
+    REPEATED = ('The ERP digital service purpose is admissions and finance; the registrar is the owner of the '
+                'e-governance service and reviews it each term. ')
+    NEW = 'A separate helpdesk digital service has its own purpose: student grievances; the dean of students is owner. '
+
+    def sources(self):
+        return [page('s1', 'ssr', 1, self.REPEATED * 12),
+                page('a1', 'aqar', 1, self.REPEATED * 12 + ' restated'),   # the AQAR restating the SSR
+                page('n1', 'minutes', 1, self.NEW * 12)]
+
+    def test_off_by_default_and_without_policy_key(self):
+        sources = self.sources()
+        self.assertFalse(st.build(sources)['repeat_skip'])
+        plain = select_balanced_context(indicator(), sources, max_chars=2400)
+        with_structure = select_balanced_context(indicator(), sources, max_chars=2400,
+                                                 structure=st.build(sources, deduplicate_pages=False, routing=False))
+        self.assertEqual(plain, with_structure)
+
+    def test_cross_document_repeat_gives_way_to_new_text(self):
+        sources = self.sources()
+        plain = select_balanced_context(indicator(), sources, max_chars=2400)
+        structure = st.build(sources, deduplicate_pages=False, routing=False, repeat_skip=True)
+        skipped = select_balanced_context(indicator(), sources, max_chars=2400, structure=structure)
+        documents = lambda packet: {w['document_id'] for w in packet}
+        self.assertEqual(documents(plain), {'ssr', 'aqar'})      # the restatement crowds out the minutes
+        self.assertEqual(documents(skipped), {'ssr', 'minutes'})
+        lookup = {s['id']: s['text'] for s in sources}
+        for w in skipped:
+            self.assertEqual(lookup[w['id']][w['text_offset']:w['text_offset'] + len(w['text'])], w['text'])
+
+    def test_same_document_text_is_never_skipped(self):
+        candidate = st.words(self.REPEATED)
+        self.assertFalse(st.repeats(candidate, 'ssr', [('ssr', candidate)]))
+        self.assertTrue(st.repeats(candidate, 'aqar', [('ssr', candidate)]))
+        self.assertFalse(st.repeats(st.words(self.NEW), 'minutes', [('ssr', candidate)]))
+        self.assertFalse(st.repeats(frozenset(), 'x', [('ssr', candidate)]))
+
+    def test_policy_key_and_version(self):
+        with override_settings(CAPABILITY_REPEAT_SKIP=True):
+            self.assertEqual(configured_policy('bm25')['repeat_skip'], st.REPEAT_SKIP_VERSION)
+        with override_settings(CAPABILITY_REPEAT_SKIP=False):
+            self.assertNotIn('repeat_skip', configured_policy('bm25'))
+
+    def test_a_different_frozen_version_is_refused(self):
+        from apps.scoring.capability.evaluation import evaluate
+        with self.assertRaisesRegex(ValueError, 'repeat-skip version'):
+            evaluate(self.sources(), service=None, population='Students', reference_period='2024',
+                     retrieval_policy={'mode': 'bm25', 'repeat_skip': 'other-v0'}, max_calls=0)

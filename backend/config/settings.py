@@ -826,9 +826,17 @@ CAPABILITY_DEDUPLICATE_PAGES = os.getenv('CAPABILITY_DEDUPLICATE_PAGES', 'false'
 # Experimental: routed picks inside NAAC metric sections plus a per-document share cap of the keyword
 # lane. Offline tests showed no recall gain yet; keep off for assessments.
 CAPABILITY_STRUCTURE_ROUTING = os.getenv('CAPABILITY_STRUCTURE_ROUTING', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Keyword selection passes over a window that mostly repeats (more than half its distinct words) a window
+# already chosen from a different document, so restated text (AQAR, annexures) does not crowd out new evidence.
+CAPABILITY_REPEAT_SKIP = os.getenv('CAPABILITY_REPEAT_SKIP', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Empty for the default 30,000 + 6,000 character packet; 'protected-baseline-then-discovery-wide-v1' for a
-# 90,000-character keyword lane (hybrid mode only).
+# 90,000-character keyword lane; 'protected-baseline-then-discovery-xwide-v1' for 150,000 (hybrid mode only).
 CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '')
+# Targeted extra search after part judgment (apps/scoring/capability/follow_up.py): parts every pass marked
+# not found get one more search with the part's own description; only those conditions are judged again, and
+# the second judgment can only add credit. Needs hybrid retrieval and CAPABILITY_JUDGMENT=parts. Adds up to one
+# request per indicator per pass, so CAPABILITY_MAX_HTTP_CALLS must allow it (150 with two passes).
+CAPABILITY_FOLLOW_UP_SEARCH = os.getenv('CAPABILITY_FOLLOW_UP_SEARCH', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
 # every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.
 CAPABILITY_EMBEDDING_CACHE_DIR = os.getenv('CAPABILITY_EMBEDDING_CACHE_DIR', '')

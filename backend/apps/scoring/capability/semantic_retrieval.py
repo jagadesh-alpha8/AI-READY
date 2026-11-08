@@ -39,11 +39,14 @@ BASELINE_CHARS = 30000
 EXPANSION_CHARS = 6000
 ALLOCATION = 'protected-baseline-then-discovery-v2'
 WIDE_ALLOCATION = 'protected-baseline-then-discovery-wide-v1'
+XWIDE_ALLOCATION = 'protected-baseline-then-discovery-xwide-v1'
 ALLOCATION_BUDGETS = {
     'protected-baseline-then-discovery-v1': (18000, 6000),
     ALLOCATION: (BASELINE_CHARS, EXPANSION_CHARS),
     # Multi-document sprints: a 90,000-character keyword lane (about three times the default packet).
     WIDE_ALLOCATION: (90000, EXPANSION_CHARS),
+    # Full-corpus sprints where 90,000 still crowds out evidence. Needs CAPABILITY_MAX_INPUT_TOKEN_BOUND >= 300000.
+    XWIDE_ALLOCATION: (150000, EXPANSION_CHARS),
 }
 BGE_QUERY_INSTRUCTION = 'Represent this sentence for searching relevant passages: '
 
@@ -65,12 +68,20 @@ def configured_policy(mode=None):
         routing['deduplicate'] = structure.DEDUPLICATE_VERSION
     if settings.CAPABILITY_STRUCTURE_ROUTING:
         routing['structure'] = structure.VERSION
+    if getattr(settings, 'CAPABILITY_REPEAT_SKIP', False):
+        routing['repeat_skip'] = structure.REPEAT_SKIP_VERSION
+    if getattr(settings, 'CAPABILITY_FOLLOW_UP_SEARCH', False):
+        from .follow_up import VERSION as FOLLOW_UP_VERSION
+        if mode != 'hybrid' or getattr(settings, 'CAPABILITY_JUDGMENT', 'conditions') != 'parts':
+            raise SemanticRetrievalUnavailable('CAPABILITY_FOLLOW_UP_SEARCH needs hybrid retrieval and CAPABILITY_JUDGMENT=parts.')
+        routing['follow_up'] = FOLLOW_UP_VERSION
     allocation = settings.CAPABILITY_RETRIEVAL_ALLOCATION or ALLOCATION
-    if allocation not in (ALLOCATION, WIDE_ALLOCATION):
-        raise SemanticRetrievalUnavailable(f'CAPABILITY_RETRIEVAL_ALLOCATION must be {ALLOCATION} or {WIDE_ALLOCATION}.')
+    if allocation not in (ALLOCATION, WIDE_ALLOCATION, XWIDE_ALLOCATION):
+        raise SemanticRetrievalUnavailable(
+            f'CAPABILITY_RETRIEVAL_ALLOCATION must be {ALLOCATION}, {WIDE_ALLOCATION} or {XWIDE_ALLOCATION}.')
     if mode == 'bm25':
         if allocation != ALLOCATION:
-            raise SemanticRetrievalUnavailable('The wide allocation needs hybrid retrieval.')
+            raise SemanticRetrievalUnavailable('The wide allocations need hybrid retrieval.')
         return {'mode': 'bm25', **routing}
     from .query_profiles import profile_metadata
     profiles = profile_metadata()

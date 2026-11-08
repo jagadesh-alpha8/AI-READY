@@ -56,6 +56,13 @@ def policy(stage='assessment'):
     passes = getattr(settings, 'CAPABILITY_AGREEMENT_PASSES', 1)
     judgment = getattr(settings, 'CAPABILITY_JUDGMENT', 'conditions')
     concurrency = getattr(settings, 'CAPABILITY_INDICATOR_CONCURRENCY', 1)
+    # The targeted extra search adds up to one request per indicator per pass (36 or 72).
+    # The call setting is shared by both stages, so its ceiling rises for both; the floor applies to assessment.
+    follow_up = bool(getattr(settings, 'CAPABILITY_FOLLOW_UP_SEARCH', False))
+    call_limit = 216 if follow_up else 108
+    call_floor = 74 if passes == 2 else 1
+    if follow_up and stage == 'assessment':
+        call_floor = 146 if passes == 2 else 74
     if stage == 'assessment' and effort == 'high':
         # Measured on Gemini 3 at high effort: 60-160 s per request and up to ~23k reasoning tokens.
         if getattr(settings, prefix + '_TIMEOUT_SECONDS') is None and type(timeout) is int:
@@ -66,13 +73,13 @@ def policy(stage='assessment'):
     if duration is None and type(calls) is int and type(timeout) is int and type(concurrency) is int and concurrency >= 1:
         # A safety stop, not a pace target: every request could use its full timeout, plus packet building.
         duration = min(21600, max(1800, -(-calls // concurrency) * timeout + 600))
-    if (type(calls) is not int or not 1 <= calls <= 108 or not cost.is_finite() or not 0 < cost <= 100
+    if (type(calls) is not int or not call_floor <= calls <= call_limit or not cost.is_finite() or not 0 < cost <= 100
             or type(output) is not int or not 256 <= output <= 65536
             or type(timeout) is not int or not 1 <= timeout <= 600
             or type(input_limit) is not int or not 4096 <= input_limit <= 1000000
             or type(duration) is not int or not 1 <= duration <= 21600
             or effort not in {'default', 'minimal', 'low', 'medium', 'high'}
-            or passes not in (1, 2) or (passes == 2 and calls < 74)
+            or passes not in (1, 2)
             or type(concurrency) is not int or not 1 <= concurrency <= 8
             or judgment not in ('conditions', 'parts')):
         raise AssessmentDisabled('Assessment budget configuration is invalid.')

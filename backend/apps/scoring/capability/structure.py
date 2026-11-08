@@ -9,6 +9,9 @@ Structure only changes which exact source windows retrieval considers first:
   do not take packet space twice. Pages with any different text are kept.
 * `routed_spans` returns the spans of sections whose metric title matches an indicator's route.
   Retrieval boosts query matches inside them; a route never adds text that does not match a query.
+* `repeats` (repeat skipping) tells keyword selection to pass over a window that mostly repeats a window
+  already chosen from a different document (an AQAR or annexure restating the SSR), so the space goes to
+  the next-ranked window instead. Copies inside one document are not skipped.
 """
 import hashlib
 import re
@@ -17,6 +20,8 @@ from dataclasses import dataclass
 
 VERSION = 'naac-metric-routing-v1'
 DEDUPLICATE_VERSION = 'exact-page-text-v1'
+REPEAT_SKIP_VERSION = 'cross-document-repeat-v1'
+REPEAT_SKIP_THRESHOLD = 0.5   # share of distinct words two windows have in common (Jaccard)
 
 _METRIC = r'[1-7]\.\d{1,2}\.\d{1,2}(?:\.\d{1,2})?'
 HEADING = re.compile(r'^[ \t]*(' + _METRIC + r')(?:[ \t]*$|[ \t]+(?=[A-Z(]))', re.M)
@@ -193,11 +198,26 @@ def routed_spans(structure, indicator_code):
             if any(routed(section, indicator_code) for _, _, section in spans)}
 
 
-def build(sources, *, deduplicate_pages=True, routing=True):
+def words(text):
+    """Distinct words of three or more letters or digits, for repeat skipping."""
+    return frozenset(re.findall(r'[a-z0-9]{3,}', text.lower()))
+
+
+def repeats(candidate, document_id, kept):
+    """True if `candidate` (a word set) shares more than REPEAT_SKIP_THRESHOLD of its words with a kept
+    window from a different document. `kept` is a list of (document id, word set)."""
+    if not candidate:
+        return False
+    return any(other != document_id and len(candidate & chosen) > REPEAT_SKIP_THRESHOLD * len(candidate | chosen)
+               for other, chosen in kept)
+
+
+def build(sources, *, deduplicate_pages=True, routing=True, repeat_skip=False):
     """Retrieval structure for a run: optionally duplicate pages removed, then optionally sections.
 
     With routing off, `sections` is empty, so selection adds no routed picks and applies no document cap.
+    With repeat_skip, keyword selection passes over cross-document repeats (see `repeats`).
     """
     kept, dropped = deduplicate(sources) if deduplicate_pages else (list(sources), [])
-    return {'version': VERSION, 'routing': routing, 'sources': kept, 'dropped': dropped,
+    return {'version': VERSION, 'routing': routing, 'repeat_skip': repeat_skip, 'sources': kept, 'dropped': dropped,
             'sections': sections(kept) if routing else {}}

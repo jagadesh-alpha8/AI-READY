@@ -4,6 +4,7 @@ No API calls happen at import time. The caller supplies a configured service, an
 institutional population, reference period and immutable source-page excerpts.
 Quote validation is a grounding check, not proof of semantic correctness or authenticity.
 """
+import contextlib
 import contextvars
 import hashlib
 import threading
@@ -178,6 +179,16 @@ def _normal(text):
     return ' '.join(text.split())
 
 
+def ranking_sources(sources):
+    """Pages as ranking reads them: a printed report timestamp footer is cut off (select_context adds one
+    timestamp back beside the packet). Each body is a prefix of its page, so offsets still index the page."""
+    if not any(s.get('report_timestamp') for s in sources):
+        return sources
+    return [{**{k: v for k, v in s.items() if k != 'report_timestamp'},
+             'text': s['text'][:s['report_timestamp']['start'] - 1]} if s.get('report_timestamp') else s
+            for s in sources]
+
+
 def select_context(indicator, sources, max_chars=None, semantic_ranker=None, window_chars=None, diagnostics=None, structure=None):
     """Rank requirement-aware page windows, including evidence beyond the page prefix.
 
@@ -190,9 +201,7 @@ def select_context(indicator, sources, max_chars=None, semantic_ranker=None, win
         max_chars = getattr(semantic_ranker, 'context_chars', 18000)
     footers = {s['id']: s for s in sources if s.get('report_timestamp')}
     if footers:
-        bodies = [{**{k: v for k, v in s.items() if k != 'report_timestamp'},
-                   'text': s['text'][:s['report_timestamp']['start'] - 1]} if s['id'] in footers else s
-                  for s in sources]
+        bodies = ranking_sources(sources)
         allowance = 19 if max_chars >= 120 else 0
         context = select_context(indicator, bodies, max_chars=max_chars - allowance, semantic_ranker=semantic_ranker,
                                  window_chars=window_chars, diagnostics=diagnostics, structure=structure)
@@ -375,9 +384,19 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
     # uncapped fill; with one document the fill restores the uncapped packet's size.
     document_cap = int(max_chars * DOCUMENT_SHARE) if structure is not None and structure.get('routing', True) else None
     document_used = Counter()
+    # Repeat skipping (off unless the frozen retrieval policy names it): a window that mostly repeats a window
+    # already chosen from another document is passed over, so the space goes to the next-ranked window.
+    skip_repeats = structure is not None and structure.get('repeat_skip', False)
+    chosen_words = []
     def add(row, capped=True):
         nonlocal used
         source, offset, excerpt, _ = row
+        if skip_repeats:
+            from .structure import words, repeats
+            document = source.get('document_id') or source['id']
+            candidate = words(excerpt)
+            if repeats(candidate, document, chosen_words):
+                return False
         remaining = max_chars - used
         if document_cap is not None and capped:
             remaining = min(remaining, document_cap - document_used[source.get('document_id') or source['id']])
@@ -390,6 +409,8 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
             spans.append([source, start, end])
             used += end - start
             document_used[source.get('document_id') or source['id']] += end - start
+            if skip_repeats:
+                chosen_words.append((document, words(source['text'][start:end])))
             return True
         low, high = min([start] + [s[1] for s in joined]), max([end] + [s[2] for s in joined])
         added = (high - low) - sum(s[2] - s[1] for s in joined)
@@ -400,6 +421,8 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
         spans[:] = [s for s in spans if s is first or s not in joined]
         used += added
         document_used[source.get('document_id') or source['id']] += added
+        if skip_repeats:
+            chosen_words.append((document, candidate))
         return True
 
     bundle = []
@@ -412,6 +435,9 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
         for source, start, text, _ in bundle:
             spans.append([source, start, start + len(text)])
             used += len(text)
+            if skip_repeats:
+                from .structure import words
+                chosen_words.append((source.get('document_id') or source['id'], words(text)))
 
     if structural_seed is None:
         from .evidence_parts import candidate_rows
@@ -592,9 +618,13 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
     if structure is not None and structure.get('dropped'):
         from .structure import page_aliases
         aliases = page_aliases(structure)
-    review_context = for_context(reviewed_evidence, context, diagnostics=attachment_audit, aliases=aliases)
-    payload = json.dumps({'reviewed_evidence': review_context, 'indicator': indicator, 'population': population,
-                          'reference_period': reference_period, 'scope': context_scope(scope, context), 'sources': context}, sort_keys=True)
+    def payload_for(packet, diagnostics=None):
+        """(payload, reviewed-evidence context) for a packet; reused by the targeted extra search."""
+        reviewed = for_context(reviewed_evidence, packet, diagnostics=diagnostics, aliases=aliases)
+        return json.dumps({'reviewed_evidence': reviewed, 'indicator': indicator, 'population': population,
+                           'reference_period': reference_period, 'scope': context_scope(scope, packet),
+                           'sources': packet}, sort_keys=True), reviewed
+    payload, review_context = payload_for(context, attachment_audit)
     issue = ''
     if review_context and len(json.dumps(review_context)) > 32000:
         issue = 'Reviewed-evidence context exceeds the bounded input allowance. Capability is unknown; no model request was made.'
@@ -602,11 +632,13 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
         issue = 'No readable source context. Capability is unknown.'
     return {'indicator': indicator, 'context': context, 'schema_sources': schema_sources,
             'schema': indicator_schema(indicator, schema_sources), 'attachment_audit': attachment_audit,
-            'review_context': review_context, 'payload': payload, 'issue': issue}
+            'review_context': review_context, 'payload': payload, 'issue': issue, 'payload_for': payload_for,
+            # The exact pages the ranker indexed, so the extra search reuses its index instead of rebuilding it.
+            'retrieval_sources': ranking_sources(structure['sources'] if structure is not None else sources)}
 
 
 def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, strict_errors, recover_provider_errors,
-                 agreement_passes):
+                 agreement_passes, follow_up=None):
     """Part-level judgment (part_judgment.py): request(s) with split, part validation, part-level agreement.
 
     No correction call: a part whose quotation fails validation counts as not found."""
@@ -616,9 +648,11 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
     indicator, context, payload = job['indicator'], job['context'], job['payload']
     data = json.loads(payload)
 
-    def one_pass():
-        return request_with_split(service=service, items=indicator['conditions'], identity=lambda item: item['id'],
-            payload_for=lambda group: {**data, 'indicator': part_judgment.indicator_with_parts(indicator, group)},
+    def one_pass(conditions=None, base=None):
+        base = data if base is None else base
+        return request_with_split(service=service, items=indicator['conditions'] if conditions is None else conditions,
+            identity=lambda item: item['id'],
+            payload_for=lambda group: {**base, 'indicator': part_judgment.indicator_with_parts(indicator, group)},
             schema_for=lambda group: part_judgment.schema(indicator, group), rows_for=part_judgment.rows,
             prompt=part_judgment.prompt(), name='capability_parts', result_key='conditions')
 
@@ -655,6 +689,12 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
             validated, disagreements = part_judgment.combine(validated, rechecked)
             agreement_audit = {'passes': 2, 'disagreements': disagreements, 'second_response_recovery': second_recovery,
                                'second_response_audit': response_audit(indicator, {'conditions': rechecked}, rechecked)}
+    follow_up_audit, sent = None, context
+    agreed = agreement_passes == 1 or (agreement_audit is not None and 'error' not in agreement_audit)
+    if follow_up is not None and attempted and not issue and not processing_errors and agreed:
+        validated, sent, follow_up_audit = _follow_up(
+            job, validated, one_pass, follow_up=follow_up, sources=sources, reviewed_evidence=reviewed_evidence,
+            agreement_passes=agreement_passes, strict_errors=strict_errors, recover_provider_errors=recover_provider_errors)
     unavailable = attempted and (issue.startswith('Model evaluation failed') or bool(
         processing_errors and len(processing_errors) == len(indicator['conditions'])))
     if issue:
@@ -664,16 +704,63 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
     return {'validated': validated, 'response': {'conditions': part_judgment.rows(response)},
             'recovery_audit': recovery_audit, 'processing_errors': processing_errors, 'initial_audit': None,
             'correction_audit': None, 'agreement_audit': agreement_audit, 'issue': issue, 'attempted': attempted,
-            'repaired_call': False, 'unavailable': unavailable}
+            'repaired_call': False, 'unavailable': unavailable, 'context': sent, 'follow_up_audit': follow_up_audit}
+
+
+def _follow_up(job, validated, one_pass, *, follow_up, sources, reviewed_evidence, agreement_passes, strict_errors,
+               recover_provider_errors):
+    """Targeted extra search for parts every pass marked not_found, then a second judgment of only those
+    conditions on the packet plus the new passages (follow_up.py). Returns (records, packet sent, audit).
+    The second judgment can raise a condition's credit, never lower it. A failed request keeps the first result."""
+    from . import part_judgment, follow_up as extra
+    from .request_recovery import recoverable_failure
+    indicator, context = job['indicator'], job['context']
+    spec = part_judgment.specification({'indicators': [indicator]})
+    with follow_up['lock']:  # the shared ranker is not built for concurrent use
+        windows, audit = extra.extra_windows(validated, spec, job['retrieval_sources'], follow_up['ranker'], context)
+    if not audit['conditions']:
+        return validated, context, audit
+    packet = context + windows
+    payload, reviewed = job['payload_for'](packet)
+    if reviewed and len(json.dumps(reviewed)) > 32000:
+        audit['error'] = 'Reviewed-evidence context for the larger packet exceeds the bounded allowance; first results kept.'
+        return validated, context, audit
+    base = json.loads(payload)
+    chosen = [c for c in indicator['conditions'] if c['id'] in audit['conditions']]
+    subset = {**indicator, 'conditions': chosen}
+    audit['input_hash'] = hashlib.sha256(payload.encode()).hexdigest()
+    audit['user_payload_chars'] = len(payload)
+    try:
+        passes = []
+        for _ in range(agreement_passes):
+            response, recovery, errors = one_pass(chosen, base)
+            follow_up['count'](len(recovery.get('requests', [])))
+            if errors:
+                audit['error'] = 'A follow-up request failed or was split incompletely; first results kept.'
+                return validated, context, audit
+            passes.append(part_judgment.judge_rows(subset, part_judgment.rows(response), packet,
+                                                   reviewed_evidence=reviewed_evidence, sources=sources))
+    except Exception as exc:
+        if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
+            raise
+        audit['error'] = f'Follow-up judgment failed ({type(exc).__name__}); first results kept.'
+        return validated, context, audit
+    second = passes[0]
+    if len(passes) == 2:
+        second, audit['disagreements'] = part_judgment.combine(passes[0], passes[1])
+    merged, replaced = extra.keep_higher(validated, second)
+    audit['replaced'] = replaced
+    audit['response_audit'] = response_audit(subset, {'conditions': second}, second)
+    return merged, packet, audit
 
 
 def _judge(job, attempted, issue, *, service, sources, reviewed_evidence, strict_errors, recover_provider_errors,
-           agreement_passes, judgment='conditions'):
+           agreement_passes, judgment='conditions', follow_up=None):
     """Model work for one prepared indicator: request (with split), validation, one correction, agreement pass."""
     if judgment == 'parts':
         return _judge_parts(job, attempted, issue, service=service, sources=sources, reviewed_evidence=reviewed_evidence,
                             strict_errors=strict_errors, recover_provider_errors=recover_provider_errors,
-                            agreement_passes=agreement_passes)
+                            agreement_passes=agreement_passes, follow_up=follow_up)
     from .request_recovery import request_with_split, recoverable_failure
     from .evidence_parts import APPROVAL_MISSING
     from .decision_causes import NOT_EVALUATED
@@ -746,7 +833,9 @@ def _judge(job, attempted, issue, *, service, sources, reviewed_evidence, strict
 
 
 def _trace(job, outcome, *, gemini, retrieval_policy, sources):
-    indicator, context, payload, review_context = job['indicator'], job['context'], job['payload'], job['review_context']
+    indicator, payload, review_context = job['indicator'], job['payload'], job['review_context']
+    # Everything sent to the model, including passages added by the targeted extra search.
+    context = outcome.get('context') or job['context']
     recovery_audit, correction_audit = outcome['recovery_audit'], outcome['correction_audit']
     return {'indicator': indicator['code'], 'model_call_attempted': outcome['attempted'], 'prompt_version': PROMPT_VERSION,
             'retrieval_version': RETRIEVAL_VERSION, 'retrieval_policy': retrieval_policy or {'mode': 'bm25'},
@@ -770,6 +859,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources):
             'user_payload_chars': len(payload),
             'user_payload_utf8_bytes': len(payload.encode('utf-8')),
             'context_chars': sum(len(s['text']) for s in context),
+            **({'follow_up': outcome['follow_up_audit']} if outcome.get('follow_up_audit') is not None else {}),
             'context_is_subset': len(context) != len(sources)
             or any(len(c['text']) < len(s['text']) for c in context for s in sources if c['id'] == s['id']),
             'error': outcome['issue']}
@@ -804,19 +894,34 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                  recover_provider_errors=recover_provider_errors, agreement_passes=agreement_passes, judgment=judgment)
     structure = None
     frozen_policy = retrieval_policy or {}
-    if frozen_policy.get('structure') is not None or frozen_policy.get('deduplicate') is not None:
+    state = {'calls': 0, 'repairs': 0, 'streak': 0, 'follow_up_calls': 0}
+    lock = threading.Lock()
+    if frozen_policy.get('follow_up') is not None:
+        from . import follow_up as extra
+        if frozen_policy['follow_up'] != extra.VERSION:
+            raise ValueError('Frozen follow-up search version does not match this worker.')
+        if judgment != 'parts' or semantic_ranker is None:
+            raise ValueError('The targeted extra search needs part judgment and hybrid retrieval.')
+        def count(requests):
+            with lock:
+                state['follow_up_calls'] += requests
+        judge['follow_up'] = {'ranker': semantic_ranker, 'lock': threading.Lock(), 'count': count}
+    # Packet building (main thread) and the extra search (worker threads) share one ranker: never at once.
+    ranker_guard = judge['follow_up']['lock'] if 'follow_up' in judge else contextlib.nullcontext()
+    if any(frozen_policy.get(key) is not None for key in ('structure', 'deduplicate', 'repeat_skip')):
         from . import structure as document_structure
         if frozen_policy.get('structure') not in (None, document_structure.VERSION):
             raise ValueError('Frozen structure routing version does not match this worker.')
         if frozen_policy.get('deduplicate') not in (None, document_structure.DEDUPLICATE_VERSION):
             raise ValueError('Frozen page deduplication version does not match this worker.')
+        if frozen_policy.get('repeat_skip') not in (None, document_structure.REPEAT_SKIP_VERSION):
+            raise ValueError('Frozen repeat-skip version does not match this worker.')
         structure = document_structure.build(sources, deduplicate_pages=frozen_policy.get('deduplicate') is not None,
-                                             routing=frozen_policy.get('structure') is not None)
+                                             routing=frozen_policy.get('structure') is not None,
+                                             repeat_skip=frozen_policy.get('repeat_skip') is not None)
     prepare = dict(sources=sources, semantic_ranker=semantic_ranker, gemini=gemini, reviewed_evidence=reviewed_evidence,
                    population=population, reference_period=reference_period, scope=scope, structure=structure)
     records, traces = [], []
-    state = {'calls': 0, 'repairs': 0, 'streak': 0}
-    lock = threading.Lock()
 
     def admit(job):
         """Same gate order as the original sequential loop: packet issues, circuit breaker, call budget."""
@@ -851,7 +956,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
 
     if concurrency == 1:
         for indicator in rubric['indicators']:
-            job = _prepare(indicator, **prepare)
+            with ranker_guard:
+                job = _prepare(indicator, **prepare)
             emit(job, run(job))
     else:
         from concurrent.futures import ThreadPoolExecutor
@@ -866,7 +972,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
         try:
             futures = []
             for indicator in rubric['indicators']:
-                job = _prepare(indicator, **prepare)  # local encoder: sequential, in rubric order
+                with ranker_guard:
+                    job = _prepare(indicator, **prepare)  # local encoder: sequential, in rubric order
                 # Each worker runs in a copy of this context: usage attribution and the router lease are ContextVars.
                 futures.append((job, executor.submit(contextvars.copy_context().run, run_in_thread, job)))
             for job, future in futures:
@@ -878,5 +985,6 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     calls, repair_calls = state['calls'], state['repairs']
     return {'records': records, 'decisions': {r['condition_id']: r['state'] for r in records},
             'traces': traces, 'indicator_calls': calls, 'correction_calls': repair_calls,
+            **({'follow_up_requests': state['follow_up_calls']} if 'follow_up' in judge else {}),
             'note': 'Citation validation checks grounding; semantic interpretation still requires quality evaluation. '
                     'correction_calls counts additional bounded decision-correction batches. Provider retries also spend the metered SDK budget; indicator_calls is not a billing-call count.'}
