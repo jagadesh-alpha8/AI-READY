@@ -4,7 +4,9 @@ No API calls happen at import time. The caller supplies a configured service, an
 institutional population, reference period and immutable source-page excerpts.
 Quote validation is a grounding check, not proof of semantic correctness or authenticity.
 """
+import contextvars
 import hashlib
+import threading
 import json
 import re
 import math
@@ -539,10 +541,141 @@ def _agreement_pass(indicator, validated, *, service, payload, schema_sources, c
                        'second_response_audit': response_audit(indicator, second, rechecked)}
 
 
-def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1):
+def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope):
+    """Build one indicator's frozen packet and request payload (local work, no model call)."""
+    from .scope import context_scope
+    from .reviewed_evidence import for_context
+    context = select_context(indicator, sources, semantic_ranker=semantic_ranker)
+    # Repeating the packet ID enum in each condition can exceed Gemini's
+    # schema complexity limit. validate_decisions still checks exact citations.
+    schema_sources = None if gemini else context
+    attachment_audit = {}
+    review_context = for_context(reviewed_evidence, context, diagnostics=attachment_audit)
+    payload = json.dumps({'reviewed_evidence': review_context, 'indicator': indicator, 'population': population,
+                          'reference_period': reference_period, 'scope': context_scope(scope, context), 'sources': context}, sort_keys=True)
+    issue = ''
+    if review_context and len(json.dumps(review_context)) > 32000:
+        issue = 'Reviewed-evidence context exceeds the bounded input allowance. Capability is unknown; no model request was made.'
+    elif not context:
+        issue = 'No readable source context. Capability is unknown.'
+    return {'indicator': indicator, 'context': context, 'schema_sources': schema_sources,
+            'schema': indicator_schema(indicator, schema_sources), 'attachment_audit': attachment_audit,
+            'review_context': review_context, 'payload': payload, 'issue': issue}
+
+
+def _judge(job, attempted, issue, *, service, sources, reviewed_evidence, strict_errors, recover_provider_errors,
+           agreement_passes):
+    """Model work for one prepared indicator: request (with split), validation, one correction, agreement pass."""
+    from .request_recovery import request_with_split, recoverable_failure
+    from .evidence_parts import APPROVAL_MISSING
+    from .decision_causes import NOT_EVALUATED
+    indicator, context, payload, schema_sources = job['indicator'], job['context'], job['payload'], job['schema_sources']
+    response, recovery_audit, processing_errors, repaired_call = {}, {}, {}, False
+    if attempted:
+        try:
+            data = json.loads(payload)
+            def payload_for(group):
+                return {**data, 'indicator': {**indicator, 'conditions': group}}
+            response, recovery_audit, processing_errors = request_with_split(service=service,
+                items=indicator['conditions'], identity=lambda item: item['id'], payload_for=payload_for,
+                schema_for=lambda group: indicator_schema({**indicator, 'conditions': group}, schema_sources),
+                rows_for=decision_rows, prompt=SYSTEM_PROMPT, name='capability_conditions', result_key='conditions')
+        except Exception as exc:
+            if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
+                raise
+            # Do not retain provider error messages, which can contain credentials or confidential text.
+            issue = f'Model evaluation failed ({type(exc).__name__}). Capability is unknown.'
+    validated = validate_decisions(indicator, response, context, reviewed_evidence=reviewed_evidence, edition_sources=sources)
+    initial_audit = correction_audit = None
+    # Repair response/grounding failures once, never ordinary evidentiary unknowns.
+    # MeteredService reserves every SDK request, including this bounded extra call.
+    failed = {r['condition_id'] for r in validated
+              if r['validation_issue'] and r['validation_issue'] != APPROVAL_MISSING}
+    if attempted and not issue and failed and not recovery_audit.get('split_attempted') and not processing_errors:
+        initial_audit = response_audit(indicator, response, validated)
+        subset = {**indicator, 'conditions': [c for c in indicator['conditions'] if c['id'] in failed]}
+        correction_payload = json.loads(payload)
+        correction_payload['indicator'] = subset
+        correction_payload['correction'] = {
+            'instruction': 'Return every requested decision, including unknown, in the required conditions object. Re-evaluate only these requirements from the supplied exact passages; never invent a quotation or infer missing evidence.',
+            'issues': [{'condition_id': r['condition_id'], 'issue': r['validation_issue']} for r in validated if r['condition_id'] in failed]}
+        repaired_call = True
+        try:
+            correction = service.extract_structured_data(system_prompt=SYSTEM_PROMPT,
+                user_content=json.dumps(correction_payload, sort_keys=True),
+                response_schema=indicator_schema(subset, schema_sources), schema_name='capability_conditions_correction')
+            repaired = validate_decisions(subset, correction, context, reviewed_evidence=reviewed_evidence, edition_sources=sources)
+            correction_audit = response_audit(subset, correction, repaired)
+            by_id = {r['condition_id']: r for r in validated}
+            by_id.update({r['condition_id']: r for r in repaired})
+            validated = [by_id[r['condition_id']] for r in validated]
+            # Explicitly assembled validated records; originals remain in both audits.
+            response = {'conditions': validated}
+        except Exception as exc:
+            if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
+                raise
+            correction_audit = {'error': f'Correction failed ({type(exc).__name__}).'}
+    for record in validated:
+        if record['condition_id'] in processing_errors:
+            reason = 'Model evaluation failed (' + processing_errors[record['condition_id']] + '). Capability is unknown.'
+            record.update(state='unknown', reason=reason, validation_issue=reason, citations=[], scope_supported=False, period_supported=False,
+                          cause=NOT_EVALUATED, cause_detail=processing_errors[record['condition_id']])
+    agreement_audit = None
+    if agreement_passes > 1 and attempted and not issue and not processing_errors:
+        validated, agreement_audit = _agreement_pass(
+            indicator, validated, service=service, payload=payload, schema_sources=schema_sources,
+            context=context, sources=sources, reviewed_evidence=reviewed_evidence,
+            strict_errors=strict_errors, recover_provider_errors=recover_provider_errors)
+    unavailable = attempted and (issue.startswith('Model evaluation failed') or bool(
+        processing_errors and len(processing_errors) == len(indicator['conditions'])))
+    if issue:
+        for record in validated:
+            record.update(reason=issue, validation_issue=issue, cause=NOT_EVALUATED)
+    return {'validated': validated, 'response': response, 'recovery_audit': recovery_audit,
+            'processing_errors': processing_errors, 'initial_audit': initial_audit, 'correction_audit': correction_audit,
+            'agreement_audit': agreement_audit, 'issue': issue, 'attempted': attempted, 'repaired_call': repaired_call,
+            'unavailable': unavailable}
+
+
+def _trace(job, outcome, *, gemini, retrieval_policy, sources):
+    indicator, context, payload, review_context = job['indicator'], job['context'], job['payload'], job['review_context']
+    recovery_audit, correction_audit = outcome['recovery_audit'], outcome['correction_audit']
+    return {'indicator': indicator['code'], 'model_call_attempted': outcome['attempted'], 'prompt_version': PROMPT_VERSION,
+            'retrieval_version': RETRIEVAL_VERSION, 'retrieval_policy': retrieval_policy or {'mode': 'bm25'},
+            'prompt_hash': hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
+            'schema_hash': hashlib.sha256(json.dumps(job['schema'], sort_keys=True).encode()).hexdigest(),
+            'schema_template_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest(),
+            'schema_binding_version': ('required-condition-properties-gemini-0.3' if gemini
+                                       else 'required-condition-properties-0.2'),
+            'response_recovery': recovery_audit, 'processing_errors': outcome['processing_errors'],
+            'initial_response_audit': outcome['initial_audit'], 'correction_response_audit': correction_audit,
+            'response_assembly': 'split_responses' if recovery_audit.get('split_attempted') else 'validated_initial_plus_correction' if correction_audit and 'error' not in correction_audit else 'initial_response',
+            'response_audit': response_audit(indicator, outcome['response'], outcome['validated']),
+            'agreement_audit': outcome['agreement_audit'],
+            'input_hash': hashlib.sha256(payload.encode()).hexdigest(),
+            'source_ids': [s['id'] for s in context],
+            'source_excerpts': context,
+            'reviewed_evidence_packet': review_context,
+            'reviewed_attachment_audit': job['attachment_audit'],
+            'reviewed_context_chars': len(json.dumps(review_context)),
+            'reviewed_context_claims': len((review_context or {}).get('claims', [])),
+            'user_payload_chars': len(payload),
+            'user_payload_utf8_bytes': len(payload.encode('utf-8')),
+            'context_chars': sum(len(s['text']) for s in context),
+            'context_is_subset': len(context) != len(sources)
+            or any(len(c['text']) < len(s['text']) for c in context for s in sources if c['id'] == s['id']),
+            'error': outcome['issue']}
+
+
+def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1):
+    """Assess every indicator. Packets are built in rubric order; with concurrency > 1 the model work for up to
+    that many indicators runs at once. Records, traces and on_indicator calls stay in rubric order, so results
+    do not depend on concurrency; only request numbering in the billing ledger interleaves."""
     rubric = rubric or release()
     if agreement_passes not in (1, 2):
         raise ValueError('agreement_passes must be 1 or 2.')
+    if type(concurrency) is not int or not 1 <= concurrency <= 8:
+        raise ValueError('concurrency must be an integer from 1 to 8.')
     if not population.strip() or not reference_period.strip():
         raise ValueError('Institutional population and reporting period are required.')
     if type(max_calls) is not int or not 0 <= max_calls <= 36:
@@ -554,126 +687,68 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     gemini = getattr(service, 'provider', None) == 'gemini' or (
         isinstance(base_url, str) and direct_gemini(base_url)
     )
-    from .request_recovery import request_with_split, recoverable_failure
-    records, traces, calls, repair_calls = [], [], 0, 0
-    provider_failure_streak = 0
-    for indicator in rubric['indicators']:
-        context = select_context(indicator, sources, semantic_ranker=semantic_ranker)
-        response, issue = {}, ''
-        recovery_audit, processing_errors = {}, {}
-        attempted = False
-        # Repeating the packet ID enum in each condition can exceed Gemini's
-        # schema complexity limit. validate_decisions still checks exact citations.
-        schema_sources = None if gemini else context
-        schema = indicator_schema(indicator, schema_sources)
-        from .scope import context_scope
-        from .reviewed_evidence import for_context
-        attachment_audit = {}
-        review_context = for_context(reviewed_evidence, context, diagnostics=attachment_audit)
-        payload = json.dumps({'reviewed_evidence': review_context, 'indicator': indicator, 'population': population,
-                              'reference_period': reference_period, 'scope': context_scope(scope, context), 'sources': context}, sort_keys=True)
-        if review_context and len(json.dumps(review_context)) > 32000:
-            issue = 'Reviewed-evidence context exceeds the bounded input allowance. Capability is unknown; no model request was made.'
-        elif not context:
-            issue = 'No readable source context. Capability is unknown.'
-        elif recover_provider_errors and provider_failure_streak >= 2:
-            issue = 'Model evaluation failed (response circuit open). Capability is unknown; no further requests were made.'
-        elif calls >= max_calls:
-            issue = 'Evaluation call budget reached. Capability is unknown.'
-        else:
-            calls += 1
-            attempted = True
-            try:
-                data = json.loads(payload)
-                def payload_for(group):
-                    return {**data, 'indicator': {**indicator, 'conditions': group}}
-                response, recovery_audit, processing_errors = request_with_split(service=service,
-                    items=indicator['conditions'], identity=lambda item: item['id'], payload_for=payload_for,
-                    schema_for=lambda group: indicator_schema({**indicator, 'conditions': group}, schema_sources),
-                    rows_for=decision_rows, prompt=SYSTEM_PROMPT, name='capability_conditions', result_key='conditions')
-            except Exception as exc:
-                if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
-                    raise
-                # Do not retain provider error messages, which can contain credentials or confidential text.
-                issue = f'Model evaluation failed ({type(exc).__name__}). Capability is unknown.'
-        validated = validate_decisions(indicator, response, context, reviewed_evidence=reviewed_evidence, edition_sources=sources)
-        initial_audit = correction_audit = None
-        # Repair response/grounding failures once, never ordinary evidentiary unknowns.
-        # MeteredService reserves every SDK request, including this bounded extra call.
-        from .evidence_parts import APPROVAL_MISSING
-        failed = {r['condition_id'] for r in validated
-                  if r['validation_issue'] and r['validation_issue'] != APPROVAL_MISSING}
-        if attempted and not issue and failed and not recovery_audit.get('split_attempted') and not processing_errors:
-            initial_audit = response_audit(indicator, response, validated)
-            subset = {**indicator, 'conditions': [c for c in indicator['conditions'] if c['id'] in failed]}
-            correction_payload = json.loads(payload)
-            correction_payload['indicator'] = subset
-            correction_payload['correction'] = {
-                'instruction': 'Return every requested decision, including unknown, in the required conditions object. Re-evaluate only these requirements from the supplied exact passages; never invent a quotation or infer missing evidence.',
-                'issues': [{'condition_id': r['condition_id'], 'issue': r['validation_issue']} for r in validated if r['condition_id'] in failed]}
-            repair_calls += 1
-            try:
-                correction = service.extract_structured_data(system_prompt=SYSTEM_PROMPT,
-                    user_content=json.dumps(correction_payload, sort_keys=True),
-                    response_schema=indicator_schema(subset, schema_sources), schema_name='capability_conditions_correction')
-                repaired = validate_decisions(subset, correction, context, reviewed_evidence=reviewed_evidence, edition_sources=sources)
-                correction_audit = response_audit(subset, correction, repaired)
-                by_id = {r['condition_id']: r for r in validated}
-                by_id.update({r['condition_id']: r for r in repaired})
-                validated = [by_id[r['condition_id']] for r in validated]
-                # Explicitly assembled validated records; originals remain in both audits.
-                response = {'conditions': validated}
-            except Exception as exc:
-                if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
-                    raise
-                correction_audit = {'error': f'Correction failed ({type(exc).__name__}).'}
-        from .decision_causes import NOT_EVALUATED
-        for record in validated:
-            if record['condition_id'] in processing_errors:
-                reason = 'Model evaluation failed (' + processing_errors[record['condition_id']] + '). Capability is unknown.'
-                record.update(state='unknown', reason=reason, validation_issue=reason, citations=[], scope_supported=False, period_supported=False,
-                              cause=NOT_EVALUATED, cause_detail=processing_errors[record['condition_id']])
-        agreement_audit = None
-        if agreement_passes > 1 and attempted and not issue and not processing_errors:
-            validated, agreement_audit = _agreement_pass(
-                indicator, validated, service=service, payload=payload, schema_sources=schema_sources,
-                context=context, sources=sources, reviewed_evidence=reviewed_evidence,
-                strict_errors=strict_errors, recover_provider_errors=recover_provider_errors)
-        if attempted:
-            unavailable = issue.startswith('Model evaluation failed') or (processing_errors and
-                len(processing_errors) == len(indicator['conditions']))
-            provider_failure_streak = provider_failure_streak + 1 if unavailable else 0
-        if issue:
-            for record in validated:
-                record.update(reason=issue, validation_issue=issue, cause=NOT_EVALUATED)
-        records.extend(validated)
-        traces.append({'indicator': indicator['code'], 'model_call_attempted': attempted, 'prompt_version': PROMPT_VERSION,
-                       'retrieval_version': RETRIEVAL_VERSION, 'retrieval_policy': retrieval_policy or {'mode': 'bm25'},
-                       'prompt_hash': hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
-                       'schema_hash': hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest(),
-                       'schema_template_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest(),
-                       'schema_binding_version': ('required-condition-properties-gemini-0.3' if gemini
-                                                  else 'required-condition-properties-0.2'),
-                       'response_recovery': recovery_audit, 'processing_errors': processing_errors,
-                       'initial_response_audit': initial_audit, 'correction_response_audit': correction_audit,
-                       'response_assembly': 'split_responses' if recovery_audit.get('split_attempted') else 'validated_initial_plus_correction' if correction_audit and 'error' not in correction_audit else 'initial_response',
-                       'response_audit': response_audit(indicator, response, validated),
-                       'agreement_audit': agreement_audit,
-                       'input_hash': hashlib.sha256(payload.encode()).hexdigest(),
-                       'source_ids': [s['id'] for s in context],
-                       'source_excerpts': context,
-                       'reviewed_evidence_packet': review_context,
-                       'reviewed_attachment_audit': attachment_audit,
-                       'reviewed_context_chars': len(json.dumps(review_context)),
-                       'reviewed_context_claims': len((review_context or {}).get('claims', [])),
-                       'user_payload_chars': len(payload),
-                       'user_payload_utf8_bytes': len(payload.encode('utf-8')),
-                       'context_chars': sum(len(s['text']) for s in context),
-                       'context_is_subset': len(context) != len(sources)
-                       or any(len(c['text']) < len(s['text']) for c in context for s in sources if c['id'] == s['id']),
-                       'error': issue})
+    judge = dict(service=service, sources=sources, reviewed_evidence=reviewed_evidence, strict_errors=strict_errors,
+                 recover_provider_errors=recover_provider_errors, agreement_passes=agreement_passes)
+    prepare = dict(sources=sources, semantic_ranker=semantic_ranker, gemini=gemini, reviewed_evidence=reviewed_evidence,
+                   population=population, reference_period=reference_period, scope=scope)
+    records, traces = [], []
+    state = {'calls': 0, 'repairs': 0, 'streak': 0}
+    lock = threading.Lock()
+
+    def admit(job):
+        """Same gate order as the original sequential loop: packet issues, circuit breaker, call budget."""
+        with lock:
+            if job['issue']:
+                return False, job['issue']
+            if recover_provider_errors and state['streak'] >= 2:
+                return False, 'Model evaluation failed (response circuit open). Capability is unknown; no further requests were made.'
+            if state['calls'] >= max_calls:
+                return False, 'Evaluation call budget reached. Capability is unknown.'
+            state['calls'] += 1
+            return True, ''
+
+    def run(job):
+        attempted, issue = admit(job)
+        outcome = _judge(job, attempted, issue, **judge)
+        with lock:
+            state['repairs'] += outcome['repaired_call']
+            if attempted:
+                state['streak'] = state['streak'] + 1 if outcome['unavailable'] else 0
+        return outcome
+
+    def emit(job, outcome):
+        records.extend(outcome['validated'])
+        traces.append(_trace(job, outcome, gemini=gemini, retrieval_policy=retrieval_policy, sources=sources))
         if on_indicator is not None:
-            on_indicator(validated, traces[-1])
+            on_indicator(outcome['validated'], traces[-1])
+
+    if concurrency == 1:
+        for indicator in rubric['indicators']:
+            job = _prepare(indicator, **prepare)
+            emit(job, run(job))
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        from django.db import connections
+
+        def run_in_thread(job):
+            try:
+                return run(job)
+            finally:
+                connections.close_all()  # each worker thread has its own database connection
+        executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix='capability-indicator')
+        try:
+            futures = []
+            for indicator in rubric['indicators']:
+                job = _prepare(indicator, **prepare)  # local encoder: sequential, in rubric order
+                # Each worker runs in a copy of this context: usage attribution and the router lease are ContextVars.
+                futures.append((job, executor.submit(contextvars.copy_context().run, run_in_thread, job)))
+            for job, future in futures:
+                emit(job, future.result())
+        except BaseException:
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise
+        executor.shutdown(wait=True)
+    calls, repair_calls = state['calls'], state['repairs']
     return {'records': records, 'decisions': {r['condition_id']: r['state'] for r in records},
             'traces': traces, 'indicator_calls': calls, 'correction_calls': repair_calls,
             'note': 'Citation validation checks grounding; semantic interpretation still requires quality evaluation. '

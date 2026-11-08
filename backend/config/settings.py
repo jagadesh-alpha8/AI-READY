@@ -777,8 +777,8 @@ CAPABILITY_OUTPUT_TOKENS = int(os.getenv('CAPABILITY_OUTPUT_TOKENS', '12000'))
 # Accuracy: 2 assesses every indicator packet twice and leaves any requirement the two passes disagree on unknown,
 # routed to review (never credited). Doubles assessment requests: raise CAPABILITY_MAX_HTTP_CALLS (about 90) and
 # CAPABILITY_MAX_COST_USD accordingly. Assessment cost does not grow with corpus size (packets are bounded).
-# With CAPABILITY_GEMINI_REASONING_EFFORT=high, Gemini 3 requests take 60-160 s and can use ~23k thinking tokens:
-# raise CAPABILITY_MAX_DURATION_SECONDS (about 14400 for two passes) and CAPABILITY_ASSESSMENT_OUTPUT_TOKENS (48000).
+# With CAPABILITY_GEMINI_REASONING_EFFORT=high, Gemini 3 requests take 60-160 s and can use ~23k thinking tokens; unless
+# set explicitly, the policy then uses a 300 s request timeout and 48000 output tokens for the assessment stage.
 CAPABILITY_AGREEMENT_PASSES = int(os.getenv('CAPABILITY_AGREEMENT_PASSES', '1'))
 # Gemini thinking level for the assessor only; empty = AI_GEMINI_REASONING_EFFORT (which extraction keeps using).
 CAPABILITY_GEMINI_REASONING_EFFORT = os.getenv('CAPABILITY_GEMINI_REASONING_EFFORT', '').strip() or None
@@ -789,7 +789,14 @@ CAPABILITY_RECOMMENDATION_OUTPUT_TOKENS = int(os.environ['CAPABILITY_RECOMMENDAT
 CAPABILITY_ASSESSMENT_TIMEOUT_SECONDS = int(os.environ['CAPABILITY_ASSESSMENT_TIMEOUT_SECONDS']) if os.getenv('CAPABILITY_ASSESSMENT_TIMEOUT_SECONDS') else None
 CAPABILITY_RECOMMENDATION_TIMEOUT_SECONDS = int(os.environ['CAPABILITY_RECOMMENDATION_TIMEOUT_SECONDS']) if os.getenv('CAPABILITY_RECOMMENDATION_TIMEOUT_SECONDS') else None
 CAPABILITY_MAX_INPUT_TOKEN_BOUND = int(os.getenv('CAPABILITY_MAX_INPUT_TOKEN_BOUND', '131072'))
-CAPABILITY_MAX_DURATION_SECONDS = int(os.getenv('CAPABILITY_MAX_DURATION_SECONDS', '1800'))
+# Safety stop for one assessment run. Unset = sized from the call budget, indicator concurrency and request timeout
+# (see capability.execution.policy), so a slow high-effort run is never cut off while each request is within its own
+# timeout. Set a number to override.
+CAPABILITY_MAX_DURATION_SECONDS = int(os.environ['CAPABILITY_MAX_DURATION_SECONDS']) if os.getenv('CAPABILITY_MAX_DURATION_SECONDS') else None
+# Indicators judged at once (1-8). Packets are still built in order and results assembled in rubric order, so the
+# decisions do not depend on this; it only shortens wall-clock time (high effort: ~2 h sequential -> ~30-40 min at 4).
+# Default 1 keeps the strictly sequential request order; set 4 for pilot runs.
+CAPABILITY_INDICATOR_CONCURRENCY = int(os.getenv('CAPABILITY_INDICATOR_CONCURRENCY', '1'))
 CAPABILITY_STALE_SECONDS = int(os.getenv('CAPABILITY_STALE_SECONDS', '900'))
 
 if EXTRACTION_QUEUE:

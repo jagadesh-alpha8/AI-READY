@@ -102,8 +102,13 @@ class MeteredService:
         amount = (input_bound * max_in + self.policy['output_tokens'] * self.rates['output']) / Decimal(1000000)
         return input_bound, amount.quantize(Decimal('.000001'), rounding=ROUND_UP)
 
-    @transaction.atomic
     def reserve(self, kwargs):
+        from apps.extraction.usage import DB_WRITE_LOCK
+        with DB_WRITE_LOCK:  # outside the transaction: one writer at a time when indicators run concurrently
+            return self._reserve(kwargs)
+
+    @transaction.atomic
+    def _reserve(self, kwargs):
         execution = self.execution_model.objects.select_for_update().get(**{self.execution_key: self.run_id})
         if self.limit_breach:
             raise BudgetExceeded()
@@ -183,8 +188,13 @@ class MeteredService:
             raise UsageUnavailable()
         return response
 
-    @transaction.atomic
     def record(self, reservation_id, data):
+        from apps.extraction.usage import DB_WRITE_LOCK
+        with DB_WRITE_LOCK:
+            return self._record(reservation_id, data)
+
+    @transaction.atomic
+    def _record(self, reservation_id, data):
         # A response received after cancellation still belongs in billing history, but
         # it cannot change the terminal assessment state or publish results.
         execution = self.execution_model.objects.select_for_update().get(**{self.execution_key: self.run_id})
