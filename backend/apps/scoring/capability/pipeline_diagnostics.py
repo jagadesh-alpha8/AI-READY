@@ -55,6 +55,38 @@ def ingestion_health(sources, rendered=None, manifest=None):
     return result
 
 
+def page_coverage(manifest, sources):
+    """Account for every expected page or image: frozen as evidence, or why not.
+
+    Per document: `missing_rows` (no stored page read at all: a lost write or a format that never stored
+    pages; never acceptable), `not_ok` (stored but unreadable or failed, an honest read outcome) and
+    `blank_after_cleanup` (stored and read, but header/footer cleanup left no text, so nothing to cite).
+    `complete` is False whenever any expected page has no stored row, even if every job reported complete.
+    """
+    frozen = {s['id'] for s in sources}
+    documents, totals = [], Counter()
+    for doc in manifest:
+        pages = doc.get('pages') or []
+        expected = doc.get('expected_pages') or 0
+        numbers = {p['number'] for p in pages}
+        row = {
+            'document_id': doc['document_id'], 'filename': doc.get('filename') or '',
+            'expected': expected, 'rows': len(pages),
+            'frozen': sum(p['page_id'] in frozen for p in pages),
+            'missing_rows': sorted(set(range(1, expected + 1)) - numbers),
+            'not_ok': sorted(p['number'] for p in pages if p['status'] != 'ok'),
+            'blank_after_cleanup': sorted(p['number'] for p in pages
+                                          if p['status'] == 'ok' and p['page_id'] not in frozen),
+        }
+        documents.append(row)
+        totals.update(expected=expected, rows=row['rows'], frozen=row['frozen'],
+                      missing_rows=len(row['missing_rows']), not_ok=len(row['not_ok']),
+                      blank_after_cleanup=len(row['blank_after_cleanup']))
+    return {'documents': documents, 'totals': {k: totals[k] for k in (
+                'expected', 'rows', 'frozen', 'missing_rows', 'not_ok', 'blank_after_cleanup')},
+            'complete': not totals['missing_rows']}
+
+
 def quote_location(quote, pages, frozen, rendered=None):
     """Where a claim quotation occurs: the frozen page text, only once tables are rendered, or neither."""
     quote = _normal(quote or '')

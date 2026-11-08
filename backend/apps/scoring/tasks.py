@@ -15,6 +15,12 @@ from .capability.storage import publish, digest
 from .models import CapabilityExecution
 
 
+def locked_progress(run_id, rows, trace):
+    from apps.extraction.usage import DB_WRITE_LOCK
+    with DB_WRITE_LOCK:  # workers may be writing their request ledger at the same moment
+        return progress(run_id, rows, trace)
+
+
 @shared_task(acks_late=True, max_retries=0, reject_on_worker_lost=False)
 def run_capability_assessment(run_id, task_id):
     try:
@@ -44,7 +50,10 @@ def run_capability_assessment(run_id, task_id):
                     population=execution.run.inputs['population'], reference_period=execution.run.inputs['reference_period'],
                     rubric=execution.run.inputs['rubric'], strict_errors=True, recover_provider_errors=True, scope=inputs.get('scope'),
                     reviewed_evidence=inputs.get('reviewed_evidence'), retrieval_policy=inputs.get('retrieval_policy'),
-                    on_indicator=lambda rows, trace: progress(run_id, rows, trace))
+                    agreement_passes=policy.get('agreement_passes', 1),
+                    concurrency=policy.get('indicator_concurrency', 1),
+                    judgment=policy.get('judgment', 'conditions'),
+                    on_indicator=lambda rows, trace: locked_progress(run_id, rows, trace))
             # Same lock order as cancellation; completion and ledger become visible atomically.
             with transaction.atomic():
                 locked = CapabilityExecution.objects.select_for_update().get(run_id=run_id)

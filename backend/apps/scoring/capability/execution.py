@@ -37,6 +37,11 @@ class ExecutionDeadlineExceeded(BudgetExceeded):
     pass
 
 
+def _parts_metadata():
+    from .part_judgment import metadata
+    return {k: v for k, v in metadata().items() if k != 'judgment'}
+
+
 def policy(stage='assessment'):
     from .evaluation import PROMPT_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA
     calls = settings.CAPABILITY_MAX_HTTP_CALLS
@@ -47,17 +52,40 @@ def policy(stage='assessment'):
     timeout = getattr(settings, prefix + '_TIMEOUT_SECONDS')
     timeout = settings.CAPABILITY_REQUEST_TIMEOUT_SECONDS if timeout is None else timeout
     input_limit = settings.CAPABILITY_MAX_INPUT_TOKEN_BOUND
-    duration = settings.CAPABILITY_MAX_DURATION_SECONDS
-    effort = settings.AI_GEMINI_REASONING_EFFORT
-    if (type(calls) is not int or not 1 <= calls <= 108 or not cost.is_finite() or not 0 < cost <= 100
+    effort = getattr(settings, 'CAPABILITY_GEMINI_REASONING_EFFORT', None) or settings.AI_GEMINI_REASONING_EFFORT
+    passes = getattr(settings, 'CAPABILITY_AGREEMENT_PASSES', 1)
+    judgment = getattr(settings, 'CAPABILITY_JUDGMENT', 'conditions')
+    concurrency = getattr(settings, 'CAPABILITY_INDICATOR_CONCURRENCY', 1)
+    # The targeted extra search adds up to one request per indicator per pass (36 or 72).
+    # The call setting is shared by both stages, so its ceiling rises for both; the floor applies to assessment.
+    follow_up = bool(getattr(settings, 'CAPABILITY_FOLLOW_UP_SEARCH', False))
+    call_limit = 216 if follow_up else 108
+    call_floor = 74 if passes == 2 else 1
+    if follow_up and stage == 'assessment':
+        call_floor = 146 if passes == 2 else 74
+    if stage == 'assessment' and effort == 'high':
+        # Measured on Gemini 3 at high effort: 60-160 s per request and up to ~23k reasoning tokens.
+        if getattr(settings, prefix + '_TIMEOUT_SECONDS') is None and type(timeout) is int:
+            timeout = max(timeout, 300)
+        if getattr(settings, prefix + '_OUTPUT_TOKENS') is None and type(output) is int:
+            output = max(output, 48000)
+    duration = getattr(settings, 'CAPABILITY_MAX_DURATION_SECONDS', None)
+    if duration is None and type(calls) is int and type(timeout) is int and type(concurrency) is int and concurrency >= 1:
+        # A safety stop, not a pace target: every request could use its full timeout, plus packet building.
+        duration = min(21600, max(1800, -(-calls // concurrency) * timeout + 600))
+    if (type(calls) is not int or not call_floor <= calls <= call_limit or not cost.is_finite() or not 0 < cost <= 100
             or type(output) is not int or not 256 <= output <= 65536
             or type(timeout) is not int or not 1 <= timeout <= 600
             or type(input_limit) is not int or not 4096 <= input_limit <= 1000000
             or type(duration) is not int or not 1 <= duration <= 21600
-            or effort not in {'default', 'minimal', 'low', 'medium', 'high'}):
+            or effort not in {'default', 'minimal', 'low', 'medium', 'high'}
+            or passes not in (1, 2)
+            or type(concurrency) is not int or not 1 <= concurrency <= 8
+            or judgment not in ('conditions', 'parts')):
         raise AssessmentDisabled('Assessment budget configuration is invalid.')
     return {'request_policy_version': 'bounded-stage-1', 'stage': stage, 'input_token_bound_limit': input_limit, 'max_duration_seconds': duration,
-            'gemini_reasoning_effort': effort, 'response_recovery_requests': 2,
+            'gemini_reasoning_effort': effort, 'response_recovery_requests': 2, 'agreement_passes': passes, 'indicator_concurrency': concurrency,
+            **({'judgment': 'parts', **_parts_metadata()} if judgment == 'parts' else {}),
             'prompt_version': PROMPT_VERSION, 'prompt_hash': digest(SYSTEM_PROMPT),
             'schema_hash': digest(DECISION_SCHEMA), 'max_http_calls': calls, 'max_cost_usd': str(cost), 'output_tokens': output,
             'timeout_seconds': timeout, 'sdk_retries': 0, 'transient_retries_per_indicator': 1,

@@ -139,6 +139,29 @@ def _tier_pass(tier, overall, pillars, levels):
             and all(levels[code] >= level for code, level in tier['gates'].items()))
 
 
+def documented(credits, rubric=None):
+    """Documented readiness: the same arithmetic as the lower bound, with each condition's credit fraction
+    (part_judgment.py) in place of met/not-met. Credits are clipped to [0, 1]; a missing credit is 0.
+
+    Strict demonstrated scores (`assess`) are unchanged; this is reported beside them."""
+    rubric = rubric or release()
+    condition_ids = {c['id'] for i in rubric['indicators'] for c in i['conditions']}
+    if set(credits) - condition_ids:
+        raise ValueError('Unknown rubric condition ID.')
+    levels, indicators = {}, []
+    for item in rubric['indicators']:
+        if item.get('scoring_mode') != 'independent_conditions':
+            raise ValueError('Documented readiness needs independent-condition scoring.')
+        total = sum(min(Fraction(1), max(Fraction(0), Fraction(str(credits.get(c['id'], 0)))))
+                    for c in item['conditions'])
+        levels[item['code']] = total / 2
+        indicators.append({'code': item['code'], 'level': number(total / 2),
+                           'score': number(Fraction(100, 3) * total / 2)})
+    overall, pillars = _totals(rubric, levels)
+    return {'method': 'part-credit-v1', 'overall': number(overall), 'indicators': indicators,
+            'pillars': [{'code': key, 'score': number(value)} for key, value in pillars.items()]}
+
+
 def assess(decisions, rubric=None):
     rubric = rubric or release()
     condition_ids = {c['id'] for i in rubric['indicators'] for c in i['conditions']}

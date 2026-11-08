@@ -77,7 +77,7 @@ def expansion_exclusion(passage):
 
 
 def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=None,
-                      include_semantic=True, protect_baseline=None, comparison_route=None):
+                      include_semantic=True, protect_baseline=None, comparison_route=None, structure=None):
     if comparison_route is not None:
         if comparison_route not in ('lexical', 'semantic', 'fused') or protect_baseline:
             raise ValueError('Matched comparison needs one route and no protected baseline.')
@@ -148,7 +148,7 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
     if protect_baseline:
         from .evaluation import select_context
         baseline = select_context(indicator, sources,
-            max_chars=min(max_chars, getattr(ranker, 'baseline_chars', 18000)))
+            max_chars=min(max_chars, getattr(ranker, 'baseline_chars', 18000)), structure=structure)
         for source in baseline:
             sid, start = source['id'], source['text_offset']
             source_spans[sid] = merged_spans(source_spans.get(sid, []) + [(start, start + len(source['text']))])

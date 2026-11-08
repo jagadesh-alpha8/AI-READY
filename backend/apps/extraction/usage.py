@@ -10,9 +10,16 @@ is logged and swallowed.
 """
 import contextvars
 import logging
+import threading
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
+
+#: Serialises this process's small bookkeeping writes (usage rows, capability request ledger, run progress) when
+#: model calls run in worker threads. SQLite allows one writer; an uncoordinated burst of threads can fail with
+#: "database is locked", and usage recording swallows its errors, so a lost row would go unnoticed. Model calls
+#: themselves are never made while holding it.
+DB_WRITE_LOCK = threading.RLock()
 
 _scope = contextvars.ContextVar('ai_usage_scope', default=None)
 
@@ -58,28 +65,29 @@ def _save(*, provider, model, input_tokens, output_tokens, cache_read_tokens=0, 
         from .pricing import cost_usd, positive_token_prices
 
         sprint = scope.get('sprint')
-        return AIUsage.objects.create(
-            institution_id=getattr(sprint, 'institution_id', None),
-            sprint=sprint,
-            document=scope.get('document'),
-            extraction_job=scope.get('job'),
-            capability_run=scope.get('capability_run'),
-            recommendation_snapshot=scope.get('recommendation_snapshot'),
-            plan_scenario=scope.get('plan_scenario'),
-            stage=scope.get('stage') or AIUsage.Stage.OTHER,
-            provider=provider,
-            model=model or '',
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cache_read_tokens=cache_read_tokens,
-            cache_write_tokens=cache_write_tokens,
-            reasoning_tokens=reasoning_tokens,
-            duration_ms=max(0, int(duration_ms)),
-            cost_usd=None if provider == 'gemini' and not positive_token_prices(model) else cost_usd(
-                model, input_tokens=input_tokens, output_tokens=output_tokens,
-                cache_read_tokens=cache_read_tokens, cache_write_tokens=cache_write_tokens,
-            ),
-        )
+        with DB_WRITE_LOCK:
+            return AIUsage.objects.create(
+                institution_id=getattr(sprint, 'institution_id', None),
+                sprint=sprint,
+                document=scope.get('document'),
+                extraction_job=scope.get('job'),
+                capability_run=scope.get('capability_run'),
+                recommendation_snapshot=scope.get('recommendation_snapshot'),
+                plan_scenario=scope.get('plan_scenario'),
+                stage=scope.get('stage') or AIUsage.Stage.OTHER,
+                provider=provider,
+                model=model or '',
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
+                reasoning_tokens=reasoning_tokens,
+                duration_ms=max(0, int(duration_ms)),
+                cost_usd=None if provider == 'gemini' and not positive_token_prices(model) else cost_usd(
+                    model, input_tokens=input_tokens, output_tokens=output_tokens,
+                    cache_read_tokens=cache_read_tokens, cache_write_tokens=cache_write_tokens,
+                ),
+            )
     except Exception as exc:  # never let bookkeeping fail an extraction
         logger.error('ai_usage.record_failed model=%s error=%s', model, exc)
         return None

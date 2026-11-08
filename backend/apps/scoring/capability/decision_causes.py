@@ -16,6 +16,8 @@ Causes
   ground in the supplied passages. Processing.
 - ``not_evaluated``: no judgement was made (no readable context, budget, provider failure,
   oversized input). Processing.
+- ``assessor_disagreement``: two independent assessments of the same frozen packet reached
+  different states, so the requirement is left unknown and routed to review. Not processing.
 
 Records saved before this field existed are classified from their saved reason text by
 ``cause_of``; new records never depend on that fallback.
@@ -27,8 +29,9 @@ SCOPE_OR_PERIOD_UNSUPPORTED = 'scope_or_period_unsupported'
 REVIEW_GUARD = 'review_guard'
 RESPONSE_INVALID = 'response_invalid'
 NOT_EVALUATED = 'not_evaluated'
+ASSESSOR_DISAGREEMENT = 'assessor_disagreement'
 
-CAUSES = (ASSESSED, SCOPE_OR_PERIOD_UNSUPPORTED, REVIEW_GUARD, RESPONSE_INVALID, NOT_EVALUATED)
+CAUSES = (ASSESSED, SCOPE_OR_PERIOD_UNSUPPORTED, REVIEW_GUARD, RESPONSE_INVALID, NOT_EVALUATED, ASSESSOR_DISAGREEMENT)
 PROCESSING = frozenset({RESPONSE_INVALID, NOT_EVALUATED})
 
 SCOPE_OR_PERIOD_ISSUE = 'Applicable population or reporting period not established.'
@@ -80,5 +83,5 @@ def summary(records):
     return {'version': 'decision-causes-1',
             'by_state_and_cause': [{'state': s, 'cause': c, 'count': n} for (s, c), n in sorted(counts.items())],
             'unknown_evidentiary': sum(n for (s, c), n in counts.items() if s == 'unknown' and c in (ASSESSED, SCOPE_OR_PERIOD_UNSUPPORTED)),
-            'unknown_review': sum(n for (s, c), n in counts.items() if s == 'unknown' and c == REVIEW_GUARD),
+            'unknown_review': sum(n for (s, c), n in counts.items() if s == 'unknown' and c in (REVIEW_GUARD, ASSESSOR_DISAGREEMENT)),
             'unknown_processing': sum(n for (s, c), n in counts.items() if s == 'unknown' and c in PROCESSING)}

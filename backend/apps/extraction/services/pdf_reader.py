@@ -132,7 +132,7 @@ class PDFPageReader(PageReader):
         pages_to_read = min(total_page_count, max_pages) if max_pages else total_page_count
         cache = _page_cache(document)
 
-        raw_texts, reads = [], []
+        raw_texts, reads, unsaved = [], [], []
         ocr_done = vision_done = unreadable = reused = 0
         for index in range(pages_to_read):
             page_number = index + 1
@@ -156,13 +156,17 @@ class PDFPageReader(PageReader):
                     previous_vision_attempts=cached.vision_attempts if cached else 0,
                     job=job,
                 )
-                _save_page(document, page_number, read)
+                if not _save_page(document, page_number, read):
+                    unsaved.append((page_number, read))
             raw_texts.append(read.text)
             reads.append(read)
             ocr_done += read.source == 'ocr'
             vision_done += read.source == 'vision'
             unreadable += read.status != 'ok'
             self._progress(index + 1, pages_to_read, ocr_done, unreadable, vision_done)
+
+        # One more pass once the page loop (and its write load) is over, then refuse to finish with gaps.
+        _require_saved(document, [n for n, read in unsaved if not _save_page(document, n, read)])
 
         cleaned = [p['text'] for p in evidence_pages([
             {'page_number': n, 'text': text, 'tables': read.tables}
@@ -335,12 +339,29 @@ class PDFPageReader(PageReader):
             raise PermanentExtractionError(f'Could not read the {ext} file: {exc}') from exc
         if max_pages:
             texts = texts[:max_pages]
-        source = 'ocr' if ext in office_reader.IMAGE_EXTENSIONS else 'text'
+        is_image = ext in office_reader.IMAGE_EXTENSIONS
+        source = 'ocr' if is_image else 'text'
         pages_out = [
             {'page_number': i + 1, 'text': clean_text(t), 'char_count': len(t), 'text_source': source if t.strip() else 'none',
              'requires_ocr': False, 'tables': []}
             for i, t in enumerate(texts)
         ]
+        # Persist these pages as PDF pages are: the assessment freezes evidence only from page rows, so
+        # without them an image or office file is read and extracted but can never be cited.
+        unsaved = []
+        for i, t in enumerate(texts):
+            if t.strip():
+                status = 'ok'
+            elif is_image:
+                status = 'ocr_unavailable' if isinstance(self.ocr_provider, stub.NullOCRProvider) else 'unreadable'
+            else:
+                status = 'ok'  # an empty sheet or blank page: nothing to cite, not a read failure
+            read = _PageRead(t or '', source if t.strip() else 'none', status, None, '', [], 1 if is_image else 0,
+                             ocr_status=('ok' if t.strip() else status) if is_image else 'skipped',
+                             vision_status='skipped')
+            if not _save_page(document, i + 1, read):
+                unsaved.append((i + 1, read))
+        _require_saved(document, [n for n, read in unsaved if not _save_page(document, n, read)])
         if not pages_out and not warnings:
             warnings.append(f'The {ext} file contains no text.')
         logger.info('office_reader.read document_id=%s ext=%s pages=%d', document.id, ext, len(pages_out))
@@ -387,25 +408,59 @@ def _page_cache(document):
     return {p.page_number: p for p in DocumentPage.objects.filter(document=document)}
 
 
-def _save_page(document, page_number, read):
+#: Seconds to wait before each further attempt to save a page row when the database reports a lock.
+PAGE_SAVE_RETRY_DELAYS = (0.2, 0.5, 1.0, 2.0, 4.0)
+
+
+def _is_lock_error(exc):
+    from django.db import OperationalError
+    return isinstance(exc, OperationalError) and 'locked' in str(exc).lower()
+
+
+def _save_page(document, page_number, read, retry_delays=None):
+    """Persist one page read. True when saved (or nothing to save), False when the row could not be written.
+
+    The page row is the only copy of the page text the assessment freezes, so a lost write silently removes
+    the page from evidence. A database lock (SQLite under concurrent writers) is retried with backoff; the
+    caller decides what a final failure means."""
+    import time
+
     from apps.documents.models import Document
 
     from ..models import DocumentPage
 
     if not isinstance(document, Document) or not document.pk:
-        return
-    try:
-        conf = float(read.confidence) if isinstance(read.confidence, (int, float)) and not isinstance(read.confidence, bool) else None
-        DocumentPage.objects.update_or_create(document=document, page_number=page_number, defaults={
-            'text': read.text, 'text_source': read.source, 'status': read.status, 'ocr_confidence': conf,
-            'ocr_attempts': read.attempts, 'warning': read.warning, 'tables': read.tables,
-            'ocr_status': read.ocr_status, 'ocr_error': read.ocr_error,
-            'vision_status': read.vision_status, 'vision_error': read.vision_error,
-            'vision_attempts': read.vision_attempts, 'vision_facts': read.vision_facts,
-        })
-    except Exception as exc:  # the read itself succeeded; a failed save only costs a re-read next time
-        logger.warning('pdf_reader.page_cache_save_failed document_id=%s page=%s error=%s', document.id,
-                       page_number, exc)
+        return True
+    conf = float(read.confidence) if isinstance(read.confidence, (int, float)) and not isinstance(read.confidence, bool) else None
+    defaults = {
+        'text': read.text, 'text_source': read.source, 'status': read.status, 'ocr_confidence': conf,
+        'ocr_attempts': read.attempts, 'warning': read.warning, 'tables': read.tables,
+        'ocr_status': read.ocr_status, 'ocr_error': read.ocr_error,
+        'vision_status': read.vision_status, 'vision_error': read.vision_error,
+        'vision_attempts': read.vision_attempts, 'vision_facts': read.vision_facts,
+    }
+    delays = PAGE_SAVE_RETRY_DELAYS if retry_delays is None else retry_delays
+    for attempt in range(len(delays) + 1):
+        try:
+            DocumentPage.objects.update_or_create(document=document, page_number=page_number, defaults=defaults)
+            return True
+        except Exception as exc:
+            final = attempt == len(delays) or not _is_lock_error(exc)
+            logger.warning('pdf_reader.page_cache_save_failed document_id=%s page=%s attempt=%d final=%s error=%s',
+                           document.id, page_number, attempt + 1, final, exc)
+            if final:
+                return False
+            time.sleep(delays[attempt])
+    return False
+
+
+def _require_saved(document, unsaved):
+    """Fail the read (recoverable, so the job retries and reuses every page that was saved) rather than let a
+    job report complete while pages are missing from the evidence the assessment freezes."""
+    if unsaved:
+        raise RecoverableExtractionError(
+            f'{len(unsaved)} page read(s) of document {document.id} could not be saved '
+            f'(pages {", ".join(map(str, unsaved))}); the job will retry and re-read only those pages.')
 
 
 # -- tables ---------------------------------------------------------------------------------------------------

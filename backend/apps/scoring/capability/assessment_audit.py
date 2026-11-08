@@ -36,6 +36,8 @@ def _blocker_kind(row, issue):
         return 'scope_or_period_unsupported'
     if cause == REVIEW_GUARD:
         return 'review_guard'
+    if cause == 'assessor_disagreement':
+        return 'assessor_disagreement'
     return 'unresolved_evidence' if row.get('state') in ('unknown', 'conflicting') else 'documented_shortfall'
 
 

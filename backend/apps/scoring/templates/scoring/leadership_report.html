@@ -10,14 +10,14 @@ body{font:15px/1.6 system-ui,sans-serif;color:#19323c;max-width:1050px;margin:40
 <div class="notice"><strong>{{ view.assessment_state }} · {{ view.advisory.label }}</strong><p>{{ view.advisory.explanation }}</p></div>
 {% for notice in view.scope_notices %}<div class="notice"><strong>{% if notice.severity == "review" %}Scope needs review{% else %}Scope and interpretation{% endif %}</strong><p>{{ notice.message }}</p></div>{% endfor %}
 <h2>Overall capability result</h2>
-<p class="score">{{ view.score }}</p><p>{{ view.score_explanation }}</p>
+<p class="score">{{ view.score }}</p><p>{{ view.score_explanation }}</p>{% if view.documented_score %}<p><strong>{{ view.documented_score }}.</strong> {{ view.documented_explanation }}</p>{% endif %}{% if view.digital_score %}<p><strong>{{ view.digital_score }}.</strong> {{ view.digital_explanation }}</p>{% endif %}
 <p>{{ view.evidence_summary }}</p><p class="muted">{{ view.methodology_notice }}</p>
 {% if view.foundation_plan %}<h2>Proposed foundation pathway</h2><p>{{ view.foundation_plan.destination }}. Current achievement level is not verified; this does not award Silver.</p>
 <table><thead><tr><th>Pace</th><th>Indicative duration</th><th>Assumptions</th></tr></thead><tbody>{% for route in view.foundation_plan.routes %}<tr><td>{{ route.name }}</td><td>{{ route.indicative_duration }}</td><td>{{ route.assumptions|join:" " }}</td></tr>{% endfor %}</tbody></table>
 <p>These routes contain the same remaining goals. No price or delivery date is promised.</p>{% endif %}
 <h2>Results across nine readiness areas</h2>
 <table class="pillars"><thead><tr><th>Area</th><th>Result</th><th>Useful next step</th></tr></thead><tbody>
-{% for pillar in view.pillars %}<tr><td><strong>{{ pillar.title }}</strong></td><td>{{ pillar.score }}<p class="scope">{{ pillar.score_explanation }}</p></td><td>{{ pillar.next_step }}</td></tr>{% endfor %}
+{% for pillar in view.pillars %}<tr><td><strong>{{ pillar.title }}</strong></td><td>{{ pillar.score }}{% if pillar.documented_score %}<p class="scope">{{ pillar.documented_score }}</p>{% endif %}<p class="scope">{{ pillar.score_explanation }}</p></td><td>{{ pillar.next_step }}</td></tr>{% endfor %}
 </tbody></table>
 <h2>First actions to consider</h2><p>{{ view.priority_note }}</p>
 <p>{{ view.priorities|length }} starting points are shown from {{ view.followup_count }} areas with follow-ups. The detail below retains all assessed areas.</p>
@@ -32,7 +32,7 @@ body{font:15px/1.6 system-ui,sans-serif;color:#19323c;max-width:1050px;margin:40
 {% for source in priority.sources %}<blockquote>{{ source.quote }}<br><small>{{ source.label }}</small></blockquote>{% endfor %}
 </article>{% empty %}<p>No additional follow-up is identified from the stored requirements. Retain the supporting evidence and review new information.</p>{% endfor %}
 <h2>Findings and recommendations by subarea</h2>
-{% for pillar in view.pillars %}<h3>{{ pillar.title }}</h3><div class="detail-grid">{% for area in pillar.areas %}<article class="card"><strong>{{ area.title }}</strong><p>{{ area.score }}. {{ area.finding }}</p><p class="stage">{% for stage in area.stages %}{{ stage.title }}: {{ stage.status }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</p><p>{{ area.next_step }}</p></article>{% endfor %}</div>{% endfor %}
+{% for pillar in view.pillars %}<h3>{{ pillar.title }}</h3><div class="detail-grid">{% for area in pillar.areas %}<article class="card"><strong>{{ area.title }}</strong><p>{{ area.score }}{% if area.documented_score %} ({{ area.documented_score|lower }}){% endif %}. {{ area.finding }}</p><p class="stage">{% for stage in area.stages %}{{ stage.title }}: {{ stage.status }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</p><p>{{ area.next_step }}</p></article>{% endfor %}</div>{% endfor %}
 <h2>Scope, evidence and interpretation</h2><ul>{% for limitation in view.limitations %}<li>{{ limitation }}</li>{% endfor %}</ul>
 <p>Method used: {{ view.methodology }}. {{ view.methodology_notice }}</p>
 <p>The separate supporting-evidence export contains original source references, all requirement decisions and conditional tier calculations. It uses the same saved assessment and selected advice version.</p>

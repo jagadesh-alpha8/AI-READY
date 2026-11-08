@@ -774,6 +774,18 @@ CAPABILITY_ASSESSMENT_ENABLED = os.getenv('CAPABILITY_ASSESSMENT_ENABLED', 'fals
 CAPABILITY_MAX_HTTP_CALLS = int(os.getenv('CAPABILITY_MAX_HTTP_CALLS', '72'))
 CAPABILITY_MAX_COST_USD = os.getenv('CAPABILITY_MAX_COST_USD', '2.00')
 CAPABILITY_OUTPUT_TOKENS = int(os.getenv('CAPABILITY_OUTPUT_TOKENS', '12000'))
+# Accuracy: 2 assesses every indicator packet twice and leaves any requirement the two passes disagree on unknown,
+# routed to review (never credited). Doubles assessment requests: raise CAPABILITY_MAX_HTTP_CALLS (about 90) and
+# CAPABILITY_MAX_COST_USD accordingly. Assessment cost does not grow with corpus size (packets are bounded).
+# With CAPABILITY_GEMINI_REASONING_EFFORT=high, Gemini 3 requests take 60-160 s and can use ~23k thinking tokens; unless
+# set explicitly, the policy then uses a 300 s request timeout and 48000 output tokens for the assessment stage.
+CAPABILITY_AGREEMENT_PASSES = int(os.getenv('CAPABILITY_AGREEMENT_PASSES', '1'))
+# 'conditions' (default): the model states each condition. 'parts': the model reports evidence per part of each
+# condition (rubric_parts_v1.json) and code computes the state and a credit fraction (part_judgment.py), which adds
+# a documented-readiness score beside the strict range. Frozen into each run's execution policy.
+CAPABILITY_JUDGMENT = os.getenv('CAPABILITY_JUDGMENT', 'conditions').strip().lower()
+# Gemini thinking level for the assessor only; empty = AI_GEMINI_REASONING_EFFORT (which extraction keeps using).
+CAPABILITY_GEMINI_REASONING_EFFORT = os.getenv('CAPABILITY_GEMINI_REASONING_EFFORT', '').strip() or None
 CAPABILITY_REQUEST_TIMEOUT_SECONDS = int(os.getenv('CAPABILITY_REQUEST_TIMEOUT_SECONDS', str(AI_REQUEST_TIMEOUT_SECONDS)))
 # Optional stage overrides; selected values are frozen when an execution starts.
 CAPABILITY_ASSESSMENT_OUTPUT_TOKENS = int(os.environ['CAPABILITY_ASSESSMENT_OUTPUT_TOKENS']) if os.getenv('CAPABILITY_ASSESSMENT_OUTPUT_TOKENS') else None
@@ -781,7 +793,14 @@ CAPABILITY_RECOMMENDATION_OUTPUT_TOKENS = int(os.environ['CAPABILITY_RECOMMENDAT
 CAPABILITY_ASSESSMENT_TIMEOUT_SECONDS = int(os.environ['CAPABILITY_ASSESSMENT_TIMEOUT_SECONDS']) if os.getenv('CAPABILITY_ASSESSMENT_TIMEOUT_SECONDS') else None
 CAPABILITY_RECOMMENDATION_TIMEOUT_SECONDS = int(os.environ['CAPABILITY_RECOMMENDATION_TIMEOUT_SECONDS']) if os.getenv('CAPABILITY_RECOMMENDATION_TIMEOUT_SECONDS') else None
 CAPABILITY_MAX_INPUT_TOKEN_BOUND = int(os.getenv('CAPABILITY_MAX_INPUT_TOKEN_BOUND', '131072'))
-CAPABILITY_MAX_DURATION_SECONDS = int(os.getenv('CAPABILITY_MAX_DURATION_SECONDS', '1800'))
+# Safety stop for one assessment run. Unset = sized from the call budget, indicator concurrency and request timeout
+# (see capability.execution.policy), so a slow high-effort run is never cut off while each request is within its own
+# timeout. Set a number to override.
+CAPABILITY_MAX_DURATION_SECONDS = int(os.environ['CAPABILITY_MAX_DURATION_SECONDS']) if os.getenv('CAPABILITY_MAX_DURATION_SECONDS') else None
+# Indicators judged at once (1-8). Packets are still built in order and results assembled in rubric order, so the
+# decisions do not depend on this; it only shortens wall-clock time (high effort: ~2 h sequential -> ~30-40 min at 4).
+# Default 1 keeps the strictly sequential request order; set 4 for pilot runs.
+CAPABILITY_INDICATOR_CONCURRENCY = int(os.getenv('CAPABILITY_INDICATOR_CONCURRENCY', '1'))
 CAPABILITY_STALE_SECONDS = int(os.getenv('CAPABILITY_STALE_SECONDS', '900'))
 
 if EXTRACTION_QUEUE:
@@ -800,3 +819,25 @@ CAPABILITY_PLANS_ENABLED = os.getenv('CAPABILITY_PLANS_ENABLED', 'false').lower(
 CAPABILITY_EMBEDDING_PATH = os.getenv('CAPABILITY_EMBEDDING_PATH', '')
 CAPABILITY_EMBEDDING_MODEL = os.getenv('CAPABILITY_EMBEDDING_MODEL', 'BAAI/bge-small-en-v1.5')
 CAPABILITY_RETRIEVAL_MODE = os.getenv('CAPABILITY_RETRIEVAL_MODE', 'bm25')
+# Retrieval options for multi-document sprints (apps/scoring/capability/structure.py). All off by
+# default; each is frozen into a run's retrieval policy when on, so a run keeps the options it started with.
+# Exact duplicate pages (whitespace and case ignored) are read once.
+CAPABILITY_DEDUPLICATE_PAGES = os.getenv('CAPABILITY_DEDUPLICATE_PAGES', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Experimental: routed picks inside NAAC metric sections plus a per-document share cap of the keyword
+# lane. Offline tests showed no recall gain yet; keep off for assessments.
+CAPABILITY_STRUCTURE_ROUTING = os.getenv('CAPABILITY_STRUCTURE_ROUTING', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Keyword selection passes over a window that mostly repeats (more than half its distinct words) a window
+# already chosen from a different document, so restated text (AQAR, annexures) does not crowd out new evidence.
+CAPABILITY_REPEAT_SKIP = os.getenv('CAPABILITY_REPEAT_SKIP', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Empty for the default 30,000 + 6,000 character packet; 'protected-baseline-then-discovery-wide-v1' for a
+# 90,000-character keyword lane; 'protected-baseline-then-discovery-xwide-v1' for 200,000 (hybrid mode only;
+# raise CAPABILITY_MAX_INPUT_TOKEN_BOUND to 400000).
+CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '')
+# Targeted extra search after part judgment (apps/scoring/capability/follow_up.py): parts every pass marked
+# not found get one more search with the part's own description; only those conditions are judged again, and
+# the second judgment can only add credit. Needs hybrid retrieval and CAPABILITY_JUDGMENT=parts. Adds up to one
+# request per indicator per pass, so CAPABILITY_MAX_HTTP_CALLS must allow it (150 with two passes).
+CAPABILITY_FOLLOW_UP_SEARCH = os.getenv('CAPABILITY_FOLLOW_UP_SEARCH', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
+# every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.
+CAPABILITY_EMBEDDING_CACHE_DIR = os.getenv('CAPABILITY_EMBEDDING_CACHE_DIR', '')
