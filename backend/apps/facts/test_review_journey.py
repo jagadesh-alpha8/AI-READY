@@ -21,6 +21,7 @@ from apps.scoring.capability.evaluation import evaluate, validate_decisions
 from apps.scoring.capability.storage import create_run, digest
 from apps.scoring.capability.reviewed_evidence import snapshot
 from apps.sprints.models import Sprint
+from apps.scoring.capability.storage import frozen_sources
 
 POSITIVE = 'In 2025-26, computing resources were accessible to 20 learners in the engineering programme.'
 NEGATIVE = 'In 2025-26, computing resources were accessible to 0 learners in the engineering programme.'
@@ -111,7 +112,7 @@ class ReviewJourneyTests(APITestCase):
                 payload = json.loads(kwargs['user_content']); seen.append(payload)
                 return {'conditions': {c['id']: {'state': 'unknown', 'reason': 'No further supported requirement',
                     'citations': [], 'scope_supported': False, 'period_supported': False} for c in payload['indicator']['conditions']}}
-        evaluated = evaluate(fresh.inputs['sources'], service=FixtureProvider(),
+        evaluated = evaluate(frozen_sources(fresh), service=FixtureProvider(),
             population=fresh.inputs['population'], reference_period=fresh.inputs['reference_period'],
             reviewed_evidence=ledger)
         self.assertEqual(len(evaluated['records']), 216)
@@ -122,7 +123,7 @@ class ReviewJourneyTests(APITestCase):
         rows = {'conditions': [{'condition_id': c['id'], 'state': 'met', 'reason': 'Use rejected source',
             'scope_supported': True, 'period_supported': True,
             'citations': [{'source_id': str(page2.pk), 'quote': NEGATIVE}]} for c in indicator['conditions']]}
-        checked = validate_decisions(indicator, rows, fresh.inputs['sources'], reviewed_evidence=ledger)
+        checked = validate_decisions(indicator, rows, frozen_sources(fresh), reviewed_evidence=ledger)
         self.assertTrue(all(r['state'] == 'unknown' for r in checked))
         old.refresh_from_db()
         self.assertEqual(old.inputs, before)
@@ -365,7 +366,7 @@ class ReviewJourneyTests(APITestCase):
         self.assertEqual(claim['verification']['outcome'], 'verified')
         self.assertEqual(claim['decisions'][-1]['action'], 'corrected')
         from apps.scoring.capability.reviewed_evidence import for_context, citation_issue
-        sent = for_context(run.inputs['reviewed_evidence'], run.inputs['sources'])
+        sent = for_context(run.inputs['reviewed_evidence'], frozen_sources(run))
         self.assertEqual(sent['claims'][0]['value'], 20)
         self.assertEqual(sent['claims'][0]['decisions'][-1]['rationale'], 'Corrected from the explicitly cited programme access record')
-        self.assertEqual(citation_issue([{'source_id': str(page.pk), 'quote': POSITIVE}], run.inputs['reviewed_evidence'], run.inputs['sources'], state='met'), '')
+        self.assertEqual(citation_issue([{'source_id': str(page.pk), 'quote': POSITIVE}], run.inputs['reviewed_evidence'], frozen_sources(run), state='met'), '')

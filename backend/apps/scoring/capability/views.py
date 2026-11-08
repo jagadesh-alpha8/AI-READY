@@ -15,6 +15,7 @@ from config.pagination import DefaultPageNumberPagination
 from .execution import finish, start
 from .engine import DEFAULT_METHODOLOGY, ENGINE_VERSION
 from .evaluation import PROMPT_VERSION, RETRIEVAL_VERSION
+from .storage import frozen_sources
 
 
 class StartSerializer(serializers.Serializer):
@@ -133,5 +134,5 @@ class RunEvidenceView(RunView):
             records = [r for r in records if r['condition_id'] == condition_id]
         cited = {c['source_id'] for r in records for c in r['citations']}
         return Response({'run_id': str(run.pk), 'records': records,
-            'sources': [s for s in run.inputs['sources'] if s['id'] in cited],
+            'sources': [s for s in frozen_sources(run) if s['id'] in cited],
             'note': 'Frozen assessment excerpts. Original files use the existing authenticated document download endpoint.'})

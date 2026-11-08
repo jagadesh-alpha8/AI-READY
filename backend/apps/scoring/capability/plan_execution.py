@@ -18,7 +18,7 @@ from .execution import policy, AssessmentConflict, AssessmentDisabled, BudgetExc
 from .provider import MeteredService, UnpricedModel, UsageUnavailable
 from .plan_mapping import VERSION, PROMPTS, SCHEMAS, run_pipeline
 from .scenarios import VERSION as SCENARIO_VERSION
-from .storage import digest
+from .storage import digest, frozen_sources
 
 
 def enabled():
@@ -62,7 +62,7 @@ def start(*, run, user, key, plan_text):
     budget.update(prompt_version=VERSION, prompt_hash=digest(PROMPTS), schema_hash=digest(SCHEMAS))
     plan = InstitutionalPlanVersion.objects.create(run=run, origin='submitted', text=plan_text, text_hash=digest(plan_text))
     # Bounded source context is explicit, frozen and labelled a subset; no facts are invented.
-    asset_sources = select_context({'code': 'plan-assets', 'name': plan_text, 'conditions': []}, run.inputs['sources'])
+    asset_sources = select_context({'code': 'plan-assets', 'name': plan_text, 'conditions': []}, frozen_sources(run))
     inputs = {'version': VERSION, 'scenario_version': SCENARIO_VERSION, 'plan_text': plan_text,
         'plan_hash': plan.text_hash, 'run_inputs_hash': run.inputs_hash, 'assessment_event_id': event.pk,
         'assessment_hash': digest(event.payload), 'baseline_decisions': baseline,

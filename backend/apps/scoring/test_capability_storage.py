@@ -8,6 +8,7 @@ from apps.institutions.models import Institution
 from apps.sprints.models import Sprint
 from .capability.evaluation import evaluate
 from .capability.storage import create_run, checkpoint, publish, candidate_requirements
+from apps.scoring.capability.storage import frozen_sources
 
 
 class CapabilityStorageTests(TestCase):
@@ -16,7 +17,7 @@ class CapabilityStorageTests(TestCase):
         run = self.make_run()
         args = {'institution_id': self.institution.pk, 'run_id': run.pk}
         checkpoint(**args, state='running')
-        evaluation = evaluate(run.inputs['sources'], service=None, population='All',
+        evaluation = evaluate(frozen_sources(run), service=None, population='All',
                               reference_period='2026', max_calls=0)
         before = evaluation['records'][0]['validation_issue']
         self.assertTrue(before)
@@ -48,7 +49,7 @@ class CapabilityStorageTests(TestCase):
         old.save()
         DocumentPage.objects.create(document=self.document, page_number=2, text='Unreadable', status='unreadable')
         run = self.make_run()
-        self.assertEqual([s['id'] for s in run.inputs['sources']], [str(self.page.pk)])
+        self.assertEqual([s['id'] for s in frozen_sources(run)], [str(self.page.pk)])
         self.assertEqual(len(run.inputs['manifest']), 1)
         self.assertEqual(len(run.inputs['manifest'][0]['pages']), 2)
         with self.assertRaises(Sprint.DoesNotExist):
@@ -76,7 +77,7 @@ class CapabilityStorageTests(TestCase):
         run = self.make_run()
         args = {'institution_id': self.institution.pk, 'run_id': run.pk}
         checkpoint(**args, state='running')
-        evaluation = evaluate(run.inputs['sources'], service=None, population='All',
+        evaluation = evaluate(frozen_sources(run), service=None, population='All',
                               reference_period='2026', max_calls=0)
         inference = {'provider': 'none', 'model': 'none', 'settings': {}, 'calls': []}
         incomplete = deepcopy(evaluation)

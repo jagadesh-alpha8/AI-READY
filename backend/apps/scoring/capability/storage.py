@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 
+from django.conf import settings
 from django.db import connection, transaction
 
 from apps.documents.models import Document
@@ -19,6 +20,51 @@ from apps.sprints.models import Sprint
 from .engine import ENGINE_VERSION, assess, release
 from .evaluation import validate_decisions
 from .planning import actions_for, roadmap
+
+
+TEXT_FORMAT = 'text-by-hash-v1'
+
+
+def text_hash(text):
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def store_texts(sources):
+    """Frozen sources with each text replaced by its sha256; the texts go to the shared FrozenText store."""
+    from apps.scoring.models import FrozenText
+    texts = {text_hash(s['text']): s['text'] for s in sources}
+    existing = set()
+    keys = list(texts)
+    for start in range(0, len(keys), 500):
+        existing.update(FrozenText.objects.filter(text_hash__in=keys[start:start + 500]).values_list('text_hash', flat=True))
+    FrozenText.objects.bulk_create([FrozenText(text_hash=h, text=t) for h, t in texts.items() if h not in existing],
+                                   batch_size=500, ignore_conflicts=True)
+    return [{**{k: v for k, v in s.items() if k != 'text'}, 'text_hash': text_hash(s['text'])} for s in sources]
+
+
+def frozen_sources(run):
+    """The run's frozen sources with their text, whichever format the run was frozen in.
+
+    Runs frozen by hash read each text from FrozenText and fail closed if a text is missing or no longer matches
+    its hash. Older runs keep their text inline and are returned unchanged."""
+    if run.inputs.get('sources_format') != TEXT_FORMAT:
+        return run.inputs['sources']
+    cached = getattr(run, '_frozen_sources', None)
+    if cached is not None:
+        return cached
+    from apps.scoring.models import FrozenText
+    wanted = list({s['text_hash'] for s in run.inputs['sources']})
+    texts = {}
+    for start in range(0, len(wanted), 500):
+        texts.update(FrozenText.objects.filter(text_hash__in=wanted[start:start + 500]).values_list('text_hash', 'text'))
+    sources = []
+    for source in run.inputs['sources']:
+        text = texts.get(source['text_hash'])
+        if text is None or text_hash(text) != source['text_hash']:
+            raise ValueError('Frozen evidence text is missing or altered.')
+        sources.append({**{k: v for k, v in source.items() if k != 'text_hash'}, 'text': text})
+    run._frozen_sources = sources
+    return sources
 
 
 def digest(value):
@@ -129,7 +175,9 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
               'assessment_protocol': {'prompt_version': PROMPT_VERSION, 'retrieval_version': RETRIEVAL_VERSION,
                                       'prompt_hash': hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
                                       'schema_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest()},
-              'manifest': manifest, 'sources': sources, 'reviewed_evidence': reviewed,
+              'manifest': manifest, 'reviewed_evidence': reviewed,
+              **({'sources_format': TEXT_FORMAT, 'sources': store_texts(sources)}
+                 if getattr(settings, 'CAPABILITY_FROZEN_TEXT_STORE', False) else {'sources': sources}),
               'execution_policy': execution_policy or {}}
     run = CapabilityRun.objects.create(sprint=sprint, inputs=inputs, inputs_hash=digest(inputs))
     CapabilityRunEvent.objects.create(run=run, state='queued')
@@ -168,7 +216,8 @@ def publish(*, institution_id, run_id, evaluation, inference):
         raise ValueError('Frozen input integrity check failed.')
     if not all(key in inference for key in ('provider', 'model', 'settings', 'calls')):
         raise ValueError('Actual inference identity, settings and per-call usage are required.')
-    frozen = {s['id']: s for s in run.inputs['sources']}
+    sources = frozen_sources(run)
+    frozen = {s['id']: s for s in sources}
     for trace in evaluation.get('traces', []):
         if any(sid not in frozen for sid in trace.get('source_ids', [])):
             raise ValueError('Trace references a source outside this run.')
@@ -188,7 +237,7 @@ def publish(*, institution_id, run_id, evaluation, inference):
     for indicator in rubric['indicators']:
         subset = [dict(r) for r in rows
                   if r['condition_id'] in {c['id'] for c in indicator['conditions']}]
-        checked = validate_decisions(indicator, {'conditions': subset}, run.inputs['sources'],
+        checked = validate_decisions(indicator, {'conditions': subset}, sources,
                                      reviewed_evidence=run.inputs.get('reviewed_evidence'))
         # Revalidation must not erase why the evaluator already downgraded a row.
         original = {r['condition_id']: r for r in subset}

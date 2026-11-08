@@ -16,7 +16,7 @@ from apps.scoring.models import CapabilityRun, RecommendationSnapshot, Recommend
 from .execution import policy, AssessmentConflict, AssessmentDisabled, BudgetExceeded, ExecutionDeadlineExceeded, InputBudgetExceeded, ExecutionStopped
 from .provider import MeteredService, UnpricedModel, UsageUnavailable
 from .recommendations import build_inputs, validate_advice, partition_advice, advice_schema, processing_failure, VERSION, PROMPT, SCHEMA
-from .storage import digest
+from .storage import digest, frozen_sources
 
 
 def deterministic_advice(action, inputs, origin, note=''):
@@ -269,7 +269,7 @@ def generate_recommendations(snapshot_id, task_id):
                         from .reviewed_evidence import for_context
                         from .evaluation import select_context
                         rubric_indicator = next(i for i in snapshot.run.inputs['rubric']['indicators'] if i['code'] == indicator)
-                        selected_sources = select_context(rubric_indicator, snapshot.run.inputs['sources'], semantic_ranker=semantic_ranker)
+                        selected_sources = select_context(rubric_indicator, frozen_sources(snapshot.run), semantic_ranker=semantic_ranker)
                         payload['sources'] = selected_sources
                         payload['reviewed_evidence'] = for_context(inputs.get('reviewed_evidence'), selected_sources)
                         payload['actions'] = actions

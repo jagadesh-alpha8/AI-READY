@@ -11,7 +11,7 @@ from .capability.evaluation import evaluate, SYSTEM_PROMPT, DECISION_SCHEMA, RET
 from .capability.engine import ENGINE_VERSION
 from .capability.execution import BudgetExceeded, ExecutionDeadlineExceeded, ExecutionStopped, claim, finish, progress
 from .capability.provider import MeteredService, UnpricedModel, UsageUnavailable
-from .capability.storage import publish, digest
+from .capability.storage import publish, digest, frozen_sources
 from .models import CapabilityExecution
 
 
@@ -46,7 +46,7 @@ def run_capability_assessment(run_id, task_id):
         with use_lease(lease):
             service = MeteredService(get_ai_service(), execution) if has_sources else None
             with usage_scope(sprint=execution.sprint, stage='evidence_assessment', capability_run=execution.run):
-                evaluation = evaluate(execution.run.inputs['sources'], service=service,
+                evaluation = evaluate(frozen_sources(execution.run), service=service,
                     population=execution.run.inputs['population'], reference_period=execution.run.inputs['reference_period'],
                     rubric=execution.run.inputs['rubric'], strict_errors=True, recover_provider_errors=True, scope=inputs.get('scope'),
                     reviewed_evidence=inputs.get('reviewed_evidence'), retrieval_policy=inputs.get('retrieval_policy'),

@@ -8,6 +8,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from apps.scoring.capability import context_diagnostics as diag
 from apps.scoring.capability import pipeline_diagnostics as stages
+from apps.scoring.capability.storage import frozen_sources
 
 COMPONENTS = ('instructions', 'schema_in_instructions', 'response_schema', 'rubric_indicator', 'population_and_period',
               'scope', 'source_passages', 'current_quotations', 'original_quotations', 'passage_references',
@@ -46,7 +47,7 @@ class Command(BaseCommand):
             run = CapabilityRun.objects.filter(pk=export['run_id']).first()
             if run is None or run.inputs_hash != export['inputs_hash']:
                 raise CommandError('The database does not hold this run with matching frozen inputs.')
-            sources = run.inputs['sources']
+            sources = frozen_sources(run)
             rendered, tags, unchanged = self.current_state(run)
         analysis = diag.analyse(export, sources=sources)
         pipeline = {'interval': stages.interval_attribution(export)}
@@ -91,7 +92,7 @@ class Command(BaseCommand):
         """Canonical evidence text and AI-QIF tags for this run's documents, read now (not frozen with the run)."""
         from apps.extraction.models import DocumentPage
         from apps.facts.models import FactAIQIFMapping
-        sources = run.inputs['sources']
+        sources = frozen_sources(run)
         documents = {s['document_id'] for s in sources}
         pages = [{'id': str(p.pk), 'document_id': str(p.document_id), 'page_number': p.page_number, 'text': p.text,
                   'tables': p.tables} for p in DocumentPage.objects.filter(document_id__in=documents)]

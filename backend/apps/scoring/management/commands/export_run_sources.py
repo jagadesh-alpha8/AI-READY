@@ -10,7 +10,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.scoring.capability.storage import digest
+from apps.scoring.capability.storage import digest, frozen_sources
 from apps.scoring.models import CapabilityRun
 
 
@@ -38,7 +38,7 @@ class Command(BaseCommand):
         if len(manifest) != 1:
             raise CommandError(f'"{options["match"]}" matches {len(manifest)} documents in this run.')
         document = manifest[0]
-        pages = sorted((s for s in run.inputs['sources'] if s['document_id'] == document['document_id']),
+        pages = sorted((s for s in frozen_sources(run) if s['document_id'] == document['document_id']),
                        key=lambda s: s['page_number'])
         target.write_text(json.dumps({
             'run_id': str(run.pk), 'inputs_hash': run.inputs_hash, 'inputs_hash_verified': hash_matches,

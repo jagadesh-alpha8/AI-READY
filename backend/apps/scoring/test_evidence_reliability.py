@@ -18,6 +18,7 @@ from .capability.evaluation import validate_decisions, select_context
 from .capability.reviewed_evidence import for_context, citation_issue, snapshot
 from .capability.semantic_retrieval import SemanticRanker, configured_policy, ranker_for
 from .retrieval_test_fixtures import synthetic_ranker
+from apps.scoring.capability.storage import frozen_sources
 
 
 class FactLifecycleTests(TestCase):
@@ -269,7 +270,7 @@ class RetrievalComparisonCommandTests(TestCase):
                 from .capability.storage import digest
                 from .capability.evidence_cases import VERSION
                 evidence_cases.write_text(json.dumps({'version': VERSION,
-                    'source_corpus_hash': digest(run.inputs['sources']), 'rubric_hash': digest(run.inputs['rubric']),
+                    'source_corpus_hash': digest(frozen_sources(run)), 'rubric_hash': digest(run.inputs['rubric']),
                     'review_status': 'synthetic_test', 'cases': [{'condition_id': cid,
                         'assertion': run.inputs['rubric']['indicators'][0]['conditions'][0]['text'],
                         'positive_bundles': [{'id': 'documented_strategy', 'citations': [
@@ -292,7 +293,7 @@ class RetrievalComparisonCommandTests(TestCase):
 
             self.assertEqual(configured_policy()['mode'], 'bm25')
             result = json.loads(output.read_text())
-            self.assertEqual(result['replay_inputs']['sources'], run.inputs['sources'])
+            self.assertEqual(result['replay_inputs']['sources'], frozen_sources(run))
             self.assertEqual(result['comparison_policy'], {'baseline_chars': 18000, 'expansion_chars': 6000})
             self.assertEqual(set(result['sets']['development']), {'bm25_1800', 'bm25_1200', 'profiled_bm25', 'hybrid_passages',
                 'bm25_expanded', 'protected_profiled_expanded', 'hybrid_expanded'})

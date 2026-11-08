@@ -37,6 +37,7 @@ from .capability.recommendation_execution import generate_recommendations
 from .capability.reviewed_evidence import citation_issue, for_context
 from .capability.storage import checkpoint, create_run, publish
 from .models import CapabilityExecution, CapabilityRunEvent, RecommendationEvent, RecommendationExecution
+from apps.scoring.capability.storage import frozen_sources
 
 DOC = '00000000-0000-0000-0000-00000000d0c1'
 FILLER = ('Administrative records were filed with the registrar and archived according to the retention schedule. ' * 40)
@@ -505,7 +506,7 @@ class ProductionPathTests(APITestCase):
 
     def test_rebuilt_recommendation_requests_match_what_production_sends(self):
         execution = self.tailor()
-        rebuilt = diag.recommendation_requests(execution.snapshot.inputs, self.run.inputs['sources'], self.run.inputs['rubric'])['batches']
+        rebuilt = diag.recommendation_requests(execution.snapshot.inputs, frozen_sources(self.run), self.run.inputs['rubric'])['batches']
         self.assertEqual([r['payload_hash'] for r in rebuilt], [hashlib.sha256(u.encode()).hexdigest() for u in self.sent])
         self.assertTrue(all(r['unsupported_unconnected_claims'] == 0 for r in rebuilt))
 
@@ -513,7 +514,7 @@ class ProductionPathTests(APITestCase):
         execution = self.tailor()
         # PostgreSQL JSONB reorders object keys; arrays and values are unchanged.
         reordered_plan = json.loads(json.dumps(execution.snapshot.inputs, sort_keys=True))
-        reordered_sources = json.loads(json.dumps(self.run.inputs['sources'], sort_keys=True))
+        reordered_sources = json.loads(json.dumps(frozen_sources(self.run), sort_keys=True))
         rebuilt = diag.recommendation_requests(reordered_plan, reordered_sources, self.run.inputs['rubric'])['batches']
         self.assertEqual([r['payload_hash'] for r in rebuilt], [hashlib.sha256(u.encode()).hexdigest() for u in self.sent])
 

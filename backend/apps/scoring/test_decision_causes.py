@@ -11,6 +11,7 @@ from .capability.evaluation import evaluate, validate_decisions
 from .capability.recommendation_execution import deterministic_advice
 from .capability.recommendations import processing_failure
 from .capability.storage import checkpoint, create_run, publish
+from apps.scoring.capability.storage import frozen_sources
 
 PASSAGE = 'The IT committee reviewed laboratory computing capacity and recorded upgrade needs for each department.'
 
@@ -117,7 +118,7 @@ class PublishedCauseTests(TestCase):
                          population='All faculty and students', reference_period='2025-26')
         args = {'institution_id': self.institution.pk, 'run_id': run.pk}
         checkpoint(**args, state='running')
-        evaluation = evaluate(run.inputs['sources'], service=None, population='All', reference_period='2025-26', max_calls=0)
+        evaluation = evaluate(frozen_sources(run), service=None, population='All', reference_period='2025-26', max_calls=0)
         event = publish(**args, evaluation=evaluation,
                         inference={'provider': 'none', 'model': 'none', 'settings': {}, 'calls': []})
         self.assertTrue(all(r['cause'] == dc.NOT_EVALUATED for r in event.payload['records']))

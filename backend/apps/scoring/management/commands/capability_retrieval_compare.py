@@ -4,6 +4,7 @@ from time import perf_counter
 from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from apps.scoring.capability.storage import frozen_sources
 
 
 class Command(BaseCommand):
@@ -61,7 +62,7 @@ class Command(BaseCommand):
             run = CapabilityRun.objects.get(pk=options['run_id'])
             if digest(run.inputs) != run.inputs_hash:
                 raise CommandError('Frozen input integrity mismatch.')
-            sources, rubric, manifest = run.inputs['sources'], run.inputs['rubric'], run.inputs['manifest']
+            sources, rubric, manifest = frozen_sources(run), run.inputs['rubric'], run.inputs['manifest']
             run_id, inputs_hash = str(run.pk), run.inputs_hash
         case_pack = cases = None
         if options['evidence_cases']:

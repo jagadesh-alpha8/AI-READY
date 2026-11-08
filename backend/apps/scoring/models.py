@@ -278,6 +278,25 @@ class CapabilityRun(models.Model):
         ordering = ['-created_at']
 
 
+class FrozenText(models.Model):
+    """Content-addressed frozen evidence text, shared by every run that froze the same text.
+
+    A run frozen in the 'text-by-hash-v1' format keeps each source's sha256 in its inputs instead of the text;
+    storage.frozen_sources() reads the text back and refuses any row whose text no longer matches its hash.
+    Insert-only: a row is never changed or deleted, so every run that names a hash can always be replayed."""
+    text_hash = models.CharField(max_length=64, primary_key=True)
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Frozen text is immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Frozen text cannot be deleted.')
+
+
 class CapabilityRunEvent(models.Model):
     """Append-only checkpoints; a completed event publishes all outputs together."""
     id = models.BigAutoField(primary_key=True)

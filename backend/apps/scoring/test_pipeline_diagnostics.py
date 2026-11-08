@@ -19,6 +19,7 @@ from apps.sprints.models import Sprint
 from .capability import pipeline_diagnostics as stages
 from .capability.engine import assess, release
 from .capability.storage import create_run
+from apps.scoring.capability.storage import frozen_sources
 
 DOC = '00000000-0000-0000-0000-00000000d0c1'
 BUDGET_ROW = 'Budget allocation for the AI laboratory in 2024-25 was 40 lakhs'
@@ -70,7 +71,7 @@ class FrozenEvidenceTableTests(TestCase):
 
     def frozen_text(self):
         run = create_run(institution_id=self.sprint.institution_id, sprint_id=self.sprint.pk, scope_mode='default')
-        return run.inputs['sources'][0]['text']
+        return frozen_sources(run)[0]['text']
 
     def test_frozen_evidence_includes_table_content_and_no_placeholder(self):
         text = self.frozen_text()
