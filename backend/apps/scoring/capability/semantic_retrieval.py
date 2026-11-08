@@ -45,8 +45,8 @@ ALLOCATION_BUDGETS = {
     ALLOCATION: (BASELINE_CHARS, EXPANSION_CHARS),
     # Multi-document sprints: a 90,000-character keyword lane (about three times the default packet).
     WIDE_ALLOCATION: (90000, EXPANSION_CHARS),
-    # Full-corpus sprints where 90,000 still crowds out evidence. Needs CAPABILITY_MAX_INPUT_TOKEN_BOUND >= 300000.
-    XWIDE_ALLOCATION: (150000, EXPANSION_CHARS),
+    # Full-corpus sprints where 90,000 still crowds out evidence. Needs CAPABILITY_MAX_INPUT_TOKEN_BOUND >= 400000.
+    XWIDE_ALLOCATION: (200000, EXPANSION_CHARS),
 }
 BGE_QUERY_INSTRUCTION = 'Represent this sentence for searching relevant passages: '
 

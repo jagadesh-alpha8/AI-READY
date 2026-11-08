@@ -830,7 +830,8 @@ CAPABILITY_STRUCTURE_ROUTING = os.getenv('CAPABILITY_STRUCTURE_ROUTING', 'false'
 # already chosen from a different document, so restated text (AQAR, annexures) does not crowd out new evidence.
 CAPABILITY_REPEAT_SKIP = os.getenv('CAPABILITY_REPEAT_SKIP', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Empty for the default 30,000 + 6,000 character packet; 'protected-baseline-then-discovery-wide-v1' for a
-# 90,000-character keyword lane; 'protected-baseline-then-discovery-xwide-v1' for 150,000 (hybrid mode only).
+# 90,000-character keyword lane; 'protected-baseline-then-discovery-xwide-v1' for 200,000 (hybrid mode only;
+# raise CAPABILITY_MAX_INPUT_TOKEN_BOUND to 400000).
 CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '')
 # Targeted extra search after part judgment (apps/scoring/capability/follow_up.py): parts every pass marked
 # not found get one more search with the part's own description; only those conditions are judged again, and
