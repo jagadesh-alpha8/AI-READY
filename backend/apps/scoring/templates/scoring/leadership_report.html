@@ -10,7 +10,7 @@ body{font:15px/1.6 system-ui,sans-serif;color:#19323c;max-width:1050px;margin:40
 <div class="notice"><strong>{{ view.assessment_state }} · {{ view.advisory.label }}</strong><p>{{ view.advisory.explanation }}</p></div>
 {% for notice in view.scope_notices %}<div class="notice"><strong>{% if notice.severity == "review" %}Scope needs review{% else %}Scope and interpretation{% endif %}</strong><p>{{ notice.message }}</p></div>{% endfor %}
 <h2>Overall capability result</h2>
-<p class="score">{{ view.score }}</p><p>{{ view.score_explanation }}</p>{% if view.documented_score %}<p><strong>{{ view.documented_score }}.</strong> {{ view.documented_explanation }}</p>{% endif %}
+<p class="score">{{ view.score }}</p><p>{{ view.score_explanation }}</p>{% if view.documented_score %}<p><strong>{{ view.documented_score }}.</strong> {{ view.documented_explanation }}</p>{% endif %}{% if view.digital_score %}<p><strong>{{ view.digital_score }}.</strong> {{ view.digital_explanation }}</p>{% endif %}
 <p>{{ view.evidence_summary }}</p><p class="muted">{{ view.methodology_notice }}</p>
 {% if view.foundation_plan %}<h2>Proposed foundation pathway</h2><p>{{ view.foundation_plan.destination }}. Current achievement level is not verified; this does not award Silver.</p>
 <table><thead><tr><th>Pace</th><th>Indicative duration</th><th>Assumptions</th></tr></thead><tbody>{% for route in view.foundation_plan.routes %}<tr><td>{{ route.name }}</td><td>{{ route.indicative_duration }}</td><td>{{ route.assumptions|join:" " }}</td></tr>{% endfor %}</tbody></table>

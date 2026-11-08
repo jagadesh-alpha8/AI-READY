@@ -104,6 +104,8 @@ def advisory_state(recommendation):
 DOCUMENTED_NOTE = ('Documented readiness counts what the supplied documents evidence, including partial credit for '
                    'conditions with some of their parts evidenced or with related but weaker evidence. The range '
                    'above counts only fully demonstrated conditions.')
+DIGITAL_NOTE = ('Including digital groundwork also counts digital systems that are not AI (for example an ERP, LMS or '
+                'e-governance module) where a condition asks for AI. It shows the foundation in place, not AI adoption.')
 
 
 def documented_label(value):
@@ -228,6 +230,8 @@ def build_report_view(report, actions):
         'score_explanation': bounds_note(result['lower'], result['upper']),
         **({'documented_score': documented_label(documented['overall']), 'documented_explanation': DOCUMENTED_NOTE}
            if documented else {}),
+        **({'digital_score': f"Including digital groundwork {result['documented_with_digital']['overall']:g} / 100",
+            'digital_explanation': DIGITAL_NOTE} if result.get('documented_with_digital') else {}),
         'assessment_state': 'Evidence review required — readiness baseline not established' if foundation and foundation['baseline']['status'] == 'needs_evidence_review' else 'Provisional findings' if counts['unknown'] or counts['conflicting'] or needs_scope_review else 'Assessment completed',
         'advisory': state, 'pillars': pillars, 'areas': areas, 'priorities': priorities, 'foundation_plan': foundation,
         'followup_count': len(followups),

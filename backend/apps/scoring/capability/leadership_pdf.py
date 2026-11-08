@@ -52,13 +52,15 @@ def render_leadership_pdf(view):
     pdf.section('Overall capability result')
     panel_y = pdf.get_y()
     pdf.set_fill_color(235, 245, 245)
-    panel_height = 52 if view.get('documented_score') else 36
+    panel_height = 36 + (16 if view.get('documented_score') else 0) + (14 if view.get('digital_score') else 0)
     pdf.rect(16, panel_y, pdf.w - 32, panel_height, style='F')
     pdf.set_y(panel_y + 3)
     pdf.display(view['score'], 24)
     pdf.paragraph(view['score_explanation'])
     if view.get('documented_score'):
         pdf.paragraph(view['documented_score'] + '. ' + view['documented_explanation'])
+    if view.get('digital_score'):
+        pdf.paragraph(view['digital_score'] + '. ' + view['digital_explanation'])
     pdf.set_y(max(pdf.get_y(), panel_y + panel_height + 3))
     pdf.paragraph(view['evidence_summary'])
     pdf.paragraph(view['methodology_notice'])

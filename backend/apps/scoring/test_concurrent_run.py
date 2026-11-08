@@ -86,5 +86,6 @@ class PartJudgmentRunTests(APITransactionTestCase):
         self.assertEqual(records['AIQIF-C3.1.F1']['credit'], 0.5)
         self.assertTrue(all(r['credit'] == 1.0 for cid, r in records.items() if cid != 'AIQIF-C3.1.F1'))
         result = assessment['result']
+        self.assertEqual(result['documented_with_digital'], result['documented'])  # no digital-only findings
         self.assertGreater(result['documented']['overall'], result['lower'])
         self.assertLessEqual(result['documented']['overall'], result['upper'])

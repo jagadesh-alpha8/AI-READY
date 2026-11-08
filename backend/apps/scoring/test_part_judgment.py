@@ -81,7 +81,7 @@ class JudgeTests(SimpleTestCase):
     def test_unverifiable_quote_counts_as_not_found(self):
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER),
                                           'p2': part('full', 'An invented passage that is not on the page at all.')})))['F2']
-        self.assertEqual((r['state'], r['credit']), ('unknown', 0.0))  # only the subject is evidenced
+        self.assertEqual((r['state'], r['credit']), ('unknown', 0.5))  # a fully evidenced subject earns its share
         self.assertEqual([p['finding'] for p in r['parts']], ['full', 'not_found'])
         self.assertTrue(r['part_issues'])
 
@@ -92,7 +92,19 @@ class JudgeTests(SimpleTestCase):
 
     def test_contradicted_part_is_not_met(self):
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('contradicted', QUOTE_OWNER)})))['F2']
-        self.assertEqual((r['state'], r['credit']), ('not_met', 0.0))
+        self.assertEqual((r['state'], r['credit']), ('not_met', 0.5))
+
+    def test_related_subject_alone_earns_nothing(self):
+        r = judged(response(F2=condition({'p1': part('related', QUOTE_OWNER), 'p2': part('not_found')})))['F2']
+        self.assertEqual(r['credit'], 0.0)
+
+    def test_digital_system_on_an_ai_part_is_groundwork_not_ai_credit(self):
+        r = judged(response(A1=condition({'p1': part('digital_only', QUOTE_PLAN), 'p2': part('full', QUOTE_PLAN),
+                                          'p3': part('full', QUOTE_PLAN)})))['A1']
+        self.assertEqual((r['state'], r['credit'], r['digital_credit']), ('unknown', 0.0, 1.0))
+        # On a part that does not ask for AI, "digital only" is just related evidence.
+        r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('digital_only', QUOTE_OWNER)})))['F2']
+        self.assertEqual((r['credit'], r['digital_credit']), (0.75, 0.75))
 
     def test_missing_condition_is_unknown_with_no_credit(self):
         resp = response()
@@ -113,7 +125,7 @@ class CombineTests(SimpleTestCase):
         f2 = next(r for r in combined if r['condition_id'].endswith('F2'))
         self.assertEqual(f2['state'], 'unknown')
         self.assertEqual(f2['cause'], 'assessor_disagreement')
-        self.assertEqual(f2['credit'], 0.5)  # (1 + 0) / 2: the second pass found only the subject
+        self.assertEqual(f2['credit'], 0.75)  # (1 + 0.5) / 2
         self.assertEqual(disagreements, [{'condition_id': 'AIQIF-C1.1.F2', 'first': 'met', 'second': 'unknown'}])
 
     def test_identical_passes_are_unchanged(self):
@@ -207,13 +219,16 @@ class ReportTests(SimpleTestCase):
         rubric = release()
         credits = {'AIQIF-C6.1.F1': 1, 'AIQIF-C6.1.F2': 0.5}
         report['assessment']['result']['documented'] = documented(credits, rubric)
+        report['assessment']['result']['documented_with_digital'] = documented({**credits, 'AIQIF-C1.1.A1': 1}, rubric)
         view = build_report_view(report, actions)
         self.assertTrue(view['documented_score'].startswith('Documented readiness'))
+        self.assertTrue(view['digital_score'].startswith('Including digital groundwork'))
         self.assertIn('documented_score', view['pillars'][0])
         html = render_to_string('scoring/leadership_report.html', {'view': view, 'report': report})
         self.assertIn('Documented readiness', html)
         text = ''.join(page.get_text() for page in pymupdf.open(stream=render_leadership_pdf(view), filetype='pdf'))
         self.assertIn('Documented readiness', text)
+        self.assertIn('digital groundwork', text)
 
     def test_reports_without_part_judgment_are_unchanged(self):
         from apps.scoring.capability.report_projection import build_report_view
