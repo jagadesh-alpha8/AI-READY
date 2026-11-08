@@ -26,7 +26,8 @@ TEXT_FORMAT = 'text-by-hash-v1'
 
 
 def text_hash(text):
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+    # surrogatepass: a lone surrogate from a damaged PDF must hash, not raise; inline inputs accepted it.
+    return hashlib.sha256(text.encode('utf-8', 'surrogatepass')).hexdigest()
 
 
 def store_texts(sources):
@@ -37,7 +38,8 @@ def store_texts(sources):
     keys = list(texts)
     for start in range(0, len(keys), 500):
         existing.update(FrozenText.objects.filter(text_hash__in=keys[start:start + 500]).values_list('text_hash', flat=True))
-    FrozenText.objects.bulk_create([FrozenText(text_hash=h, text=t) for h, t in texts.items() if h not in existing],
+    FrozenText.objects.bulk_create([FrozenText(text_hash=h, text_json=json.dumps(t)) for h, t in texts.items()
+                                    if h not in existing],
                                    batch_size=500, ignore_conflicts=True)
     return [{**{k: v for k, v in s.items() if k != 'text'}, 'text_hash': text_hash(s['text'])} for s in sources]
 
@@ -56,7 +58,8 @@ def frozen_sources(run):
     wanted = list({s['text_hash'] for s in run.inputs['sources']})
     texts = {}
     for start in range(0, len(wanted), 500):
-        texts.update(FrozenText.objects.filter(text_hash__in=wanted[start:start + 500]).values_list('text_hash', 'text'))
+        texts.update((h, json.loads(t)) for h, t in
+                     FrozenText.objects.filter(text_hash__in=wanted[start:start + 500]).values_list('text_hash', 'text_json'))
     sources = []
     for source in run.inputs['sources']:
         text = texts.get(source['text_hash'])

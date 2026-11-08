@@ -285,7 +285,9 @@ class FrozenText(models.Model):
     storage.frozen_sources() reads the text back and refuses any row whose text no longer matches its hash.
     Insert-only: a row is never changed or deleted, so every run that names a hash can always be replayed."""
     text_hash = models.CharField(max_length=64, primary_key=True)
-    text = models.TextField()
+    #: The text as a JSON string (ASCII, escaped). Inline run inputs were JSON too, so text with a NUL or a lone
+    #: surrogate from a damaged PDF stores exactly as it did before, on SQLite and PostgreSQL alike.
+    text_json = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):

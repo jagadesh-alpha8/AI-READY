@@ -47,14 +47,21 @@ class FrozenTextTests(TestCase):
     def test_altered_or_missing_text_is_refused(self):
         run = self.run_with(True)
         row = FrozenText.objects.get(text_hash=run.inputs['sources'][0]['text_hash'])
-        FrozenText.objects.filter(pk=row.pk).update(text=row.text + ' altered')
+        FrozenText.objects.filter(pk=row.pk).update(text_json=json.dumps(json.loads(row.text_json) + ' altered'))
         with self.assertRaises(ValueError):
             frozen_sources(CapabilityRun.objects.get(pk=run.pk))
         with self.assertRaises(ValueError):
-            row.text = 'x'
+            row.text_json = '"x"'
             row.save()
         with self.assertRaises(ValueError):
             row.delete()
+
+    def test_damaged_pdf_characters_store_and_read_back(self):
+        from apps.scoring.capability.storage import store_texts
+        odd = 'Table\x00cell \ud800 broken glyph'
+        hashed = store_texts([{'id': 'x', 'document_id': 'd', 'page_number': 1, 'text': odd}])
+        stored = FrozenText.objects.get(text_hash=hashed[0]['text_hash'])
+        self.assertEqual(json.loads(stored.text_json), odd)
 
     def test_hash_is_of_the_exact_text(self):
         self.assertEqual(text_hash('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
