@@ -837,6 +837,9 @@ CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '
 # not found get one more search with the part's own description; only those conditions are judged again, and
 # the second judgment can only add credit. Needs hybrid retrieval and CAPABILITY_JUDGMENT=parts. Adds up to one
 # request per indicator per pass, so CAPABILITY_MAX_HTTP_CALLS must allow it (150 with two passes).
+# With two agreement passes: conditions the passes disagree on get a third judgment (only those, one request per
+# indicator) and the majority state stands. The same decisions as a full three-pass vote, at a fraction of the cost.
+CAPABILITY_TIE_BREAK = os.getenv('CAPABILITY_TIE_BREAK', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 CAPABILITY_FOLLOW_UP_SEARCH = os.getenv('CAPABILITY_FOLLOW_UP_SEARCH', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
 # every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.

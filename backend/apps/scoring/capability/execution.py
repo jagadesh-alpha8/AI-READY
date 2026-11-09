@@ -59,7 +59,9 @@ def policy(stage='assessment'):
     # The targeted extra search adds up to one request per indicator per pass (36 or 72).
     # The call setting is shared by both stages, so its ceiling rises for both; the floor applies to assessment.
     follow_up = bool(getattr(settings, 'CAPABILITY_FOLLOW_UP_SEARCH', False))
-    call_limit = 216 if follow_up else 108
+    # A tie-break pass adds at most one request per indicator (36), only where the two passes disagree.
+    tie_break = bool(getattr(settings, 'CAPABILITY_TIE_BREAK', False))
+    call_limit = 108 + (108 if follow_up else 0) + (36 if tie_break else 0)
     call_floor = 74 if passes == 2 else 1
     if follow_up and stage == 'assessment':
         call_floor = 146 if passes == 2 else 74
@@ -84,12 +86,13 @@ def policy(stage='assessment'):
             or type(input_limit) is not int or not 4096 <= input_limit <= 1000000
             or type(duration) is not int or not 1 <= duration <= 21600
             or effort not in {'default', 'minimal', 'low', 'medium', 'high'}
-            or passes not in (1, 2)
+            or passes not in (1, 2) or (tie_break and passes != 2)
             or type(concurrency) is not int or not 1 <= concurrency <= 8
             or judgment not in ('conditions', 'parts')):
         raise AssessmentDisabled('Assessment budget configuration is invalid.')
     return {'request_policy_version': 'bounded-stage-1', 'stage': stage, 'input_token_bound_limit': input_limit, 'max_duration_seconds': duration,
             'gemini_reasoning_effort': effort, 'response_recovery_requests': 2, 'agreement_passes': passes, 'indicator_concurrency': concurrency,
+            **({'tie_break': 'majority-of-three-v1'} if tie_break and stage == 'assessment' else {}),
             **({'judgment': 'parts', **_parts_metadata()} if judgment == 'parts' else {}),
             'prompt_version': PROMPT_VERSION, 'prompt_hash': digest(SYSTEM_PROMPT),
             'schema_hash': digest(DECISION_SCHEMA), 'max_http_calls': calls, 'max_cost_usd': str(cost), 'output_tokens': output,

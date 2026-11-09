@@ -560,11 +560,16 @@ AGREEMENT_REASON = ('Two independent assessments of the same evidence disagreed 
 
 
 def _agreement_pass(indicator, validated, *, service, payload, schema_sources, context, sources, reviewed_evidence,
-                    strict_errors, recover_provider_errors):
+                    strict_errors, recover_provider_errors, tie_break=False):
     """Assess the same frozen packet once more; a state the two passes do not share becomes unknown for review.
 
     The second pass never adds credit: agreement keeps the first pass's validated record and citations. A second
-    response that fails validation for a requirement leaves the first record unchanged (no third request)."""
+    response that fails validation for a requirement leaves the first record unchanged.
+
+    With tie_break, conditions the two passes disagree on are assessed a third time (only those conditions, in one
+    request) and the majority state stands, with the record and citations of the first pass that holds it. That is
+    the same decision a full three-pass majority vote would reach, because a third pass cannot change a state the
+    first two share. No majority, or an unusable third answer, leaves the condition unknown as before."""
     from .decision_causes import ASSESSOR_DISAGREEMENT
     from .evidence_parts import APPROVAL_MISSING
     from .request_recovery import request_with_split, recoverable_failure
@@ -581,23 +586,62 @@ def _agreement_pass(indicator, validated, *, service, payload, schema_sources, c
         return validated, {'passes': 2, 'error': f'Second pass failed ({type(exc).__name__}); first pass kept.'}
     rechecked = validate_decisions(indicator, second, context, reviewed_evidence=reviewed_evidence, edition_sources=sources)
     by_id = {r['condition_id']: r for r in rechecked}
+    usable = lambda record, errs: record is not None and record['condition_id'] not in errs and not (
+        record.get('validation_issue') and record['validation_issue'] != APPROVAL_MISSING)
     disagreements, unusable = [], []
     for record in validated:
         other = by_id.get(record['condition_id'])
-        if other is None or record['condition_id'] in errors or (
-                other.get('validation_issue') and other['validation_issue'] != APPROVAL_MISSING):
+        if not usable(other, errors):
             unusable.append(record['condition_id'])
             continue
         if other['state'] != record['state']:
             disagreements.append({'condition_id': record['condition_id'],
                                   'first': {k: record.get(k) for k in ('state', 'reason', 'citations')},
                                   'second': {k: other.get(k) for k in ('state', 'reason', 'citations')}})
+    audit = {'passes': 2, 'disagreements': disagreements, 'second_pass_unusable': unusable,
+             'second_response_recovery': recovery, 'second_response_audit': response_audit(indicator, second, rechecked)}
+    third = {}
+    if tie_break and disagreements:
+        wanted = {d['condition_id'] for d in disagreements}
+        group = [c for c in indicator['conditions'] if c['id'] in wanted]
+        subset = {**indicator, 'conditions': group}
+        try:
+            answer, third_recovery, third_errors = request_with_split(
+                service=service, items=group, identity=lambda item: item['id'],
+                payload_for=lambda part: {**data, 'indicator': {**indicator, 'conditions': part}},
+                schema_for=lambda part: indicator_schema({**indicator, 'conditions': part}, schema_sources),
+                rows_for=decision_rows, prompt=SYSTEM_PROMPT, name='capability_conditions', result_key='conditions')
+            judged = validate_decisions(subset, answer, context, reviewed_evidence=reviewed_evidence, edition_sources=sources)
+            third = {r['condition_id']: r for r in judged if usable(r, third_errors)}
+            audit['tie_break'] = {'conditions': sorted(wanted), 'usable': sorted(third), 'recovery': third_recovery}
+        except Exception as exc:
+            if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
+                raise
+            audit['tie_break'] = {'conditions': sorted(wanted), 'error': f'Third pass failed ({type(exc).__name__}).'}
+        audit['passes'] = 3
+    disagreed = {d['condition_id']: d for d in disagreements}
+    resolved = []
+    for n, record in enumerate(validated):
+        cid = record['condition_id']
+        if cid not in disagreed:
+            continue
+        other, deciding = by_id[cid], third.get(cid)
+        if deciding is not None and deciding['state'] == record['state']:
+            disagreed[cid]['third'] = deciding['state']
+            resolved.append(cid)
+        elif deciding is not None and deciding['state'] == other['state']:
+            disagreed[cid]['third'] = deciding['state']
+            validated[n] = {**other, 'agreement': 'second and third passes'}
+            resolved.append(cid)
+        else:
+            if deciding is not None:
+                disagreed[cid]['third'] = deciding['state']
             record.update(state='unknown', citations=[], scope_supported=False, period_supported=False,
                           reason=AGREEMENT_REASON.format(first=record['state'], second=other['state']),
                           cause=ASSESSOR_DISAGREEMENT)
-    return validated, {'passes': 2, 'disagreements': disagreements, 'second_pass_unusable': unusable,
-                       'second_response_recovery': recovery,
-                       'second_response_audit': response_audit(indicator, second, rechecked)}
+    if tie_break and disagreements:
+        audit['tie_break']['resolved'] = resolved
+    return validated, audit
 
 
 def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope,
@@ -638,7 +682,7 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
 
 
 def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, strict_errors, recover_provider_errors,
-                 agreement_passes, follow_up=None):
+                 agreement_passes, follow_up=None, tie_break=False):
     """Part-level judgment (part_judgment.py): request(s) with split, part validation, part-level agreement.
 
     No correction call: a part whose quotation fails validation counts as not found."""
@@ -686,9 +730,16 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
         else:
             rechecked = part_judgment.judge_rows(indicator, part_judgment.rows(second), context,
                                                  reviewed_evidence=reviewed_evidence, sources=sources)
-            validated, disagreements = part_judgment.combine(validated, rechecked)
+            first_pass = validated
+            validated, disagreements = part_judgment.combine(first_pass, rechecked)
             agreement_audit = {'passes': 2, 'disagreements': disagreements, 'second_response_recovery': second_recovery,
                                'second_response_audit': response_audit(indicator, {'conditions': rechecked}, rechecked)}
+            if tie_break and disagreements:
+                validated, agreement_audit['tie_break'] = _part_tie_break(
+                    indicator, first_pass, rechecked, validated, disagreements, one_pass, context=context,
+                    reviewed_evidence=reviewed_evidence, sources=sources, strict_errors=strict_errors,
+                    recover_provider_errors=recover_provider_errors)
+                agreement_audit['passes'] = 3
     follow_up_audit, sent = None, context
     agreed = agreement_passes == 1 or (agreement_audit is not None and 'error' not in agreement_audit)
     if follow_up is not None and attempted and not issue and not processing_errors and agreed:
@@ -705,6 +756,46 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
             'recovery_audit': recovery_audit, 'processing_errors': processing_errors, 'initial_audit': None,
             'correction_audit': None, 'agreement_audit': agreement_audit, 'issue': issue, 'attempted': attempted,
             'repaired_call': False, 'unavailable': unavailable, 'context': sent, 'follow_up_audit': follow_up_audit}
+
+
+def _part_tie_break(indicator, first, second, combined, disagreements, one_pass, *, context, reviewed_evidence, sources,
+                    strict_errors, recover_provider_errors):
+    """Third pass for the conditions the two part passes disagree on; the two passes that share a state are
+    combined as usual (mean credit). The same decision as a three-pass majority vote. No majority keeps the
+    disagreement (unknown, mean credit of the first two)."""
+    from . import part_judgment
+    from .request_recovery import recoverable_failure
+    wanted = {d['condition_id'] for d in disagreements}
+    group = [c for c in indicator['conditions'] if c['id'] in wanted]
+    audit = {'conditions': sorted(wanted)}
+    try:
+        answer, recovery, errors = one_pass(group)
+    except Exception as exc:
+        if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
+            raise
+        audit['error'] = f'Third pass failed ({type(exc).__name__}).'
+        return combined, audit
+    audit['recovery'] = recovery
+    third = {r['condition_id']: r for r in part_judgment.judge_rows(
+        {**indicator, 'conditions': group}, part_judgment.rows(answer), context,
+        reviewed_evidence=reviewed_evidence, sources=sources) if r['condition_id'] not in errors}
+    by_first = {r['condition_id']: r for r in first}
+    by_second = {r['condition_id']: r for r in second}
+    resolved, out = [], []
+    for record in combined:
+        cid = record['condition_id']
+        deciding = third.get(cid)
+        if cid in wanted and deciding is not None:
+            for pair in (by_first[cid], by_second[cid]):
+                if pair['state'] == deciding['state']:
+                    merged, _ = part_judgment.combine([pair], [deciding])
+                    record = {**merged[0], 'agreement': 'majority of three passes'}
+                    resolved.append(cid)
+                    break
+        out.append(record)
+    audit['resolved'] = resolved
+    audit['third_states'] = {cid: r['state'] for cid, r in third.items()}
+    return out, audit
 
 
 def _follow_up(job, validated, one_pass, *, follow_up, sources, reviewed_evidence, agreement_passes, strict_errors,
@@ -755,12 +846,12 @@ def _follow_up(job, validated, one_pass, *, follow_up, sources, reviewed_evidenc
 
 
 def _judge(job, attempted, issue, *, service, sources, reviewed_evidence, strict_errors, recover_provider_errors,
-           agreement_passes, judgment='conditions', follow_up=None):
+           agreement_passes, judgment='conditions', follow_up=None, tie_break=False):
     """Model work for one prepared indicator: request (with split), validation, one correction, agreement pass."""
     if judgment == 'parts':
         return _judge_parts(job, attempted, issue, service=service, sources=sources, reviewed_evidence=reviewed_evidence,
                             strict_errors=strict_errors, recover_provider_errors=recover_provider_errors,
-                            agreement_passes=agreement_passes, follow_up=follow_up)
+                            agreement_passes=agreement_passes, follow_up=follow_up, tie_break=tie_break)
     from .request_recovery import request_with_split, recoverable_failure
     from .evidence_parts import APPROVAL_MISSING
     from .decision_causes import NOT_EVALUATED
@@ -820,7 +911,7 @@ def _judge(job, attempted, issue, *, service, sources, reviewed_evidence, strict
         validated, agreement_audit = _agreement_pass(
             indicator, validated, service=service, payload=payload, schema_sources=schema_sources,
             context=context, sources=sources, reviewed_evidence=reviewed_evidence,
-            strict_errors=strict_errors, recover_provider_errors=recover_provider_errors)
+            strict_errors=strict_errors, recover_provider_errors=recover_provider_errors, tie_break=tie_break)
     unavailable = attempted and (issue.startswith('Model evaluation failed') or bool(
         processing_errors and len(processing_errors) == len(indicator['conditions'])))
     if issue:
@@ -865,13 +956,15 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources):
             'error': outcome['issue']}
 
 
-def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions'):
+def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions', tie_break=False):
     """Assess every indicator. Packets are built in rubric order; with concurrency > 1 the model work for up to
     that many indicators runs at once. Records, traces and on_indicator calls stay in rubric order, so results
     do not depend on concurrency; only request numbering in the billing ledger interleaves."""
     rubric = rubric or release()
     if agreement_passes not in (1, 2):
         raise ValueError('agreement_passes must be 1 or 2.')
+    if tie_break and agreement_passes != 2:
+        raise ValueError('A tie-break pass needs two agreement passes.')
     if type(concurrency) is not int or not 1 <= concurrency <= 8:
         raise ValueError('concurrency must be an integer from 1 to 8.')
     if not population.strip() or not reference_period.strip():
@@ -891,7 +984,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
         from . import part_judgment
         part_judgment.specification(rubric)
     judge = dict(service=service, sources=sources, reviewed_evidence=reviewed_evidence, strict_errors=strict_errors,
-                 recover_provider_errors=recover_provider_errors, agreement_passes=agreement_passes, judgment=judgment)
+                 recover_provider_errors=recover_provider_errors, agreement_passes=agreement_passes, judgment=judgment,
+                 tie_break=tie_break)
     structure = None
     frozen_policy = retrieval_policy or {}
     state = {'calls': 0, 'repairs': 0, 'streak': 0, 'follow_up_calls': 0}
