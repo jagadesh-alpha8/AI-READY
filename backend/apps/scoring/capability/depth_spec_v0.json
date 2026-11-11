@@ -1,0 +1,3921 @@
+{
+ "version": "AIQIF-DEPTH-0",
+ "rubric_version": "AIQIF-CAP-0.3",
+ "status": "draft-model-written",
+ "questions_per_condition": {
+  "standard": 2,
+  "moderate": 3,
+  "open": 4
+ },
+ "indicators": {
+  "AIQIF-C1.1": {
+   "name": "Digital and AI Strategy Readiness",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "authority",
+     "name": "Formal standing",
+     "ask": "Which body approved or adopted it, and when?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "investment",
+     "name": "Investment",
+     "ask": "What was spent or allocated: money, staff time, equipment?"
+    },
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "targets",
+     "name": "Targets",
+     "ask": "Does the plan set dated, measurable targets for the AI priority, or only state an intention?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "The AI priority sits in an adopted plan with a named owner, a stated budget or resource line and at least one dated target; delivery records show the initiative operating in a named function.",
+    "strong": "The plan is reviewed on a schedule; reviews record measured results against its targets and decisions to continue, expand or stop AI initiatives, and later records show the effect of those decisions."
+   },
+   "conditions": {
+    "AIQIF-C1.1.F1": {
+     "assertion": "An approved institutional plan identifies a digital or AI priority.",
+     "evidence_forms": [
+      "strategic or perspective plan",
+      "institutional development plan",
+      "IQAC or governing-body minutes"
+     ],
+     "dimensions": [
+      "authority",
+      "ai_specificity",
+      "targets"
+     ]
+    },
+    "AIQIF-C1.1.F2": {
+     "assertion": "A responsible owner is assigned to that priority.",
+     "evidence_forms": [
+      "plan section naming a responsible office",
+      "an institutional circular or office order",
+      "IQAC or governing-body minutes"
+     ],
+     "dimensions": [
+      "owner",
+      "authority"
+     ]
+    },
+    "AIQIF-C1.1.A1": {
+     "assertion": "Delivery records demonstrate an AI initiative operating in an identified institutional function.",
+     "evidence_forms": [
+      "deployment report or go-live note",
+      "usage summary for an AI system",
+      "AQAR or NAAC self-study report narrative"
+     ],
+     "dimensions": [
+      "ai_specificity",
+      "scope",
+      "investment"
+     ]
+    },
+    "AIQIF-C1.1.A2": {
+     "assertion": "A portfolio review records a decision about an AI initiative.",
+     "evidence_forms": [
+      "portfolio or project review minutes",
+      "IQAC or governing-body minutes"
+     ],
+     "dimensions": [
+      "authority",
+      "action"
+     ]
+    },
+    "AIQIF-C1.1.O1": {
+     "assertion": "A completed portfolio review compares a measured result with its stated objective.",
+     "evidence_forms": [
+      "annual plan review against targets",
+      "AQAR outcome section"
+     ],
+     "dimensions": [
+      "measurement",
+      "result",
+      "targets"
+     ]
+    },
+    "AIQIF-C1.1.O2": {
+     "assertion": "A subsequent record evaluates the effect of a portfolio decision.",
+     "evidence_forms": [
+      "later review assessing an earlier decision",
+      "IQAC or governing-body minutes"
+     ],
+     "dimensions": [
+      "result",
+      "action"
+     ]
+    }
+   }
+  },
+  "AIQIF-C1.2": {
+   "name": "AI Governance & Accountability",
+   "openness": "standard",
+   "dimensions": [
+    {
+     "id": "authority",
+     "name": "Formal standing",
+     "ask": "Which body approved or adopted it, and when?"
+    },
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "independence",
+     "name": "Independence",
+     "ask": "Who carried out the review or check, and were they separate from the people who delivered the work?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A constituted body with written terms of reference covering AI or digital decisions meets on a schedule, and its minutes show at least one dated decision about an actual AI use.",
+    "strong": "Decisions are tracked to completion, the body reviews its own performance against incidents or delivery results, and revised rules are checked for implementation."
+   },
+   "conditions": {
+    "AIQIF-C1.2.F1": {
+     "assertion": "An institutional body has authority over relevant digital or AI decisions.",
+     "evidence_forms": [
+      "terms of reference of a committee or cell",
+      "an institutional circular or office order",
+      "IQAC or governing-body minutes"
+     ],
+     "dimensions": [
+      "authority",
+      "ai_specificity"
+     ]
+    },
+    "AIQIF-C1.2.F2": {
+     "assertion": "An escalation route is defined for those decisions.",
+     "evidence_forms": [
+      "governance or delegation document",
+      "escalation matrix"
+     ],
+     "dimensions": [
+      "owner",
+      "authority"
+     ]
+    },
+    "AIQIF-C1.2.A1": {
+     "assertion": "A dated governance decision concerns an actual AI use.",
+     "evidence_forms": [
+      "committee minutes with a dated decision",
+      "IQAC or governing-body minutes"
+     ],
+     "dimensions": [
+      "ai_specificity",
+      "proof"
+     ]
+    },
+    "AIQIF-C1.2.A2": {
+     "assertion": "An assigned governance action has a recorded follow-up.",
+     "evidence_forms": [
+      "action-taken report",
+      "minutes of a later meeting"
+     ],
+     "dimensions": [
+      "action",
+      "proof"
+     ]
+    },
+    "AIQIF-C1.2.O1": {
+     "assertion": "A review evaluates governance performance using an identified incident or delivery result.",
+     "evidence_forms": [
+      "governance review report",
+      "IQAC annual review"
+     ],
+     "dimensions": [
+      "independence",
+      "result"
+     ]
+    },
+    "AIQIF-C1.2.O2": {
+     "assertion": "A follow-up checks implementation of a revised governance rule.",
+     "evidence_forms": [
+      "follow-up audit or action-taken report"
+     ],
+     "dimensions": [
+      "action",
+      "proof"
+     ]
+    }
+   }
+  },
+  "AIQIF-C1.3": {
+   "name": "AI Investment & Resource Planning",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "investment",
+     "name": "Investment",
+     "ask": "What was spent or allocated: money, staff time, equipment?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "authority",
+     "name": "Formal standing",
+     "ask": "Which body approved or adopted it, and when?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A dated budget or resource commitment names its amount, its intended users and what it buys for computing, teaching or innovation, approved by a named body.",
+    "strong": "Commitments recur across years, are compared with documented needs, and a later review reports the capacity or benefit delivered against the cost."
+   },
+   "conditions": {
+    "AIQIF-C1.3.F1": {
+     "assertion": "A resource commitment supports relevant computing, teaching or innovation capacity.",
+     "evidence_forms": [
+      "budget statement or finance committee minutes",
+      "purchase order or grant sanction",
+      "AQAR or NAAC self-study report narrative"
+     ],
+     "dimensions": [
+      "investment",
+      "ai_specificity",
+      "authority"
+     ]
+    },
+    "AIQIF-C1.3.F2": {
+     "assertion": "An allocation decision identifies the intended beneficiary group or function.",
+     "evidence_forms": [
+      "allocation note naming beneficiaries",
+      "finance committee minutes"
+     ],
+     "dimensions": [
+      "coverage",
+      "investment"
+     ]
+    },
+    "AIQIF-C1.3.A1": {
+     "assertion": "A review compares committed resources with an identified delivery need.",
+     "evidence_forms": [
+      "needs assessment or gap analysis",
+      "budget review minutes"
+     ],
+     "dimensions": [
+      "measurement",
+      "investment"
+     ]
+    },
+    "AIQIF-C1.3.A2": {
+     "assertion": "A resource decision responds to a documented capacity shortfall.",
+     "evidence_forms": [
+      "capacity shortfall report and resulting sanction"
+     ],
+     "dimensions": [
+      "investment",
+      "action"
+     ]
+    },
+    "AIQIF-C1.3.O1": {
+     "assertion": "A completed review compares a stated resource cost with a measured benefit or capacity result.",
+     "evidence_forms": [
+      "utilisation or outcome report for a purchase or grant"
+     ],
+     "dimensions": [
+      "result",
+      "measurement"
+     ]
+    },
+    "AIQIF-C1.3.O2": {
+     "assertion": "A follow-up evaluates the effect of a resource allocation change.",
+     "evidence_forms": [
+      "later review of a reallocation"
+     ],
+     "dimensions": [
+      "result",
+      "action"
+     ]
+    }
+   }
+  },
+  "AIQIF-C1.4": {
+   "name": "AI Adoption, Change & Institutional Alignment",
+   "openness": "open",
+   "dimensions": [
+    {
+     "id": "usage",
+     "name": "Usage",
+     "ask": "How often is it used, by how many people, over what period?"
+    },
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A defined introduction process and support contact exist, and usage records show repeated use of the service or tool by a stated group over a stated period.",
+    "strong": "Adoption is measured against an explicit target across most of the intended users, barriers are documented and addressed, and the effect of changes is checked."
+   },
+   "conditions": {
+    "AIQIF-C1.4.F1": {
+     "assertion": "A process exists for introducing a digital service or teaching tool.",
+     "evidence_forms": [
+      "SOP for introducing a tool or service",
+      "an institutional circular or office order"
+     ],
+     "dimensions": [
+      "owner",
+      "scope"
+     ]
+    },
+    "AIQIF-C1.4.F2": {
+     "assertion": "Users have an identified support contact for that service or tool.",
+     "evidence_forms": [
+      "help-desk or support contact notice",
+      "user guide"
+     ],
+     "dimensions": [
+      "owner",
+      "coverage"
+     ]
+    },
+    "AIQIF-C1.4.A1": {
+     "assertion": "Usage records demonstrate repeated use within an identified deployment scope.",
+     "evidence_forms": [
+      "LMS or platform usage report",
+      "login or activity statistics"
+     ],
+     "dimensions": [
+      "usage",
+      "coverage",
+      "continuity"
+     ]
+    },
+    "AIQIF-C1.4.A2": {
+     "assertion": "A support action responds to a documented adoption barrier.",
+     "evidence_forms": [
+      "support ticket summary with response",
+      "training held in response to a barrier"
+     ],
+     "dimensions": [
+      "action",
+      "proof"
+     ]
+    },
+    "AIQIF-C1.4.O1": {
+     "assertion": "A completed review compares adoption with an explicit target.",
+     "evidence_forms": [
+      "adoption review against a target"
+     ],
+     "dimensions": [
+      "measurement",
+      "result"
+     ]
+    },
+    "AIQIF-C1.4.O2": {
+     "assertion": "A follow-up evaluates an adoption or user-experience change.",
+     "evidence_forms": [
+      "later review of a change to the tool or its support"
+     ],
+     "dimensions": [
+      "result",
+      "action"
+     ]
+    }
+   }
+  },
+  "AIQIF-C2.1": {
+   "name": "Responsible AI Policy & Principles",
+   "openness": "standard",
+   "dimensions": [
+    {
+     "id": "authority",
+     "name": "Formal standing",
+     "ask": "Which body approved or adopted it, and when?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "recency",
+     "name": "Recency",
+     "ask": "When did it happen, and is it still in force or running?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "An approved, dated policy addresses AI use explicitly, states at least one restriction, and applies to named groups (students, faculty, staff).",
+    "strong": "The policy is applied in onboarding or deployment checks, exceptions are reviewed and recorded, and the policy is revised after incidents or assurance findings."
+   },
+   "conditions": {
+    "AIQIF-C2.1.F1": {
+     "assertion": "Effective institutional guidance explicitly addresses AI use.",
+     "evidence_forms": [
+      "AI use policy or guidelines",
+      "academic integrity policy with an AI section",
+      "an institutional circular or office order"
+     ],
+     "dimensions": [
+      "authority",
+      "ai_specificity",
+      "recency"
+     ]
+    },
+    "AIQIF-C2.1.F2": {
+     "assertion": "The guidance defines a restriction on unsafe or inappropriate AI use.",
+     "evidence_forms": [
+      "policy clause listing prohibited or restricted uses"
+     ],
+     "dimensions": [
+      "ai_specificity",
+      "scope"
+     ]
+    },
+    "AIQIF-C2.1.A1": {
+     "assertion": "A deployment or onboarding check applies an AI policy requirement.",
+     "evidence_forms": [
+      "deployment checklist or onboarding form"
+     ],
+     "dimensions": [
+      "proof",
+      "scope"
+     ]
+    },
+    "AIQIF-C2.1.A2": {
+     "assertion": "A sampled-use review records the disposition of a policy exception.",
+     "evidence_forms": [
+      "exception register or sampled-use review"
+     ],
+     "dimensions": [
+      "proof",
+      "action"
+     ]
+    },
+    "AIQIF-C2.1.O1": {
+     "assertion": "A policy review evaluates an identified incident or assurance finding.",
+     "evidence_forms": [
+      "policy review minutes citing an incident or finding"
+     ],
+     "dimensions": [
+      "action",
+      "proof"
+     ]
+    },
+    "AIQIF-C2.1.O2": {
+     "assertion": "A follow-up tests the effect of a revised responsible-use control.",
+     "evidence_forms": [
+      "follow-up review of a revised control"
+     ],
+     "dimensions": [
+      "action",
+      "proof"
+     ]
+    }
+   }
+  },
+  "AIQIF-C2.2": {
+   "name": "AI Risk, Privacy & Security Governance",
+   "openness": "standard",
+   "dimensions": [
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "authority",
+     "name": "Formal standing",
+     "ask": "Which body approved or adopted it, and when?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "Data protection responsibility is assigned by name or role, an access-control procedure covers the relevant systems, and at least one deployed use has a dated risk assessment.",
+    "strong": "Risk decisions are recorded when access or suppliers change, reviews measure exposure against stated criteria, and remediations are tested afterwards."
+   },
+   "conditions": {
+    "AIQIF-C2.2.F1": {
+     "assertion": "Responsibility for personal or sensitive institutional data is assigned.",
+     "evidence_forms": [
+      "data protection or privacy policy naming an officer",
+      "an institutional circular or office order"
+     ],
+     "dimensions": [
+      "owner",
+      "authority"
+     ]
+    },
+    "AIQIF-C2.2.F2": {
+     "assertion": "An access-control procedure covers the relevant information system.",
+     "evidence_forms": [
+      "access-control SOP",
+      "IT policy section on user access"
+     ],
+     "dimensions": [
+      "scope",
+      "proof"
+     ]
+    },
+    "AIQIF-C2.2.A1": {
+     "assertion": "A risk assessment covers an identified deployed use.",
+     "evidence_forms": [
+      "risk assessment or data protection impact assessment"
+     ],
+     "dimensions": [
+      "ai_specificity",
+      "scope"
+     ]
+    },
+    "AIQIF-C2.2.A2": {
+     "assertion": "A recorded risk decision responds to an identified access or supplier change.",
+     "evidence_forms": [
+      "risk decision record for a vendor or access change"
+     ],
+     "dimensions": [
+      "proof",
+      "action"
+     ]
+    },
+    "AIQIF-C2.2.O1": {
+     "assertion": "A completed risk review compares exposure with a stated risk criterion.",
+     "evidence_forms": [
+      "risk review against a stated criterion"
+     ],
+     "dimensions": [
+      "measurement",
+      "proof"
+     ]
+    },
+    "AIQIF-C2.2.O2": {
+     "assertion": "A follow-up tests the effectiveness of an implemented remediation.",
+     "evidence_forms": [
+      "remediation test report"
+     ],
+     "dimensions": [
+      "action",
+      "proof"
+     ]
+    }
+   }
+  },
+  "AIQIF-C2.3": {
+   "name": "AI Model, Data & Lifecycle Governance",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "provenance",
+     "name": "Data provenance",
+     "ask": "Where does the data behind the AI service come from, and is that recorded for each change?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "An inventory lists the AI services in use with an owner for each, and at least one release or change has an evaluation record.",
+    "strong": "Changes record data provenance, releases are monitored against stated evaluation criteria, and a rollback or retirement has been exercised and its result recorded."
+   },
+   "conditions": {
+    "AIQIF-C2.3.F1": {
+     "assertion": "An inventory identifies the AI services in use within the assessed scope.",
+     "evidence_forms": [
+      "AI or software inventory",
+      "IT asset register"
+     ],
+     "dimensions": [
+      "scope",
+      "ai_specificity"
+     ]
+    },
+    "AIQIF-C2.3.F2": {
+     "assertion": "A responsible owner is assigned to each inventoried service.",
+     "evidence_forms": [
+      "inventory with owner column",
+      "an institutional circular or office order"
+     ],
+     "dimensions": [
+      "owner"
+     ]
+    },
+    "AIQIF-C2.3.A1": {
+     "assertion": "An evaluation record concerns an actual AI service release or change.",
+     "evidence_forms": [
+      "evaluation or test report for a release"
+     ],
+     "dimensions": [
+      "proof",
+      "measurement"
+     ]
+    },
+    "AIQIF-C2.3.A2": {
+     "assertion": "A change record identifies data provenance for that service.",
+     "evidence_forms": [
+      "change record or release note naming data sources"
+     ],
+     "dimensions": [
+      "provenance",
+      "proof"
+     ]
+    },
+    "AIQIF-C2.3.O1": {
+     "assertion": "A monitored release compares operational behaviour with a stated evaluation criterion.",
+     "evidence_forms": [
+      "monitoring report against an evaluation criterion"
+     ],
+     "dimensions": [
+      "measurement",
+      "continuity"
+     ]
+    },
+    "AIQIF-C2.3.O2": {
+     "assertion": "A rollback or retirement exercise records its observed result.",
+     "evidence_forms": [
+      "rollback or retirement record"
+     ],
+     "dimensions": [
+      "proof"
+     ]
+    }
+   }
+  },
+  "AIQIF-C2.4": {
+   "name": "Human Oversight, Ethics & AI Assurance",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "independence",
+     "name": "Independence",
+     "ask": "Who carried out the review or check, and were they separate from the people who delivered the work?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A consequential AI use (admissions, grading, proctoring, student support) has a defined human intervention route and an appeal route, and records show oversight actually exercised.",
+    "strong": "Assurance tests examine specified failure or fairness risks, an independent reviewer evaluates harms, and oversight changes are tested for effect."
+   },
+   "conditions": {
+    "AIQIF-C2.4.F1": {
+     "assertion": "A human intervention route is defined for an identified consequential AI use.",
+     "evidence_forms": [
+      "SOP naming a human review step for an AI use"
+     ],
+     "dimensions": [
+      "owner",
+      "ai_specificity"
+     ]
+    },
+    "AIQIF-C2.4.F2": {
+     "assertion": "Affected users have an error or appeal reporting route for that use.",
+     "evidence_forms": [
+      "grievance or appeal procedure covering the AI use"
+     ],
+     "dimensions": [
+      "scope",
+      "proof"
+     ]
+    },
+    "AIQIF-C2.4.A1": {
+     "assertion": "A record demonstrates human oversight of an actual consequential AI use.",
+     "evidence_forms": [
+      "override or review log",
+      "committee record of a reviewed AI decision"
+     ],
+     "dimensions": [
+      "proof",
+      "scope"
+     ]
+    },
+    "AIQIF-C2.4.A2": {
+     "assertion": "An assurance test examines a specified failure or fairness risk in that use.",
+     "evidence_forms": [
+      "fairness or failure test report"
+     ],
+     "dimensions": [
+      "measurement",
+      "proof"
+     ]
+    },
+    "AIQIF-C2.4.O1": {
+     "assertion": "A reviewer separate from the delivery decision evaluates an identified harm or oversight result.",
+     "evidence_forms": [
+      "independent review of an AI use"
+     ],
+     "dimensions": [
+      "independence",
+      "measurement"
+     ]
+    },
+    "AIQIF-C2.4.O2": {
+     "assertion": "A follow-up tests the effect of an oversight change.",
+     "evidence_forms": [
+      "follow-up test after an oversight change"
+     ],
+     "dimensions": [
+      "action",
+      "measurement"
+     ]
+    }
+   }
+  },
+  "AIQIF-C3.1": {
+   "name": "AI Curriculum Integration & Programme Design",
+   "openness": "standard",
+   "dimensions": [
+    {
+     "id": "authority",
+     "name": "Formal standing",
+     "ask": "Which body approved or adopted it, and when?"
+    },
+    {
+     "id": "content",
+     "name": "Content depth",
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+    },
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "intensity",
+     "name": "Intensity",
+     "ask": "How many hours, sessions or weeks did it run, per participant?"
+    },
+    {
+     "id": "recency",
+     "name": "Recency",
+     "ask": "When did it happen, and is it still in force or running?"
+    },
+    {
+     "id": "credits",
+     "name": "Credit weight",
+     "ask": "How many credits or contact hours does the AI content carry, and is it core or elective?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A syllabus approved by the Board of Studies or Academic Council includes AI or ML units with stated learning objectives, credits and contact hours, delivered to a named programme.",
+    "strong": "AI content is core (not only elective) in the relevant programmes, attainment is assessed against the AI objectives, and course reviews revise the content and check the effect."
+   },
+   "conditions": {
+    "AIQIF-C3.1.F1": {
+     "assertion": "An approved syllabus includes substantive AI or ML content.",
+     "evidence_forms": [
+      "approved syllabus or course structure",
+      "Board of Studies minutes"
+     ],
+     "dimensions": [
+      "authority",
+      "content",
+      "credits"
+     ]
+    },
+    "AIQIF-C3.1.F2": {
+     "assertion": "An explicit learning objective addresses that AI or ML content.",
+     "evidence_forms": [
+      "course outcomes (COs) in the syllabus"
+     ],
+     "dimensions": [
+      "content"
+     ]
+    },
+    "AIQIF-C3.1.A1": {
+     "assertion": "Teaching records demonstrate delivery of substantive AI content to an identified programme group.",
+     "evidence_forms": [
+      "timetable, lesson plan or course file",
+      "attendance register"
+     ],
+     "dimensions": [
+      "coverage",
+      "intensity",
+      "recency"
+     ]
+    },
+    "AIQIF-C3.1.A2": {
+     "assertion": "Assessed student work demonstrates attainment against an explicit AI learning criterion.",
+     "evidence_forms": [
+      "marked assessments or CO attainment sheet"
+     ],
+     "dimensions": [
+      "coverage",
+      "content"
+     ]
+    },
+    "AIQIF-C3.1.O1": {
+     "assertion": "A completed course review compares AI learning attainment with a stated objective.",
+     "evidence_forms": [
+      "course exit survey or CO-PO attainment review"
+     ],
+     "dimensions": [
+      "content",
+      "coverage"
+     ]
+    },
+    "AIQIF-C3.1.O2": {
+     "assertion": "A subsequent assessment evaluates the effect of a curriculum revision.",
+     "evidence_forms": [
+      "assessment results after a syllabus revision"
+     ],
+     "dimensions": [
+      "recency",
+      "content"
+     ]
+    }
+   }
+  },
+  "AIQIF-C3.2": {
+   "name": "AI Literacy Across Disciplines",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "intensity",
+     "name": "Intensity",
+     "ask": "How many hours, sessions or weeks did it run, per participant?"
+    },
+    {
+     "id": "content",
+     "name": "Content depth",
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A defined AI literacy offer (course, module or value-added programme) reaches learners in at least one discipline outside computing, with delivery records and stated hours.",
+    "strong": "The offer reaches most disciplines on a recurring basis, attainment is assessed per discipline, and gaps are targeted with support whose effect is measured."
+   },
+   "conditions": {
+    "AIQIF-C3.2.F1": {
+     "assertion": "An AI literacy learning offer is defined.",
+     "evidence_forms": [
+      "value-added or open elective course description",
+      "an institutional circular or office order"
+     ],
+     "dimensions": [
+      "content",
+      "intensity"
+     ]
+    },
+    "AIQIF-C3.2.F2": {
+     "assertion": "A delivery route makes that offer available to an identified learner group.",
+     "evidence_forms": [
+      "enrolment notice or elective list for a learner group"
+     ],
+     "dimensions": [
+      "scope",
+      "coverage"
+     ]
+    },
+    "AIQIF-C3.2.A1": {
+     "assertion": "Delivery records demonstrate an AI literacy activity for an identified discipline.",
+     "evidence_forms": [
+      "attendance or completion list for a discipline"
+     ],
+     "dimensions": [
+      "coverage",
+      "scope",
+      "continuity"
+     ]
+    },
+    "AIQIF-C3.2.A2": {
+     "assertion": "A support response addresses a documented discipline-specific access or learning gap.",
+     "evidence_forms": [
+      "remedial or bridge session record"
+     ],
+     "dimensions": [
+      "coverage",
+      "content"
+     ]
+    },
+    "AIQIF-C3.2.O1": {
+     "assertion": "An assessment reports AI literacy attainment for an identified discipline.",
+     "evidence_forms": [
+      "assessment results by discipline"
+     ],
+     "dimensions": [
+      "measurement",
+      "result"
+     ]
+    },
+    "AIQIF-C3.2.O2": {
+     "assertion": "A follow-up assessment evaluates the effect of targeted literacy support.",
+     "evidence_forms": [
+      "follow-up assessment after targeted support"
+     ],
+     "dimensions": [
+      "measurement",
+      "result"
+     ]
+    }
+   }
+  },
+  "AIQIF-C3.3": {
+   "name": "AI-Enabled Pedagogy & Assessment",
+   "openness": "open",
+   "dimensions": [
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "usage",
+     "name": "Usage",
+     "ask": "How often is it used, by how many people, over what period?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "content",
+     "name": "Content depth",
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "guidance",
+     "name": "Learner guidance",
+     "ask": "Are students told what AI use is acceptable for this activity, and how is that enforced?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A course design specifies an AI-supported learning or feedback activity, learners are told what AI use is acceptable, and course records show the activity used repeatedly.",
+    "strong": "The activity runs across several courses or semesters, assessment checks for inappropriate dependence on AI, and results are compared with a baseline and the design revised."
+   },
+   "conditions": {
+    "AIQIF-C3.3.F1": {
+     "assertion": "A course design specifies an AI-supported learning or feedback activity.",
+     "evidence_forms": [
+      "course plan or lesson plan describing the AI activity"
+     ],
+     "dimensions": [
+      "content",
+      "scope"
+     ]
+    },
+    "AIQIF-C3.3.F2": {
+     "assertion": "Learner instructions define acceptable AI use for that activity.",
+     "evidence_forms": [
+      "assignment brief or course policy on AI use"
+     ],
+     "dimensions": [
+      "guidance"
+     ]
+    },
+    "AIQIF-C3.3.A1": {
+     "assertion": "Course records demonstrate repeated use of an identified AI-supported learning activity.",
+     "evidence_forms": [
+      "LMS activity records",
+      "course file entries across sessions"
+     ],
+     "dimensions": [
+      "usage",
+      "continuity",
+      "scope"
+     ]
+    },
+    "AIQIF-C3.3.A2": {
+     "assertion": "An assessment check evaluates inappropriate dependence on AI in that activity.",
+     "evidence_forms": [
+      "assessment rubric or viva record checking AI dependence"
+     ],
+     "dimensions": [
+      "guidance",
+      "measurement"
+     ]
+    },
+    "AIQIF-C3.3.O1": {
+     "assertion": "A completed evaluation compares learning or feedback results with a stated baseline.",
+     "evidence_forms": [
+      "evaluation comparing results with a baseline"
+     ],
+     "dimensions": [
+      "measurement",
+      "result"
+     ]
+    },
+    "AIQIF-C3.3.O2": {
+     "assertion": "A follow-up evaluates the effect of a change to the AI-supported learning design.",
+     "evidence_forms": [
+      "later evaluation after a design change"
+     ],
+     "dimensions": [
+      "result",
+      "action"
+     ]
+    }
+   }
+  },
+  "AIQIF-C3.4": {
+   "name": "Experiential, Project & Applied AI Learning",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "content",
+     "name": "Content depth",
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "external",
+     "name": "External validation",
+     "ask": "Has anyone outside the institution (an accreditor, partner, funder, journal or client) reviewed or validated it?"
+    },
+    {
+     "id": "mentoring",
+     "name": "Mentoring",
+     "ask": "Who mentors the work, how often, and with what expertise?"
+    },
+    {
+     "id": "individual",
+     "name": "Individual contribution",
+     "ask": "How is each student's own contribution checked?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A project or lab route requires substantive AI work, mentors are assigned, and assessed projects show an implemented AI application for a named student group.",
+    "strong": "Individual contribution is moderated, projects are evaluated against an explicit capability criterion (ideally with external reviewers or real users), and mentoring changes are evaluated."
+   },
+   "conditions": {
+    "AIQIF-C3.4.F1": {
+     "assertion": "A student project or lab route includes substantive AI work.",
+     "evidence_forms": [
+      "project or lab course description",
+      "list of AI project titles"
+     ],
+     "dimensions": [
+      "content",
+      "coverage"
+     ]
+    },
+    "AIQIF-C3.4.F2": {
+     "assertion": "A mentoring route is provided for that work.",
+     "evidence_forms": [
+      "mentor allocation list"
+     ],
+     "dimensions": [
+      "mentoring"
+     ]
+    },
+    "AIQIF-C3.4.A1": {
+     "assertion": "Assessed project work demonstrates an implemented AI application for an identified student group.",
+     "evidence_forms": [
+      "project reports, demos or evaluation sheets"
+     ],
+     "dimensions": [
+      "coverage",
+      "proof",
+      "content"
+     ]
+    },
+    "AIQIF-C3.4.A2": {
+     "assertion": "A moderation record checks individual contribution to that work.",
+     "evidence_forms": [
+      "viva or moderation record"
+     ],
+     "dimensions": [
+      "individual",
+      "proof"
+     ]
+    },
+    "AIQIF-C3.4.O1": {
+     "assertion": "A completed project review evaluates work against an explicit capability criterion.",
+     "evidence_forms": [
+      "project review against a capability criterion",
+      "hackathon or competition results"
+     ],
+     "dimensions": [
+      "external",
+      "content"
+     ]
+    },
+    "AIQIF-C3.4.O2": {
+     "assertion": "Later work is evaluated against a comparable criterion after a mentoring or design change.",
+     "evidence_forms": [
+      "later cohort evaluated after a mentoring change"
+     ],
+     "dimensions": [
+      "continuity",
+      "mentoring"
+     ]
+    }
+   }
+  },
+  "AIQIF-C4.1": {
+   "name": "Faculty AI Literacy & Awareness",
+   "openness": "open",
+   "dimensions": [
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "intensity",
+     "name": "Intensity",
+     "ask": "How many hours, sessions or weeks did it run, per participant?"
+    },
+    {
+     "id": "provider",
+     "name": "Provider",
+     "ask": "Who designed or delivered it, and what accreditation, certification or standing does that provider have?"
+    },
+    {
+     "id": "content",
+     "name": "Content depth",
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+    },
+    {
+     "id": "recency",
+     "name": "Recency",
+     "ask": "When did it happen, and is it still in force or running?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "investment",
+     "name": "Investment",
+     "ask": "What was spent or allocated: money, staff time, equipment?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "assessed",
+     "name": "Assessment",
+     "ask": "Was what faculty learned assessed (a test, a task, a certification exam), and what were the results?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A defined AI programme with a stated syllabus reached a stated share of faculty, with hours per participant and completion records; for example a multi-day programme with a published agenda rather than a single talk.",
+    "strong": "A sustained, credentialed programme (an accredited provider or a certification with an assessment) reached most of the relevant faculty, with substantial hours per person, assessed results, and gaps followed up; for example a long programme at a recognised institution with a rigorous syllabus, rather than a few sessions at a local institute."
+   },
+   "conditions": {
+    "AIQIF-C4.1.F1": {
+     "assertion": "An AI-focused faculty learning activity has defined content.",
+     "evidence_forms": [
+      "FDP or workshop brochure with session topics",
+      "training calendar",
+      "NPTEL or ATAL FDP course page"
+     ],
+     "dimensions": [
+      "content",
+      "provider",
+      "intensity"
+     ]
+    },
+    "AIQIF-C4.1.F2": {
+     "assertion": "Participation in an AI-focused learning activity is documented for an identified faculty group.",
+     "evidence_forms": [
+      "attendance list or participation certificates",
+      "AQAR or NAAC self-study report narrative"
+     ],
+     "dimensions": [
+      "coverage",
+      "intensity",
+      "proof",
+      "recency"
+     ]
+    },
+    "AIQIF-C4.1.A1": {
+     "assertion": "An assessment demonstrates AI literacy for an identified faculty group.",
+     "evidence_forms": [
+      "quiz, test or certification results",
+      "completion certificates with an assessment component"
+     ],
+     "dimensions": [
+      "assessed",
+      "coverage",
+      "provider"
+     ]
+    },
+    "AIQIF-C4.1.A2": {
+     "assertion": "A support response addresses a documented faculty literacy gap.",
+     "evidence_forms": [
+      "follow-up session targeting a documented gap",
+      "needs analysis and resulting training"
+     ],
+     "dimensions": [
+      "content",
+      "coverage"
+     ]
+    },
+    "AIQIF-C4.1.O1": {
+     "assertion": "A completed assessment compares faculty literacy with a stated competency criterion.",
+     "evidence_forms": [
+      "competency assessment against a framework"
+     ],
+     "dimensions": [
+      "assessed",
+      "coverage"
+     ]
+    },
+    "AIQIF-C4.1.O2": {
+     "assertion": "A follow-up assessment evaluates the effect of a faculty learning revision.",
+     "evidence_forms": [
+      "repeat assessment after a programme revision"
+     ],
+     "dimensions": [
+      "assessed",
+      "continuity"
+     ]
+    }
+   }
+  },
+  "AIQIF-C4.2": {
+   "name": "Role-Based Faculty AI Capability",
+   "openness": "open",
+   "dimensions": [
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "intensity",
+     "name": "Intensity",
+     "ask": "How many hours, sessions or weeks did it run, per participant?"
+    },
+    {
+     "id": "provider",
+     "name": "Provider",
+     "ask": "Who designed or delivered it, and what accreditation, certification or standing does that provider have?"
+    },
+    {
+     "id": "content",
+     "name": "Content depth",
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "role_fit",
+     "name": "Role fit",
+     "ask": "Which academic role is it designed for (course designer, researcher, assessor, mentor), and what skill does it build for that role?"
+    },
+    {
+     "id": "applied",
+     "name": "Applied in work",
+     "ask": "Is there a sample of faculty work showing the skill applied?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A learning offer targets a named academic role, includes a practice task that builds a specific AI skill, and an assessed task shows faculty demonstrating it.",
+    "strong": "Role pathways cover most relevant faculty, skill gaps are documented and addressed, and work samples show the skill applied in real academic work, with the pathway revised and re-evaluated."
+   },
+   "conditions": {
+    "AIQIF-C4.2.F1": {
+     "assertion": "A faculty AI learning offer targets an identified academic role.",
+     "evidence_forms": [
+      "role-specific programme description"
+     ],
+     "dimensions": [
+      "role_fit",
+      "content"
+     ]
+    },
+    "AIQIF-C4.2.F2": {
+     "assertion": "A practice task develops a specific AI-related academic skill for that role.",
+     "evidence_forms": [
+      "practice task or assignment within the programme"
+     ],
+     "dimensions": [
+      "role_fit",
+      "intensity"
+     ]
+    },
+    "AIQIF-C4.2.A1": {
+     "assertion": "An assessed role-relevant task demonstrates a faculty AI skill.",
+     "evidence_forms": [
+      "assessed task results"
+     ],
+     "dimensions": [
+      "coverage",
+      "proof"
+     ]
+    },
+    "AIQIF-C4.2.A2": {
+     "assertion": "A support action addresses a documented role-specific skill gap.",
+     "evidence_forms": [
+      "gap analysis and resulting support"
+     ],
+     "dimensions": [
+      "role_fit",
+      "coverage"
+     ]
+    },
+    "AIQIF-C4.2.O1": {
+     "assertion": "An academic work sample demonstrates application of the assessed skill.",
+     "evidence_forms": [
+      "work samples: course material, research output, assessment design"
+     ],
+     "dimensions": [
+      "applied",
+      "role_fit"
+     ]
+    },
+    "AIQIF-C4.2.O2": {
+     "assertion": "A subsequent task evaluation tests the effect of a role-pathway revision.",
+     "evidence_forms": [
+      "later task evaluation after a pathway change"
+     ],
+     "dimensions": [
+      "continuity",
+      "applied"
+     ]
+    }
+   }
+  },
+  "AIQIF-C4.3": {
+   "name": "AI-Enabled Teaching, Research & Academic Practice",
+   "openness": "open",
+   "dimensions": [
+    {
+     "id": "usage",
+     "name": "Usage",
+     "ask": "How often is it used, by how many people, over what period?"
+    },
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "review_step",
+     "name": "Human review",
+     "ask": "Who checks the AI-supported work before it is used, and how?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "Faculty work records show AI used in a named academic task (course material, research analysis, grading support), with a defined human review step, repeated across sessions or faculty.",
+    "strong": "AI-supported practice is widespread in a department, quality checks evaluate the work, and an evaluation compares quality, time or research results with a baseline."
+   },
+   "conditions": {
+    "AIQIF-C4.3.F1": {
+     "assertion": "A faculty work record demonstrates AI use in an academic task.",
+     "evidence_forms": [
+      "faculty work record or course file showing AI use"
+     ],
+     "dimensions": [
+      "usage",
+      "proof"
+     ]
+    },
+    "AIQIF-C4.3.F2": {
+     "assertion": "A human review step is defined for the AI-supported task.",
+     "evidence_forms": [
+      "guideline defining review of AI-supported work"
+     ],
+     "dimensions": [
+      "review_step"
+     ]
+    },
+    "AIQIF-C4.3.A1": {
+     "assertion": "Work samples demonstrate repeated AI use in an identified faculty practice.",
+     "evidence_forms": [
+      "several work samples across time or faculty"
+     ],
+     "dimensions": [
+      "usage",
+      "coverage",
+      "continuity"
+     ]
+    },
+    "AIQIF-C4.3.A2": {
+     "assertion": "A quality check evaluates the AI-supported academic work.",
+     "evidence_forms": [
+      "quality check or peer review of AI-supported work"
+     ],
+     "dimensions": [
+      "review_step",
+      "proof"
+     ]
+    },
+    "AIQIF-C4.3.O1": {
+     "assertion": "A completed evaluation compares an academic quality, time or research result with a stated baseline.",
+     "evidence_forms": [
+      "evaluation against a baseline"
+     ],
+     "dimensions": [
+      "measurement",
+      "result"
+     ]
+    },
+    "AIQIF-C4.3.O2": {
+     "assertion": "A follow-up evaluates a practice change responding to an identified failure.",
+     "evidence_forms": [
+      "practice change after an identified failure"
+     ],
+     "dimensions": [
+      "action",
+      "result"
+     ]
+    }
+   }
+  },
+  "AIQIF-C4.4": {
+   "name": "Staff AI Capability, FDP & Change Enablement",
+   "openness": "open",
+   "dimensions": [
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "intensity",
+     "name": "Intensity",
+     "ask": "How many hours, sessions or weeks did it run, per participant?"
+    },
+    {
+     "id": "provider",
+     "name": "Provider",
+     "ask": "Who designed or delivered it, and what accreditation, certification or standing does that provider have?"
+    },
+    {
+     "id": "content",
+     "name": "Content depth",
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "role_fit",
+     "name": "Role fit",
+     "ask": "Which non-teaching role is it for (office, library, accounts, IT), and which task does it improve?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A digital or AI learning offer targets a named non-teaching role, a support route exists, and an assessed task shows the skill in that role.",
+    "strong": "Most staff in the targeted roles are covered, task performance is compared with a role criterion, and training or support changes are evaluated for effect."
+   },
+   "conditions": {
+    "AIQIF-C4.4.F1": {
+     "assertion": "A digital or workflow learning offer targets an identified non-teaching staff role.",
+     "evidence_forms": [
+      "staff training programme description",
+      "administrative staff training list in the AQAR"
+     ],
+     "dimensions": [
+      "role_fit",
+      "content",
+      "intensity"
+     ]
+    },
+    "AIQIF-C4.4.F2": {
+     "assertion": "A support route is available to staff applying that learning.",
+     "evidence_forms": [
+      "help desk or mentor contact for staff"
+     ],
+     "dimensions": [
+      "coverage"
+     ]
+    },
+    "AIQIF-C4.4.A1": {
+     "assertion": "An assessed task demonstrates a relevant digital or AI skill for an identified staff role.",
+     "evidence_forms": [
+      "assessed task or skill test for staff"
+     ],
+     "dimensions": [
+      "coverage",
+      "proof"
+     ]
+    },
+    "AIQIF-C4.4.A2": {
+     "assertion": "A support action addresses a documented staff workflow error.",
+     "evidence_forms": [
+      "error log and resulting support action"
+     ],
+     "dimensions": [
+      "proof",
+      "role_fit"
+     ]
+    },
+    "AIQIF-C4.4.O1": {
+     "assertion": "A completed evaluation compares staff task performance with a stated role criterion.",
+     "evidence_forms": [
+      "performance evaluation against a role criterion"
+     ],
+     "dimensions": [
+      "measurement",
+      "result"
+     ]
+    },
+    "AIQIF-C4.4.O2": {
+     "assertion": "A follow-up evaluates the effect of a staff training or support change.",
+     "evidence_forms": [
+      "follow-up evaluation after a training change"
+     ],
+     "dimensions": [
+      "result"
+     ]
+    }
+   }
+  },
+  "AIQIF-C5.1": {
+   "name": "Student AI Literacy Provision and Attainment",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "intensity",
+     "name": "Intensity",
+     "ask": "How many hours, sessions or weeks did it run, per participant?"
+    },
+    {
+     "id": "content",
+     "name": "Content depth",
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "An AI literacy offer with stated objectives and hours reaches a named student cohort, with delivery records.",
+    "strong": "The offer reaches most students across programmes each year, attainment is assessed against an explicit criterion, and participation or attainment gaps are addressed and re-measured."
+   },
+   "conditions": {
+    "AIQIF-C5.1.F1": {
+     "assertion": "An AI literacy offer is accessible to an identified student group.",
+     "evidence_forms": [
+      "course or programme description open to a student group"
+     ],
+     "dimensions": [
+      "scope",
+      "content"
+     ]
+    },
+    "AIQIF-C5.1.F2": {
+     "assertion": "A learning objective defines what that offer intends students to learn.",
+     "evidence_forms": [
+      "learning objectives in the course description"
+     ],
+     "dimensions": [
+      "content"
+     ]
+    },
+    "AIQIF-C5.1.A1": {
+     "assertion": "Delivery records demonstrate AI literacy provision to an identified student cohort.",
+     "evidence_forms": [
+      "enrolment and completion records for a cohort"
+     ],
+     "dimensions": [
+      "coverage",
+      "intensity",
+      "continuity"
+     ]
+    },
+    "AIQIF-C5.1.A2": {
+     "assertion": "A support response addresses a documented participation or attainment gap.",
+     "evidence_forms": [
+      "remedial or outreach action after low participation"
+     ],
+     "dimensions": [
+      "coverage"
+     ]
+    },
+    "AIQIF-C5.1.O1": {
+     "assertion": "An assessment reports student AI literacy attainment against an explicit criterion.",
+     "evidence_forms": [
+      "assessment results against a criterion"
+     ],
+     "dimensions": [
+      "measurement",
+      "result"
+     ]
+    },
+    "AIQIF-C5.1.O2": {
+     "assertion": "A follow-up evaluates the effect of a change addressing an access or learning gap.",
+     "evidence_forms": [
+      "follow-up results after a change"
+     ],
+     "dimensions": [
+      "result"
+     ]
+    }
+   }
+  },
+  "AIQIF-C5.2": {
+   "name": "Advanced & Role-Specific AI Skills",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "content",
+     "name": "Content depth",
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+    },
+    {
+     "id": "intensity",
+     "name": "Intensity",
+     "ask": "How many hours, sessions or weeks did it run, per participant?"
+    },
+    {
+     "id": "external",
+     "name": "External validation",
+     "ask": "Has anyone outside the institution (an accreditor, partner, funder, journal or client) reviewed or validated it?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "practical",
+     "name": "Practical assessment",
+     "ask": "Is there a hands-on task (a model built, a deployment, a project) assessed against a stated criterion?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A defined advanced pathway (a specialisation, minor or honours track) for a named student group includes a practical assessment, and student work shows the skill against an explicit criterion.",
+    "strong": "The pathway is revised in response to employer or disciplinary feedback, progression or skill results are reviewed, and revisions are evaluated."
+   },
+   "conditions": {
+    "AIQIF-C5.2.F1": {
+     "assertion": "An advanced AI or ML skills pathway is defined for an identified student group.",
+     "evidence_forms": [
+      "specialisation, minor or honours scheme",
+      "AICTE-approved programme in AI and ML"
+     ],
+     "dimensions": [
+      "content",
+      "coverage"
+     ]
+    },
+    "AIQIF-C5.2.F2": {
+     "assertion": "The pathway includes a practical assessment task.",
+     "evidence_forms": [
+      "practical or lab component in the scheme"
+     ],
+     "dimensions": [
+      "practical"
+     ]
+    },
+    "AIQIF-C5.2.A1": {
+     "assertion": "Student work demonstrates an advanced or role-specific AI skill against an explicit criterion.",
+     "evidence_forms": [
+      "assessed student work against a rubric"
+     ],
+     "dimensions": [
+      "practical",
+      "coverage"
+     ]
+    },
+    "AIQIF-C5.2.A2": {
+     "assertion": "A delivery change responds to identified employer or disciplinary feedback.",
+     "evidence_forms": [
+      "curriculum change citing employer feedback",
+      "industry advisory board minutes"
+     ],
+     "dimensions": [
+      "external"
+     ]
+    },
+    "AIQIF-C5.2.O1": {
+     "assertion": "A completed pathway review evaluates a relevant skill or progression result.",
+     "evidence_forms": [
+      "pathway review of skills or progression"
+     ],
+     "dimensions": [
+      "measurement",
+      "result"
+     ]
+    },
+    "AIQIF-C5.2.O2": {
+     "assertion": "A subsequent task evaluation tests the effect of a pathway revision.",
+     "evidence_forms": [
+      "later task evaluation after a revision"
+     ],
+     "dimensions": [
+      "result"
+     ]
+    }
+   }
+  },
+  "AIQIF-C5.3": {
+   "name": "Student AI Projects, Portfolio & Practice",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "content",
+     "name": "Content depth",
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "external",
+     "name": "External validation",
+     "ask": "Has anyone outside the institution (an accreditor, partner, funder, journal or client) reviewed or validated it?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "individual",
+     "name": "Individual contribution",
+     "ask": "How is each student's own contribution identified and checked?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "An AI project or portfolio opportunity is available to a named student group, and reviewed portfolios identify each student's substantive AI contribution.",
+    "strong": "Projects are moderated and evaluated against an explicit quality or real-user-value criterion, ideally with external reviewers, and mentoring changes are evaluated."
+   },
+   "conditions": {
+    "AIQIF-C5.3.F1": {
+     "assertion": "An AI project or portfolio opportunity is available to an identified student group.",
+     "evidence_forms": [
+      "project scheme or portfolio requirement"
+     ],
+     "dimensions": [
+      "coverage",
+      "content"
+     ]
+    },
+    "AIQIF-C5.3.F2": {
+     "assertion": "An evaluation criterion addresses individual contribution to the project or portfolio.",
+     "evidence_forms": [
+      "evaluation rubric with an individual contribution criterion"
+     ],
+     "dimensions": [
+      "individual"
+     ]
+    },
+    "AIQIF-C5.3.A1": {
+     "assertion": "A reviewed portfolio identifies the student's substantive AI contribution.",
+     "evidence_forms": [
+      "reviewed portfolios or project reports"
+     ],
+     "dimensions": [
+      "individual",
+      "proof"
+     ]
+    },
+    "AIQIF-C5.3.A2": {
+     "assertion": "A moderation record evaluates a participating student's project or portfolio.",
+     "evidence_forms": [
+      "moderation record"
+     ],
+     "dimensions": [
+      "individual",
+      "proof"
+     ]
+    },
+    "AIQIF-C5.3.O1": {
+     "assertion": "A completed evaluation assesses AI work quality or real-user value against an explicit criterion.",
+     "evidence_forms": [
+      "evaluation of quality or real-user value"
+     ],
+     "dimensions": [
+      "external",
+      "content"
+     ]
+    },
+    "AIQIF-C5.3.O2": {
+     "assertion": "A follow-up evaluates the effect of a project or mentoring change.",
+     "evidence_forms": [
+      "later evaluation after a change"
+     ],
+     "dimensions": [
+      "continuity"
+     ]
+    }
+   }
+  },
+  "AIQIF-C5.4": {
+   "name": "AI Employability, Internships & Career Outcomes",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "external",
+     "name": "External validation",
+     "ask": "Has anyone outside the institution (an accreditor, partner, funder, journal or client) reviewed or validated it?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "denominator",
+     "name": "Denominator",
+     "ask": "Out of how many eligible students, and how was the cohort counted?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "AI-relevant internships or career opportunities are documented with eligibility rules, and verified records (offer letters, completion certificates) show participation.",
+    "strong": "Participation and AI-related career results are reported against a cohort denominator and a target, and pathway changes are evaluated."
+   },
+   "conditions": {
+    "AIQIF-C5.4.F1": {
+     "assertion": "An AI-relevant internship or career opportunity is documented.",
+     "evidence_forms": [
+      "internship or placement notice for an AI role"
+     ],
+     "dimensions": [
+      "ai_specificity"
+     ]
+    },
+    "AIQIF-C5.4.F2": {
+     "assertion": "An eligibility rule identifies who can access the opportunity.",
+     "evidence_forms": [
+      "eligibility criteria in the notice or policy"
+     ],
+     "dimensions": [
+      "coverage"
+     ]
+    },
+    "AIQIF-C5.4.A1": {
+     "assertion": "A verified record demonstrates participation in an AI-relevant internship or career opportunity.",
+     "evidence_forms": [
+      "offer letters, internship certificates",
+      "placement records"
+     ],
+     "dimensions": [
+      "proof",
+      "ai_specificity",
+      "external"
+     ]
+    },
+    "AIQIF-C5.4.A2": {
+     "assertion": "A cohort register identifies the denominator used to interpret participation or progression.",
+     "evidence_forms": [
+      "cohort register",
+      "placement statistics with totals"
+     ],
+     "dimensions": [
+      "denominator"
+     ]
+    },
+    "AIQIF-C5.4.O1": {
+     "assertion": "A completed review compares a verified AI-related career result with a stated target.",
+     "evidence_forms": [
+      "placement review against a target"
+     ],
+     "dimensions": [
+      "measurement",
+      "result",
+      "denominator"
+     ]
+    },
+    "AIQIF-C5.4.O2": {
+     "assertion": "A follow-up evaluates the effect of a career-pathway change.",
+     "evidence_forms": [
+      "later review after a pathway change"
+     ],
+     "dimensions": [
+      "result"
+     ]
+    }
+   }
+  },
+  "AIQIF-C6.1": {
+   "name": "Computing Provision and AI Workload Suitability",
+   "openness": "standard",
+   "dimensions": [
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "usage",
+     "name": "Usage",
+     "ask": "How often is it used, by how many people, over what period?"
+    },
+    {
+     "id": "investment",
+     "name": "Investment",
+     "ask": "What was spent or allocated: money, staff time, equipment?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "specification",
+     "name": "Specification",
+     "ask": "What hardware or cloud capacity is provided (GPUs, memory, cloud credits), and which AI workload does it support?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "Named computing resources with stated specifications support an introductory AI workload, and usage records show them serving a named user group.",
+    "strong": "Capacity is monitored against availability targets, shortfalls are addressed, and continuity or recovery has been exercised."
+   },
+   "conditions": {
+    "AIQIF-C6.1.F1": {
+     "assertion": "Relevant learners or researchers have access to computing resources.",
+     "evidence_forms": [
+      "lab or HPC facility description",
+      "cloud platform access notice"
+     ],
+     "dimensions": [
+      "coverage",
+      "specification"
+     ]
+    },
+    "AIQIF-C6.1.F2": {
+     "assertion": "Resource specifications support one explicitly stated introductory AI workload.",
+     "evidence_forms": [
+      "hardware specification sheet",
+      "purchase order with specifications"
+     ],
+     "dimensions": [
+      "specification",
+      "investment"
+     ]
+    },
+    "AIQIF-C6.1.A1": {
+     "assertion": "Usage records show relevant computing capacity serving an identified user group.",
+     "evidence_forms": [
+      "usage logs or booking records"
+     ],
+     "dimensions": [
+      "usage",
+      "coverage"
+     ]
+    },
+    "AIQIF-C6.1.A2": {
+     "assertion": "A support response addresses a documented capacity or access failure.",
+     "evidence_forms": [
+      "support ticket and resolution",
+      "upgrade after a reported shortfall"
+     ],
+     "dimensions": [
+      "proof"
+     ]
+    },
+    "AIQIF-C6.1.O1": {
+     "assertion": "A completed review compares service performance with a stated capacity or availability target.",
+     "evidence_forms": [
+      "service performance review"
+     ],
+     "dimensions": [
+      "measurement"
+     ]
+    },
+    "AIQIF-C6.1.O2": {
+     "assertion": "A continuity exercise records recovery performance for that environment.",
+     "evidence_forms": [
+      "continuity or recovery exercise record"
+     ],
+     "dimensions": [
+      "proof",
+      "measurement"
+     ]
+    }
+   }
+  },
+  "AIQIF-C6.2": {
+   "name": "Institutional Data Readiness",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A register lists relevant datasets or systems with a custodian for each, and a data-quality check operates for an identified AI use or preparation activity.",
+    "strong": "Data-quality issues are tracked to disposition, quality is reviewed against a fitness criterion, and the effect of data-quality changes on downstream work is measured."
+   },
+   "conditions": {
+    "AIQIF-C6.2.F1": {
+     "assertion": "A register identifies relevant institutional datasets or systems.",
+     "evidence_forms": [
+      "data or system register",
+      "ERP module list"
+     ],
+     "dimensions": [
+      "scope"
+     ]
+    },
+    "AIQIF-C6.2.F2": {
+     "assertion": "A responsible data custodian is assigned to the identified assets.",
+     "evidence_forms": [
+      "register with custodians",
+      "an institutional circular or office order"
+     ],
+     "dimensions": [
+      "owner"
+     ]
+    },
+    "AIQIF-C6.2.A1": {
+     "assertion": "A data-quality check operates for an identified AI use or preparation activity.",
+     "evidence_forms": [
+      "data-quality check report"
+     ],
+     "dimensions": [
+      "ai_specificity",
+      "proof"
+     ]
+    },
+    "AIQIF-C6.2.A2": {
+     "assertion": "A tracked data-quality issue has a recorded disposition.",
+     "evidence_forms": [
+      "issue log with dispositions"
+     ],
+     "dimensions": [
+      "proof",
+      "action"
+     ]
+    },
+    "AIQIF-C6.2.O1": {
+     "assertion": "A completed review compares data quality with a stated fitness criterion.",
+     "evidence_forms": [
+      "data-quality review against a criterion"
+     ],
+     "dimensions": [
+      "measurement",
+      "result"
+     ]
+    },
+    "AIQIF-C6.2.O2": {
+     "assertion": "A follow-up measures the effect of a data-quality change on downstream work.",
+     "evidence_forms": [
+      "follow-up measurement after a change"
+     ],
+     "dimensions": [
+      "result",
+      "action"
+     ]
+    }
+   }
+  },
+  "AIQIF-C6.3": {
+   "name": "AI Cybersecurity & Resilience",
+   "openness": "standard",
+   "dimensions": [
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "independence",
+     "name": "Independence",
+     "ask": "Who carried out the review or check, and were they separate from the people who delivered the work?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "Security responsibility for the AI or computing environment is assigned, a recovery procedure covers it, and a security test has examined an AI-related threat.",
+    "strong": "Incidents and exercises record response actions, reviews compare remediation or recovery against a stated criterion, and control changes are tested."
+   },
+   "conditions": {
+    "AIQIF-C6.3.F1": {
+     "assertion": "Responsibility for security of the relevant computing environment is assigned.",
+     "evidence_forms": [
+      "IT security policy naming an officer",
+      "an institutional circular or office order"
+     ],
+     "dimensions": [
+      "owner"
+     ]
+    },
+    "AIQIF-C6.3.F2": {
+     "assertion": "A recovery procedure covers that environment.",
+     "evidence_forms": [
+      "backup and recovery SOP"
+     ],
+     "dimensions": [
+      "scope"
+     ]
+    },
+    "AIQIF-C6.3.A1": {
+     "assertion": "A security test examines an identified AI-related threat in the assessed environment.",
+     "evidence_forms": [
+      "security test or audit report naming an AI-related threat"
+     ],
+     "dimensions": [
+      "ai_specificity",
+      "independence"
+     ]
+    },
+    "AIQIF-C6.3.A2": {
+     "assertion": "An incident or exercise record demonstrates a response action.",
+     "evidence_forms": [
+      "incident report or drill record"
+     ],
+     "dimensions": [
+      "proof",
+      "action"
+     ]
+    },
+    "AIQIF-C6.3.O1": {
+     "assertion": "A completed security review compares remediation or recovery performance with a stated criterion.",
+     "evidence_forms": [
+      "security review against a criterion"
+     ],
+     "dimensions": [
+      "measurement"
+     ]
+    },
+    "AIQIF-C6.3.O2": {
+     "assertion": "A follow-up test evaluates a control change responding to a documented threat.",
+     "evidence_forms": [
+      "follow-up test after a control change"
+     ],
+     "dimensions": [
+      "action",
+      "proof"
+     ]
+    }
+   }
+  },
+  "AIQIF-C6.4": {
+   "name": "AI Labs, Digital Learning Environment & Accessibility",
+   "openness": "standard",
+   "dimensions": [
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "usage",
+     "name": "Usage",
+     "ask": "How often is it used, by how many people, over what period?"
+    },
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "access",
+     "name": "Access route",
+     "ask": "How do learners get access (timetabled slots, booking, remote login), and who is excluded?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A named environment supports a specified introductory AI activity, learners have a defined access route, and usage records show learners using it.",
+    "strong": "Access is reviewed against a service or equity criterion, accessibility or capacity issues are addressed, and improvements are evaluated."
+   },
+   "conditions": {
+    "AIQIF-C6.4.F1": {
+     "assertion": "An environment supports one specified introductory AI learning activity.",
+     "evidence_forms": [
+      "lab description with the AI activity it supports"
+     ],
+     "dimensions": [
+      "scope"
+     ]
+    },
+    "AIQIF-C6.4.F2": {
+     "assertion": "Learners have a defined access route to that environment.",
+     "evidence_forms": [
+      "lab timetable or access policy"
+     ],
+     "dimensions": [
+      "access"
+     ]
+    },
+    "AIQIF-C6.4.A1": {
+     "assertion": "Usage records demonstrate learner access to an identified AI learning environment.",
+     "evidence_forms": [
+      "lab usage or login records"
+     ],
+     "dimensions": [
+      "usage",
+      "coverage"
+     ]
+    },
+    "AIQIF-C6.4.A2": {
+     "assertion": "A support response addresses a documented accessibility or capacity issue.",
+     "evidence_forms": [
+      "response to an accessibility or capacity complaint"
+     ],
+     "dimensions": [
+      "action"
+     ]
+    },
+    "AIQIF-C6.4.O1": {
+     "assertion": "A completed review compares learner access with a stated service or equity criterion.",
+     "evidence_forms": [
+      "access review against a criterion"
+     ],
+     "dimensions": [
+      "measurement",
+      "access"
+     ]
+    },
+    "AIQIF-C6.4.O2": {
+     "assertion": "A follow-up evaluates the effect of an environment improvement.",
+     "evidence_forms": [
+      "follow-up after an improvement"
+     ],
+     "dimensions": [
+      "action"
+     ]
+    }
+   }
+  },
+  "AIQIF-C7.1": {
+   "name": "AI Research Capability & Agenda",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "investment",
+     "name": "Investment",
+     "ask": "What was spent or allocated: money, staff time, equipment?"
+    },
+    {
+     "id": "external",
+     "name": "External validation",
+     "ask": "Has anyone outside the institution (an accreditor, partner, funder, journal or client) reviewed or validated it?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "output_quality",
+     "name": "Output quality",
+     "ask": "Where did the output appear (indexed journal, conference tier, granted patent, deployed tool), and how was it reviewed?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "An AI research project has a defined objective and a named lead, and an active project has a reviewed output (a peer-reviewed paper, a filed patent, a working prototype).",
+    "strong": "Several active projects with funding produce externally reviewed outputs (indexed publications, granted patents, sponsored work), progress is reviewed with recorded decisions, and agenda changes are evaluated."
+   },
+   "conditions": {
+    "AIQIF-C7.1.F1": {
+     "assertion": "An AI research or applied-inquiry project has a defined objective.",
+     "evidence_forms": [
+      "project proposal or sanction letter",
+      "research centre project list"
+     ],
+     "dimensions": [
+      "ai_specificity",
+      "investment"
+     ]
+    },
+    "AIQIF-C7.1.F2": {
+     "assertion": "A responsible lead is assigned to the project.",
+     "evidence_forms": [
+      "project with principal investigator named"
+     ],
+     "dimensions": [
+      "owner"
+     ]
+    },
+    "AIQIF-C7.1.A1": {
+     "assertion": "An active AI research or applied-inquiry project has a reviewed work output.",
+     "evidence_forms": [
+      "publication list",
+      "patent filing",
+      "project progress report"
+     ],
+     "dimensions": [
+      "output_quality",
+      "external"
+     ]
+    },
+    "AIQIF-C7.1.A2": {
+     "assertion": "A progress review records a decision about that project.",
+     "evidence_forms": [
+      "research committee minutes"
+     ],
+     "dimensions": [
+      "continuity"
+     ]
+    },
+    "AIQIF-C7.1.O1": {
+     "assertion": "A completed review evaluates inquiry output quality or application against a stated objective.",
+     "evidence_forms": [
+      "completed project report against objectives"
+     ],
+     "dimensions": [
+      "result",
+      "output_quality"
+     ]
+    },
+    "AIQIF-C7.1.O2": {
+     "assertion": "A follow-up evaluates the effect of an agenda or resource change.",
+     "evidence_forms": [
+      "review after a change in agenda or resources"
+     ],
+     "dimensions": [
+      "result"
+     ]
+    }
+   }
+  },
+  "AIQIF-C7.2": {
+   "name": "AI Innovation and Mentoring Support",
+   "openness": "open",
+   "dimensions": [
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "investment",
+     "name": "Investment",
+     "ask": "What was spent or allocated: money, staff time, equipment?"
+    },
+    {
+     "id": "usage",
+     "name": "Usage",
+     "ask": "How often is it used, by how many people, over what period?"
+    },
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "external",
+     "name": "External validation",
+     "ask": "Has anyone outside the institution (an accreditor, partner, funder, journal or client) reviewed or validated it?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "An AI centre, innovation cell or incubator has a defined remit and a project or mentoring service, and service records show engagements.",
+    "strong": "The function serves many projects over several years, reviews its service against use and delivery evidence, and reports outputs or institutional benefit against its objective."
+   },
+   "conditions": {
+    "AIQIF-C7.2.F1": {
+     "assertion": "An AI centre or distributed innovation function has a defined remit.",
+     "evidence_forms": [
+      "centre of excellence or innovation cell charter",
+      "an institutional circular or office order"
+     ],
+     "dimensions": [
+      "owner",
+      "investment"
+     ]
+    },
+    "AIQIF-C7.2.F2": {
+     "assertion": "A project or mentoring service is available through that function.",
+     "evidence_forms": [
+      "service or mentoring offer notice"
+     ],
+     "dimensions": [
+      "coverage"
+     ]
+    },
+    "AIQIF-C7.2.A1": {
+     "assertion": "A service record demonstrates an AI project or mentoring engagement.",
+     "evidence_forms": [
+      "engagement log or mentoring records"
+     ],
+     "dimensions": [
+      "usage",
+      "coverage"
+     ]
+    },
+    "AIQIF-C7.2.A2": {
+     "assertion": "A service review records a decision responding to use or delivery evidence.",
+     "evidence_forms": [
+      "service review minutes"
+     ],
+     "dimensions": [
+      "action"
+     ]
+    },
+    "AIQIF-C7.2.O1": {
+     "assertion": "A completed review evaluates an output or institutional benefit against the function's objective.",
+     "evidence_forms": [
+      "annual report of outputs and benefits"
+     ],
+     "dimensions": [
+      "result",
+      "external"
+     ]
+    },
+    "AIQIF-C7.2.O2": {
+     "assertion": "A follow-up evaluates the effect of a service change.",
+     "evidence_forms": [
+      "follow-up review after a service change"
+     ],
+     "dimensions": [
+      "result",
+      "action"
+     ]
+    }
+   }
+  },
+  "AIQIF-C7.3": {
+   "name": "AI Funding, IP & Entrepreneurship",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "investment",
+     "name": "Investment",
+     "ask": "What was spent or allocated: money, staff time, equipment?"
+    },
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "external",
+     "name": "External validation",
+     "ask": "Has anyone outside the institution (an accreditor, partner, funder, journal or client) reviewed or validated it?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "stage",
+     "name": "Stage reached",
+     "ask": "How far has the project progressed: filed, granted, funded, incorporated, revenue?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A funding, IP or incubation route is available with a contact or application process, and a project record shows an AI project using it.",
+    "strong": "Funding or translation decisions are recorded, and verified progression (granted IP, external funding, incorporation, revenue) is reviewed against milestones."
+   },
+   "conditions": {
+    "AIQIF-C7.3.F1": {
+     "assertion": "A funding, IP or incubation support route is available to eligible projects.",
+     "evidence_forms": [
+      "seed fund or IPR cell policy",
+      "incubation centre description"
+     ],
+     "dimensions": [
+      "investment"
+     ]
+    },
+    "AIQIF-C7.3.F2": {
+     "assertion": "A contact or application route enables access to that support.",
+     "evidence_forms": [
+      "application form or contact notice"
+     ],
+     "dimensions": [
+      "coverage"
+     ]
+    },
+    "AIQIF-C7.3.A1": {
+     "assertion": "A project record demonstrates use of a funding, IP or incubation support route.",
+     "evidence_forms": [
+      "funded project list",
+      "patent filing",
+      "incubation agreement"
+     ],
+     "dimensions": [
+      "proof",
+      "stage"
+     ]
+    },
+    "AIQIF-C7.3.A2": {
+     "assertion": "A review records a funding or translation decision about an identified project.",
+     "evidence_forms": [
+      "funding committee minutes"
+     ],
+     "dimensions": [
+      "investment"
+     ]
+    },
+    "AIQIF-C7.3.O1": {
+     "assertion": "A completed review evaluates verified project progression against a stated milestone.",
+     "evidence_forms": [
+      "progress review against milestones"
+     ],
+     "dimensions": [
+      "stage",
+      "external",
+      "result"
+     ]
+    },
+    "AIQIF-C7.3.O2": {
+     "assertion": "A follow-up evaluates the effect of a project-support change.",
+     "evidence_forms": [
+      "follow-up after a support change"
+     ],
+     "dimensions": [
+      "result"
+     ]
+    }
+   }
+  },
+  "AIQIF-C7.4": {
+   "name": "AI Collaboration, Knowledge Transfer & Societal Impact",
+   "openness": "open",
+   "dimensions": [
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "external",
+     "name": "External validation",
+     "ask": "Has anyone outside the institution (an accreditor, partner, funder, journal or client) reviewed or validated it?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "beyond_mou",
+     "name": "Delivery beyond the agreement",
+     "ask": "What has actually been delivered under the collaboration, beyond signing the MoU?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A collaboration work plan specifies substantive AI work with partner responsibilities, and a delivery record shows AI work delivered beyond the agreement itself.",
+    "strong": "Partners or beneficiaries evaluate the delivered contribution, and a review reports knowledge transfer or a beneficiary result against a stated objective."
+   },
+   "conditions": {
+    "AIQIF-C7.4.F1": {
+     "assertion": "A collaboration work plan specifies substantive AI research or application.",
+     "evidence_forms": [
+      "MoU with an AI work plan"
+     ],
+     "dimensions": [
+      "ai_specificity"
+     ]
+    },
+    "AIQIF-C7.4.F2": {
+     "assertion": "A partner responsibility is assigned for the planned AI work.",
+     "evidence_forms": [
+      "work plan with partner responsibilities"
+     ],
+     "dimensions": [
+      "owner"
+     ]
+    },
+    "AIQIF-C7.4.A1": {
+     "assertion": "A delivery record demonstrates substantive AI collaboration beyond an agreement.",
+     "evidence_forms": [
+      "joint project report, workshop delivered, tool handed over"
+     ],
+     "dimensions": [
+      "beyond_mou",
+      "proof"
+     ]
+    },
+    "AIQIF-C7.4.A2": {
+     "assertion": "Partner or beneficiary feedback evaluates an identified delivered contribution.",
+     "evidence_forms": [
+      "partner or beneficiary feedback"
+     ],
+     "dimensions": [
+      "external"
+     ]
+    },
+    "AIQIF-C7.4.O1": {
+     "assertion": "A completed review evaluates knowledge transfer or a beneficiary result against a stated objective.",
+     "evidence_forms": [
+      "impact review against objectives"
+     ],
+     "dimensions": [
+      "result",
+      "external"
+     ]
+    },
+    "AIQIF-C7.4.O2": {
+     "assertion": "A follow-up evaluates the effect of a collaboration change.",
+     "evidence_forms": [
+      "follow-up after a collaboration change"
+     ],
+     "dimensions": [
+      "continuity"
+     ]
+    }
+   }
+  },
+  "AIQIF-C8.1": {
+   "name": "Digital Services and AI-Enabled Operations",
+   "openness": "open",
+   "dimensions": [
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "usage",
+     "name": "Usage",
+     "ask": "How often is it used, by how many people, over what period?"
+    },
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "An institutional service with a defined purpose and owner uses AI repeatedly, shown by operational records (e.g. chatbot logs, automated timetabling, analytics dashboards).",
+    "strong": "AI-related exceptions are monitored, benefits are compared with a baseline with quality limitations disclosed, and workflow changes are tested."
+   },
+   "conditions": {
+    "AIQIF-C8.1.F1": {
+     "assertion": "An institutional digital service has a defined purpose.",
+     "evidence_forms": [
+      "service description",
+      "ERP or portal module description"
+     ],
+     "dimensions": [
+      "scope"
+     ]
+    },
+    "AIQIF-C8.1.F2": {
+     "assertion": "A responsible owner is assigned to that service.",
+     "evidence_forms": [
+      "service owner named in an order or SOP"
+     ],
+     "dimensions": [
+      "owner"
+     ]
+    },
+    "AIQIF-C8.1.A1": {
+     "assertion": "Operational records demonstrate repeated AI use in an identified institutional service.",
+     "evidence_forms": [
+      "operational logs or usage statistics for the AI feature"
+     ],
+     "dimensions": [
+      "ai_specificity",
+      "usage",
+      "continuity"
+     ]
+    },
+    "AIQIF-C8.1.A2": {
+     "assertion": "A monitoring record evaluates an AI-related service exception.",
+     "evidence_forms": [
+      "exception or monitoring report"
+     ],
+     "dimensions": [
+      "measurement",
+      "action"
+     ]
+    },
+    "AIQIF-C8.1.O1": {
+     "assertion": "A completed evaluation compares service benefit with a stated baseline while disclosing quality limitations.",
+     "evidence_forms": [
+      "evaluation against a baseline"
+     ],
+     "dimensions": [
+      "measurement",
+      "result"
+     ]
+    },
+    "AIQIF-C8.1.O2": {
+     "assertion": "A follow-up tests the effect of a workflow or control change.",
+     "evidence_forms": [
+      "follow-up after a workflow change"
+     ],
+     "dimensions": [
+      "action",
+      "result"
+     ]
+    }
+   }
+  },
+  "AIQIF-C8.2": {
+   "name": "Industry Integration & AI Partnerships",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "external",
+     "name": "External validation",
+     "ask": "Has anyone outside the institution (an accreditor, partner, funder, journal or client) reviewed or validated it?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "contribution",
+     "name": "Partner contribution",
+     "ask": "What did the partner contribute: trainers, curriculum, projects, internships, equipment?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "An industry work plan specifies an AI activity with a defined contribution to skills, curriculum or projects, and a delivery record shows it happened with the partner.",
+    "strong": "The partner's contribution is reviewed, outcomes are evaluated against stated objectives, and jointly agreed changes are evaluated."
+   },
+   "conditions": {
+    "AIQIF-C8.2.F1": {
+     "assertion": "An industry work plan specifies an AI-related activity.",
+     "evidence_forms": [
+      "industry MoU with an AI activity"
+     ],
+     "dimensions": [
+      "ai_specificity"
+     ]
+    },
+    "AIQIF-C8.2.F2": {
+     "assertion": "The activity defines a contribution to skills, curriculum or projects.",
+     "evidence_forms": [
+      "work plan stating the partner contribution"
+     ],
+     "dimensions": [
+      "contribution"
+     ]
+    },
+    "AIQIF-C8.2.A1": {
+     "assertion": "A delivery record demonstrates an AI-related activity with an industry partner.",
+     "evidence_forms": [
+      "delivery record: training held, projects run, interns hosted"
+     ],
+     "dimensions": [
+      "proof",
+      "coverage",
+      "contribution"
+     ]
+    },
+    "AIQIF-C8.2.A2": {
+     "assertion": "A review evaluates the partner's delivered contribution to skills, projects or opportunities.",
+     "evidence_forms": [
+      "partnership review"
+     ],
+     "dimensions": [
+      "contribution",
+      "external"
+     ]
+    },
+    "AIQIF-C8.2.O1": {
+     "assertion": "A completed partnership review evaluates a relevant output or outcome against a stated objective.",
+     "evidence_forms": [
+      "partnership outcome review"
+     ],
+     "dimensions": [
+      "result"
+     ]
+    },
+    "AIQIF-C8.2.O2": {
+     "assertion": "A follow-up evaluates the effect of a jointly agreed delivery change.",
+     "evidence_forms": [
+      "follow-up after a jointly agreed change"
+     ],
+     "dimensions": [
+      "continuity"
+     ]
+    }
+   }
+  },
+  "AIQIF-C8.3": {
+   "name": "AI Entrepreneurship, Placement & Workforce Outcomes",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "denominator",
+     "name": "Denominator",
+     "ask": "Out of how many pathway participants, and how was the group counted?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A pathway explicitly addresses AI skills with a referral route, and verified records link participants to opportunities or ventures.",
+    "strong": "Reviews relate participation to results with a denominator, and progression or enterprise results are evaluated against stated objectives."
+   },
+   "conditions": {
+    "AIQIF-C8.3.F1": {
+     "assertion": "An employment, enterprise or workforce pathway explicitly addresses AI skills.",
+     "evidence_forms": [
+      "pathway or programme description"
+     ],
+     "dimensions": [
+      "ai_specificity"
+     ]
+    },
+    "AIQIF-C8.3.F2": {
+     "assertion": "An opportunity or referral route connects eligible participants to the pathway.",
+     "evidence_forms": [
+      "referral or application route"
+     ],
+     "dimensions": [
+      "coverage"
+     ]
+    },
+    "AIQIF-C8.3.A1": {
+     "assertion": "A verified record links an AI pathway participant to an opportunity or venture.",
+     "evidence_forms": [
+      "verified placement or venture records"
+     ],
+     "dimensions": [
+      "proof",
+      "ai_specificity"
+     ]
+    },
+    "AIQIF-C8.3.A2": {
+     "assertion": "A review examines the relationship between pathway participation and an observed result.",
+     "evidence_forms": [
+      "review of participation versus results"
+     ],
+     "dimensions": [
+      "denominator",
+      "measurement"
+     ]
+    },
+    "AIQIF-C8.3.O1": {
+     "assertion": "A completed review evaluates a verified progression or enterprise result against a stated objective.",
+     "evidence_forms": [
+      "outcome review against objectives"
+     ],
+     "dimensions": [
+      "result",
+      "denominator"
+     ]
+    },
+    "AIQIF-C8.3.O2": {
+     "assertion": "A follow-up evaluates the effect of a pathway portfolio change.",
+     "evidence_forms": [
+      "follow-up after a portfolio change"
+     ],
+     "dimensions": [
+      "result"
+     ]
+    }
+   }
+  },
+  "AIQIF-C8.4": {
+   "name": "Measured AI Business/Educational Outcomes",
+   "openness": "open",
+   "dimensions": [
+    {
+     "id": "ai_specificity",
+     "name": "AI specificity",
+     "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "independence",
+     "name": "Independence",
+     "ask": "Who carried out the review or check, and were they separate from the people who delivered the work?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "baseline",
+     "name": "Baseline",
+     "ask": "What was the situation before the intervention, and how was it measured?"
+    },
+    {
+     "id": "limits",
+     "name": "Limitations",
+     "ask": "What else could explain the result, and what harms were checked?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "An AI intervention has an explicit intended outcome and a defined measurement method, and recorded results compare the outcome with a baseline.",
+    "strong": "Alternative explanations and harms are examined, benefits are reported within stated limitations, and intervention changes are measured again."
+   },
+   "conditions": {
+    "AIQIF-C8.4.F1": {
+     "assertion": "An identified AI intervention has an explicit intended outcome.",
+     "evidence_forms": [
+      "intervention plan stating the intended outcome"
+     ],
+     "dimensions": [
+      "ai_specificity"
+     ]
+    },
+    "AIQIF-C8.4.F2": {
+     "assertion": "A prospective measurement method is defined for that outcome.",
+     "evidence_forms": [
+      "measurement plan"
+     ],
+     "dimensions": [
+      "measurement",
+      "baseline"
+     ]
+    },
+    "AIQIF-C8.4.A1": {
+     "assertion": "Recorded results compare an AI intervention's outcome with a stated baseline using a disclosed method.",
+     "evidence_forms": [
+      "results compared with a baseline"
+     ],
+     "dimensions": [
+      "baseline",
+      "result"
+     ]
+    },
+    "AIQIF-C8.4.A2": {
+     "assertion": "A review examines an alternative explanation or potential harm affecting interpretation.",
+     "evidence_forms": [
+      "review of confounders or harms"
+     ],
+     "dimensions": [
+      "limits",
+      "independence"
+     ]
+    },
+    "AIQIF-C8.4.O1": {
+     "assertion": "A completed measurement review evaluates benefit within explicitly stated limitations.",
+     "evidence_forms": [
+      "measurement review with limitations"
+     ],
+     "dimensions": [
+      "limits",
+      "result"
+     ]
+    },
+    "AIQIF-C8.4.O2": {
+     "assertion": "A subsequent measurement evaluates the effect of an intervention change.",
+     "evidence_forms": [
+      "later measurement after a change"
+     ],
+     "dimensions": [
+      "action",
+      "result"
+     ]
+    }
+   }
+  },
+  "AIQIF-C9.1": {
+   "name": "Institutional Measurement and Readiness Review",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "reproducible",
+     "name": "Reproducibility",
+     "ask": "Could someone else recompute the review's figures from the records it cites?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "An institutional review uses defined indicators, someone is responsible for producing it, and it has been repeated with traceable evidence.",
+    "strong": "Calculations are reproducible, method changes are distinguished from real changes, and results drive improvement priorities that are later evaluated."
+   },
+   "conditions": {
+    "AIQIF-C9.1.F1": {
+     "assertion": "An institutional review process uses defined indicators.",
+     "evidence_forms": [
+      "IQAC review framework with indicators",
+      "AQAR or NAAC self-study report narrative"
+     ],
+     "dimensions": [
+      "measurement"
+     ]
+    },
+    "AIQIF-C9.1.F2": {
+     "assertion": "Responsibility for producing the indicator-based review is assigned.",
+     "evidence_forms": [
+      "IQAC composition or order assigning the review"
+     ],
+     "dimensions": [
+      "owner"
+     ]
+    },
+    "AIQIF-C9.1.A1": {
+     "assertion": "A repeated institutional assessment uses traceable evidence with reproducible calculations.",
+     "evidence_forms": [
+      "two or more cycles of the review with cited evidence"
+     ],
+     "dimensions": [
+      "continuity",
+      "reproducible"
+     ]
+    },
+    "AIQIF-C9.1.A2": {
+     "assertion": "A change record distinguishes institutional evidence changes from methodology changes.",
+     "evidence_forms": [
+      "change log for the review method"
+     ],
+     "dimensions": [
+      "proof"
+     ]
+    },
+    "AIQIF-C9.1.O1": {
+     "assertion": "A completed review evaluates an improvement priority using the assessment's results.",
+     "evidence_forms": [
+      "review stating improvement priorities from results"
+     ],
+     "dimensions": [
+      "action"
+     ]
+    },
+    "AIQIF-C9.1.O2": {
+     "assertion": "A follow-up evaluates the effect of a measurement-method revision.",
+     "evidence_forms": [
+      "follow-up after a method revision"
+     ],
+     "dimensions": [
+      "action",
+      "measurement"
+     ]
+    }
+   }
+  },
+  "AIQIF-C9.2": {
+   "name": "Evidence, Traceability & Auditability",
+   "openness": "standard",
+   "dimensions": [
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "independence",
+     "name": "Independence",
+     "ask": "Who carried out the review or check, and were they separate from the people who delivered the work?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "traceable",
+     "name": "Traceability",
+     "ask": "Can a sampled finding be followed to its requirement and the exact source passage?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "An evidence index lists the source records used for assessment, a custodian preserves them, and sampled findings are traceable to their sources.",
+    "strong": "Corrections preserve earlier records with reasons, audits check traceability with an explicit procedure, and process improvements are measured."
+   },
+   "conditions": {
+    "AIQIF-C9.2.F1": {
+     "assertion": "An evidence index identifies the source records used for assessment.",
+     "evidence_forms": [
+      "evidence index or document register"
+     ],
+     "dimensions": [
+      "traceable"
+     ]
+    },
+    "AIQIF-C9.2.F2": {
+     "assertion": "A custodian is assigned to preserve those records.",
+     "evidence_forms": [
+      "custodian named in an order or SOP"
+     ],
+     "dimensions": [
+      "owner"
+     ]
+    },
+    "AIQIF-C9.2.A1": {
+     "assertion": "A sampled assessment finding is traceable to its requirement and source passage.",
+     "evidence_forms": [
+      "sampled trace from finding to source"
+     ],
+     "dimensions": [
+      "traceable"
+     ]
+    },
+    "AIQIF-C9.2.A2": {
+     "assertion": "An evidence correction preserves the earlier record and reason for change.",
+     "evidence_forms": [
+      "correction log keeping prior versions"
+     ],
+     "dimensions": [
+      "proof"
+     ]
+    },
+    "AIQIF-C9.2.O1": {
+     "assertion": "A completed audit evaluates traceability against an explicit checking procedure.",
+     "evidence_forms": [
+      "traceability audit"
+     ],
+     "dimensions": [
+      "independence"
+     ]
+    },
+    "AIQIF-C9.2.O2": {
+     "assertion": "A follow-up measures the effect of an evidence-process improvement.",
+     "evidence_forms": [
+      "follow-up after a process improvement"
+     ],
+     "dimensions": [
+      "continuity"
+     ]
+    }
+   }
+  },
+  "AIQIF-C9.3": {
+   "name": "Benchmark Evolution & AI Readiness Drift",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A process monitors relevant accreditation, curriculum or technology changes on a defined schedule, and a change review has identified an affected requirement.",
+    "strong": "Reassessments are versioned with prior results preserved, timeliness of detection is reviewed, and the monitoring process is revised and re-evaluated."
+   },
+   "conditions": {
+    "AIQIF-C9.3.F1": {
+     "assertion": "A process monitors relevant accreditation, curriculum or technology changes.",
+     "evidence_forms": [
+      "monitoring process description",
+      "IQAC agenda item on regulatory updates"
+     ],
+     "dimensions": [
+      "owner"
+     ]
+    },
+    "AIQIF-C9.3.F2": {
+     "assertion": "A review schedule defines when those changes are considered.",
+     "evidence_forms": [
+      "review schedule"
+     ],
+     "dimensions": [
+      "continuity"
+     ]
+    },
+    "AIQIF-C9.3.A1": {
+     "assertion": "A change review identifies a requirement affected by an external change.",
+     "evidence_forms": [
+      "change review naming an affected requirement"
+     ],
+     "dimensions": [
+      "proof"
+     ]
+    },
+    "AIQIF-C9.3.A2": {
+     "assertion": "A versioned reassessment preserves the prior result with an explanation of the change.",
+     "evidence_forms": [
+      "versioned reassessment record"
+     ],
+     "dimensions": [
+      "proof"
+     ]
+    },
+    "AIQIF-C9.3.O1": {
+     "assertion": "A completed review evaluates the timeliness of a detected relevant change.",
+     "evidence_forms": [
+      "timeliness review"
+     ],
+     "dimensions": [
+      "measurement"
+     ]
+    },
+    "AIQIF-C9.3.O2": {
+     "assertion": "A follow-up evaluates the effect of a monitoring-process revision.",
+     "evidence_forms": [
+      "follow-up after a process revision"
+     ],
+     "dimensions": [
+      "action"
+     ]
+    }
+   }
+  },
+  "AIQIF-C9.4": {
+   "name": "Outcome Learning, UAT & Continuous Improvement",
+   "openness": "moderate",
+   "dimensions": [
+    {
+     "id": "owner",
+     "name": "Ownership",
+     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+    },
+    {
+     "id": "coverage",
+     "name": "Coverage",
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+    },
+    {
+     "id": "proof",
+     "name": "Proof",
+     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+    },
+    {
+     "id": "measurement",
+     "name": "Measurement method",
+     "ask": "What was measured, how, and against what target or baseline?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    }
+   ],
+   "levels": {
+    "evidenced": "The part judge credited the condition from the submitted documents.",
+    "substantiated": "A feedback process covers a digital or learning initiative, a register assigns owners to resulting actions, and an acceptance or outcome review evaluates a deployed initiative.",
+    "strong": "Corrective actions are checked for completion, results of feedback-driven changes are evaluated, and later initiatives demonstrably apply the lessons."
+   },
+   "conditions": {
+    "AIQIF-C9.4.F1": {
+     "assertion": "A feedback process covers an institutional digital or learning initiative.",
+     "evidence_forms": [
+      "feedback survey or user acceptance procedure"
+     ],
+     "dimensions": [
+      "coverage"
+     ]
+    },
+    "AIQIF-C9.4.F2": {
+     "assertion": "A follow-up register assigns ownership of resulting actions.",
+     "evidence_forms": [
+      "action register with owners"
+     ],
+     "dimensions": [
+      "owner"
+     ]
+    },
+    "AIQIF-C9.4.A1": {
+     "assertion": "A user acceptance or outcome review evaluates an identified deployed initiative.",
+     "evidence_forms": [
+      "user acceptance or outcome review"
+     ],
+     "dimensions": [
+      "measurement",
+      "result"
+     ]
+    },
+    "AIQIF-C9.4.A2": {
+     "assertion": "A corrective action has a recorded completion check.",
+     "evidence_forms": [
+      "corrective action closure record"
+     ],
+     "dimensions": [
+      "proof"
+     ]
+    },
+    "AIQIF-C9.4.O1": {
+     "assertion": "A completed review evaluates the subsequent result of a feedback-driven change.",
+     "evidence_forms": [
+      "review of a feedback-driven change"
+     ],
+     "dimensions": [
+      "result"
+     ]
+    },
+    "AIQIF-C9.4.O2": {
+     "assertion": "A later initiative demonstrably applies a lesson from that review.",
+     "evidence_forms": [
+      "later initiative citing the lesson"
+     ],
+     "dimensions": [
+      "action",
+      "continuity"
+     ]
+    }
+   }
+  }
+ }
+}

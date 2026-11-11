@@ -474,3 +474,117 @@ class PlanScenarioExecution(models.Model):
             models.UniqueConstraint(fields=['run', 'idempotency_key'], name='plan_scenario_idempotency'),
             models.UniqueConstraint(fields=['run'], condition=models.Q(status__in=['queued', 'running']), name='one_active_plan_scenario'),
         ]
+
+
+# ---------------------------------------------------------------- Follow-up questions about depth (skeleton, Nov 2026)
+# See apps/scoring/capability/depth.py and docs/capability/DEPTH_FOLLOW_UP_HANDOFF.md. Keyed to an assessment run by
+# its id string (run_ref), like assessment exports, so the stage can work from an export as well as a live run.
+# Nothing here feeds the headline score in reports.
+
+class DepthQuestion(models.Model):
+    """A follow-up question for the institution about one run. kind 'depth': how substantial is the credited
+    evidence for one condition; kind 'missing': do you have anything for these uncredited conditions."""
+    class Kind(models.TextChoices):
+        DEPTH = 'depth', 'Depth of credited evidence'
+        MISSING = 'missing', 'No evidence found'
+
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Open'
+        ANSWERED = 'answered', 'Answered'
+        CLOSED = 'closed', 'Closed'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run_ref = models.CharField(max_length=64, db_index=True, help_text='The assessment run id the questions are about.')
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    indicator_code = models.CharField(max_length=30)
+    condition_ids = models.JSONField(default=list)
+    dimension_ids = models.JSONField(default=list, blank=True)
+    text = models.TextField()
+    rank = models.PositiveIntegerField()
+    answered_by_evidence = models.JSONField(default=list, blank=True,
+                                            help_text='Dimensions the credited evidence already answered (no question).')
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    spec_version = models.CharField(max_length=30)
+    model = models.CharField(max_length=150, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['run_ref', 'rank']
+        constraints = [models.UniqueConstraint(fields=['run_ref', 'rank'], name='depth_question_rank_per_run')]
+
+    def __str__(self):
+        return f'{self.run_ref[:8]} #{self.rank} {self.kind}'
+
+
+class DepthResponse(models.Model):
+    """The institution's response to a question: an answer, documents, or "don't know". supported = a document backs
+    the answer. Uploaded documents are referenced by id; they still have to go through extraction and a reassessment
+    (not automated in the skeleton)."""
+    class Kind(models.TextChoices):
+        ANSWER = 'answer', 'Answer'
+        UPLOAD = 'upload', 'Documents uploaded'
+        DONT_KNOW = 'dont_know', "Don't know"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    question = models.ForeignKey(DepthQuestion, on_delete=models.CASCADE, related_name='responses')
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    answer = models.TextField(blank=True)
+    document_ids = models.JSONField(default=list, blank=True)
+    supported = models.BooleanField(default=False)
+    submitted_via = models.CharField(max_length=20, default='file', help_text='file, college, consultant')
+    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['question__rank', 'created_at']
+
+
+class DepthJudgment(models.Model):
+    """The depth level of one credited condition after the institution's answers. judged_level is the model's;
+    final_level applies the open decisions (policy holds the settings used)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run_ref = models.CharField(max_length=64, db_index=True)
+    condition_id = models.CharField(max_length=30)
+    provisional_credit = models.DecimalField(max_digits=6, decimal_places=4)
+    judged_level = models.CharField(max_length=15)
+    contradicts_evidence = models.BooleanField(default=False)
+    relies_on_unsupported = models.BooleanField(default=False)
+    final_level = models.CharField(max_length=15)
+    final_credit = models.DecimalField(max_digits=6, decimal_places=4)
+    dimension_findings = models.JSONField(default=list)
+    reason = models.TextField(blank=True)
+    policy = models.JSONField(default=dict)
+    past_case_ids = models.JSONField(default=list, blank=True)
+    spec_version = models.CharField(max_length=30)
+    model = models.CharField(max_length=150, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['run_ref', 'condition_id', '-created_at']
+
+
+class DepthPastCase(models.Model):
+    """A judged condition kept as a reference for later judgments of the same condition. Proposed automatically;
+    used only once a person approves it (decision 4 names who). Tied to the spec version it was judged under."""
+    class Status(models.TextChoices):
+        PROPOSED = 'proposed', 'Proposed'
+        APPROVED = 'approved', 'Approved'
+        REJECTED = 'rejected', 'Rejected'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    judgment = models.OneToOneField(DepthJudgment, on_delete=models.PROTECT, related_name='past_case')
+    condition_id = models.CharField(max_length=30, db_index=True)
+    level = models.CharField(max_length=15)
+    dimension_findings = models.JSONField(default=list)
+    reasoning = models.TextField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PROPOSED)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+                                    related_name='+')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.TextField(blank=True)
+    spec_version = models.CharField(max_length=30)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['condition_id', '-created_at']
