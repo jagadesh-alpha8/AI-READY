@@ -75,13 +75,13 @@ class JudgeTests(SimpleTestCase):
         r = judged(response(A1=condition({'p1': part('full', QUOTE_PLAN), 'p2': part('related', QUOTE_PLAN),
                                           'p3': part('not_found')})))['A1']
         self.assertEqual(r['state'], 'unknown')
-        self.assertEqual(r['credit'], 0.5)  # (1 + 0.5 + 0) / 3
+        self.assertEqual(r['credit'], 0.125)  # subject is a gate; substantive parts (0.25 + 0) / 2
         self.assertTrue(r['citations'])
 
     def test_unverifiable_quote_counts_as_not_found(self):
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER),
                                           'p2': part('full', 'An invented passage that is not on the page at all.')})))['F2']
-        self.assertEqual((r['state'], r['credit']), ('unknown', 0.5))  # a fully evidenced subject earns its share
+        self.assertEqual((r['state'], r['credit']), ('unknown', 0.0))  # the subject alone earns nothing
         self.assertEqual([p['finding'] for p in r['parts']], ['full', 'not_found'])
         self.assertTrue(r['part_issues'])
 
@@ -95,7 +95,7 @@ class JudgeTests(SimpleTestCase):
         # An undated quotation and no period from the model: full parts count as related.
         parts = {'p1': part('full', QUOTE_OWNER), 'p2': part('full', QUOTE_OWNER), 'p3': part('full', QUOTE_OWNER)}
         r = judged(response(A1=condition(parts, period=False)))['A1']
-        self.assertEqual((r['state'], r['credit']), ('unknown', 0.5))
+        self.assertEqual((r['state'], r['credit']), ('unknown', 0.25))  # parts 2 and 3 count as related
 
     def test_a_dated_quotation_settles_an_activity_period(self):
         dated = 'In 2022-23 the Registrar implemented the e-governance priority for admissions.'
@@ -115,7 +115,7 @@ class JudgeTests(SimpleTestCase):
 
     def test_contradicted_part_is_not_met(self):
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('contradicted', QUOTE_OWNER)})))['F2']
-        self.assertEqual((r['state'], r['credit']), ('not_met', 0.5))
+        self.assertEqual((r['state'], r['credit']), ('not_met', 0.0))
 
     def test_related_subject_alone_earns_nothing(self):
         r = judged(response(F2=condition({'p1': part('related', QUOTE_OWNER), 'p2': part('not_found')})))['F2']
@@ -127,7 +127,7 @@ class JudgeTests(SimpleTestCase):
         self.assertEqual((r['state'], r['credit'], r['digital_credit']), ('unknown', 0.0, 1.0))
         # On a part that does not ask for AI, "digital only" is just related evidence.
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('digital_only', QUOTE_OWNER)})))['F2']
-        self.assertEqual((r['credit'], r['digital_credit']), (0.75, 0.75))
+        self.assertEqual((r['credit'], r['digital_credit']), (0.25, 0.25))
 
     def test_missing_condition_is_unknown_with_no_credit(self):
         resp = response()
@@ -148,9 +148,9 @@ class CombineTests(SimpleTestCase):
         f2 = next(r for r in combined if r['condition_id'].endswith('F2'))
         self.assertEqual(f2['state'], 'unknown')
         self.assertEqual(f2['cause'], 'assessor_disagreement')
-        self.assertEqual(f2['credit'], 0.75)  # (1 + 0.5) / 2
+        self.assertEqual(f2['credit'], 0.5)  # (1 + 0) / 2: the second pass found only the subject
         self.assertEqual(disagreements, [{'condition_id': 'AIQIF-C1.1.F2', 'first': 'met', 'second': 'unknown',
-                                          'credits': [1.0, 0.5]}])
+                                          'credits': [1.0, 0.0]}])
 
     def test_identical_passes_are_unchanged(self):
         resp = response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('related', QUOTE_OWNER)}))

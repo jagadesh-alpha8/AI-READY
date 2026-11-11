@@ -33,7 +33,10 @@ from pathlib import Path
 
 VERSION = 'AIQIF-PARTS-2'
 JUDGMENT = 'parts-v2'
-RELATED_CREDIT = 0.5
+#: Related evidence is adjacent, not partial proof. At 0.5, the VISTAS run (f5919156) gave 29 requirements half
+#: credit on generic institutional paperwork alone (14.75 of 81.5 credited conditions); 0.25 keeps it visible
+#: without letting adjacency pass for half of the requirement.
+RELATED_CREDIT = 0.25
 #: Two passes whose credits for a condition differ by at least this much count as disagreeing (as do passes with
 #: different states); with tie-breaking on, a third pass decides by median credit.
 CREDIT_GAP = 0.5
@@ -77,12 +80,20 @@ Evidence a reviewer accepts in accreditation records (full unless the part's own
 - A partnership, MoU or collaborative programme with a named company or institution that delivers or co-delivers an
   AI course, programme or project specifies an AI activity and its contribution to curriculum, skills or projects.
 - A skills, placement, incubation or training-to-employment programme that names AI, ML or data science skills, or a
-  national skilling partnership for them, is a pathway that addresses AI skills.
+  national skilling partnership for them, is a pathway that addresses AI skills. A recruitment drive open to many
+  programmes, one of them an AI programme, is not by itself an AI-relevant opportunity unless the role or employer
+  is AI-related (related at most); a list of eligible programmes is not an eligibility rule for an AI opportunity.
 - A named IT, systems or network team, officer or committee responsible for maintaining or administering systems
-  has assigned responsibility for those systems; for a user support contact it is related unless users are told to
-  contact it.
+  has assigned responsibility for operating those systems; for a user support contact it is related unless users
+  are told to contact it. Maintaining computers and networks is not custody of data, ownership of a strategic
+  priority or responsibility for information security unless the record says so (related at most).
 - A standing committee, cell or board with a stated remit, or a stated meeting cadence, defines a process, authority
   or schedule for that remit.
+
+Related evidence must be about the part's own subject: the same programme, system, process or kind of activity,
+shown in a weaker or adjacent form. A general institutional process, facility or policy that is not about that
+subject (staff welfare, a general audit, a general feedback survey, a general statement of intent) is not_found,
+not related.
 
 Still not enough:
 - AI means artificial intelligence or machine learning: models, machine learning, deep learning, generative AI,
@@ -356,9 +367,12 @@ def _dated(citations):
 
 
 def credit(parts, spec_parts=None, digital=False):
-    """Mean part credit, or 0 when a gate part has no evidence: the subject (first part) of every condition,
-    and the AI-specific part of an AI condition. Without its subject, or without anything AI for an AI
-    condition, the other parts are not evidence of this condition. Evidence for the subject alone earns 0 too."""
+    """Mean credit of the condition's substantive parts (every part after the subject), or 0 when a gate part has
+    no evidence: the subject (first part) of every condition, and the AI-specific part of an AI condition.
+
+    The subject only identifies what the condition is about ("an advanced AI pathway") and is credited in the
+    condition that establishes it; counting it again as a share of every follow-on condition ("the pathway includes
+    a practical assessment") gave half credit for evidence of the subject alone. It is now a gate, not a share."""
     if not parts:
         return 0.0
     # digital=True is the digital-groundwork measure: a digital system that is not AI counts on an AI part.
@@ -367,11 +381,8 @@ def credit(parts, spec_parts=None, digital=False):
     gates = {p['id'] for p in (spec_parts or []) if p.get('gate')} or {parts[0]['id']}
     if any(p['id'] in gates and p['credited_as'] not in evidenced for p in parts):
         return 0.0
-    # A subject with only weak (related) evidence and nothing else is too thin to credit; a fully evidenced
-    # subject on its own still earns its share.
-    if parts[0]['credited_as'] != 'full' and not any(p['credited_as'] in evidenced for p in parts[1:]):
-        return 0.0
-    return round(sum(value.get(p['credited_as'], 0.0) for p in parts) / len(parts), 4)
+    substantive = parts[1:] or parts
+    return round(sum(value.get(p['credited_as'], 0.0) for p in substantive) / len(substantive), 4)
 
 
 def combine(first, second):

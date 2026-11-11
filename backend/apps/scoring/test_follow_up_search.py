@@ -99,7 +99,7 @@ class FollowUpTests(SimpleTestCase):
         record = records['AIQIF-C8.1.F2']
         self.assertEqual(record['state'], 'met')
         self.assertEqual(record['credit'], 1.0)
-        self.assertEqual(record['follow_up']['previous_credit'], 0.5)
+        self.assertEqual(record['follow_up']['previous_credit'], 0.0)  # the subject alone earned nothing
         self.assertIn('AIQIF-C8.1.F2', outcome['follow_up_audit']['replaced'])
         # Only conditions with a newly found passage were judged again, in one extra request.
         self.assertEqual(len(service.calls), 2)
@@ -140,14 +140,14 @@ class FollowUpTests(SimpleTestCase):
     def test_a_lower_second_judgment_never_removes_credit(self):
         outcome, records, _, _ = self.judge(Service('lower'))
         record = records['AIQIF-C8.1.F2']
-        self.assertEqual(record['credit'], 0.5)
+        self.assertEqual(record['credit'], 0.0)
         self.assertFalse(record['follow_up']['replaced'])
         self.assertEqual(record['follow_up']['second_credit'], 0.0)
         self.assertEqual(outcome['follow_up_audit']['replaced'], [])
 
     def test_a_failed_follow_up_request_keeps_the_first_results(self):
         outcome, records, _, job = self.judge(Service('full', fail=True))
-        self.assertEqual(records['AIQIF-C8.1.F2']['credit'], 0.5)
+        self.assertEqual(records['AIQIF-C8.1.F2']['credit'], 0.0)
         self.assertIn('first results kept', outcome['follow_up_audit']['error'])
         self.assertEqual(outcome['context'], job['context'])
 

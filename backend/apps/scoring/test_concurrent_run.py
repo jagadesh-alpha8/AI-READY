@@ -84,6 +84,8 @@ class PartJudgmentRunTests(APITransactionTestCase):
         # The strict syllabus-approval regex does not apply under the reviewer standard: every part is evidenced.
         self.assertEqual(records['AIQIF-C3.1.F1']['state'], 'met')
         self.assertTrue(all(r['credit'] == 1.0 for r in records.values()))
+        # Both passes' credits reach the published records (assessment_consistency reads them from the export).
+        self.assertTrue(all(r['pass_credits'] == [1.0, 1.0] for r in records.values()))
         self.assertEqual(assessment['result']['score'], assessment['result']['documented']['overall'])
         result = assessment['result']
         self.assertEqual(result['documented_with_digital'], result['documented'])  # no digital-only findings
