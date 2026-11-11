@@ -1,5 +1,5 @@
 {
- "version": "AIQIF-PARTS-1",
+ "version": "AIQIF-PARTS-2",
  "rubric_version": "AIQIF-CAP-0.3",
  "conditions": {
   "AIQIF-C1.1.F1": {
@@ -959,8 +959,8 @@
    "parts": [
     {
      "id": "p1",
-     "full": "A governing body (Board of Studies, Academic Council) records approval of a syllabus or curriculum, naming the applicable edition or programme",
-     "related": "the syllabus is presented as the institution's current syllabus without an approval record",
+     "full": "A syllabus or curriculum of the institution: one in its submitted curriculum, syllabus or Board of Studies documents, or one a governing body (Board of Studies, Academic Council) records approving",
+     "related": "a syllabus whose origin is unclear or that belongs to another body",
      "gate": "subject"
     },
     {
@@ -1000,7 +1000,7 @@
    "parts": [
     {
      "id": "p1",
-     "full": "Teaching records (timetables, attendance, delivery reports, course completion) are quoted",
+     "full": "Teaching records are quoted: timetables, attendance, delivery reports, course completion, or enrolment, examination or result records for a cohort of a programme whose curriculum contains the content",
      "related": "the course is listed as offered",
      "gate": "subject"
     },
@@ -2032,7 +2032,7 @@
     },
     {
      "id": "p2",
-     "full": "It is for an identified student group",
+     "full": "It is for an identified student group (the students of a named programme, specialisation or cohort; an approved intake identifies them)",
      "related": "unclear",
      "gate": null
     }
@@ -3159,7 +3159,7 @@
    "parts": [
     {
      "id": "p1",
-     "full": "A collaboration work plan exists (MoU activities, joint project plan)",
+     "full": "A collaboration work plan exists: MoU activities, a joint project plan, or a programme or project delivered with a named partner",
      "related": "an agreement without planned work",
      "gate": "subject"
     },
@@ -3399,7 +3399,7 @@
    "parts": [
     {
      "id": "p1",
-     "full": "An industry work plan exists (planned activities with an industry partner)",
+     "full": "An industry work plan exists: planned or offered activities with a named industry partner, such as a co-delivered course, programme, lab or project",
      "related": "an MoU listing without planned activities",
      "gate": "subject"
     },

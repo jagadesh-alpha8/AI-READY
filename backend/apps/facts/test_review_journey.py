@@ -26,7 +26,7 @@ POSITIVE = 'In 2025-26, computing resources were accessible to 20 learners in th
 NEGATIVE = 'In 2025-26, computing resources were accessible to 0 learners in the engineering programme.'
 
 
-@override_settings(SECURE_SSL_REDIRECT=False, FACT_VERIFICATION_MODE='shadow')
+@override_settings(SECURE_SSL_REDIRECT=False, FACT_VERIFICATION_MODE='shadow', CAPABILITY_JUDGMENT='conditions')
 class ReviewJourneyTests(APITestCase):
     def setUp(self):
         self.institution = Institution.objects.create(name='Synthetic College')

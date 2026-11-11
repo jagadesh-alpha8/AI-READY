@@ -654,6 +654,12 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
     else:
         # Retrieval reads the duplicate-free pages; validation still accepts any frozen source.
         context = select_context(indicator, structure['sources'], semantic_ranker=semantic_ranker, structure=structure)
+    lane_audit = None
+    from django.conf import settings
+    if getattr(settings, 'CAPABILITY_EVIDENCE_LANE', True):
+        from .reviewed_evidence import evidence_lane
+        context, lane_audit = evidence_lane(indicator, list(context),
+                                            structure['sources'] if structure is not None else sources, reviewed_evidence)
     # Repeating the packet ID enum in each condition can exceed Gemini's
     # schema complexity limit. validate_decisions still checks exact citations.
     schema_sources = None if gemini else context
@@ -676,6 +682,7 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
         issue = 'No readable source context. Capability is unknown.'
     return {'indicator': indicator, 'context': context, 'schema_sources': schema_sources,
             'schema': indicator_schema(indicator, schema_sources), 'attachment_audit': attachment_audit,
+            'evidence_lane': lane_audit,
             'review_context': review_context, 'payload': payload, 'issue': issue, 'payload_for': payload_for,
             # The exact pages the ranker indexed, so the extra search reuses its index instead of rebuilding it.
             'retrieval_sources': ranking_sources(structure['sources'] if structure is not None else sources)}
@@ -944,7 +951,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources):
             'source_ids': [s['id'] for s in context],
             'source_excerpts': context,
             'reviewed_evidence_packet': review_context,
-            'reviewed_attachment_audit': job['attachment_audit'],
+            'reviewed_attachment_audit': job['attachment_audit'], 'evidence_lane': job.get('evidence_lane'),
             'reviewed_context_chars': len(json.dumps(review_context)),
             'reviewed_context_claims': len((review_context or {}).get('claims', [])),
             'user_payload_chars': len(payload),

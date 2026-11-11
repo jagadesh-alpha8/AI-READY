@@ -85,10 +85,24 @@ class JudgeTests(SimpleTestCase):
         self.assertEqual([p['finding'] for p in r['parts']], ['full', 'not_found'])
         self.assertTrue(r['part_issues'])
 
-    def test_unsupported_period_caps_full_parts_at_related(self):
+    def test_unsupported_period_does_not_cap_a_foundation_condition(self):
+        # A submitted record establishes a foundation provision for the period it reports.
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('full', QUOTE_OWNER)},
                                          period=False)))['F2']
+        self.assertEqual((r['state'], r['credit']), ('met', 1.0))
+
+    def test_unsupported_period_still_caps_an_activity_condition(self):
+        parts = {'p1': part('full', QUOTE_PLAN), 'p2': part('full', QUOTE_PLAN), 'p3': part('full', QUOTE_PLAN)}
+        r = judged(response(A1=condition(parts, period=False)))['A1']
         self.assertEqual((r['state'], r['credit']), ('unknown', 0.5))
+
+    def test_reviewer_sees_parts_not_strict_rubric_prose(self):
+        shown = pj.indicator_with_parts(c11())
+        self.assertNotIn('capability', shown)
+        for condition_view in shown['conditions']:
+            self.assertEqual(set(condition_view), {'id', 'level', 'text', 'construct', 'parts', 'not_enough'})
+        self.assertIn('accreditation peer reviewer', pj.prompt())
+        self.assertNotIn('A syllabus cohort declaration must be shown', pj.prompt())
 
     def test_contradicted_part_is_not_met(self):
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('contradicted', QUOTE_OWNER)})))['F2']

@@ -321,3 +321,106 @@ def _independent_count(citation, claim_quote, guarded_value):
     counts = lambda text: {n.replace(',', '') for n in re.findall(r'\d+(?:,\d{3})*', text)}
     cited_counts = counts(citation)
     return number in counts(preceding) and bool(cited_counts) and number not in cited_counts
+
+
+# ---- Extracted-evidence lane -----------------------------------------------------------------------------------
+# Extraction finds AI evidence (an AI programme's approved intake, faculty funded for an ML conference, an AI patent)
+# that keyword and semantic retrieval often miss, because the page shares few words with the rubric condition. On the
+# VISTAS full corpus 66 of 101 extracted AI items never reached the judge. This lane adds the source page of each
+# relevant extracted AI item to the indicator's packet, within a fixed budget, so the judge can cite it.
+LANE_VERSION = 'extracted-evidence-lane-1'
+LANE_CHARS = 18000
+LANE_WINDOW = 2400
+LANE_MAX_ITEMS = 14
+_LANE_STOP = frozenset('''institution institutional college university students student faculty there their with that
+from have been this number total during year years department identified relevant assessed scope records record
+evidence least defined documented demonstrates demonstrate supports supported available within least each
+artificial intelligence machine learning based using used about which where'''.split())
+
+
+def _lane_tokens(text):
+    import re
+    return {t[:7] for t in re.findall(r'[a-z]{4,}', str(text or '').lower()) if t not in _LANE_STOP}
+
+
+#: Kinds of extracted AI evidence and the indicators that judge them. Accreditation records describe evidence in
+#: their own words ("placements", "approved intake", "patent filed"), which rarely share words with the rubric.
+LANE_FAMILIES = (
+    (r'patent|publication|journal|research|funded project|grant', ('C7.1', 'C7.3', 'C4.3')),
+    (r'intake|programme|program\b|b\.?\s?tech|b\.?\s?sc|m\.?\s?tech|bca|mca|degree|speciali[sz]ation|syllabus|'
+     r'curriculum|course|unit\b|elective|textbook', ('C3.1', 'C5.2', 'C3.2', 'C5.1')),
+    (r'examination|pass percentage|result|graduat', ('C3.1', 'C5.2')),
+    (r'fdp|faculty development|faculty.{0,40}(?:conference|workshop|training|seminar|course)|'
+     r'(?:conference|workshop|training|seminar).{0,40}faculty', ('C4.1', 'C4.2')),
+    (r'placement|internship|recruit|career|employ|hiring', ('C5.4', 'C8.3')),
+    (r'incubat|start-?up|venture|seed fund|entrepreneur|innovation', ('C7.2', 'C7.3')),
+    (r'\blab\b|laborator|centre|center|gpu|comput(?:ing|er)', ('C6.1', 'C6.4')),
+    (r'mou|partner|collaborat|industry|company', ('C8.2', 'C7.4')),
+    (r'student.{0,40}project|project.{0,40}student|hackathon|competition', ('C3.4', 'C5.3')),
+    (r'policy|guideline|ethic|responsible', ('C2.1',)),
+)
+
+
+def lane_relevance(claim, indicator):
+    """How strongly an extracted item belongs to an indicator: 10 when its kind of evidence is judged there
+    (LANE_FAMILIES), plus the shared-word count with the indicator's name and condition texts (seven-letter stems).
+    Two or more qualifies. A deliberately simple, inspectable rule."""
+    import re
+    text = ' '.join(str(claim.get(k) or '') for k in ('label', 'attribute', 'value')).replace('_', ' ')
+    quote = str((claim.get('source') or {}).get('quote') or '')
+    area = indicator.get('code', '').replace('AIQIF-', '')
+    family = any(area in areas and re.search(pattern, text, re.I) for pattern, areas in LANE_FAMILIES)
+    target = _lane_tokens(indicator.get('name', '') + ' ' + ' '.join(c['text'] for c in indicator.get('conditions', [])))
+    return (10 if family else 0) + len(_lane_tokens(text + ' ' + quote) & target)
+
+
+def evidence_lane(indicator, context, sources, ledger, *, budget=LANE_CHARS):
+    """(context with added windows, audit). Never removes or reorders retrieved windows."""
+    from apps.facts.verification.grounding import parse_pages
+    from .evaluation import _normal
+    audit = {'version': LANE_VERSION, 'budget_chars': budget, 'added': [], 'already_in_packet': 0, 'considered': 0}
+    if not ledger:
+        return context, audit
+    by_page = {}
+    for source in sources:
+        by_page.setdefault((source['document_id'], source['page_number']), source)
+    present = {(w['document_id'], w['page_number']) for w in context}
+    scored = []
+    for claim in ledger.get('claims', []):
+        src = claim.get('source') or {}
+        if claim.get('kind') != 'ai_evidence' or claim.get('disposition') == 'rejected' or not src.get('document_id') \
+                or src.get('current') is False:
+            continue
+        score = lane_relevance(claim, indicator)
+        if score >= 2:
+            scored.append((-score, claim['id'], claim))
+    scored.sort(key=lambda row: row[:2])
+    audit['considered'] = len(scored)
+    used, added = 0, []
+    for _, _, claim in scored[:LANE_MAX_ITEMS]:
+        src = claim['source']
+        for page in parse_pages(src.get('page', ''))[:2]:
+            key = (src['document_id'], page)
+            source = by_page.get(key)
+            if source is None:
+                continue
+            if key in present:
+                audit['already_in_packet'] += 1
+                continue
+            text = source['text']
+            start = 0
+            if len(text) > LANE_WINDOW:
+                probe = _normal(src.get('quote') or '')[:40]
+                hit = text.find(probe) if probe else -1
+                start = max(0, min(hit - LANE_WINDOW // 3, len(text) - LANE_WINDOW)) if hit >= 0 else 0
+            window = text[start:start + LANE_WINDOW]
+            if used + len(window) > budget:
+                break
+            context.append({**{k: v for k, v in source.items() if k not in ('text', 'report_timestamp')},
+                            'text': window, 'text_offset': start, 'evidence_role': 'extracted_evidence'})
+            present.add(key)
+            used += len(window)
+            added.append({'claim_id': claim['id'], 'document_id': src['document_id'], 'page': page,
+                          'chars': len(window)})
+    audit['added'], audit['used_chars'] = added, used
+    return context, audit

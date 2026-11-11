@@ -101,6 +101,37 @@ def advisory_state(recommendation):
             'explanation': explanations.get(status, 'The selected version contains basic guidance; bespoke institutional advice is not established.')}
 
 
+CREDIT_LABELS = {'demonstrated': 'Demonstrated', 'partly': 'Partly demonstrated',
+                 'not_found': 'Not found in the documents', 'shortfall': 'Documented shortfall',
+                 'not_checked': 'Not checked (processing failure)'}
+SCORE_NOTE = ('The share of the readiness conditions that the supplied documents show. A condition with only some of '
+              'its parts evidenced, or with weaker related evidence, earns partial credit; a condition the documents '
+              'do not show earns none.')
+
+
+def credit_status(record):
+    """One condition's status under part credit: demonstrated, partly, not_found, shortfall or not_checked."""
+    from .decision_causes import NOT_EVALUATED
+    if record.get('cause') == NOT_EVALUATED:
+        return 'not_checked'
+    if record.get('state') == 'not_met':
+        return 'shortfall'
+    value = record.get('credit', 1.0 if record.get('state') == 'met' else 0.0)
+    return 'demonstrated' if value >= 1 else 'partly' if value > 0 else 'not_found'
+
+
+def credit_finding(statuses):
+    counts = Counter(statuses)
+    if counts['not_checked']:
+        return 'Some requirements could not be checked because processing failed; re-run before relying on this area.'
+    if counts['demonstrated'] == len(statuses):
+        return 'All requirements are demonstrated in the documents.'
+    if counts['demonstrated'] or counts['partly']:
+        return (f"{counts['demonstrated']} of {len(statuses)} requirements demonstrated"
+                + (f", {counts['partly']} partly" if counts['partly'] else '') + '.')
+    return 'The documents do not show this capability yet.'
+
+
 DOCUMENTED_NOTE = ('Documented readiness counts what the supplied documents evidence, including partial credit for '
                    'conditions with some of their parts evidenced or with related but weaker evidence. The range '
                    'above counts only fully demonstrated conditions.')
@@ -118,6 +149,8 @@ def build_report_view(report, actions):
     documented_areas = {i['code']: i['score'] for i in documented['indicators']} if documented else {}
     documented_pillars = {p['code']: p['score'] for p in documented['pillars']} if documented else {}
     decisions = {r['condition_id']: r for r in report['assessment']['records']}
+    # Part-credit runs report one score; earlier runs keep their recorded range.
+    single = result.get('score') is not None and documented is not None
     action_by_id = {a['id']: a for a in actions}
     state = advisory_state(report.get('recommendation'))
     source_labels = {str(p['page_id']): f"{d['filename']}, page {p.get('number', '?')}"
@@ -128,6 +161,14 @@ def build_report_view(report, actions):
         counts = Counter(row['state'] for row in rows)
         stage_results = []
         for stage, title in STAGES.items():
+            if single:
+                statuses = [credit_status(decisions[c['id']]) for c in indicator['conditions'] if c['level'] == stage]
+                status = next((k for k in ('not_checked', 'shortfall', 'not_found', 'partly') if k in statuses),
+                              'demonstrated')
+                if status == 'not_found' and any(x in ('demonstrated', 'partly') for x in statuses):
+                    status = 'partly'
+                stage_results.append({'title': title, 'status': CREDIT_LABELS[status]})
+                continue
             states = [decisions[c['id']]['state'] for c in indicator['conditions'] if c['level'] == stage]
             status = ('conflicting' if 'conflicting' in states else 'not_met' if 'not_met' in states
                       else 'unknown' if 'unknown' in states else 'met')
@@ -139,15 +180,23 @@ def build_report_view(report, actions):
                                       {'conflicting': 0, 'not_met': 1, 'unknown': 2}.get(a['state'], 3)))
         first = available[0] if available else None
         title = AREA_TITLES.get(indicator['code'], readable(indicator['name']))
-        area = {'key': indicator['code'], 'pillar_key': indicator['pillar'], 'title': title,
-                'score': score_label(indicator['lower'], indicator['upper']),
-                'score_explanation': bounds_note(indicator['lower'], indicator['upper']),
-                **({'documented_score': documented_label(documented_areas[indicator['code']])} if documented else {}),
-                'finding': finding(counts), 'stages': stage_results,
-                'next_step': 'Maintain the demonstrated capability and retain supporting evidence.'}
+        if single:
+            area = {'key': indicator['code'], 'pillar_key': indicator['pillar'], 'title': title,
+                    'score': f"{documented_areas[indicator['code']]:g} / 100", 'score_explanation': '',
+                    'finding': credit_finding([credit_status(r) for r in rows]), 'stages': stage_results,
+                    'strengths': [readable(c['text']) for c in indicator['conditions']
+                                  if credit_status(decisions[c['id']]) == 'demonstrated'],
+                    'next_step': 'Maintain the demonstrated capability and retain supporting evidence.'}
+        else:
+            area = {'key': indicator['code'], 'pillar_key': indicator['pillar'], 'title': title,
+                    'score': score_label(indicator['lower'], indicator['upper']),
+                    'score_explanation': bounds_note(indicator['lower'], indicator['upper']),
+                    **({'documented_score': documented_label(documented_areas[indicator['code']])} if documented else {}),
+                    'finding': finding(counts), 'stages': stage_results,
+                    'next_step': 'Maintain the demonstrated capability and retain supporting evidence.'}
         if first:
             advice = first.get('advice')
-            prefixes = {'unknown': 'Check whether existing records establish: ',
+            prefixes = {'unknown': 'Show or put in place: ' if single else 'Check whether existing records establish: ',
                         'conflicting': 'Reconcile the evidence for: ',
                         'not_met': 'Address the documented requirement: '}
             initial = prefixes.get(first['state'], '') + readable(first['requirement'])
@@ -178,9 +227,11 @@ def build_report_view(report, actions):
         children = [a for a in areas if a['pillar_key'] == pillar['code']]
         followup = next((a for a in followups if any(c['key'] == a['area_key'] for c in children)), None)
         pillars.append({'title': PILLARS.get(pillar['code'], 'Assessment area'),
-                        'score': score_label(pillar['lower'], pillar['upper']),
-                        'score_explanation': bounds_note(pillar['lower'], pillar['upper']),
-                        **({'documented_score': documented_label(documented_pillars[pillar['code']])} if documented else {}),
+                        **({'score': f"{documented_pillars[pillar['code']]:g} / 100", 'score_value': documented_pillars[pillar['code']],
+                            'score_explanation': ''} if single else
+                           {'score': score_label(pillar['lower'], pillar['upper']),
+                            'score_explanation': bounds_note(pillar['lower'], pillar['upper']),
+                            **({'documented_score': documented_label(documented_pillars[pillar['code']])} if documented else {})}),
                         'areas': children, 'next_step': followup['next_step'] if followup else
                         'Maintain demonstrated capability and review new evidence.'})
     counts = Counter(row['state'] for row in decisions.values())
@@ -188,7 +239,10 @@ def build_report_view(report, actions):
     scope = report.get('scope') or {}
     scope_notices = [{k: question[k] for k in ('code', 'severity', 'message')}
                      for question in scope.get('questions', [])]
-    if scope.get('mode') == 'default':
+    if single:
+        # Only scope questions someone must act on; the standing interpretation notes are in the limitations.
+        scope_notices = [q for q in scope_notices if q['severity'] == 'review']
+    elif scope.get('mode') == 'default':
         scope_notices.insert(0, {'code': 'default_source_specific_scope', 'severity': 'limitation',
             'message': 'This is an institutional overview using source-specific populations and periods. Universal coverage and current-year activity are not presumed.'})
     if report.get('refines_run_id'):
@@ -225,14 +279,15 @@ def build_report_view(report, actions):
         'population': report['population'], 'period': report['reference_period'],
         'scope_notices': scope_notices,
         'methodology': result['methodology'], 'methodology_status': result['methodology_status'],
-        'methodology_notice': ('This report uses independent assertion credit under the experimental readiness method. Source-period findings do not prove current operation. Achievement levels are not calibrated.' if result.get('aggregation') == 'independent_conditions' else 'This report uses its recorded historical capability method. Start a new assessment to use the revised readiness method. Experimental results do not constitute accreditation.'),
-        'score': score_label(result['lower'], result['upper']),
-        'score_explanation': bounds_note(result['lower'], result['upper']),
-        **({'documented_score': documented_label(documented['overall']), 'documented_explanation': DOCUMENTED_NOTE}
-           if documented else {}),
-        **({'digital_score': f"Including digital groundwork {result['documented_with_digital']['overall']:g} / 100",
-            'digital_explanation': DIGITAL_NOTE} if result.get('documented_with_digital') else {}),
-        'assessment_state': 'Evidence review required — readiness baseline not established' if foundation and foundation['baseline']['status'] == 'needs_evidence_review' else 'Provisional findings' if counts['unknown'] or counts['conflicting'] or needs_scope_review else 'Assessment completed',
+        'methodology_notice': ('Readiness method ' + result['methodology'] + ', scored with part credit. Achievement levels (Silver, Gold, Platinum) are not yet calibrated, so no badge is awarded.') if single else ('This report uses independent assertion credit under the experimental readiness method. Source-period findings do not prove current operation. Achievement levels are not calibrated.' if result.get('aggregation') == 'independent_conditions' else 'This report uses its recorded historical capability method. Start a new assessment to use the revised readiness method. Experimental results do not constitute accreditation.'),
+        **(single_headline(result, decisions) if single else {
+            'score': score_label(result['lower'], result['upper']),
+            'score_explanation': bounds_note(result['lower'], result['upper']),
+            **({'documented_score': documented_label(documented['overall']), 'documented_explanation': DOCUMENTED_NOTE}
+               if documented else {}),
+            **({'digital_score': f"Including digital groundwork {result['documented_with_digital']['overall']:g} / 100",
+                'digital_explanation': DIGITAL_NOTE} if result.get('documented_with_digital') else {}),
+            'assessment_state': 'Evidence review required — readiness baseline not established' if foundation and foundation['baseline']['status'] == 'needs_evidence_review' else 'Provisional findings' if counts['unknown'] or counts['conflicting'] or needs_scope_review else 'Assessment completed'}),
         'advisory': state, 'pillars': pillars, 'areas': areas, 'priorities': priorities, 'foundation_plan': foundation,
         'followup_count': len(followups),
         'priority_note': ('Foundation goals reuse verified strengths and separate evidence checks from conditional development. Timing is illustrative; no achievement is awarded.' if foundation else 'These starting points use the earliest unresolved capability steps, with contradictions first within each step. Institutional benefit, cost and feasibility have not been assessed. All areas remain available in the detail.'),
@@ -242,7 +297,7 @@ def build_report_view(report, actions):
                              + (f" of {diagnostics['readable_pages'] + diagnostics['unreadable_or_unavailable_pages']} expected"
                                 if diagnostics.get('unreadable_or_unavailable_pages') else ' readable')
                              + f" {'page' if diagnostics['readable_pages'] == 1 else 'pages'} were included in this saved assessment."),
-        'limitations': [
+        'limitations': single_limitations(report, diagnostics) if single else [
             'Missing or unreadable records do not establish that an activity is absent.',
             'Findings apply only to the recorded population and period; historical evidence does not establish current performance.',
             review_limitation(report),
@@ -254,6 +309,31 @@ def build_report_view(report, actions):
              if diagnostics['validation_issues'] else []) +
             ([f"{diagnostics['indicators_with_bounded_context']} assessment areas used selected subsets of source passages. This is not a complete page-by-page review; missing support in a selected passage does not prove absence from all documents."]
              if diagnostics.get('indicators_with_bounded_context') else []),
+    }
+
+
+def single_limitations(report, diagnostics):
+    notes = ['The score counts what the supplied documents show. Capability that exists but is not documented in them '
+             'is not counted; supplying the records raises the score in a new assessment.',
+             'Findings describe the periods the documents report and do not by themselves show current operation.']
+    if diagnostics.get('unreadable_or_unavailable_pages'):
+        notes.append(f"{diagnostics['unreadable_or_unavailable_pages']} source pages were unreadable or unavailable.")
+    return notes
+
+
+def single_headline(result, decisions):
+    statuses = Counter(credit_status(r) for r in decisions.values())
+    total = len(decisions)
+    return {
+        'score': f"{result['score']:g} / 100", 'score_value': result['score'], 'score_explanation': SCORE_NOTE,
+        'condition_summary': (f"{statuses['demonstrated']} of {total} requirements demonstrated, {statuses['partly']} partly "
+                              f"demonstrated, {statuses['not_found']} not found in the documents"
+                              + (f", {statuses['shortfall']} with a documented shortfall" if statuses['shortfall'] else '')
+                              + (f", {statuses['not_checked']} not checked because processing failed" if statuses['not_checked'] else '')
+                              + '.'),
+        'not_checked': statuses['not_checked'],
+        'assessment_state': ('Incomplete: some requirements were not checked' if statuses['not_checked']
+                             else 'Assessment completed'),
     }
 
 

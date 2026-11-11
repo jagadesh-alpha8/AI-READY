@@ -605,4 +605,4 @@ class ExtractorCalculationTests(TestCase):
 
     def test_policy_defaults(self):
         self.assertEqual(policy.policy()['high']['automate'], False)
-        self.assertEqual(policy.mode(), 'shadow')
+        self.assertEqual(policy.mode(), 'enforce')

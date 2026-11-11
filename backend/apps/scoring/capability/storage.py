@@ -192,8 +192,15 @@ def publish(*, institution_id, run_id, evaluation, inference):
                                      reviewed_evidence=run.inputs.get('reviewed_evidence'))
         # Revalidation must not erase why the evaluator already downgraded a row.
         original = {r['condition_id']: r for r in subset}
-        for row in checked:
+        from .evidence_parts import APPROVAL_MISSING
+        for n, row in enumerate(checked):
             prior = original[row['condition_id']]
+            if row.get('validation_issue') == APPROVAL_MISSING and 'credit' in prior and not prior.get('validation_issue'):
+                # The part judge does not use the strict syllabus-approval regex (part_judgment.judge_rows).
+                checked[n] = row = {**row, **{k: prior[k] for k in ('state', 'reason', 'citations', 'scope_supported',
+                                                                     'period_supported') if k in prior},
+                                    'validation_issue': '', 'cause': prior.get('cause', 'assessed')}
+                row.pop('withheld_state', None)
             if row['state'] == 'unknown' and not row['validation_issue'] and prior.get('validation_issue'):
                 row['validation_issue'] = prior['validation_issue']
                 if 'withheld_state' in prior:
@@ -225,6 +232,10 @@ def publish(*, institution_id, run_id, evaluation, inference):
         result['documented'] = documented({r['condition_id']: r['credit'] for r in validated}, rubric)
         result['documented_with_digital'] = documented(
             {r['condition_id']: r.get('digital_credit', r['credit']) for r in validated}, rubric)
+        # The one headline number: what the supplied documents show, with partial credit. A condition the documents
+        # do not show earns 0; there is no upper bound. `lower`/`upper` stay in the payload for audit only.
+        result['score'] = result['documented']['overall']
+        result['score_method'] = 'documented-part-credit'
     from .decision_causes import summary as cause_summary
     payload = {'records': validated, 'result': result, 'actions': actions_for(result),
                'decision_causes': cause_summary(validated),
