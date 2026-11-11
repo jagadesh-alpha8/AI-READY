@@ -92,9 +92,18 @@ class JudgeTests(SimpleTestCase):
         self.assertEqual((r['state'], r['credit']), ('met', 1.0))
 
     def test_unsupported_period_still_caps_an_activity_condition(self):
-        parts = {'p1': part('full', QUOTE_PLAN), 'p2': part('full', QUOTE_PLAN), 'p3': part('full', QUOTE_PLAN)}
+        # An undated quotation and no period from the model: full parts count as related.
+        parts = {'p1': part('full', QUOTE_OWNER), 'p2': part('full', QUOTE_OWNER), 'p3': part('full', QUOTE_OWNER)}
         r = judged(response(A1=condition(parts, period=False)))['A1']
         self.assertEqual((r['state'], r['credit']), ('unknown', 0.5))
+
+    def test_a_dated_quotation_settles_an_activity_period(self):
+        dated = 'In 2022-23 the Registrar implemented the e-governance priority for admissions.'
+        context = [{**SOURCE, 'text': SOURCE['text'] + '\n' + dated, 'text_offset': 0}]
+        parts = {'p1': part('full', dated), 'p2': part('full', dated), 'p3': part('full', dated)}
+        records = pj.judge_rows(c11(), pj.rows(response(A1=condition(parts, period=False))), context)
+        r = next(x for x in records if x['condition_id'].endswith('A1'))
+        self.assertEqual((r['state'], r['credit']), ('met', 1.0))
 
     def test_reviewer_sees_parts_not_strict_rubric_prose(self):
         shown = pj.indicator_with_parts(c11())
@@ -140,7 +149,8 @@ class CombineTests(SimpleTestCase):
         self.assertEqual(f2['state'], 'unknown')
         self.assertEqual(f2['cause'], 'assessor_disagreement')
         self.assertEqual(f2['credit'], 0.75)  # (1 + 0.5) / 2
-        self.assertEqual(disagreements, [{'condition_id': 'AIQIF-C1.1.F2', 'first': 'met', 'second': 'unknown'}])
+        self.assertEqual(disagreements, [{'condition_id': 'AIQIF-C1.1.F2', 'first': 'met', 'second': 'unknown',
+                                          'credits': [1.0, 0.5]}])
 
     def test_identical_passes_are_unchanged(self):
         resp = response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('related', QUOTE_OWNER)}))
@@ -250,3 +260,21 @@ class ReportTests(SimpleTestCase):
         report, actions = report_fixture({'AIQIF-C6.1.F1': 'met'})
         view = build_report_view(report, actions)
         self.assertNotIn('documented_score', view)
+
+
+class CreditGapTests(SimpleTestCase):
+    def record(self, credit):
+        return {'condition_id': 'AIQIF-C1.1.A1', 'state': 'unknown', 'credit': credit, 'citations': [],
+                'parts': [{'id': 'p1', 'finding': 'full', 'credited_as': 'full', 'citations': []}]}
+
+    def test_same_state_but_distant_credits_is_a_disagreement(self):
+        merged, disagreements = pj.combine([self.record(0.75)], [self.record(0.0)])
+        self.assertEqual(disagreements[0]['kind'], 'credit_gap')
+        self.assertEqual(merged[0]['pass_credits'], [0.75, 0.0])
+        self.assertEqual(merged[0]['state'], 'unknown')
+
+    def test_close_credits_are_not(self):
+        merged, disagreements = pj.combine([self.record(0.5)], [self.record(0.25)])
+        self.assertEqual(disagreements, [])
+        self.assertEqual(merged[0]['credit'], 0.375)
+

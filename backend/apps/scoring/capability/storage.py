@@ -189,7 +189,8 @@ def publish(*, institution_id, run_id, evaluation, inference):
         subset = [dict(r) for r in rows
                   if r['condition_id'] in {c['id'] for c in indicator['conditions']}]
         checked = validate_decisions(indicator, {'conditions': subset}, run.inputs['sources'],
-                                     reviewed_evidence=run.inputs.get('reviewed_evidence'))
+                                     reviewed_evidence=run.inputs.get('reviewed_evidence'),
+                                     conflicts='note' if any('credit' in r for r in subset) else 'withhold')
         # Revalidation must not erase why the evaluator already downgraded a row.
         original = {r['condition_id']: r for r in subset}
         from .evidence_parts import APPROVAL_MISSING

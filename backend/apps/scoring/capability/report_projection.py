@@ -280,7 +280,7 @@ def build_report_view(report, actions):
         'scope_notices': scope_notices,
         'methodology': result['methodology'], 'methodology_status': result['methodology_status'],
         'methodology_notice': ('Readiness method ' + result['methodology'] + ', scored with part credit. Achievement levels (Silver, Gold, Platinum) are not yet calibrated, so no badge is awarded.') if single else ('This report uses independent assertion credit under the experimental readiness method. Source-period findings do not prove current operation. Achievement levels are not calibrated.' if result.get('aggregation') == 'independent_conditions' else 'This report uses its recorded historical capability method. Start a new assessment to use the revised readiness method. Experimental results do not constitute accreditation.'),
-        **(single_headline(result, decisions) if single else {
+        **(single_headline(result, decisions, report) if single else {
             'score': score_label(result['lower'], result['upper']),
             'score_explanation': bounds_note(result['lower'], result['upper']),
             **({'documented_score': documented_label(documented['overall']), 'documented_explanation': DOCUMENTED_NOTE}
@@ -321,10 +321,48 @@ def single_limitations(report, diagnostics):
     return notes
 
 
-def single_headline(result, decisions):
+def unconfirmed_reliance(report, decisions):
+    """(credited conditions citing an extracted fact nobody has confirmed, of which citing one in an open conflict).
+    The judge reads unreviewed evidence instead of ignoring it; this says how much of the score rests on it."""
+    from apps.facts.verification.grounding import parse_pages
+    ledger = report.get('reviewed_evidence') or {}
+    pages = {str(p['page_id']): (str(d['document_id']), p.get('number')) for d in report.get('source_manifest', [])
+             for p in d.get('pages', [])}
+    disputed = {cid for i in ledger.get('issues', []) if i.get('kind') == 'conflict' and i.get('status') != 'resolved'
+                for cid in i.get('claim_ids', [])}
+    open_claims = []
+    for claim in ledger.get('claims', []):
+        if claim.get('disposition') not in ('extracted', 'evidence_requested'):
+            continue
+        src = claim.get('source') or {}
+        quote = ' '.join(str(src.get('quote') or '').split())
+        if src.get('document_id') and quote:
+            open_claims.append((str(src['document_id']), set(parse_pages(src.get('page', ''))), quote, claim['id'] in disputed))
+    unconfirmed = in_conflict = 0
+    for record in decisions.values():
+        if record.get('credit', 0) <= 0:
+            continue
+        hits = []
+        for cite in record.get('citations', []):
+            doc, page = pages.get(str(cite.get('source_id')), (None, None))
+            text = ' '.join(str(cite.get('quote') or '').split())
+            hits.extend(d for c_doc, c_pages, c_quote, d in open_claims
+                        if c_doc == doc and page in c_pages and text and (c_quote in text or text in c_quote))
+        unconfirmed += bool(hits)
+        in_conflict += any(hits)
+    return unconfirmed, in_conflict
+
+
+def single_headline(result, decisions, report=None):
     statuses = Counter(credit_status(r) for r in decisions.values())
     total = len(decisions)
+    unconfirmed, in_conflict = unconfirmed_reliance(report or {}, decisions)
     return {
+        'unconfirmed_reliance': unconfirmed, 'disputed_reliance': in_conflict,
+        'reliance_note': (f"{unconfirmed} credited requirements cite extracted facts no one has confirmed yet"
+                          + (f" ({in_conflict} of them with a disputed value)" if in_conflict else '')
+                          + '. They are credited on the source text; confirming or correcting those facts in the review '
+                            'queue can change them.') if unconfirmed else '',
         'score': f"{result['score']:g} / 100", 'score_value': result['score'], 'score_explanation': SCORE_NOTE,
         'condition_summary': (f"{statuses['demonstrated']} of {total} requirements demonstrated, {statuses['partly']} partly "
                               f"demonstrated, {statuses['not_found']} not found in the documents"

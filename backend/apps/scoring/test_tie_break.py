@@ -95,6 +95,12 @@ class PartTieBreakTests(SimpleTestCase):
         self.assertEqual(records[C]['cause'], 'assessor_disagreement')
         self.assertEqual(sorted(service.calls[2]), sorted([A, B, C]))
         self.assertEqual(trace['agreement_audit']['passes'], 3)
+        self.assertEqual(records[A]['pass_credits'], [1.0, 0.0, 1.0])
+        self.assertEqual(trace['agreement_audit']['tie_break']['rule'], 'median-credit-of-three-v1')
+
+    def test_one_outlying_pass_cannot_move_a_condition(self):
+        records, trace, service = run({A: ['unknown', 'met', 'unknown']}, parts=True)
+        self.assertEqual((records[A]['state'], records[A]['credit']), ('unknown', 0.0))
 
 
 class TieBreakPolicyTests(SimpleTestCase):
@@ -102,6 +108,9 @@ class TieBreakPolicyTests(SimpleTestCase):
         from .capability.execution import AssessmentDisabled, policy
         with override_settings(CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_TIE_BREAK=True, CAPABILITY_MAX_HTTP_CALLS=140,
                                CAPABILITY_MAX_COST_USD='30'):
+            self.assertEqual(policy()['tie_break'], 'median-credit-of-three-v1')  # part judgment is the default
+        with override_settings(CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_TIE_BREAK=True, CAPABILITY_MAX_HTTP_CALLS=140,
+                               CAPABILITY_MAX_COST_USD='30', CAPABILITY_JUDGMENT='conditions'):
             self.assertEqual(policy()['tie_break'], 'majority-of-three-v1')
         with override_settings(CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_TIE_BREAK=False, CAPABILITY_MAX_HTTP_CALLS=140,
                                CAPABILITY_MAX_COST_USD='30'):

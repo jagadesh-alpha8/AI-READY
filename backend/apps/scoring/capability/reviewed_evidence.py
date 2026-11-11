@@ -15,7 +15,7 @@ VERSION = 'reviewed-evidence-2'
 def snapshot(sprint):
     claims, live = [], []
     for f in ExtractedFact.objects.filter(sprint=sprint).select_related(
-            'source_document', 'document', 'original_source_document').prefetch_related('review_history').order_by('id'):
+            'source_document', 'document', 'original_source_document').prefetch_related('review_history', 'aiqif_mappings').order_by('id'):
         live.append(f)
         doc = f.source_document or f.document
         # A malformed foreign citation never widens the tenant boundary.
@@ -33,6 +33,10 @@ def snapshot(sprint):
             'attribute': f.field_key, 'label': f.field_name, 'value': f.value,
             'original_value': f.original_value if f.original_value is not None else first_review.get('before'), 'value_origin': f.value_origin,
             'scope': {**read_scope(f), 'stated': f.scope}, 'kind': f.fact_kind,
+            # Indicators extraction tagged the fact with (aiqif_tagging.py), minus rejected and contextual tags.
+            # Routing only (the extracted-evidence lane); never credit.
+            'indicators': sorted({m.indicator_code for m in f.aiqif_mappings.all()
+                                  if m.review_status != 'rejected' and m.relationship != 'contextual'}),
             'verification': {'outcome': f.verification_status, 'grounding': f.grounding_status,
                              'validation': f.validation_status, 'automation': f.automation_decision,
                              'source_review_required': f.source_review_required},
@@ -258,8 +262,13 @@ def bounded_packet(claims, issues, answers):
     return result
 
 
-def citation_issue(citations, ledger, sources, state=None):
+def citation_issue(citations, ledger, sources, state=None, conflicts='withhold'):
     """Fail closed on a citation reusing an explicitly rejected/changed alternative.
+
+    conflicts='withhold' (strict condition judge): an unresolved value conflict also withholds a met/not-met
+    decision citing it. conflicts='note' (part judge): it does not. A conflict is a dispute about a value (a count,
+    a percentage, a date); the readiness conditions credit what a record shows exists or happened, which both
+    alternatives agree on. Rejected, evidence-requested and corrected claims are guarded either way.
 
     Whole-page citations overlapping rejected text are also withheld. Independent
     quotations on that page remain usable. This guard is deliberately conservative;
@@ -272,7 +281,7 @@ def citation_issue(citations, ledger, sources, state=None):
     by_id = {s['id']: s for s in sources}
     unresolved = {cid for i in ledger.get('issues', []) if i['kind'] == 'conflict' and i['status'] != 'resolved' for cid in i.get('active_conflict_claim_ids', i['claim_ids'])}
     for claim in ledger['claims']:
-        unresolved_conflict = state in ('met', 'not_met') and claim['id'] in unresolved
+        unresolved_conflict = conflicts == 'withhold' and state in ('met', 'not_met') and claim['id'] in unresolved
         blocked = claim['disposition'] in ('rejected', 'evidence_requested') or claim.get('verification', {}).get('source_review_required', False)
         corrected = claim['disposition'] == 'corrected'
         if not (blocked or corrected or unresolved_conflict):
@@ -362,20 +371,23 @@ LANE_FAMILIES = (
 
 
 def lane_relevance(claim, indicator):
-    """How strongly an extracted item belongs to an indicator: 10 when its kind of evidence is judged there
-    (LANE_FAMILIES), plus the shared-word count with the indicator's name and condition texts (seven-letter stems).
-    Two or more qualifies. A deliberately simple, inspectable rule."""
+    """How strongly an extracted item belongs to an indicator: 20 when extraction tagged the fact with this indicator,
+    10 when its kind of evidence is judged there (LANE_FAMILIES), plus the shared-word count with the indicator's name
+    and condition texts (seven-letter stems). Two or more qualifies. A deliberately simple, inspectable rule."""
     import re
+    tagged = 20 if indicator.get('code') in (claim.get('indicators') or ()) else 0
     text = ' '.join(str(claim.get(k) or '') for k in ('label', 'attribute', 'value')).replace('_', ' ')
     quote = str((claim.get('source') or {}).get('quote') or '')
     area = indicator.get('code', '').replace('AIQIF-', '')
     family = any(area in areas and re.search(pattern, text, re.I) for pattern, areas in LANE_FAMILIES)
     target = _lane_tokens(indicator.get('name', '') + ' ' + ' '.join(c['text'] for c in indicator.get('conditions', [])))
-    return (10 if family else 0) + len(_lane_tokens(text + ' ' + quote) & target)
+    return tagged + (10 if family else 0) + len(_lane_tokens(text + ' ' + quote) & target)
 
 
-def evidence_lane(indicator, context, sources, ledger, *, budget=LANE_CHARS):
-    """(context with added windows, audit). Never removes or reorders retrieved windows."""
+def evidence_lane(indicator, context, sources, ledger, *, budget=LANE_CHARS, aliases=None):
+    """(context with added windows, audit). Never removes or reorders retrieved windows. `aliases` maps a kept
+    page to the identical pages deduplication dropped (structure.page_aliases), so an item cited on a dropped copy
+    still brings in the kept page."""
     from apps.facts.verification.grounding import parse_pages
     from .evaluation import _normal
     audit = {'version': LANE_VERSION, 'budget_chars': budget, 'added': [], 'already_in_packet': 0, 'considered': 0}
@@ -384,6 +396,10 @@ def evidence_lane(indicator, context, sources, ledger, *, budget=LANE_CHARS):
     by_page = {}
     for source in sources:
         by_page.setdefault((source['document_id'], source['page_number']), source)
+    kept_for = {}
+    for kept, dropped in (aliases or {}).items():
+        for key in dropped:
+            kept_for[tuple(key)] = tuple(kept)
     present = {(w['document_id'], w['page_number']) for w in context}
     scored = []
     for claim in ledger.get('claims', []):
@@ -400,7 +416,7 @@ def evidence_lane(indicator, context, sources, ledger, *, budget=LANE_CHARS):
     for _, _, claim in scored[:LANE_MAX_ITEMS]:
         src = claim['source']
         for page in parse_pages(src.get('page', ''))[:2]:
-            key = (src['document_id'], page)
+            key = kept_for.get((src['document_id'], page), (src['document_id'], page))
             source = by_page.get(key)
             if source is None:
                 continue
@@ -420,7 +436,7 @@ def evidence_lane(indicator, context, sources, ledger, *, budget=LANE_CHARS):
                             'text': window, 'text_offset': start, 'evidence_role': 'extracted_evidence'})
             present.add(key)
             used += len(window)
-            added.append({'claim_id': claim['id'], 'document_id': src['document_id'], 'page': page,
+            added.append({'claim_id': claim['id'], 'document_id': key[0], 'page': key[1],
                           'chars': len(window)})
     audit['added'], audit['used_chars'] = added, used
     return context, audit

@@ -67,6 +67,8 @@ def render_single_score_pdf(view):
     pdf.set_y(max(pdf.get_y(), panel_y + 33))
     pdf.paragraph(view['score_explanation'], small=True)
     pdf.paragraph(view['evidence_summary'], small=True)
+    if view.get('reliance_note'):
+        pdf.paragraph(view['reliance_note'], small=True)
     for notice in view.get('scope_notices', []):
         pdf.paragraph('Needs your confirmation: ' + notice['message'])
 

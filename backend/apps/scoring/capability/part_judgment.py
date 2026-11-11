@@ -13,16 +13,20 @@ Arithmetic, per condition (all deterministic):
   earns no AI credit; `digital_credit` counts it as groundwork for the separate digital-groundwork score. A finding other than
   not_found needs at least one citation that validates against the packet; otherwise it counts as not found.
 * If scope or period is not supported, a full part counts as related (activity and result conditions only;
-  foundation conditions are dated by the record that establishes them).
+  foundation conditions are dated by the record that establishes them). A part whose own quotation carries a year
+  (2021, 2021-22) has its period settled by that quotation, whatever the model's period flag says.
 * state: met when every part is full; not_met when a part is contradicted; otherwise unknown.
 * credit: the mean of the part credits. The condition-level validator (exact quotes, reviewed-evidence
   rules, syllabus approval) still runs; an approval or scope/period issue caps full parts at related, any
   other issue zeroes the condition.
 * two passes: the condition credit is the mean of the two passes' credits; met only when both passes say met; a
-  state the passes do not share becomes unknown for review (its averaged credit is kept).
+  state the passes do not share becomes unknown for review (its averaged credit is kept). Passes disagree when their
+  states differ or their credits differ by CREDIT_GAP or more; with tie-breaking, a third pass is run for those and the
+  condition takes the median credit of the three passes (and the majority state, else unknown).
 """
 import hashlib
 import json
+import re
 from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
@@ -30,6 +34,9 @@ from pathlib import Path
 VERSION = 'AIQIF-PARTS-2'
 JUDGMENT = 'parts-v2'
 RELATED_CREDIT = 0.5
+#: Two passes whose credits for a condition differ by at least this much count as disagreeing (as do passes with
+#: different states); with tie-breaking on, a third pass decides by median credit.
+CREDIT_GAP = 0.5
 FINDINGS = ('full', 'related', 'digital_only', 'contradicted', 'not_found')
 
 PART_PROMPT = """Assess institutional evidence against the supplied rubric conditions, one part at a time, the way an
@@ -285,7 +292,7 @@ def judge_rows(indicator, response_rows, context, *, reviewed_evidence=None, sou
             if finding == 'digital_only' and not part.get('ai_gate'):
                 finding = 'related'  # only an AI part can be "digital only"; elsewhere digital evidence is ordinary
             credited = finding
-            if finding == 'full' and not (scope_ok and period_ok):
+            if finding == 'full' and not (scope_ok and (period_ok or _dated(valid))):
                 credited = 'related'
             parts.append({'id': part['id'], 'finding': finding, 'credited_as': credited, 'citations': valid})
             citations.extend(c for c in valid if c not in citations)
@@ -301,10 +308,10 @@ def judge_rows(indicator, response_rows, context, *, reviewed_evidence=None, sou
             state = 'unknown'
         reason = row.get('reason') if isinstance(row.get('reason'), str) and row.get('reason').strip() else 'No reason given.'
         drafts.append({'condition_id': cid, 'state': state, 'reason': reason, 'citations': citations,
-                       'scope_supported': scope_ok, 'period_supported': period_ok})
+                       'scope_supported': scope_ok, 'period_supported': period_ok or _dated(citations)})
         details[cid] = (parts, issues)
     checked = validate_decisions(indicator, {'conditions': drafts}, context, reviewed_evidence=reviewed_evidence,
-                                 edition_sources=sources)
+                                 edition_sources=sources, conflicts='note')
     drafts_by_id = {d['condition_id']: d for d in drafts}
     records = []
     for record in checked:
@@ -337,6 +344,15 @@ def judge_rows(indicator, response_rows, context, *, reviewed_evidence=None, sou
         record['digital_credit'] = max(record['credit'], credit(parts, spec[record['condition_id']]['parts'], digital=True))
         records.append(record)
     return records
+
+
+#: An academic or calendar year in a quotation (2021, 2021-22, 2021/2022). For activities and results the model's own
+#: period flag is the least stable judgement it makes; a dated quotation settles it deterministically.
+YEAR = re.compile(r'(?<!\d)(?:19|20)\d{2}(?:\s*[-\u2013/]\s*(?:\d{2}|(?:19|20)\d{2}))?(?!\d)')
+
+
+def _dated(citations):
+    return any(YEAR.search(c.get('quote', '')) for c in citations)
 
 
 def credit(parts, spec_parts=None, digital=False):
@@ -380,12 +396,18 @@ def combine(first, second):
                                                 + value.get(match['credited_as'], 0.0)) / 2, 4)})
         # Gates apply within each pass, so the condition credit is the mean of the two passes' credits.
         merged = {**record, 'parts': parts, 'credit': round((record['credit'] + twin['credit']) / 2, 4),
+                  'pass_credits': [record['credit'], twin['credit']],
                   'digital_credit': round((record.get('digital_credit', record['credit'])
                                            + twin.get('digital_credit', twin['credit'])) / 2, 4)}
         if twin['state'] != record['state']:
-            disagreements.append({'condition_id': record['condition_id'], 'first': record['state'], 'second': twin['state']})
+            disagreements.append({'condition_id': record['condition_id'], 'first': record['state'], 'second': twin['state'],
+                                  'credits': [record['credit'], twin['credit']]})
             merged.update(state='unknown', reason=AGREEMENT_REASON.format(first=record['state'], second=twin['state']),
                           cause=ASSESSOR_DISAGREEMENT, scope_supported=False, period_supported=False)
+        elif abs(record['credit'] - twin['credit']) >= CREDIT_GAP:
+            # Same state, very different credit (for example one pass found a part fully, the other not at all).
+            disagreements.append({'condition_id': record['condition_id'], 'first': record['state'], 'second': twin['state'],
+                                  'credits': [record['credit'], twin['credit']], 'kind': 'credit_gap'})
         cited = []
         for part in parts:
             if part['part_credit'] > 0:

@@ -74,6 +74,13 @@ export interface Result {
   lower: number;
   upper: number;
   exact_score: number | null;
+  /** Part-credit runs: the one headline score (what the documents show, with partial credit). */
+  score?: number | null;
+  documented?: {
+    overall: number;
+    pillars: { code: string; score: number }[];
+    indicators: { code: string; level: number; score: number }[];
+  };
   assessment_coverage: number;
   condition_decision_coverage: number;
   methodology: string;

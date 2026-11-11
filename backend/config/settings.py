@@ -838,7 +838,8 @@ CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '
 # the second judgment can only add credit. Needs hybrid retrieval and CAPABILITY_JUDGMENT=parts. Adds up to one
 # request per indicator per pass, so CAPABILITY_MAX_HTTP_CALLS must allow it (150 with two passes).
 # With two agreement passes: conditions the passes disagree on get a third judgment (only those, one request per
-# indicator) and the majority state stands. The same decisions as a full three-pass vote, at a fraction of the cost.
+# indicator). Condition judge: the majority state stands. Part judge: passes also disagree when their credits differ
+# by 0.5 or more, and the median credit of the three passes stands (part_judgment.CREDIT_GAP).
 CAPABILITY_TIE_BREAK = os.getenv('CAPABILITY_TIE_BREAK', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Extracted-evidence lane (reviewed_evidence.evidence_lane): adds the source page of each relevant extracted AI item
 # to the indicator's packet (up to 18,000 characters), so evidence extraction found reaches the judge.

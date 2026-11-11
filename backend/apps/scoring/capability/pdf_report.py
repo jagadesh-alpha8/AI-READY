@@ -61,13 +61,19 @@ def render_pdf(report, indicators, actions):
     pdf.paragraph(f"Methodology: {result['methodology']}")
     pdf.paragraph(report['notice'])
     pdf.section('Current standing')
-    score = (f"{result['exact_score']:.2f}" if result['exact_score'] is not None else
-             f"{result['lower']:.2f} - {result['upper']:.2f}")
-    pdf.paragraph(f'{score} / 100', heading=True)
-    if result['exact_score'] is None:
-        pdf.paragraph('The lower bound is demonstrated capability. The upper bound is not demonstrated capability.')
-    pdf.paragraph(f"Resolved indicator weight: {result['assessment_coverage']}%. "
-                  f"Decided conditions: {result['condition_decision_coverage']}%. These are evidence-resolution measures.")
+    single = result.get('score') is not None
+    if single:
+        pdf.paragraph(f"{result['score']:g} / 100", heading=True)
+        pdf.paragraph('What the supplied documents show, with partial credit where only some parts of a requirement '
+                      'are evidenced. A requirement the documents do not show earns no credit.')
+    else:
+        score = (f"{result['exact_score']:.2f}" if result['exact_score'] is not None else
+                 f"{result['lower']:.2f} - {result['upper']:.2f}")
+        pdf.paragraph(f'{score} / 100', heading=True)
+        if result['exact_score'] is None:
+            pdf.paragraph('The lower bound is demonstrated capability. The upper bound is not demonstrated capability.')
+        pdf.paragraph(f"Resolved indicator weight: {result['assessment_coverage']}%. "
+                      f"Decided conditions: {result['condition_decision_coverage']}%. These are evidence-resolution measures.")
     for tier in result['tiers']:
         if tier['threshold'] is None:
             pdf.paragraph(f"{tier['name']}: achievement requirements are not calibrated; no badge awarded.")
@@ -93,12 +99,21 @@ def render_pdf(report, indicators, actions):
     pdf.section('All indicators and requirement evidence')
     for indicator in indicators:
         pdf.section(f"{indicator['code']} - {indicator['name']}")
-        units = "Credit units" if result.get("aggregation") == "independent_conditions" else "Level"
-        pdf.paragraph(f"{units} {indicator['lower_level']} - {indicator['upper_level']} | "
-                      f"{indicator['lower']} - {indicator['upper']} / 100")
+        if single:
+            area = next(i for i in result['documented']['indicators'] if i['code'] == indicator['code'])
+            pdf.paragraph(f"{area['score']:g} / 100")
+        else:
+            units = "Credit units" if result.get("aggregation") == "independent_conditions" else "Level"
+            pdf.paragraph(f"{units} {indicator['lower_level']} - {indicator['upper_level']} | "
+                          f"{indicator['lower']} - {indicator['upper']} / 100")
         for condition in indicator['requirements']:
             decision = condition['decision']
-            pdf.paragraph(f"{condition['id']} | {LABELS[decision['state']]}", heading=True)
+            if single:
+                from .report_projection import CREDIT_LABELS, credit_status
+                label = f"{CREDIT_LABELS[credit_status(decision)]} (credit {decision.get('credit', 0):g})"
+            else:
+                label = LABELS[decision['state']]
+            pdf.paragraph(f"{condition['id']} | {label}", heading=True)
             pdf.paragraph(condition['text'])
             pdf.paragraph('Decision: ' + decision['reason'])
             pdf.paragraph('Completion evidence: ' + condition['completion_evidence'])
