@@ -437,6 +437,8 @@ class SuccessfulRunTests(ExtractionJobTestBase):
         self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/')
         self.assertEqual(self.document.extracted_facts.count(), 0)
 
+    # Written for the shadow review policy: facts stay 'extracted' until a person acts.
+    @override_settings(FACT_VERIFICATION_MODE='shadow')
     def test_facts_are_persisted_end_to_end_through_the_real_pipeline(self):
         """The core of 'connect OpenAIFactExtractor to ExtractedFact
         database': a fact the (mocked) AI returns must actually reach the
@@ -2879,6 +2881,8 @@ class DocumentClassificationTests(ExtractionJobTestBase):
         gap.refresh_from_db()
         self.assertEqual(gap.source_fact_id, first_fact.id)
 
+    # Written for the shadow review policy: facts stay 'extracted' until a person acts.
+    @override_settings(FACT_VERIFICATION_MODE='shadow')
     def test_reprocessing_leaves_a_reviewed_fact_as_the_reviewer_left_it(self):
         self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact(value='42')]}
         self._run()
@@ -3118,6 +3122,8 @@ class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
     def _api_facts(self):
         return {f['field_key']: f for f in self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/').data['results']}
 
+    # Written for the shadow review policy: facts stay 'extracted' until a person acts.
+    @override_settings(FACT_VERIFICATION_MODE='shadow')
     def test_tags_are_saved_and_shown_with_the_facts_evidence(self):
         self._run(
             _valid_fact(fact_kind='ai_evidence', aiqif_indicators=[_indicator('AIQIF-C4.1', 0.9, 'Faculty count.'),
@@ -3418,6 +3424,8 @@ class CombinedAnalysisPipelineTests(ExtractionJobTestBase):
         self._run()
         self.assertEqual(self.document.classification_status, Document.ClassificationStatus.UNCLASSIFIED)
 
+    # Written for the shadow review policy: facts stay 'extracted' until a person acts.
+    @override_settings(FACT_VERIFICATION_MODE='shadow')
     def test_a_confirmed_category_and_a_reviewed_fact_survive_reprocessing(self):
         self._classify_as('naac_ssr', 0.45, 'Unsure.')
         self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact(value='42')]}
@@ -3773,6 +3781,8 @@ class GapEvidenceUploadTests(ExtractionJobTestBase):
         return GapItem.objects.get(sprint=self.sprint, gap_type='low_confidence')
 
     # -- missing document ------------------------------------------------------------------------------
+    # Written for the shadow review policy: facts stay 'extracted' until a person acts.
+    @override_settings(FACT_VERIFICATION_MODE='shadow')
     def test_missing_document_upload_is_processed_in_this_sprint_but_resolves_nothing_by_itself(self):
         gap = self._missing_gap()
         self._facts(_valid_fact(value='45', source_snippet='Signed evidence: the institution has 45 faculty members.'))
