@@ -75,24 +75,47 @@ class JudgeTests(SimpleTestCase):
         r = judged(response(A1=condition({'p1': part('full', QUOTE_PLAN), 'p2': part('related', QUOTE_PLAN),
                                           'p3': part('not_found')})))['A1']
         self.assertEqual(r['state'], 'unknown')
-        self.assertEqual(r['credit'], 0.5)  # (1 + 0.5 + 0) / 3
+        self.assertEqual(r['credit'], 0.125)  # subject is a gate; substantive parts (0.25 + 0) / 2
         self.assertTrue(r['citations'])
 
     def test_unverifiable_quote_counts_as_not_found(self):
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER),
                                           'p2': part('full', 'An invented passage that is not on the page at all.')})))['F2']
-        self.assertEqual((r['state'], r['credit']), ('unknown', 0.5))  # a fully evidenced subject earns its share
+        self.assertEqual((r['state'], r['credit']), ('unknown', 0.0))  # the subject alone earns nothing
         self.assertEqual([p['finding'] for p in r['parts']], ['full', 'not_found'])
         self.assertTrue(r['part_issues'])
 
-    def test_unsupported_period_caps_full_parts_at_related(self):
+    def test_unsupported_period_does_not_cap_a_foundation_condition(self):
+        # A submitted record establishes a foundation provision for the period it reports.
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('full', QUOTE_OWNER)},
                                          period=False)))['F2']
-        self.assertEqual((r['state'], r['credit']), ('unknown', 0.5))
+        self.assertEqual((r['state'], r['credit']), ('met', 1.0))
+
+    def test_unsupported_period_still_caps_an_activity_condition(self):
+        # An undated quotation and no period from the model: full parts count as related.
+        parts = {'p1': part('full', QUOTE_OWNER), 'p2': part('full', QUOTE_OWNER), 'p3': part('full', QUOTE_OWNER)}
+        r = judged(response(A1=condition(parts, period=False)))['A1']
+        self.assertEqual((r['state'], r['credit']), ('unknown', 0.25))  # parts 2 and 3 count as related
+
+    def test_a_dated_quotation_settles_an_activity_period(self):
+        dated = 'In 2022-23 the Registrar implemented the e-governance priority for admissions.'
+        context = [{**SOURCE, 'text': SOURCE['text'] + '\n' + dated, 'text_offset': 0}]
+        parts = {'p1': part('full', dated), 'p2': part('full', dated), 'p3': part('full', dated)}
+        records = pj.judge_rows(c11(), pj.rows(response(A1=condition(parts, period=False))), context)
+        r = next(x for x in records if x['condition_id'].endswith('A1'))
+        self.assertEqual((r['state'], r['credit']), ('met', 1.0))
+
+    def test_reviewer_sees_parts_not_strict_rubric_prose(self):
+        shown = pj.indicator_with_parts(c11())
+        self.assertNotIn('capability', shown)
+        for condition_view in shown['conditions']:
+            self.assertEqual(set(condition_view), {'id', 'level', 'text', 'construct', 'parts', 'not_enough'})
+        self.assertIn('accreditation peer reviewer', pj.prompt())
+        self.assertNotIn('A syllabus cohort declaration must be shown', pj.prompt())
 
     def test_contradicted_part_is_not_met(self):
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('contradicted', QUOTE_OWNER)})))['F2']
-        self.assertEqual((r['state'], r['credit']), ('not_met', 0.5))
+        self.assertEqual((r['state'], r['credit']), ('not_met', 0.0))
 
     def test_related_subject_alone_earns_nothing(self):
         r = judged(response(F2=condition({'p1': part('related', QUOTE_OWNER), 'p2': part('not_found')})))['F2']
@@ -104,7 +127,7 @@ class JudgeTests(SimpleTestCase):
         self.assertEqual((r['state'], r['credit'], r['digital_credit']), ('unknown', 0.0, 1.0))
         # On a part that does not ask for AI, "digital only" is just related evidence.
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('digital_only', QUOTE_OWNER)})))['F2']
-        self.assertEqual((r['credit'], r['digital_credit']), (0.75, 0.75))
+        self.assertEqual((r['credit'], r['digital_credit']), (0.25, 0.25))
 
     def test_missing_condition_is_unknown_with_no_credit(self):
         resp = response()
@@ -125,8 +148,9 @@ class CombineTests(SimpleTestCase):
         f2 = next(r for r in combined if r['condition_id'].endswith('F2'))
         self.assertEqual(f2['state'], 'unknown')
         self.assertEqual(f2['cause'], 'assessor_disagreement')
-        self.assertEqual(f2['credit'], 0.75)  # (1 + 0.5) / 2
-        self.assertEqual(disagreements, [{'condition_id': 'AIQIF-C1.1.F2', 'first': 'met', 'second': 'unknown'}])
+        self.assertEqual(f2['credit'], 0.5)  # (1 + 0) / 2: the second pass found only the subject
+        self.assertEqual(disagreements, [{'condition_id': 'AIQIF-C1.1.F2', 'first': 'met', 'second': 'unknown',
+                                          'credits': [1.0, 0.0]}])
 
     def test_identical_passes_are_unchanged(self):
         resp = response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('related', QUOTE_OWNER)}))
@@ -236,3 +260,21 @@ class ReportTests(SimpleTestCase):
         report, actions = report_fixture({'AIQIF-C6.1.F1': 'met'})
         view = build_report_view(report, actions)
         self.assertNotIn('documented_score', view)
+
+
+class CreditGapTests(SimpleTestCase):
+    def record(self, credit):
+        return {'condition_id': 'AIQIF-C1.1.A1', 'state': 'unknown', 'credit': credit, 'citations': [],
+                'parts': [{'id': 'p1', 'finding': 'full', 'credited_as': 'full', 'citations': []}]}
+
+    def test_same_state_but_distant_credits_is_a_disagreement(self):
+        merged, disagreements = pj.combine([self.record(0.75)], [self.record(0.0)])
+        self.assertEqual(disagreements[0]['kind'], 'credit_gap')
+        self.assertEqual(merged[0]['pass_credits'], [0.75, 0.0])
+        self.assertEqual(merged[0]['state'], 'unknown')
+
+    def test_close_credits_are_not(self):
+        merged, disagreements = pj.combine([self.record(0.5)], [self.record(0.25)])
+        self.assertEqual(disagreements, [])
+        self.assertEqual(merged[0]['credit'], 0.375)
+

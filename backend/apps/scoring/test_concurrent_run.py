@@ -12,7 +12,7 @@ from apps.extraction.models import AIUsage
 
 from .test_capability_api import CapabilityAPITests
 
-SETTINGS = dict(SECURE_SSL_REDIRECT=False, CAPABILITY_ASSESSMENT_ENABLED=True,
+SETTINGS = dict(SECURE_SSL_REDIRECT=False, CAPABILITY_ASSESSMENT_ENABLED=True, CAPABILITY_JUDGMENT='conditions',
                 CAPABILITY_MAX_HTTP_CALLS=72, CAPABILITY_MAX_COST_USD='2', CAPABILITY_OUTPUT_TOKENS=3000,
                 CAPABILITY_REQUEST_TIMEOUT_SECONDS=60, AI_RATE_LIMIT_ENABLED=False,
                 AI_PROCESSING_MODE='single', AI_BASE_URL='', AI_TEMPERATURE=0, AI_SEED=42,
@@ -72,8 +72,8 @@ class PartJudgmentRunTests(APITransactionTestCase):
                 content=json.dumps({'conditions': rows}), refusal=None))])
 
     def test_part_run_publishes_credits_and_documented_readiness(self):
-        with override_settings(**{**SETTINGS, 'CAPABILITY_MAX_HTTP_CALLS': 90}, CAPABILITY_INDICATOR_CONCURRENCY=4,
-                               CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_JUDGMENT='parts'):
+        with override_settings(**{**SETTINGS, 'CAPABILITY_MAX_HTTP_CALLS': 90, 'CAPABILITY_JUDGMENT': 'parts'},
+                               CAPABILITY_INDICATOR_CONCURRENCY=4, CAPABILITY_AGREEMENT_PASSES=2):
             execution = self.execute(self.start('parts-1'))
         self.assertEqual(execution.status, 'completed')
         self.assertEqual(execution.requests_reserved, 72)
@@ -81,11 +81,13 @@ class PartJudgmentRunTests(APITransactionTestCase):
         records = {r['condition_id']: r for r in assessment['records']}
         self.assertEqual(len(records), 216)
         self.assertEqual(assessment['inference']['settings']['judgment'], 'parts')
-        # The syllabus-approval rule still withholds C3.1.F1; its evidenced parts count as related.
-        self.assertEqual(records['AIQIF-C3.1.F1']['state'], 'unknown')
-        self.assertEqual(records['AIQIF-C3.1.F1']['credit'], 0.5)
-        self.assertTrue(all(r['credit'] == 1.0 for cid, r in records.items() if cid != 'AIQIF-C3.1.F1'))
+        # The strict syllabus-approval regex does not apply under the reviewer standard: every part is evidenced.
+        self.assertEqual(records['AIQIF-C3.1.F1']['state'], 'met')
+        self.assertTrue(all(r['credit'] == 1.0 for r in records.values()))
+        # Both passes' credits reach the published records (assessment_consistency reads them from the export).
+        self.assertTrue(all(r['pass_credits'] == [1.0, 1.0] for r in records.values()))
+        self.assertEqual(assessment['result']['score'], assessment['result']['documented']['overall'])
         result = assessment['result']
         self.assertEqual(result['documented_with_digital'], result['documented'])  # no digital-only findings
-        self.assertGreater(result['documented']['overall'], result['lower'])
+        self.assertGreaterEqual(result['documented']['overall'], result['lower'])
         self.assertLessEqual(result['documented']['overall'], result['upper'])

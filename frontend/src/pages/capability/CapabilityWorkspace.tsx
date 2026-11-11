@@ -17,6 +17,8 @@ import { useAccess } from '../../utils/access';
 import { getErrorMessage } from '../../utils/errors';
 import {
   scoreLabel,
+  pillarScoreLabel,
+  indicatorScoreLabel,
   active,
   stateLabel,
   tierLabel,
@@ -93,14 +95,16 @@ export function CapabilitySummary({ result }: { result: Result }) {
         <div className="glass-card p-5">
           <p className="text-sm text-ink-600">Institutional AI capability</p>
           <p className="text-3xl font-bold text-brand-800 mt-2">
-            {result.aggregation === 'independent_conditions' && result.condition_decision_coverage === 0 ? 'Evidence review required' : scoreLabel(result)}
+            {result.score == null && result.aggregation === 'independent_conditions' && result.condition_decision_coverage === 0 ? 'Evidence review required' : scoreLabel(result)}
           </p>
           <p className="text-sm mt-2">
-            {result.exact_score === null
+            {result.score != null
+              ? 'What the supplied documents show, with partial credit where only some parts of a requirement are evidenced.'
+              : result.exact_score === null
               ? 'Bounds reflect unresolved evidence. The upper bound is not demonstrated capability.'
               : 'Exact score under this assessment’s experimental rubric.'}
           </p>
-          {result.lower === 0 && result.exact_score === null && <p className="text-sm text-warning mt-2">
+          {result.score == null && result.lower === 0 && result.exact_score === null && <p className="text-sm text-warning mt-2">
             Zero demonstrated so far does not establish zero capability. Review the evidence gaps below.
           </p>}
         </div>
@@ -142,12 +146,12 @@ export function CapabilitySummary({ result }: { result: Result }) {
       </div>}
       <details className="glass-card p-4">
         <summary className="cursor-pointer font-semibold">
-          Nine pillar bounds
+          Nine readiness areas
         </summary>
         <div className="grid sm:grid-cols-3 gap-3 mt-3">
           {result.pillars.map((p) => (
             <div key={p.code}>
-              {p.code}: {p.lower}–{p.upper} / 100
+              {p.code}: {pillarScoreLabel(result, p.code, p.lower, p.upper)}
             </div>
           ))}
         </div>
@@ -196,8 +200,7 @@ export function CapabilityEvidence({ run }: { run: Run }) {
           <summary className="cursor-pointer font-semibold">
             {i.code} · {i.name}{' '}
             <span className="font-normal">
-              — {i.lower}–{i.upper} /
-              100
+              — {indicatorScoreLabel(assessment.result, i.code, i.lower, i.upper)}
             </span>
           </summary>
           {i.conditions

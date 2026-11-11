@@ -5,7 +5,7 @@ DocumentPage rows, exactly as the extraction pipeline saves it.
 """
 from decimal import Decimal
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -605,4 +605,19 @@ class ExtractorCalculationTests(TestCase):
 
     def test_policy_defaults(self):
         self.assertEqual(policy.policy()['high']['automate'], False)
-        self.assertEqual(policy.mode(), 'shadow')
+        self.assertEqual(policy.mode(), 'enforce')
+
+
+class BoundsAgreeTests(SimpleTestCase):
+    def test_a_number_inside_a_stated_bound_is_not_a_conflict(self):
+        from apps.facts.verification.conflicts import bounds_agree
+        self.assertTrue(bounds_agree(['17224', 'more than 15000']))
+        self.assertTrue(bounds_agree(['at least 60', '60']))
+        self.assertTrue(bounds_agree(['more than 100', 'more than 150']))
+
+    def test_real_disagreements_stay_conflicts(self):
+        from apps.facts.verification.conflicts import bounds_agree
+        self.assertFalse(bounds_agree(['13622', '4982']))
+        self.assertFalse(bounds_agree(['more than 60', '60']))
+        self.assertFalse(bounds_agree(['more than 15000', 'less than 10000']))
+        self.assertFalse(bounds_agree(['All of the above', 'Planning and development']))

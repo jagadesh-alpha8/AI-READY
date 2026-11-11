@@ -96,8 +96,10 @@ def candidates(sprint):
             'suggestion': 'Choose the supported alternative; compare its scope and source. If uncertain, defer.'
                           if conflict else 'Confirm only if the excerpt supports this scoped value; otherwise correct with a basis or leave it unknown.',
             'reason': 'Sources disagree on the same scoped attribute.' if conflict else 'May affect the listed capability findings or subsequent advice.',
-            'conflict': conflict})
-    cases.sort(key=lambda c: (c.get('kind') != 'identity', not c['essential_scope'], not c['conflict'], -len(c['affected_requirements']), c['id']))
+            'conflict': conflict, 'ai_evidence': any(f.fact_kind == 'ai_evidence' for f in rows)})
+    # AI evidence decides most AI-readiness credit, so its questions come before context counts.
+    cases.sort(key=lambda c: (c.get('kind') != 'identity', not c['essential_scope'], not c['conflict'],
+                              not c.get('ai_evidence'), -len(c['affected_requirements']), c['id']))
     for index, case in enumerate(cases):
         case['initial'] = index < 25
     return cases

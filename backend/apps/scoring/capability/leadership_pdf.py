@@ -34,7 +34,92 @@ def brief(value, width=220):
     return textwrap.shorten(str(value), width=width, placeholder=' ... [full text in supporting evidence]')
 
 
+def _bar(pdf, label, value, width=96):
+    """One labelled horizontal bar (0-100) with its value."""
+    y = pdf.get_y()
+    pdf.set_font('Evidence', '', 9)
+    pdf.set_text_color(30, 55, 65)
+    pdf.cell(70, 6, label)
+    x = pdf.get_x()
+    pdf.set_fill_color(225, 235, 236)
+    pdf.rect(x, y + 1.5, width, 3.5, style='F')
+    pdf.set_fill_color(7, 111, 115)
+    if value > 0:
+        pdf.rect(x, y + 1.5, width * min(value, 100) / 100, 3.5, style='F')
+    pdf.set_x(x + width + 3)
+    pdf.cell(0, 6, f'{round(value)}', new_x='LMARGIN', new_y='NEXT')
+
+
+def render_single_score_pdf(view):
+    """Leadership report for part-credit runs: one score, strengths, gaps, next steps. No ranges, no badge talk."""
+    pdf = LeadershipReport('leadership')
+    pdf.set_title('AI readiness assessment - leadership report')
+    pdf.paragraph('AI READINESS ASSESSMENT', heading=True)
+    pdf.display(view['institution'])
+    if view['assessment_state'] != 'Assessment completed':
+        pdf.paragraph(view['assessment_state'], heading=True)
+    panel_y = pdf.get_y()
+    pdf.set_fill_color(235, 245, 245)
+    pdf.rect(16, panel_y, pdf.w - 32, 30, style='F')
+    pdf.set_y(panel_y + 3)
+    pdf.display(f"AI readiness: {view['score']}", 24)
+    pdf.paragraph(view['condition_summary'])
+    pdf.set_y(max(pdf.get_y(), panel_y + 33))
+    pdf.paragraph(view['score_explanation'], small=True)
+    pdf.paragraph(view['evidence_summary'], small=True)
+    if view.get('reliance_note'):
+        pdf.paragraph(view['reliance_note'], small=True)
+    for notice in view.get('scope_notices', []):
+        pdf.paragraph('Needs your confirmation: ' + notice['message'])
+
+    pdf.section('Readiness by area')
+    for pillar in view['pillars']:
+        _bar(pdf, pillar['title'], pillar['score_value'])
+
+    ranked = sorted(view['pillars'], key=lambda p: -p['score_value'])
+    # One strength per area, taking areas from every readiness area in turn, so one area cannot fill the list.
+    per_pillar = [[(a['title'], a['strengths'][0]) for a in p['areas'] if a.get('strengths')] for p in ranked]
+    strengths = [row for depth in range(4) for rows in per_pillar if depth < len(rows) for row in [rows[depth]]]
+    pdf.section('What the documents show')
+    if strengths:
+        for title, text in strengths[:8]:
+            pdf.paragraph(f'{title}: {brief(text, 160)}')
+    else:
+        pdf.paragraph('No requirement is fully demonstrated yet.')
+
+    pdf.section('Where readiness is weakest')
+    for pillar in sorted(view['pillars'], key=lambda p: p['score_value'])[:3]:
+        pdf.paragraph(f"{pillar['title']} ({pillar['score']}). Next: {brief(pillar['next_step'], 170)}")
+
+    pdf.section('Where to begin')
+    for i, item in enumerate(view['priorities'], 1):
+        pdf.paragraph(f"{i}. {item['title']}")
+    if not view['priorities']:
+        pdf.paragraph('Maintain the demonstrated capability and retain supporting evidence.')
+
+    pdf.add_page()
+    pdf.section('Area detail')
+    for pillar in view['pillars']:
+        if pdf.get_y() > 240:
+            pdf.add_page()
+        pdf.paragraph(f"{pillar['title']}: {pillar['score']}", heading=True)
+        for area in pillar['areas']:
+            pdf.set_font('Evidence', 'B', 9)
+            pdf.set_text_color(30, 55, 65)
+            pdf.multi_cell(0, 4.5, f"{area['title']}: {area['score']}", new_x='LMARGIN', new_y='NEXT')
+            pdf.paragraph(area['finding'] + ' Next: ' + brief(area['next_step'], 170), small=True)
+
+    pdf.section('How to read this report')
+    for limitation in view['limitations']:
+        pdf.paragraph(limitation)
+    pdf.paragraph(view['methodology_notice'])
+    pdf.paragraph('Every credited requirement cites the exact source passage; the supporting-evidence export lists them.')
+    return bytes(pdf.output())
+
+
 def render_leadership_pdf(view):
+    if view.get('score_value') is not None:
+        return render_single_score_pdf(view)
     pdf = LeadershipReport('leadership')
     pdf.set_title('Institutional AI assessment - leadership report')
     pdf.paragraph('INSTITUTIONAL AI ASSESSMENT', heading=True)

@@ -3,12 +3,15 @@
 - `disagreements(facts)`: groups of a field's facts that measure the same thing (scope.comparable) and state
   different values once printing differences are removed (normalize.same_value). "1,234" vs 1234 is not a
   conflict; 2022-23 vs 2023-24 is not the same metric; the same file's earlier version is history, not a second
-  source. Anything left that disagrees IS a conflict -- the AI may add a note, never remove one.
+  source. A number and a stated bound it satisfies (17224 and "more than 15000") agree (`bounds_agree`). Anything
+  left that disagrees IS a conflict -- the AI may add a note, never remove one.
 - `candidate_rows(facts)`: each candidate as a person needs to see it: value, document and version, page, period,
   population, validation and grounding result.
 - `summary(gap)` / `refresh(gap)`: the conflict's description rebuilt from the facts as they are now; called
   whenever a candidate fact changes (review, correction, re-extraction).
 """
+import re
+
 from apps.facts.models import ExtractedFact
 
 from . import normalize, scope as scope_mod
@@ -42,9 +45,57 @@ def disagreements(facts):
     out = []
     for group in groups:
         kinds = {normalize.comparable_value(f.value, f.data_type) for f in group}
-        if len(kinds) > 1:
+        if len(kinds) > 1 and not bounds_agree([f.value for f in group]):
             out.append(group)
     return out
+
+
+_BOUND = re.compile(r'(more than|greater than|over|above|exceeding|in excess of|at least|minimum of|not less than|'
+                    r'less than|fewer than|below|under|up to|at most|maximum of|not more than|>=|<=|>|<|\u2265|\u2264)'
+                    r'\s*([\d][\d,]*(?:\.\d+)?)', re.I)
+_PLAIN = re.compile(r'^\s*([\d][\d,]*(?:\.\d+)?)\s*(?:%|percent)?\s*$', re.I)
+_LOWER = ('more than', 'greater than', 'over', 'above', 'exceeding', 'in excess of', '>')
+_LOWER_EQ = ('at least', 'minimum of', 'not less than', '>=', '\u2265')
+_UPPER = ('less than', 'fewer than', 'below', 'under', '<')
+
+
+def _interval(value):
+    """(low, low_inclusive, high, high_inclusive) for a plain number or a stated bound ("more than 15000"),
+    None when the value is neither."""
+    from decimal import Decimal
+    text = str(value if value is not None else '')
+    plain = _PLAIN.match(text)
+    if plain:
+        n = Decimal(plain.group(1).replace(',', ''))
+        return n, True, n, True
+    match = _BOUND.search(text)
+    if not match:
+        return None
+    op, n = match.group(1).lower(), Decimal(match.group(2).replace(',', ''))
+    if op in _LOWER:
+        return n, False, None, False
+    if op in _LOWER_EQ:
+        return n, True, None, False
+    if op in _UPPER:
+        return None, False, n, False
+    return None, False, n, True
+
+
+def bounds_agree(values):
+    """True when every value is a number or a stated bound and one number satisfies all of them, as with
+    17224 and "more than 15000". Such facts state the same thing at different precision, not a conflict."""
+    intervals = [_interval(v) for v in values]
+    if any(i is None for i in intervals) or all(i[0] == i[2] and i[0] is not None for i in intervals):
+        return False  # not all numeric-or-bound, or only exact numbers (those differ: a real conflict)
+    low, low_inc, high, high_inc = None, True, None, True
+    for lo, lo_inc, hi, hi_inc in intervals:
+        if lo is not None and (low is None or lo > low or (lo == low and not lo_inc)):
+            low, low_inc = lo, lo_inc
+        if hi is not None and (high is None or hi < high or (hi == high and not hi_inc)):
+            high, high_inc = hi, hi_inc
+    if low is None or high is None:
+        return True
+    return low < high or (low == high and low_inc and high_inc)
 
 
 def comparable_pair(a, b):

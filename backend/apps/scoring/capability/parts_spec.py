@@ -13,7 +13,7 @@ import json
 import re
 from pathlib import Path
 
-VERSION = 'AIQIF-PARTS-1'
+VERSION = 'AIQIF-PARTS-2'
 RUBRIC = 'AIQIF-CAP-0.3'
 
 # Shared phrases.
@@ -376,7 +376,7 @@ SPEC = {
     # ---- C3.1 AI Curriculum Integration & Programme Design
     'AIQIF-C3.1.F1': {
         'parts': [
-            'A governing body (Board of Studies, Academic Council) records approval of a syllabus or curriculum, naming the applicable edition or programme || the syllabus is presented as the institution\'s current syllabus without an approval record',
+            'A syllabus or curriculum of the institution: one in its submitted curriculum, syllabus or Board of Studies documents, or one a governing body (Board of Studies, Academic Council) records approving || a syllabus whose origin is unclear or that belongs to another body',
             f'That syllabus includes substantive {AI} content (course or units with AI/ML topics) || AI appears only in a course title or a single listed topic',
         ],
         'not': ['A committee roster or a procedure for future revisions'],
@@ -390,7 +390,7 @@ SPEC = {
     },
     'AIQIF-C3.1.A1': {
         'parts': [
-            'Teaching records (timetables, attendance, delivery reports, course completion) are quoted || the course is listed as offered',
+            'Teaching records are quoted: timetables, attendance, delivery reports, course completion, or enrolment, examination or result records for a cohort of a programme whose curriculum contains the content || the course is listed as offered',
             f'The delivered content is substantive {AI} content || the delivered course is digital or computing without AI',
             'The programme group taught is identified || the group is implied',
         ],
@@ -770,7 +770,7 @@ SPEC = {
     'AIQIF-C5.2.F1': {
         'parts': [
             f'An advanced {AI} skills pathway is defined (specialisation, programme, minor, track, sequence of courses) || a single AI course',
-            'It is for an identified student group || unclear',
+            'It is for an identified student group (the students of a named programme, specialisation or cohort; an approved intake identifies them) || unclear',
         ],
         'not': [],
     },
@@ -1201,7 +1201,7 @@ SPEC = {
     # ---- C7.4 AI Collaboration, Knowledge Transfer & Societal Impact
     'AIQIF-C7.4.F1': {
         'parts': [
-            'A collaboration work plan exists (MoU activities, joint project plan) || an agreement without planned work',
+            'A collaboration work plan exists: MoU activities, a joint project plan, or a programme or project delivered with a named partner || an agreement without planned work',
             f'It specifies substantive {AI} research or application || collaboration in a non-AI area',
         ],
         'not': ['An MoU listing alone'],
@@ -1289,7 +1289,7 @@ SPEC = {
     # ---- C8.2 Industry Integration & AI Partnerships
     'AIQIF-C8.2.F1': {
         'parts': [
-            'An industry work plan exists (planned activities with an industry partner) || an MoU listing without planned activities',
+            'An industry work plan exists: planned or offered activities with a named industry partner, such as a co-delivered course, programme, lab or project || an MoU listing without planned activities',
             'It specifies an AI-related activity || a non-AI activity',
         ],
         'not': [],

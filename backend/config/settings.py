@@ -454,10 +454,10 @@ FACT_AUTO_CONFIRM_MIN_CONFIDENCE = None if _auto_confirm in ('', 'off', 'none', 
 # confirms anything on its own: AI confidence alone never confirms a fact. Kept so existing env files still load.
 
 # Fact verification and safe automation (apps/facts/verification/policy.py).
-# 'shadow' (default): every fact is verified and the policy records what it WOULD do; no fact changes.
-# 'enforce': verified facts the policy allows are confirmed by the system account. Switch only after
-# `python manage.py fact_verification_report --shadow` shows the rules agree with reviewers.
-FACT_VERIFICATION_MODE = os.getenv('FACT_VERIFICATION_MODE', 'shadow').strip().lower()
+# 'enforce' (default): verified facts the policy allows are confirmed by the system account, so people only see
+# facts the rules could not settle (on the VISTAS corpus 443 of 653 facts were verified exactly and allowed).
+# 'shadow': every fact is verified and the policy only records what it WOULD do; no fact changes.
+FACT_VERIFICATION_MODE = os.getenv('FACT_VERIFICATION_MODE', 'enforce').strip().lower()
 # Risk by data type ('low' | 'medium' | 'high'), field-key overrides, and what each risk may automate.
 FACT_RISK_BY_TYPE = {}
 FACT_RISK_BY_FIELD = {}
@@ -780,10 +780,10 @@ CAPABILITY_OUTPUT_TOKENS = int(os.getenv('CAPABILITY_OUTPUT_TOKENS', '12000'))
 # With CAPABILITY_GEMINI_REASONING_EFFORT=high, Gemini 3 requests take 60-160 s and can use ~23k thinking tokens; unless
 # set explicitly, the policy then uses a 300 s request timeout and 48000 output tokens for the assessment stage.
 CAPABILITY_AGREEMENT_PASSES = int(os.getenv('CAPABILITY_AGREEMENT_PASSES', '1'))
-# 'conditions' (default): the model states each condition. 'parts': the model reports evidence per part of each
-# condition (rubric_parts_v1.json) and code computes the state and a credit fraction (part_judgment.py), which adds
-# a documented-readiness score beside the strict range. Frozen into each run's execution policy.
-CAPABILITY_JUDGMENT = os.getenv('CAPABILITY_JUDGMENT', 'conditions').strip().lower()
+# Frozen into each run's execution policy.
+# 'parts' (default): part-level judgment under the accreditation-reviewer standard, scored with partial credit
+# (part_judgment.py). 'conditions': the earlier strict met/unknown judge, kept for comparison runs.
+CAPABILITY_JUDGMENT = os.getenv('CAPABILITY_JUDGMENT', 'parts').strip().lower()
 # Gemini thinking level for the assessor only; empty = AI_GEMINI_REASONING_EFFORT (which extraction keeps using).
 CAPABILITY_GEMINI_REASONING_EFFORT = os.getenv('CAPABILITY_GEMINI_REASONING_EFFORT', '').strip() or None
 CAPABILITY_REQUEST_TIMEOUT_SECONDS = int(os.getenv('CAPABILITY_REQUEST_TIMEOUT_SECONDS', str(AI_REQUEST_TIMEOUT_SECONDS)))
@@ -838,8 +838,12 @@ CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '
 # the second judgment can only add credit. Needs hybrid retrieval and CAPABILITY_JUDGMENT=parts. Adds up to one
 # request per indicator per pass, so CAPABILITY_MAX_HTTP_CALLS must allow it (150 with two passes).
 # With two agreement passes: conditions the passes disagree on get a third judgment (only those, one request per
-# indicator) and the majority state stands. The same decisions as a full three-pass vote, at a fraction of the cost.
+# indicator). Condition judge: the majority state stands. Part judge: passes also disagree when their credits differ
+# by 0.5 or more, and the median credit of the three passes stands (part_judgment.CREDIT_GAP).
 CAPABILITY_TIE_BREAK = os.getenv('CAPABILITY_TIE_BREAK', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Extracted-evidence lane (reviewed_evidence.evidence_lane): adds the source page of each relevant extracted AI item
+# to the indicator's packet (up to 18,000 characters), so evidence extraction found reaches the judge.
+CAPABILITY_EVIDENCE_LANE = os.getenv('CAPABILITY_EVIDENCE_LANE', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
 CAPABILITY_FOLLOW_UP_SEARCH = os.getenv('CAPABILITY_FOLLOW_UP_SEARCH', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
 # every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.

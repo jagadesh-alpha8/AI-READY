@@ -473,7 +473,7 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
              'text': source['text'][start:end], 'text_offset': start} for source, start, end in spans]
 
 
-def validate_decisions(indicator, response, sources, reviewed_evidence=None, *, edition_sources=None):
+def validate_decisions(indicator, response, sources, reviewed_evidence=None, *, edition_sources=None, conflicts='withhold'):
     """Fail closed per condition; fabricated/duplicate/missing citations never score points."""
     supplied = {}
     for source in sources:
@@ -533,7 +533,7 @@ def validate_decisions(indicator, response, sources, reviewed_evidence=None, *, 
                     issue = 'Applicable population or reporting period not established.'
         if not issue and state != 'unknown':
             from .reviewed_evidence import citation_issue
-            issue = citation_issue(citations, reviewed_evidence, sources, state=state)
+            issue = citation_issue(citations, reviewed_evidence, sources, state=state, conflicts=conflicts)
         if not issue and state == 'met':
             from .evidence_parts import APPROVAL_ID, APPROVAL_MISSING, supports_approval
             if cid == APPROVAL_ID and not supports_approval(citations, edition_sources if edition_sources is not None else sources):
@@ -654,6 +654,17 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
     else:
         # Retrieval reads the duplicate-free pages; validation still accepts any frozen source.
         context = select_context(indicator, structure['sources'], semantic_ranker=semantic_ranker, structure=structure)
+    lane_audit = None
+    from django.conf import settings
+    if getattr(settings, 'CAPABILITY_EVIDENCE_LANE', True):
+        from .reviewed_evidence import evidence_lane
+        lane_aliases = None
+        if structure is not None and structure.get('dropped'):
+            from .structure import page_aliases
+            lane_aliases = page_aliases(structure)
+        context, lane_audit = evidence_lane(indicator, list(context),
+                                            structure['sources'] if structure is not None else sources,
+                                            reviewed_evidence, aliases=lane_aliases)
     # Repeating the packet ID enum in each condition can exceed Gemini's
     # schema complexity limit. validate_decisions still checks exact citations.
     schema_sources = None if gemini else context
@@ -676,6 +687,7 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
         issue = 'No readable source context. Capability is unknown.'
     return {'indicator': indicator, 'context': context, 'schema_sources': schema_sources,
             'schema': indicator_schema(indicator, schema_sources), 'attachment_audit': attachment_audit,
+            'evidence_lane': lane_audit,
             'review_context': review_context, 'payload': payload, 'issue': issue, 'payload_for': payload_for,
             # The exact pages the ranker indexed, so the extra search reuses its index instead of rebuilding it.
             'retrieval_sources': ranking_sources(structure['sources'] if structure is not None else sources)}
@@ -760,14 +772,15 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
 
 def _part_tie_break(indicator, first, second, combined, disagreements, one_pass, *, context, reviewed_evidence, sources,
                     strict_errors, recover_provider_errors):
-    """Third pass for the conditions the two part passes disagree on; the two passes that share a state are
-    combined as usual (mean credit). The same decision as a three-pass majority vote. No majority keeps the
-    disagreement (unknown, mean credit of the first two)."""
+    """Third pass for the conditions the two part passes disagree on (different states, or credits CREDIT_GAP or
+    more apart). Each decided condition takes the median credit of the three passes, the parts and citations of the
+    pass that gave it, and the majority state (unknown when all three differ). The median makes one outlying pass
+    unable to move a condition, which is what most run-to-run swings come from."""
     from . import part_judgment
     from .request_recovery import recoverable_failure
     wanted = {d['condition_id'] for d in disagreements}
     group = [c for c in indicator['conditions'] if c['id'] in wanted]
-    audit = {'conditions': sorted(wanted)}
+    audit = {'conditions': sorted(wanted), 'rule': 'median-credit-of-three-v1'}
     try:
         answer, recovery, errors = one_pass(group)
     except Exception as exc:
@@ -786,17 +799,27 @@ def _part_tie_break(indicator, first, second, combined, disagreements, one_pass,
         cid = record['condition_id']
         deciding = third.get(cid)
         if cid in wanted and deciding is not None:
-            for pair in (by_first[cid], by_second[cid]):
-                if pair['state'] == deciding['state']:
-                    merged, _ = part_judgment.combine([pair], [deciding])
-                    record = {**merged[0], 'agreement': 'majority of three passes'}
-                    resolved.append(cid)
-                    break
+            passes = [by_first[cid], by_second[cid], deciding]
+            ranked = sorted(passes, key=lambda r: r['credit'])
+            middle = ranked[1]
+            states = [r['state'] for r in passes]
+            majority = next((st for st in states if states.count(st) >= 2), None)
+            record = {**middle, 'credit': middle['credit'], 'pass_credits': [r['credit'] for r in passes],
+                      'digital_credit': sorted(r.get('digital_credit', r['credit']) for r in passes)[1],
+                      'agreement': 'median of three passes'}
+            if majority is None:
+                from .decision_causes import ASSESSOR_DISAGREEMENT
+                record.update(state='unknown', cause=ASSESSOR_DISAGREEMENT, scope_supported=False, period_supported=False)
+            elif majority != middle['state']:
+                # The median pass is in the minority on state: keep its credit, report the majority state, but never
+                # report met without all parts fully evidenced in the credited pass.
+                record['state'] = majority if majority != 'met' else 'unknown'
+            resolved.append(cid)
         out.append(record)
     audit['resolved'] = resolved
     audit['third_states'] = {cid: r['state'] for cid, r in third.items()}
+    audit['third_credits'] = {cid: r['credit'] for cid, r in third.items()}
     return out, audit
-
 
 def _follow_up(job, validated, one_pass, *, follow_up, sources, reviewed_evidence, agreement_passes, strict_errors,
                recover_provider_errors):
@@ -944,7 +967,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources):
             'source_ids': [s['id'] for s in context],
             'source_excerpts': context,
             'reviewed_evidence_packet': review_context,
-            'reviewed_attachment_audit': job['attachment_audit'],
+            'reviewed_attachment_audit': job['attachment_audit'], 'evidence_lane': job.get('evidence_lane'),
             'reviewed_context_chars': len(json.dumps(review_context)),
             'reviewed_context_claims': len((review_context or {}).get('claims', [])),
             'user_payload_chars': len(payload),

@@ -189,11 +189,19 @@ def publish(*, institution_id, run_id, evaluation, inference):
         subset = [dict(r) for r in rows
                   if r['condition_id'] in {c['id'] for c in indicator['conditions']}]
         checked = validate_decisions(indicator, {'conditions': subset}, run.inputs['sources'],
-                                     reviewed_evidence=run.inputs.get('reviewed_evidence'))
+                                     reviewed_evidence=run.inputs.get('reviewed_evidence'),
+                                     conflicts='note' if any('credit' in r for r in subset) else 'withhold')
         # Revalidation must not erase why the evaluator already downgraded a row.
         original = {r['condition_id']: r for r in subset}
-        for row in checked:
+        from .evidence_parts import APPROVAL_MISSING
+        for n, row in enumerate(checked):
             prior = original[row['condition_id']]
+            if row.get('validation_issue') == APPROVAL_MISSING and 'credit' in prior and not prior.get('validation_issue'):
+                # The part judge does not use the strict syllabus-approval regex (part_judgment.judge_rows).
+                checked[n] = row = {**row, **{k: prior[k] for k in ('state', 'reason', 'citations', 'scope_supported',
+                                                                     'period_supported') if k in prior},
+                                    'validation_issue': '', 'cause': prior.get('cause', 'assessed')}
+                row.pop('withheld_state', None)
             if row['state'] == 'unknown' and not row['validation_issue'] and prior.get('validation_issue'):
                 row['validation_issue'] = prior['validation_issue']
                 if 'withheld_state' in prior:
@@ -216,8 +224,11 @@ def publish(*, institution_id, run_id, evaluation, inference):
             row['parts'] = prior.get('parts', [])
             row['credit'] = 0.0 if newly_withheld else prior.get('credit', 0.0)
             row['digital_credit'] = 0.0 if newly_withheld else prior.get('digital_credit', row['credit'])
-            if 'follow_up' in prior:  # what the targeted extra search changed, for review
-                row['follow_up'] = prior['follow_up']
+            # Per-pass credits and the agreement note feed assessment_consistency; without them the export cannot
+            # show how far the passes were apart.
+            for key in ('follow_up', 'pass_credits', 'agreement'):
+                if key in prior:
+                    row[key] = prior[key]
     decisions = {r['condition_id']: r['state'] for r in validated}
     result = assess(decisions, rubric)
     if any('credit' in r for r in validated):
@@ -225,6 +236,10 @@ def publish(*, institution_id, run_id, evaluation, inference):
         result['documented'] = documented({r['condition_id']: r['credit'] for r in validated}, rubric)
         result['documented_with_digital'] = documented(
             {r['condition_id']: r.get('digital_credit', r['credit']) for r in validated}, rubric)
+        # The one headline number: what the supplied documents show, with partial credit. A condition the documents
+        # do not show earns 0; there is no upper bound. `lower`/`upper` stay in the payload for audit only.
+        result['score'] = result['documented']['overall']
+        result['score_method'] = 'documented-part-credit'
     from .decision_causes import summary as cause_summary
     payload = {'records': validated, 'result': result, 'actions': actions_for(result),
                'decision_causes': cause_summary(validated),

@@ -39,6 +39,8 @@ class SprintScopedProcessingTests(ExtractionJobTestBase):
     def _summary(self, sprint):
         return self.client.get(f'/api/v1/sprints/{sprint.id}/processing-summary').data
 
+    # Written for the shadow review policy: facts stay 'extracted' until a person acts.
+    @override_settings(FACT_VERIFICATION_MODE='shadow')
     def test_a_reused_document_is_reviewed_and_scored_separately_in_each_sprint(self):
         self._auth(self.iqac)
         self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/')
