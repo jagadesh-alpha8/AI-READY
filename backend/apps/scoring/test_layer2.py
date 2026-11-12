@@ -804,3 +804,41 @@ class FinalResultTests(TestCase):
         result['traces'] = []
         with self.assertRaises(Layer2Error):
             publish_final(result)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class FinalResultReportTests(FinalResultTests):
+    """Every report surface works on a final run and says which result it shows."""
+    def setUp(self):
+        super().setUp()
+        from rest_framework.test import APIClient
+        from apps.accounts.models import User
+        from .models import CapabilityExecution
+        CapabilityExecution.objects.create(run=self.run, sprint=self.sprint, idempotency_key='provisional',
+                                           request_hash='provisional', status='completed')
+        user = User.objects.create_user(username='coordinator2', email='c2@example.com',
+                                        role=User.Role.IQAC_COORDINATOR, institution=self.institution)
+        self.client = APIClient()
+        self.client.force_authenticate(user)
+        self.base = f'/api/v1/sprints/{self.sprint.pk}/capability-runs'
+
+    def test_reports_on_the_final_run_and_the_run_list(self):
+        final = publish_final(self.result())
+        entry = final.inputs['manifest'][-1]
+        self.assertEqual((entry['added_by'], entry['pages'][0]['status']), ('second_layer', 'ok'))
+        self.assertIn('version', entry)
+        for audience in ('leadership', 'evidence'):
+            for fmt in ('html', 'pdf', 'json'):
+                response = self.client.get(f'{self.base}/{final.pk}/report', {'audience': audience, 'file': fmt})
+                self.assertEqual(response.status_code, 200, (audience, fmt))
+        data = json.loads(self.client.get(f'{self.base}/{final.pk}/report', {'file': 'json'}).content)
+        self.assertEqual(data['assessment_stage']['stage'], 'final')
+        self.assertIn('Final result', data['report_view']['stage_notice'])
+        old = json.loads(self.client.get(f'{self.base}/{self.run.pk}/report', {'file': 'json'}).content)
+        self.assertEqual((old['assessment_stage']['stage'], old['assessment_stage']['final_run_id']), ('provisional', str(final.pk)))
+        listed = self.client.get(self.base)
+        self.assertEqual(listed.status_code, 200)
+        stages = {row['id']: (row['stage'], row['provisional_run_id'], row['completed_indicators']) for row in listed.data['results']}
+        self.assertEqual(stages[str(final.pk)], ('final', str(self.run.pk), 36))
+        self.assertEqual(stages[str(self.run.pk)][0], 'provisional')
+        self.assertEqual(listed.data['review_questions_awaiting'], 0)

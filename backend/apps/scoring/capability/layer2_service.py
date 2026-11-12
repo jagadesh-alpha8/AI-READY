@@ -536,8 +536,10 @@ def publish_final(result, *, service=None, user=None, inference=None):
     revalidates every citation and trace excerpt against those sources). Re-judged key indicators take their new
     traces; the rest keep the provisional ones. Idempotent: the same result publishes once. Returns the final run."""
     from apps.documents.models import Document
+    from apps.extraction.models import DocumentPage
+    from apps.extraction.services.evidence_text import evidence_pages
     from apps.scoring.models import CapabilityExecution, CapabilityRunEvent
-    from .storage import checkpoint, digest, publish
+    from .storage import checkpoint, digest, manifest_entry, publish
     provisional_run = _run(result.get('run_ref'))
     if provisional_run is None:
         raise Layer2Error('The provisional run is not in this database; a final result cannot be published.')
@@ -561,12 +563,13 @@ def publish_final(result, *, service=None, user=None, inference=None):
         documents = {str(d.pk): d for d in Document.objects.filter(pk__in={s['document_id'] for s in added}, sprint=sprint)}
         if len(documents) != len({s['document_id'] for s in added}):
             raise Layer2Error('A new document does not belong to this sprint.')
-        manifest = list(inputs['manifest']) + [
-            {'document_id': doc_id, 'filename': documents[doc_id].original_filename, 'added_by': 'second_layer',
-             'status': documents[doc_id].status, 'checksum': documents[doc_id].checksum,
-             'pages': [{'page_id': s['id'], 'number': s['page_number'], 'text_hash': digest(s['text'])}
-                       for s in added if s['document_id'] == doc_id]}
-            for doc_id in sorted(documents)]
+        manifest = list(inputs['manifest'])
+        for doc_id in sorted(documents):
+            # The same entry a full run freezes (reports and diagnostics read every field of it).
+            pages = list(DocumentPage.objects.filter(document=documents[doc_id]).order_by('page_number'))
+            rendered = {p['page_number']: p['text'] for p in evidence_pages([
+                {'page_number': p.page_number, 'text': p.text, 'tables': p.tables} for p in pages])}
+            manifest.append({**manifest_entry(documents[doc_id], pages, rendered), 'added_by': 'second_layer'})
         inputs.update(sources=list(inputs['sources']) + added, manifest=manifest, refines_run_id=str(provisional_run.pk),
                       second_layer={'version': layer2.VERSION, 'provisional_run_id': str(provisional_run.pk),
                                     'provisional_event_id': event.pk, 'provisional_score': result.get('provisional_score'),

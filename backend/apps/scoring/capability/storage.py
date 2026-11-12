@@ -26,6 +26,18 @@ def digest(value):
                                      ensure_ascii=False).encode()).hexdigest()
 
 
+def manifest_entry(document, pages, rendered):
+    """One document's manifest entry: what reports and diagnostics read about a frozen source document."""
+    return {'document_id': str(document.pk), 'filename': document.original_filename,
+            'drive_file_id': document.drive_file_id, 'source_path': document.source_path,
+            'checksum': document.checksum, 'version': document.version_number,
+            'previous_version_id': str(document.previous_version_id) if document.previous_version_id else None,
+            'status': document.status, 'expected_pages': document.page_count,
+            'pages': [{'page_id': str(p.pk), 'number': p.page_number, 'status': p.status,
+                       'text_hash': digest(p.text), 'tables_hash': digest(p.tables),
+                       'evidence_text_hash': digest(rendered[p.page_number]), 'text_source': p.text_source} for p in pages]}
+
+
 def evidence_snapshot(sprint):
     from .scope import report_timestamps
     from apps.facts.models import ExtractedFact
@@ -50,14 +62,7 @@ def evidence_snapshot(sprint):
         pages = list(DocumentPage.objects.filter(document=document).order_by('page_number'))
         rendered = {p['page_number']: p['text'] for p in evidence_pages([
             {'page_number': p.page_number, 'text': p.text, 'tables': p.tables} for p in pages])}
-        manifest.append({'document_id': str(document.pk), 'filename': document.original_filename,
-                         'drive_file_id': document.drive_file_id, 'source_path': document.source_path,
-                         'checksum': document.checksum, 'version': document.version_number,
-                         'previous_version_id': str(document.previous_version_id) if document.previous_version_id else None,
-                         'status': document.status, 'expected_pages': document.page_count,
-                         'pages': [{'page_id': str(p.pk), 'number': p.page_number, 'status': p.status,
-                                    'text_hash': digest(p.text), 'tables_hash': digest(p.tables),
-                                    'evidence_text_hash': digest(rendered[p.page_number]), 'text_source': p.text_source} for p in pages]})
+        manifest.append(manifest_entry(document, pages, rendered))
         for page in pages:
             if page.status == DocumentPage.Status.OK and rendered[page.page_number].strip():
                 page_hints = []
