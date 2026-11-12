@@ -9,15 +9,18 @@ from rest_framework.test import APITestCase
 from .capability import depth, evaluation, layer2
 from .capability.engine import release
 from .capability.layer2 import Layer2Error
-from .capability.layer2_service import (add_evidence, check_additional, check_response, credit_routes, next_item,
-                                        rejudge_credit, submit)
+from .capability.layer2_service import (add_evidence, check_additional, check_pending, check_response,
+                                        credit_routes, document_sources, next_item, rejudge_credit, submit)
+from .capability.layer2_views import flag
 from .models import AdditionalEvidence, DepthQuestion, DepthResponse
 
 FILLER = ' The record was kept by the department office and countersigned by the head of the institution.'
 CERTIFICATE = {'id': 'att-1', 'document_id': 'doc-new', 'page_number': 1,
-               'text': 'Certificate of completion. Certificate Programme in Machine Learning, IIT Madras, 2025.' + FILLER}
+               'text': 'Certificate of completion. Certificate Programme in Machine Learning, IIT Madras, 2025.'
+                       ' Issued by the Centre for Continuing Education after the final assessment and project review.'}
 ANNEXURE = {'id': 'page-7', 'document_id': 'doc-ssr', 'page_number': 7,
-            'text': 'Annexure 3. Dr Rao completed the Certificate Programme in Machine Learning at IIT Madras.' + FILLER}
+            'text': 'Annexure 3. Dr Rao completed the Certificate Programme in Machine Learning at IIT Madras.'
+                    ' The faculty development cell keeps the attendance sheets and signed feedback forms on file.'}
 CANTEEN = {'id': 'page-9', 'document_id': 'doc-ssr', 'page_number': 9,
            'text': 'Canteen menu and library opening times for the semester.' + FILLER}
 ANSWER = 'Our faculty completed the Certificate Programme in Machine Learning with IIT Madras.'
@@ -64,10 +67,26 @@ class SearchTests(SimpleTestCase):
     def test_large_attachment_is_ranked_and_bounded(self):
         big = {**CERTIFICATE, 'text': ('Unrelated minutes of the sports committee meeting.\n' * 150)
                + CERTIFICATE['text'] + '\n' + ('Unrelated minutes of the sports committee meeting.\n' * 150)}
-        windows = layer2.search_with_answer(ANSWER, [big], [], limit=1500)
+        windows = layer2.search_with_answer(ANSWER, [big], [], attachment_limit=1500)
         self.assertTrue(windows)
         self.assertLessEqual(sum(len(w['text']) for w in windows), 1500)
         self.assertTrue(any('Certificate Programme in Machine Learning' in w['text'] for w in windows))
+
+
+    def test_a_large_attachment_does_not_crowd_out_the_corpus(self):
+        bulky = {**CERTIFICATE, 'text': CERTIFICATE['text'] + ('\nAttendance register row.' * 280)}
+        self.assertLessEqual(len(bulky['text']), layer2.ATTACHMENT_CHARS)
+        windows = layer2.search_with_answer(ANSWER, [bulky], [ANNEXURE])
+        self.assertEqual([w['id'] for w in windows], ['att-1', 'page-7'])
+
+    def test_text_repeated_in_another_document_is_taken_once(self):
+        restated = {**ANNEXURE, 'id': 'aqar-3', 'document_id': 'doc-aqar'}
+        windows = layer2.search_with_answer(ANSWER, [], [ANNEXURE, restated, CANTEEN])
+        self.assertEqual(len(windows), 1)
+
+    def test_pages_extraction_tagged_join_whole(self):
+        windows = layer2.page_windows([CERTIFICATE, ANNEXURE], {('doc-new', 1)})
+        self.assertEqual([(w['id'], w['evidence_role']) for w in windows], [('att-1', 'extraction_tag')])
 
 
 class CheckTests(SimpleTestCase):
@@ -187,6 +206,48 @@ class CreditPathTests(SimpleTestCase):
         self.assertEqual((merged[0]['credit'], audit[0]['decision'], audit[0]['contradicted_parts']),
                          (0.25, 'no rise', ['a']))
 
+    def test_merge_reads_both_passes_of_a_combined_record(self):
+        cid = 'X-1.1.A1'
+        old_cite = {'source_id': 'page-7', 'quote': 'completed the Certificate Programme'}
+        new_cite = {'source_id': 'att-1', 'quote': 'Certificate Programme in Machine Learning'}
+        subject = {'id': 's', 'finding': 'full', 'credited_as': 'full', 'second_finding': 'full',
+                   'second_credited_as': 'full', 'citations': [old_cite], 'second_citations': [old_cite],
+                   'part_credit': 1.0}
+        provisional = {'condition_id': cid, 'credit': 0.0, 'state': 'unknown', 'parts': [
+            subject, {'id': 'a', 'finding': 'not_found', 'credited_as': 'not_found', 'second_finding': 'not_found',
+                      'second_credited_as': 'not_found', 'citations': [], 'second_citations': [], 'part_credit': 0.0}]}
+        # Only the second pass found the new certificate: its citation survives only in second_citations.
+        rejudged = {'condition_id': cid, 'credit': 0.5, 'state': 'unknown', 'parts': [
+            subject, {'id': 'a', 'finding': 'not_found', 'credited_as': 'not_found', 'second_finding': 'full',
+                      'second_credited_as': 'full', 'citations': [new_cite], 'second_citations': [new_cite],
+                      'part_credit': 0.5}]}
+        rejudged['parts'][1]['citations'] = []
+        merged, audit = layer2.merge_new_evidence([provisional], [rejudged], {'X-1.1': self.packet})
+        self.assertEqual((audit[0]['decision'], merged[0]['credit']), ('replaced', 0.5))
+
+    def test_a_part_that_rose_without_new_evidence_keeps_its_provisional_result(self):
+        cid = 'X-1.1.A2'
+        old_cite = {'source_id': 'page-7', 'quote': 'completed the Certificate Programme'}
+        new_cite = {'source_id': 'att-1', 'quote': 'Certificate Programme in Machine Learning'}
+        part = lambda pid, finding, cites: {'id': pid, 'finding': finding, 'credited_as': finding, 'citations': cites}
+        provisional = {'condition_id': cid, 'credit': 0.0, 'state': 'unknown',
+                       'parts': [part('s', 'full', [old_cite]), part('a', 'not_found', []), part('b', 'not_found', [])]}
+        rejudged = {'condition_id': cid, 'credit': 1.0, 'state': 'met',
+                    'parts': [part('s', 'full', [old_cite]), part('a', 'full', [new_cite]), part('b', 'full', [old_cite])]}
+        merged, audit = layer2.merge_new_evidence([provisional], [rejudged], {'X-1.1': self.packet})
+        self.assertEqual(audit[0]['decision'], 'replaced')
+        self.assertEqual((audit[0]['new_evidence_parts'], audit[0]['reverted_parts']), (['a'], ['b']))
+        self.assertEqual((merged[0]['credit'], merged[0]['state']), (0.5, 'unknown'))
+        self.assertEqual([p['credited_as'] for p in merged[0]['parts']], ['full', 'full', 'not_found'])
+
+    def test_contradictions_are_listed_for_review(self):
+        audit = [{'condition_id': 'X', 'contradicted_parts': ['a']}, {'condition_id': 'Y', 'contradicted_parts': []}]
+        self.assertEqual(layer2.contradictions(audit), [{'condition_id': 'X', 'parts': ['a']}])
+
+    def test_skip_flag_from_forms(self):
+        self.assertEqual([flag(v) for v in (True, 'true', '1', 'on', False, 'false', '0', '', None)],
+                         [True, True, True, True, False, False, False, False, False])
+
     def test_evaluate_needs_a_fixed_packet_for_every_indicator(self):
         with self.assertRaises(ValueError):
             evaluation.evaluate([], service=None, population='All', reference_period='2025-26',
@@ -238,6 +299,18 @@ class FlowTests(TestCase):
         with self.assertRaises(Layer2Error):
             submit(self.q1, answer='more', parent=response)
         self.assertEqual(next_item('run-x')['question'], self.q2)
+
+    def test_supported_depth_answer_also_routes_to_the_credit_path(self):
+        response = submit(self.q1, answer=ANSWER)
+        check_response(response, self.check_reply(''), attached=[CERTIFICATE], corpus=[])
+        routes = credit_routes('run-x')
+        self.assertEqual([(r['indicator'], r['conditions']) for r in routes], [(self.code, [self.cid])])
+        self.assertEqual(response.support_check['search']['ranking'], 'keyword')
+
+    def test_documents_are_read_only_for_a_run_in_this_database(self):
+        response = submit(self.q1, answer=ANSWER, document_ids=['00000000-0000-0000-0000-000000000009'])
+        with self.assertRaises(Layer2Error):
+            check_response(response, self.check_reply(''))
 
     def test_typed_answer_with_nothing_found_costs_no_call_and_asks_for_a_document(self):
         model = self.check_reply('unused')
@@ -343,6 +416,50 @@ class SecondLayerAPITests(APITestCase):
         again = self.client.post(f'{self.url}/questions/{self.question.pk}/responses', {'skip': True}, format='json')
         self.assertEqual(again.status_code, 400)
         self.assertIsNone(self.client.get(f'{self.url}/questions').data['next'])
+
+    def test_follow_up_endpoint_and_one_answer_only(self):
+        spec, code, cid, dims = spec_condition()
+        question = DepthQuestion.objects.create(
+            run_ref=str(self.execution.run_id), kind='depth', indicator_code=code, condition_ids=[cid],
+            dimension_ids=[d['id'] for d in dims[:2]], text='Who ran it, and for how long?', rank=2,
+            spec_version=spec['version'])
+        made = self.client.post(f'{self.url}/questions/{question.pk}/responses',
+                                {'answer': 'Institutional evidence', 'document_ids': [str(self.doc.pk)]}, format='json')
+        self.assertEqual(made.status_code, 201, made.data)
+        response = DepthResponse.objects.get(pk=made.data['id'])
+        model = Reply({'dimensions': [{'dimension_id': dims[0]['id'], 'support': 'supported', 'passage_ids': ['p1'],
+                                       'note': ''}], 'follow_up': 'Which document shows the hours?'})
+        check_response(response, model, ranker=None)
+        self.assertEqual(response.follow_up_text, 'Which document shows the hours?')
+        nxt = self.client.get(f'{self.url}/questions').data['next']
+        self.assertEqual((nxt['type'], nxt['response_id']), ('follow_up', str(response.pk)))
+        answered = self.client.post(f'{self.url}/responses/{response.pk}/follow-up',
+                                    {'answer': 'The register', 'skip': 'false'}, format='json')
+        self.assertEqual((answered.status_code, answered.data['parent_id']), (201, str(response.pk)))
+        again = self.client.post(f'{self.url}/responses/{response.pk}/follow-up', {'skip': True}, format='json')
+        self.assertEqual(again.status_code, 400)
+
+    def test_documents_wait_for_extraction_report_failures_and_stay_in_their_sprint(self):
+        from apps.documents.models import Document
+        from apps.extraction.models import DocumentPage
+        busy = Document.objects.create(sprint=self.sprint, document_type='naac_ssr', status=Document.Status.PROCESSING)
+        DocumentPage.objects.create(document=busy, page_number=1, text='Half read.')
+        failed = Document.objects.create(sprint=self.sprint, document_type='naac_ssr', status=Document.Status.FAILED)
+        self.assertFalse(document_sources([str(busy.pk)], self.sprint.pk)[1])
+        sources, ready, broken = document_sources([str(self.doc.pk), str(failed.pk)], self.sprint.pk)
+        self.assertEqual((len(sources), ready, broken), (1, True, [str(failed.pk)]))
+        with self.assertRaises(Layer2Error):
+            document_sources([str(self.foreign.pk)], self.sprint.pk)
+        with self.assertRaises(Layer2Error):
+            submit(self.question, answer='x', document_ids=[str(self.foreign.pk)])
+
+    def test_pending_answers_are_checked_by_the_command_path(self):
+        submit(self.question, answer='Institutional evidence', document_ids=[str(self.doc.pk)])
+        counts = check_pending(str(self.execution.run_id), Reply({}), ranker=None)
+        self.assertEqual((counts['checked'], counts['waiting'], counts['model_calls']), (1, 0, 0))
+        response = DepthResponse.objects.get()
+        self.assertTrue(response.supported)
+        self.assertEqual(response.windows[0]['document_id'], str(self.doc.pk))
 
     def test_additional_evidence(self):
         empty = self.client.post(f'{self.url}/additional-evidence',

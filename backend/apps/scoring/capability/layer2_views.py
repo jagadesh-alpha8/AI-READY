@@ -27,6 +27,13 @@ from . import layer2_service as service
 from .layer2 import Layer2Error
 
 
+def flag(value):
+    """A boolean from JSON or a form field: "false", "0" and "" are false (bool("false") would be true)."""
+    if isinstance(value, bool):
+        return value
+    return str(value or '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 def serialize_question(question):
     return {'id': str(question.pk), 'rank': question.rank, 'kind': question.kind, 'text': question.text,
             'indicator_code': question.indicator_code, 'condition_ids': question.condition_ids,
@@ -41,13 +48,14 @@ def serialize_response(response):
             'supported': response.supported, 'follow_up': response.follow_up_text or None,
             'dimensions': [{'dimension_id': d['dimension_id'], 'support': d['support'], 'note': d.get('note', '')}
                            for d in check.get('dimensions', [])],
-            'passages_found': len(response.windows or []), 'created_at': response.created_at}
+            'passages_found': len(response.windows or []),
+            'search': check.get('search', {}), 'created_at': response.created_at}
 
 
 def serialize_additional(item):
     return {'id': str(item.pk), 'document_ids': item.document_ids, 'note': item.note, 'picked': item.picked,
             'routed_indicators': item.routing.get('indicators', []), 'unknown_picks': item.routing.get('unknown', []),
-            'over_cap': item.routing.get('dropped', []), 'status': item.status,
+            'over_cap': item.routing.get('dropped', []), 'search': item.routing.get('search', {}), 'status': item.status,
             'passages_found': len(item.windows or []), 'created_at': item.created_at}
 
 
@@ -75,7 +83,7 @@ class _RunScoped(APIView):
             return error
         try:
             response = service.submit(question, answer=request.data.get('answer') or '', document_ids=documents,
-                                      skip=bool(request.data.get('skip')), parent=parent, user=request.user)
+                                      skip=flag(request.data.get('skip')), parent=parent, user=request.user)
         except Layer2Error as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         if settings.SECOND_LAYER_CHECK_ON_SUBMIT and response.status == DepthResponse.Status.PENDING:

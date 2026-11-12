@@ -23,12 +23,17 @@ Pure logic, no database (layer2_service.py holds that side):
 import hashlib
 import json
 import math
+import re
 from collections import Counter
 
-VERSION = 'second-layer-v0'
-NEW_CHARS = 8000            # new characters per key indicator, the follow-up search's budget (follow_up.FOLLOW_UP_CHARS)
-WHOLE_DOCUMENT_CHARS = 8000  # attached documents up to this size are sent whole, not ranked
+VERSION = 'second-layer-v1'
+ATTACHMENT_CHARS = 8000     # from the documents sent with an answer; up to this size they are sent whole, not ranked
+CORPUS_CHARS = 4000         # from the run's corpus, a separate share so a large attachment cannot crowd it out
+NEW_CHARS = ATTACHMENT_CHARS + CORPUS_CHARS  # new characters per key indicator in the credit path
+WHOLE_DOCUMENT_CHARS = ATTACHMENT_CHARS
 CHUNK_CHARS = 1200          # search unit when no embedding ranker is available
+SHINGLE = 5                 # words per shingle for the repeated-text check
+RESTATES = 0.6              # share of a passage's shingles already sent that marks it a restatement
 PICKS = 6                   # windows taken per search
 MIN_PIECE = 120             # characters; a smaller uncovered remainder is not worth sending
 CANDIDATES = 60             # ranks per route that enter fusion, as in evidence_retrieval
@@ -76,6 +81,16 @@ def _chunks(sources):
     return out
 
 
+def _shingles(text):
+    words = re.findall(r'[a-z0-9]+', (text or '').lower())
+    return {tuple(words[i:i + SHINGLE]) for i in range(len(words) - SHINGLE + 1)}
+
+
+def _restates(shingles, kept):
+    """True when most of a passage repeats text already taken (an annual report restating the self-study report)."""
+    return bool(shingles) and any(len(shingles & other) / len(shingles) >= RESTATES for other in kept)
+
+
 def _lexical(query, texts):
     """BM25 scores of each text for the query's terms (the same weighting as the follow-up search)."""
     from .evidence_retrieval import terms
@@ -92,9 +107,11 @@ def _lexical(query, texts):
     return scores
 
 
-def _ranked(query, sources, ranker, covered, limit, picks=PICKS):
+def _ranked(query, sources, ranker, covered, limit, picks=PICKS, kept=None):
     """[(source, start, end)]: the best uncovered pieces for the query, keyword and (with a ranker) embedding ranks
-    fused. Without a ranker only keyword matches are taken."""
+    fused. Without a ranker only keyword matches are taken. kept: shingle sets of text already taken; a piece that
+    mostly repeats one of them is skipped, and each piece taken is added."""
+    kept = [] if kept is None else kept
     from .follow_up import _uncovered
     if not sources or limit < MIN_PIECE or not query.strip():
         return []
@@ -129,13 +146,18 @@ def _ranked(query, sources, ranker, covered, limit, picks=PICKS):
         b = min(b, a + (limit - used))
         if b - a < MIN_PIECE:
             continue
+        shingles = _shingles(source['text'][a:b])
+        if _restates(shingles, kept):
+            continue
+        kept.append(shingles)
         chosen.append((source, a, b))
         covered.setdefault(source['id'], []).append((a, b))
         used += b - a
     return chosen
 
 
-def search_with_answer(query, attached, corpus, *, packet=(), limit=NEW_CHARS, ranker=None, fallback_query=''):
+def search_with_answer(query, attached, corpus, *, packet=(), attachment_limit=ATTACHMENT_CHARS,
+                       corpus_limit=CORPUS_CHARS, ranker=None, fallback_query=''):
     """Windows that may support an answer, searched with the institution's own words.
 
     query: the answer's (or note's) text. fallback_query: used only to rank inside a large attachment when the answer
@@ -143,30 +165,39 @@ def search_with_answer(query, attached, corpus, *, packet=(), limit=NEW_CHARS, r
     sent with the answer. corpus: the run's frozen pages; an answer often points at something already submitted that
     the first pass missed. packet: windows already sent to the judge; their text is never sent again.
 
-    The attached pages come first and are sent whole when they fit in WHOLE_DOCUMENT_CHARS (a reply is usually a
-    certificate, a register or a syllabus; ranking it risks dropping the page that matters). Larger attachments and
-    the corpus are searched. Recall first: the checker and the judge decide what the windows show."""
+    Attachment and corpus have separate budgets, so a large attachment cannot crowd out the corpus. The attachment is
+    sent whole when it fits (a reply is usually a certificate, a register or a syllabus; ranking it risks dropping the
+    page that matters); a larger one and the corpus are searched. Passages that mostly repeat text already taken are
+    skipped. Recall first: the checker and the judge decide what the windows show."""
+    from .follow_up import _uncovered
     covered = _spans(packet)
-    windows, used = [], 0
+    kept = [_shingles(w.get('text')) for w in packet]
+    windows = []
     attached = [s for s in attached if (s.get('text') or '').strip()]
     attached_ids = {s['id'] for s in attached}
-    from .follow_up import _uncovered
-    if attached and sum(len(s['text']) for s in attached) <= min(WHOLE_DOCUMENT_CHARS, limit):
+    if attached and sum(len(s['text']) for s in attached) <= attachment_limit:
         for source in attached:
             for a, b in _uncovered(0, len(source['text']), covered.get(source['id'], [])):
                 if source['text'][a:b].strip():
                     windows.append(_window(source, a, b, 'answer_attachment'))
                     covered.setdefault(source['id'], []).append((a, b))
-                    used += b - a
+                    kept.append(_shingles(source['text'][a:b]))
     elif attached:
-        for source, a, b in _ranked(query if query.strip() else fallback_query, attached, ranker, covered, limit - used):
+        for source, a, b in _ranked(query if query.strip() else fallback_query, attached, ranker, covered,
+                                    attachment_limit, kept=kept):
             windows.append(_window(source, a, b, 'answer_attachment'))
-            used += b - a
     rest = [s for s in corpus if s['id'] not in attached_ids and (s.get('text') or '').strip()]
-    for source, a, b in _ranked(query, rest, ranker, covered, limit - used):
+    for source, a, b in _ranked(query, rest, ranker, covered, corpus_limit, kept=kept):
         windows.append(_window(source, a, b, 'answer_search'))
-        used += b - a
     return windows
+
+
+def page_windows(sources, pages, role='extraction_tag'):
+    """Whole-page windows for the (document id, page number) pairs extraction tagged for an indicator: those pages
+    join the packet whatever their wording, as the extracted-evidence lane does in the first layer."""
+    wanted = {(str(d), int(n)) for d, n in pages}
+    return [_window(s, 0, len(s['text']), role) for s in sources
+            if (str(s.get('document_id')), int(s.get('page_number') or 0)) in wanted and (s.get('text') or '').strip()]
 
 
 # ------------------------------------------------------------------ checking a depth answer against the documents
@@ -383,12 +414,41 @@ def is_new(citation, packet):
     return bool(quote) and not any(quote in _norm(w.get('text')) for w in packet if w.get('id') == citation.get('source_id'))
 
 
+def _part_credit(part):
+    """A part's credit: the mean of both passes for a combined record (part_credit), else its own finding's value."""
+    from .part_judgment import RELATED_CREDIT
+    if part is None:
+        return 0.0
+    if 'part_credit' in part:
+        return part['part_credit']
+    return {'full': 1.0, 'related': RELATED_CREDIT}.get(part.get('credited_as'), 0.0)
+
+
+def _part_citations(part):
+    """Every citation a part rests on, from both passes of a combined record."""
+    return list(part.get('citations') or []) + list(part.get('second_citations') or [])
+
+
+def _recredit(parts, cid, digital=False):
+    """A condition's credit from its parts, with the gates applied within each pass, as part judgment does."""
+    from .part_judgment import _load, credit
+    spec = (_load()[0]['conditions'].get(cid) or {}).get('parts')
+    first = credit(parts, spec, digital=digital)
+    if any('second_credited_as' in p for p in parts):
+        second = credit([{**p, 'credited_as': p.get('second_credited_as', p['credited_as'])} for p in parts], spec,
+                        digital=digital)
+        return round((first + second) / 2, 4)
+    return first
+
+
 def merge_new_evidence(provisional, rejudged, packets):
     """(records, audit). packets: {indicator code: provisional packet}.
 
-    A re-judged requirement replaces its provisional record only when its credit is higher AND at least one part that
-    improved cites a passage that was not in the provisional packet. A rise that rests only on the old packet is
-    ordinary run-to-run variation and is not taken. A part the second judgment found contradicted is flagged for
+    Works part by part. A part takes its re-judged result only when its credit rose AND it cites a passage that was
+    not in the provisional packet, in either judging pass; every other part keeps its provisional result. The
+    condition's credit is then recomputed from those parts (gates within each pass), and the record is replaced only
+    when that credit is higher. So a rise from ordinary run-to-run variation on the old packet is never taken, even
+    beside a part that genuinely rose on new evidence. A part the second judgment found contradicted is flagged for
     review and changes nothing (whether new evidence may withdraw credit is depth decision 1, still open)."""
     second = {r['condition_id']: r for r in rejudged}
     records, audit = [], []
@@ -400,21 +460,52 @@ def merge_new_evidence(provisional, rejudged, packets):
             continue
         packet = packets.get(cid.rsplit('.', 1)[0], [])
         old_parts = {p['id']: p for p in record.get('parts') or []}
-        improved = [p for p in twin.get('parts') or []
-                    if _RANK.get(p.get('credited_as'), 0) > _RANK.get(old_parts.get(p['id'], {}).get('credited_as'), 0)]
-        new_basis = [p['id'] for p in improved if any(is_new(c, packet) for c in p.get('citations') or [])]
+        chosen, taken, reverted = [], [], []
+        for part in twin.get('parts') or []:
+            before = old_parts.get(part['id'])
+            rose = _part_credit(part) > _part_credit(before)
+            if rose and any(is_new(c, packet) for c in _part_citations(part)):
+                chosen.append(part)
+                taken.append(part['id'])
+            else:
+                if rose:
+                    reverted.append(part['id'])
+                chosen.append(before if before is not None else
+                              {'id': part['id'], 'finding': 'not_found', 'credited_as': 'not_found', 'citations': []})
         contradicted = [p['id'] for p in twin.get('parts') or [] if p.get('finding') == 'contradicted'
-                        and old_parts.get(p['id'], {}).get('finding') != 'contradicted']
-        higher = (twin.get('credit') or 0) > (record.get('credit') or 0)
-        take = higher and bool(new_basis)
-        reason = ('replaced' if take else 'no rise' if not higher else 'rise without new evidence')
-        row = {'condition_id': cid, 'decision': reason, 'previous_credit': record.get('credit') or 0,
-               'second_credit': twin.get('credit') or 0, 'new_evidence_parts': new_basis,
+                        and (old_parts.get(p['id']) or {}).get('finding') != 'contradicted']
+        old_credit = record.get('credit') or 0
+        new_credit = _recredit(chosen, cid) if taken else old_credit
+        take = bool(taken) and new_credit > old_credit
+        if take:
+            decision = 'replaced'
+        elif (twin.get('credit') or 0) > old_credit:
+            decision = 'rise without new evidence'
+        else:
+            decision = 'no rise'
+        row = {'condition_id': cid, 'decision': decision, 'previous_credit': old_credit,
+               'second_credit': twin.get('credit') or 0, 'final_credit': new_credit if take else old_credit,
+               'new_evidence_parts': taken if take else [], 'reverted_parts': reverted if take else [],
                'contradicted_parts': contradicted}
         audit.append(row)
         marker = {'version': VERSION, **{k: v for k, v in row.items() if k != 'condition_id'}}
-        records.append({**twin, 'second_layer': marker} if take else {**record, 'second_layer': marker})
+        if take:
+            full = all(p.get('credited_as') == 'full' and p.get('second_credited_as', 'full') == 'full' for p in chosen)
+            citations = []
+            for p in chosen:
+                citations.extend(c for c in p.get('citations') or [] if c not in citations)
+            records.append({**twin, 'parts': chosen, 'credit': new_credit, 'state': 'met' if full else 'unknown',
+                            'digital_credit': max(new_credit, _recredit(chosen, cid, digital=True)),
+                            'citations': citations, 'second_layer': marker})
+        else:
+            records.append({**record, 'second_layer': marker})
     return records, audit
+
+
+def contradictions(audit):
+    """The re-judged requirements where new evidence contradicted a part: for review, never applied."""
+    return [{'condition_id': row['condition_id'], 'parts': row['contradicted_parts']}
+            for row in audit if row['contradicted_parts']]
 
 
 def final_score(records, rubric):

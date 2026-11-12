@@ -10,15 +10,21 @@ layer — architecture for follow-ups and new evidence". Code: `apps/scoring/cap
 
 - **Search with the institution's words.** Records are worded differently from the rubric, so the query is the
   answer (or the note), never rubric wording. Attached documents first, sent whole up to 8,000 characters, then the
-  run's corpus, because answers often point at something already submitted.
+  run's corpus with its own 4,000-character share, because answers often point at something already submitted. The
+  run's own ranker is used (keyword and embedding ranks fused when the run used hybrid retrieval; each check records
+  which). Passages that mostly repeat text already taken are skipped.
 - **Peer-reviewer standard.** A submitted record is evidence of what it states; several passages can support a claim
   together; nothing is rejected for not repeating a dimension word for word.
 - **Typed text is the query and the claim, never evidence.** An answer counts only when the search finds something
   that supports it (Harsha, 12 Nov). If nothing is found there is no model call; the follow-up asks for a document.
 - **Credit rises only on evidence the first pass didn't see.** Requirements are re-judged on their provisional packet
-  (from the run trace) plus the new passages; a higher credit is taken only when an improved part cites a passage
-  that was not in that packet. Untouched requirements are copied.
-- **Contradictions are flagged, not applied** (depth decision 1 is still open).
+  (from the run trace) plus the new passages and the new documents' pages extraction tagged for the indicator. Part by
+  part, a rise is taken only when the part cites, in either judging pass, a passage that was not in that packet;
+  other parts keep their provisional result and the credit is recomputed. Untouched requirements are copied.
+- **Depth answers can raise credit too.** A depth answer the check found support for also goes to the credit path, so a
+  partly credited requirement can rise on it (decided 12 Nov).
+- **Contradictions are flagged, not applied** (depth decision 1 is still open): `rejudge_credit` lists them and the
+  command prints them; feeding them to the review queue waits for the refining run.
 
 ## Flow
 
@@ -44,5 +50,6 @@ instead of retrieval.
 - A Celery task for checks (answers wait for the command unless `SECOND_LAYER_CHECK_ON_SUBMIT` is on, which checks in
   the request).
 - Who may answer: the views use `CanManageSprint`, like the run views.
+- Contradictions into the review queue and the report.
 - Depth judging for requirements newly credited in the credit path; a second round of questions.
 - Not run against a real model or the VISTAS export yet.
