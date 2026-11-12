@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import * as api from '../../api/capability';
-import type { PlanEvaluation, PlanComparison, Run } from '../../api/capability';
+import type { PlanEvaluation, PlanComparison, PlanScore, Result, Run } from '../../api/capability';
 import { useAccess } from '../../utils/access';
 import { getErrorMessage } from '../../utils/errors';
 import { active, attempt, scoreLabel } from './presentation';
@@ -87,16 +87,45 @@ function SavedPlan({ sprint, run, id, refreshHistory }: { sprint: string; run: s
     </>}
   </div>;
 }
+type Scenario = { result: Result; paired_change?: { lower: number; upper: number; basis: string }; score?: PlanScore | null };
+const signed = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}`;
+/** Part-credit plans show one score and its gain; plans evaluated before part credit keep their recorded ranges. */
+export const phaseLabel = (s: Scenario) => (s.score ? `${s.score.score.toFixed(1)} / 100 (${signed(s.score.gain)})` : scoreLabel(s.result));
+export const standingLabel = (plan: PlanEvaluation) =>
+  plan.evaluation.baseline_score != null ? `${plan.evaluation.baseline_score.toFixed(1)} / 100` : scoreLabel(plan.evaluation.baseline);
+const scored = (plan: PlanEvaluation) => plan.evaluation.baseline_score != null;
+
+function AreaResults({ scenario }: { scenario: Scenario }) {
+  if (scenario.score) {
+    return <>{scenario.score.pillars.map((p) => <p key={p.code}>{areaNames[p.code] || p.code}: {p.score} / 100 ({signed(p.gain)})</p>)}</>;
+  }
+  return <>{scenario.result.pillars.map((p) => <p key={p.code}>{areaNames[p.code] || p.code}: {p.lower}–{p.upper} / 100</p>)}
+    {scenario.paired_change && <p>Paired conditional change: {scenario.paired_change.lower}–{scenario.paired_change.upper}. {scenario.paired_change.basis}</p>}</>;
+}
+
+export function PriorityCoverageView({ plan }: { plan: PlanEvaluation }) {
+  const c = plan.evaluation.priority_coverage;
+  if (!c) return null;
+  const total = c.covered.length + c.missed.length;
+  return <section className="space-y-1" aria-label="Plan against the priority plan">
+    <h3 className="font-bold">Your plan against the priority plan</h3>
+    <p>Your plan would complete {c.covered.length} of the {total} priority requirements{c.priority_projected_score != null ? `; the full priority plan would take the score to ${c.priority_projected_score} / 100` : ''}.</p>
+    {c.missed.length > 0 && <p>{c.missed.length} priority requirements are not addressed by your plan.</p>}
+    {c.outside_priority_plan.length > 0 && <p>{c.outside_priority_plan.length} requirements your plan targets are outside the priority plan.</p>}
+  </section>;
+}
+
 export function OriginalPlanReview({ plan }: { plan: PlanEvaluation }) {
   return <section className="space-y-3" aria-label="Saved original plan review">
     <h3 className="font-bold">Saved original plan review</h3>
     <p>The original review completed before the later comparison stopped. No improved plan is established.</p>
-    <p>Current assessed standing: {scoreLabel(plan.evaluation.baseline)}</p>
-    <p className="panel-muted">{plan.evaluation.note} An unresolved range is not a predicted score or guaranteed gain.</p>
+    <p>{scored(plan) ? 'Current score' : 'Current assessed standing'}: {standingLabel(plan)}</p>
+    <p className="panel-muted">{plan.evaluation.note}{scored(plan) ? '' : ' An unresolved range is not a predicted score or guaranteed gain.'}</p>
     {(['implementation', 'results'] as const).map((phase) => <div key={phase}>
-      <h4 className="font-semibold">{phase === 'implementation' ? 'Delivery only' : 'With results assumptions'}: {scoreLabel(plan.evaluation.scenarios[phase].result)}</h4>
-      <details><summary>Area results</summary>{plan.evaluation.scenarios[phase].result.pillars.map((p) => <p key={p.code}>{areaNames[p.code] || p.code}: {p.lower}–{p.upper} / 100</p>)}</details>
+      <h4 className="font-semibold">{phase === 'implementation' ? 'Delivery only' : 'With results assumptions'}: {phaseLabel(plan.evaluation.scenarios[phase])}</h4>
+      <details><summary>Area results</summary><AreaResults scenario={plan.evaluation.scenarios[phase]} /></details>
     </div>)}
+    <PriorityCoverageView plan={plan} />
     {plan.evaluation.accepted.map((m) => <p key={m.condition_id}>{m.rationale}. Assumptions: {m.assumptions.join('; ')}</p>)}
     {!plan.evaluation.accepted.length && <p>No complete conditional requirement mappings were established.</p>}
     {plan.evaluation.rejected.map((r, n) => <p key={n}>Not credited: {r.reason}</p>)}
@@ -107,13 +136,16 @@ export function PlanComparisonView({ data }: { data: PlanComparison }) {
   const comparison = data.comparison!;
   return <div className="space-y-4">
     <p className="panel-muted">Conditional scenarios, not actual scores or predictions. {comparison.comparison_basis}</p>
-    <p>Current assessed standing: {scoreLabel(comparison.original.evaluation.baseline)}</p>
+    <p>{scored(comparison.original) ? 'Current score' : 'Current assessed standing'}: {standingLabel(comparison.original)}</p>
     <div className="overflow-x-auto"><table className="w-full text-left"><thead><tr><th>Plan</th><th>Delivery only</th><th>With results assumptions</th></tr></thead><tbody>
       {([['Your original plan', comparison.original], ['Suggested improved plan', comparison.improved]] as [string, PlanEvaluation][]).map(([label, plan]) => <tr key={label}>
-        <th className="py-3 pr-3">{label}</th><td>{scoreLabel(plan.evaluation.scenarios.implementation.result)}</td><td>{scoreLabel(plan.evaluation.scenarios.results.result)}</td>
+        <th className="py-3 pr-3">{label}</th><td>{phaseLabel(plan.evaluation.scenarios.implementation)}</td><td>{phaseLabel(plan.evaluation.scenarios.results)}</td>
       </tr>)}
     </tbody></table></div>
-    <p className="text-sm">An unresolved range is not an estimated score. A change in its lower bound is not a guaranteed gain. Partial work may earn no points until the method’s prerequisites are met.</p>
+    {scored(comparison.original)
+      ? <p className="text-sm">Scores assume the mapped actions are completed and shown; they are not predictions.</p>
+      : <p className="text-sm">An unresolved range is not an estimated score. A change in its lower bound is not a guaranteed gain. Partial work may earn no points until the method’s prerequisites are met.</p>}
+    <PriorityCoverageView plan={comparison.original} />
     <h3 className="font-bold">Suggested improved plan</h3><p className="whitespace-pre-wrap">{comparison.improved.text}</p>
     <p>{comparison.improvement.constraint_note}</p>
     {comparison.improvement.changes.map((change, n) => <article key={n} className="border-t border-line pt-3 space-y-2">
@@ -123,8 +155,7 @@ export function PlanComparisonView({ data }: { data: PlanComparison }) {
     </article>)}
     {([['Original', comparison.original], ['Improved', comparison.improved]] as [string, PlanEvaluation][]).map(([label, plan]) => <details key={label}><summary>{label} plan: area results, assumptions and uncredited actions</summary>
       {(['implementation', 'results'] as const).map((phase) => <div key={phase} className="mt-3"><h4 className="font-semibold">{phase === 'implementation' ? 'Delivery only' : 'With results assumptions'}</h4>
-        {plan.evaluation.scenarios[phase].result.pillars.map((p) => <p key={p.code}>{areaNames[p.code] || p.code}: {p.lower}–{p.upper} / 100</p>)}
-        <p>Paired conditional change: {plan.evaluation.scenarios[phase].paired_change.lower}–{plan.evaluation.scenarios[phase].paired_change.upper}. {plan.evaluation.scenarios[phase].paired_change.basis}</p>
+        <AreaResults scenario={plan.evaluation.scenarios[phase]} />
       </div>)}
       {plan.evaluation.accepted.map((m) => <p key={m.condition_id} className="mt-3">{m.rationale} · {m.phase}. Assumptions: {m.assumptions.join('; ')}</p>)}
       {!plan.evaluation.accepted.length && <p>No complete conditional requirement mappings established. Qualitative feedback is still available.</p>}

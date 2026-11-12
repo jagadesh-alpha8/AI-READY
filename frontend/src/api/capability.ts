@@ -273,9 +273,27 @@ export interface PlanEvaluation {
     baseline: Result;
     accepted: PlanMapping[];
     rejected: { mapping: PlanMapping; reason: string }[];
-    scenarios: Record<'implementation' | 'results', { result: Result; paired_change: { lower: number; upper: number; basis: string } }>;
+    scenarios: Record<'implementation' | 'results', { result: Result; paired_change: { lower: number; upper: number; basis: string }; score?: PlanScore | null }>;
     note: string;
+    /** Part-credit score of the assessment (null for runs scored before part credit). */
+    baseline_score?: number | null;
+    priority_coverage?: PriorityCoverage | null;
   };
+}
+/** A plan phase scored like the report: one part-credit score and its gain over the current score. */
+export interface PlanScore {
+  score: number;
+  gain: number;
+  pillars: { code: string; score: number; gain: number }[];
+  requirements: { condition_id: string; credit_before: number; credit_after: number }[];
+  basis: string;
+}
+export interface PriorityCoverage {
+  covered: string[];
+  missed: string[];
+  outside_priority_plan: string[];
+  target: number | null;
+  priority_projected_score: number | null;
 }
 export interface PlanComparison extends Job {
   original_text: string;
