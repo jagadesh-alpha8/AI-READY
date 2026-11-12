@@ -26,8 +26,9 @@ much the evidence is worth. This stage does that after the provisional assessmen
    - At most `DEPTH_MAX_QUESTIONS` (25) in total, `DEPTH_MISSING_QUESTION_SLOTS` (10) of them reserved for missing
      evidence. Depth questions go to the credited conditions with the highest weight × credit first.
 2. The institution responds: an answer, uploaded documents, or "don't know". There is no screen yet:
-   `depth_load_responses responses.json --commit` loads a file. An answer counts as **supported** only when a document
-   backs it.
+   `depth_load_responses responses.json --commit` loads a file (consultant-attested: rows are saved as checked). An
+   answer counts as **supported** only when a document backs it: a row marked supported must name its `document_ids`.
+   Through the API (second layer, `SECOND_LAYER_HANDOFF.md`) answers are searched for and checked instead.
 3. `depth_judge export.json --commit` judges each credited condition with answered questions: one model call places it
    at **evidenced**, **substantiated** or **strong** against the indicator's level descriptions and any **approved
    past cases** for the same condition. Then the open decisions are applied in code (below). Each judgment is saved
@@ -65,7 +66,7 @@ real spread. Faculty AI literacy (AIQIF-C4.1) is the worked example from the mee
 | --- | --- | --- | --- |
 | 1. Can an answer lower a score? | `DEPTH_ANSWERS_CAN_LOWER` | `on_contradiction` (recommended) | `on_contradiction`: only an answer that contradicts the credited evidence, and then the credit is withdrawn · `never` |
 | 2. How much credit does depth carry? | `DEPTH_CREDIT_MODE`, `DEPTH_CREDIT_SHARE` | unset: depth changes no credit | `separate`: depth index only · `reserve` + share s: evidenced keeps 1 − s of a condition's credit, substantiated 1 − s/2, strong all of it, so provisional scores fall until colleges answer |
-| 3. What is an answer without a document worth? | `DEPTH_UNSUPPORTED_ANSWERS` | `cap_one_level` (recommended) | `cap_one_level` · `same` · `ignore` (falls back to evidenced) |
+| 3. What is an answer without a document worth? **Decided (Harsha, 12 Nov): nothing.** | `DEPTH_UNSUPPORTED_ANSWERS` | `ignore`: typed answers without a document never reach the judge; a condition with nothing else stays evidenced without a model call | `ignore` · `cap_one_level` · `same` (comparison runs only) |
 | 4. Who approves past cases? | admin permission | anyone with admin access to the model | to be decided by Harsha and Vijay |
 | 5. Rescoring earlier colleges when the spec changes | `spec_version` on every row | judgments only use past cases of their own spec version | rescoring is not automated |
 

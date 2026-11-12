@@ -84,8 +84,11 @@ def _uuid(value):
 
 def load_responses(rows, *, commit=False, via='file'):
     """rows: [{'question_id', 'kind': 'answer'|'upload'|'dont_know', 'answer', 'document_ids', 'supported'}].
-    An upload is supported by definition; an answer is supported only when the row says so (a consultant who has
-    seen the document can mark it). Every row is checked before anything is saved."""
+    The file path is consultant-attested: a consultant who has read the documents loads the rows, and they are saved as
+    checked (no second-layer search or check). An upload is supported by definition; an answer is supported only when
+    the row says so AND names its documents (decision 3: a typed answer without a supporting document counts for
+    nothing), and a row marked supported without documents is refused. Every row is checked before anything is
+    saved."""
     kinds = set(DepthResponse.Kind.values)
     ids = [i for i in (_uuid(r.get('question_id')) for r in rows) if i]
     questions = {str(k): v for k, v in DepthQuestion.objects.in_bulk(ids).items()}
@@ -106,9 +109,13 @@ def load_responses(rows, *, commit=False, via='file'):
         if kind == 'answer' and not (row.get('answer') or '').strip():
             problems.append(f'row {n}: an answer needs text')
             continue
+        if kind == 'answer' and row.get('supported') and not documents:
+            problems.append(f'row {n}: an answer marked supported needs the document_ids that support it')
+            continue
         supported = kind == 'upload' or bool(row.get('supported') and kind == 'answer')
         responses.append(DepthResponse(question=question, kind=kind, answer=(row.get('answer') or '').strip(),
-                                       document_ids=documents, supported=supported, submitted_via=via))
+                                       document_ids=documents, supported=supported, submitted_via=via,
+                                       status=DepthResponse.Status.CHECKED))
     if problems:
         raise DepthError('Responses not loaded:\n' + '\n'.join(problems))
     if commit:
@@ -123,11 +130,20 @@ def load_responses(rows, *, commit=False, via='file'):
 
 
 def _exchanges(questions):
+    """The college's checked responses, follow-up answers included. A response checked in the second layer
+    (layer2.py) carries what its documents were found to support; one still waiting for its check is left out."""
+    from . import layer2
     out = []
     for question in questions:
         for response in question.responses.all():
-            out.append({'question': question.text, 'kind': response.kind, 'answer': response.answer,
-                        'documents': len(response.document_ids), 'supported': response.supported})
+            if response.status != DepthResponse.Status.CHECKED:
+                continue
+            row = {'question': response.parent.follow_up_text if response.parent_id else question.text,
+                   'kind': response.kind, 'answer': response.answer, 'documents': len(response.document_ids),
+                   'supported': response.supported}
+            if response.support_check:
+                row['checked_against_documents'] = layer2.evidence_for_judge(response.support_check)
+            out.append(row)
     return out
 
 
@@ -142,30 +158,42 @@ def approved_past_cases(condition_id, spec_version, limit=PAST_CASES):
 def judge_run(export, model, *, commit=False, max_calls=None):
     """Judge every credited condition of the run that has answered depth questions.
 
-    Conditions whose questions got no response stay evidenced (listed in 'unanswered'). Uploads to missing-evidence
-    questions are listed in 'awaiting_reassessment': they need extraction and a reassessment, not a depth judgment."""
+    Conditions whose questions got no response stay evidenced (listed in 'unanswered'). A condition with any response
+    still waiting for its second-layer check is not judged yet (listed in 'awaiting_check'): judging it on half its
+    answers would save a judgment and a past case that the rest could change. Under decision 3 ('ignore'), typed
+    answers without a supporting document are not sent to the judge; a condition with nothing else stays evidenced
+    without a model call (listed in 'answers_without_documents'). Missing-evidence questions answered with documents
+    are listed in 'awaiting_reassessment': they go to the credit path (layer2_rejudge), not to a depth judgment."""
     run_ref, rubric, records = _records(export)
     rules = policy()
     spec = depth.spec()
     by_id = {r['condition_id']: r for r in records}
-    questions = list(DepthQuestion.objects.filter(run_ref=run_ref).prefetch_related('responses'))
+    questions = list(DepthQuestion.objects.filter(run_ref=run_ref).prefetch_related('responses', 'responses__parent'))
     if not questions:
         raise DepthError(f'Run {run_ref} has no questions.')
-    per_condition, unanswered, awaiting = {}, [], []
+    per_condition, unanswered, awaiting, without_documents, awaiting_check = {}, [], [], [], []
     for question in questions:
         answered = question.responses.all()
         if question.kind == DepthQuestion.Kind.MISSING:
-            if any(r.kind == DepthResponse.Kind.UPLOAD for r in answered):
+            if any(r.kind == DepthResponse.Kind.UPLOAD or r.document_ids for r in answered):
                 awaiting.append({'rank': question.rank, 'conditions': question.condition_ids})
             continue
         cid = question.condition_ids[0]
         per_condition.setdefault(cid, []).append(question)
     judged = []
     for cid, condition_questions in per_condition.items():
+        if any(r.status == DepthResponse.Status.PENDING for q in condition_questions for r in q.responses.all()):
+            awaiting_check.append(cid)
+            continue
         exchanges = _exchanges(condition_questions)
         if not exchanges:
             unanswered.append(cid)
             continue
+        if rules['unsupported'] == 'ignore':
+            exchanges = depth.counted_exchanges(exchanges)
+            if not exchanges:
+                without_documents.append(cid)
+                continue
         if max_calls is not None and len(judged) >= max_calls:
             unanswered.append(cid)
             continue
@@ -192,6 +220,7 @@ def judge_run(export, model, *, commit=False, max_calls=None):
                                              level=row['final_level'], dimension_findings=row['dimension_findings'],
                                              reasoning=row['reason'], spec_version=spec['version'])
     return {'run_ref': run_ref, 'policy': rules, 'judged': judged, 'unanswered': sorted(unanswered),
+            'answers_without_documents': sorted(without_documents), 'awaiting_check': sorted(awaiting_check),
             'awaiting_reassessment': awaiting, 'saved': commit}
 
 

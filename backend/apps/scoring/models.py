@@ -517,20 +517,35 @@ class DepthQuestion(models.Model):
 
 
 class DepthResponse(models.Model):
-    """The institution's response to a question: an answer, documents, or "don't know". supported = a document backs
-    the answer. Uploaded documents are referenced by id; they still have to go through extraction and a reassessment
-    (not automated in the skeleton)."""
+    """The institution's response to a question: an answer (with or without documents), uploaded documents, or "don't
+    know" (skip). In the second layer (capability/layer2.py) the answer is searched for in the attached documents and
+    the corpus, and a depth answer is checked against what the search found: `windows` holds what was found,
+    `support_check` the per-dimension result, and supported = some dimension is supported or partly supported. A
+    follow-up question the check asked is `follow_up_text`; its answer is a child response (`parent`), never followed
+    up again."""
     class Kind(models.TextChoices):
         ANSWER = 'answer', 'Answer'
         UPLOAD = 'upload', 'Documents uploaded'
         DONT_KNOW = 'dont_know', "Don't know"
 
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Waiting for a check'
+        CHECKED = 'checked', 'Checked'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     question = models.ForeignKey(DepthQuestion, on_delete=models.CASCADE, related_name='responses')
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='follow_ups',
+                               help_text='The response whose follow-up question this answers.')
     kind = models.CharField(max_length=10, choices=Kind.choices)
     answer = models.TextField(blank=True)
     document_ids = models.JSONField(default=list, blank=True)
     supported = models.BooleanField(default=False)
+    # Pending by default: a response is trusted only once something has checked it (the second layer's check, or a
+    # consultant loading rows from a file, which sets checked explicitly).
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    windows = models.JSONField(default=list, blank=True, help_text='Passages the search found for the answer.')
+    support_check = models.JSONField(default=dict, blank=True, help_text='The answer checked against those passages.')
+    follow_up_text = models.TextField(blank=True, help_text='The one follow-up question the check asked, if any.')
     submitted_via = models.CharField(max_length=20, default='file', help_text='file, college, consultant')
     submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name='+')
@@ -588,3 +603,27 @@ class DepthPastCase(models.Model):
 
     class Meta:
         ordering = ['condition_id', '-created_at']
+
+
+class AdditionalEvidence(models.Model):
+    """Documents an institution adds after the provisional score because it thinks something was missed, with a note
+    and the readiness areas, key indicators or requirements it picked (capability/layer2.py route_additional).
+    `routing` holds the key indicators the credit path re-judges; `windows` the passages found in the documents."""
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Waiting for a check'
+        CHECKED = 'checked', 'Checked'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run_ref = models.CharField(max_length=64, db_index=True)
+    document_ids = models.JSONField(default=list)
+    note = models.TextField(blank=True)
+    picked = models.JSONField(default=list, blank=True)
+    routing = models.JSONField(default=dict, blank=True)
+    windows = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['run_ref', 'created_at']

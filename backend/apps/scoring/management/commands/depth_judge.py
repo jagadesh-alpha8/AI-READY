@@ -42,7 +42,13 @@ class Command(BaseCommand):
                               f"(credit {row['provisional_credit']} -> {row['final_credit']:.4f}) {flags}\n  {row['reason']}")
         if result['unanswered']:
             self.stdout.write(f"Not judged (no response or call limit): {', '.join(result['unanswered'])}")
+        if result['answers_without_documents']:
+            self.stdout.write('Not judged (typed answers without a supporting document count for nothing): '
+                              f"{', '.join(result['answers_without_documents'])}")
+        if result['awaiting_check']:
+            self.stdout.write('Not judged yet (answers still waiting for their check; run layer2_check_pending): '
+                              f"{', '.join(result['awaiting_check'])}")
         if result['awaiting_reassessment']:
-            self.stdout.write(f"Documents uploaded for missing evidence, awaiting extraction and reassessment: "
+            self.stdout.write(f"Documents sent for missing evidence, for the credit path (layer2_rejudge): "
                               f"{result['awaiting_reassessment']}")
         self.stdout.write('Saved.' if result['saved'] else 'Dry run: nothing saved (use --commit).')

@@ -403,6 +403,8 @@ def combine(first, second):
             match = twin_parts.get(part['id'], {'credited_as': 'not_found', 'citations': [], 'finding': 'not_found'})
             parts.append({**part, 'second_finding': match['finding'], 'second_credited_as': match['credited_as'],
                           'citations': part['citations'] or match['citations'],
+                          # Kept so later stages (layer2.merge_new_evidence) can see what the second pass relied on.
+                          'second_citations': match['citations'],
                           'part_credit': round((value.get(part['credited_as'], 0.0)
                                                 + value.get(match['credited_as'], 0.0)) / 2, 4)})
         # Gates apply within each pass, so the condition credit is the mean of the two passes' credits.

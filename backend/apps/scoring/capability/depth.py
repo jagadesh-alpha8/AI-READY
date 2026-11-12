@@ -269,6 +269,8 @@ Rules:
   same way; if this case differs in a way that matters, say how.
 - Each answer is marked supported (a document backs it) or not. Set relies_on_unsupported to true when the level you
   choose depends on an answer that is not supported.
+- An answer with checked_against_documents was already checked against the documents found for it: rely on that check
+  and its passages. A dimension it found not supported is not established by the answer alone.
 - Set contradicts_evidence to true only when an answer plainly contradicts the quoted evidence that earned the credit
   (for example the college says the programme never ran). A weak or missing answer is not a contradiction.
 - For each dimension, record what the evidence and answers establish, in a few words, or "not established"."""
@@ -289,6 +291,13 @@ def judge_schema(dimension_ids):
             'reason': {'type': 'string'},
         },
     }
+
+
+def counted_exchanges(exchanges):
+    """The exchanges that can count towards depth: everything except typed answers without a supporting document.
+
+    Uploads and answers backed by a document stay; "don't know" stays (it changes nothing). Decision 3."""
+    return [e for e in exchanges if not (e['kind'] == 'answer' and not e['supported'])]
 
 
 def judge_depth(cid, record, exchanges, past_cases, model, *, depth_spec=None):
@@ -318,9 +327,10 @@ def judge_depth(cid, record, exchanges, past_cases, model, *, depth_spec=None):
 #: evidence that earned the credit, and then the credit is withdrawn. 'never': a contradiction is recorded for review
 #: but the condition stays at least evidenced.
 LOWERING = ('on_contradiction', 'never')
-#: Decision 3 -- how much does an answer count without a document?  'cap_one_level' (recommended): a level that rests
-#: on unsupported answers is lowered one step (never below evidenced). 'same': no difference. 'ignore': such a level
-#: falls back to evidenced.
+#: Decision 3 -- how much does an answer count without a document?  Decided (Harsha, 12 Nov 2026): nothing.
+#: 'ignore' (default): typed answers without a document are dropped before judging (counted_exchanges), and a level
+#: that still rests on one falls back to evidenced. 'cap_one_level' (lower such a level one step) and 'same' (no
+#: difference) are kept for comparison runs only.
 UNSUPPORTED = ('cap_one_level', 'same', 'ignore')
 #: Decision 2 -- how much credit is reserved for depth?  '' (not decided): depth changes no credit; only the depth
 #: index is reported. 'separate': same, explicitly. 'reserve': DEPTH_CREDIT_SHARE of each credited condition's credit
@@ -329,7 +339,7 @@ UNSUPPORTED = ('cap_one_level', 'same', 'ignore')
 CREDIT_MODES = ('', 'separate', 'reserve')
 
 
-def apply_policy(judged, *, lowering='on_contradiction', unsupported='cap_one_level'):
+def apply_policy(judged, *, lowering='on_contradiction', unsupported='ignore'):
     """The final level from the model's judgment under decisions 1 and 3. Deterministic."""
     if lowering not in LOWERING or unsupported not in UNSUPPORTED:
         raise ValueError('Unknown depth policy.')

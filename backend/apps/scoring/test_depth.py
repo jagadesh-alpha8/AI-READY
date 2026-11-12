@@ -164,10 +164,20 @@ class PolicyTests(SimpleTestCase):
         self.assertEqual(depth.apply_policy(self.judged('evidenced')), 'evidenced')
 
     def test_unsupported_answers(self):
-        self.assertEqual(depth.apply_policy(self.judged(unsupported=True)), 'substantiated')
+        # Decision 3 (Harsha): an answer without a document counts for nothing, so the default is 'ignore'.
+        self.assertEqual(depth.apply_policy(self.judged(unsupported=True)), 'evidenced')
         self.assertEqual(depth.apply_policy(self.judged('substantiated', unsupported=True)), 'evidenced')
+        self.assertEqual(depth.apply_policy(self.judged(unsupported=False)), 'strong')
+        self.assertEqual(depth.apply_policy(self.judged(unsupported=True), unsupported='cap_one_level'), 'substantiated')
         self.assertEqual(depth.apply_policy(self.judged(unsupported=True), unsupported='same'), 'strong')
-        self.assertEqual(depth.apply_policy(self.judged(unsupported=True), unsupported='ignore'), 'evidenced')
+
+    def test_typed_answers_without_documents_are_not_counted(self):
+        exchanges = [{'kind': 'answer', 'answer': 'A 300-hour accredited programme.', 'supported': False},
+                     {'kind': 'answer', 'answer': 'About 40 hours; register attached.', 'supported': True},
+                     {'kind': 'upload', 'answer': '', 'supported': True},
+                     {'kind': 'dont_know', 'answer': '', 'supported': False}]
+        self.assertEqual([e['kind'] for e in depth.counted_exchanges(exchanges)], ['answer', 'upload', 'dont_know'])
+        self.assertNotIn('accredited', ' '.join(e['answer'] for e in depth.counted_exchanges(exchanges)))
 
     def test_unknown_policy_is_refused(self):
         with self.assertRaises(ValueError):
@@ -194,13 +204,17 @@ class PolicyTests(SimpleTestCase):
         self.assertIsNone(depth.depth_index({}, export()['assessment']['records'], data['rubric']))
 
 
+DOCUMENT = '00000000-0000-0000-0000-00000000d0c1'
+
+
 @override_settings(DEPTH_MAX_QUESTIONS=8, DEPTH_MISSING_QUESTION_SLOTS=2)
 class FlowTests(TestCase):
     def setUp(self):
         self.data = export(credited={F1: 1, F2: 1})
 
     def answer_all(self, text, supported=True):
-        rows = [{'question_id': str(q.pk), 'kind': 'answer', 'answer': text, 'supported': supported}
+        rows = [{'question_id': str(q.pk), 'kind': 'answer', 'answer': text, 'supported': supported,
+                 'document_ids': [DOCUMENT] if supported else []}
                 for q in DepthQuestion.objects.filter(kind='depth')]
         return load_responses(rows, commit=True, via='consultant')
 
@@ -220,7 +234,21 @@ class FlowTests(TestCase):
         self.assertEqual(DepthJudgment.objects.get(condition_id=F1).dimension_findings[0]['finding'], 'stated')
         self.assertEqual(len(DepthJudgment.objects.get(condition_id=F1).dimension_findings), 1)
 
-    def test_strong_answers_without_documents_drop_one_level(self):
+    def test_strong_answers_without_documents_count_for_nothing(self):
+        create_questions(self.data, FakeModel(), commit=True)
+        self.answer_all('A 300-hour accredited programme.', supported=False)
+        model = FakeModel()
+        result = judge_run(self.data, model, commit=True)
+        # Nothing reaches the judge, no judgment is stored, and both conditions stay where the provisional score put them.
+        self.assertEqual(result['judged'], [])
+        self.assertEqual(result['answers_without_documents'], sorted([F1, F2]))
+        self.assertFalse([n for n, _ in model.calls if n == 'depth_judgment'])
+        self.assertFalse(DepthJudgment.objects.exists())
+        report = depth_report(self.data)
+        self.assertEqual(report['credited_conditions_by_level']['strong'], 0)
+
+    @override_settings(DEPTH_UNSUPPORTED_ANSWERS='cap_one_level')
+    def test_strong_answers_without_documents_drop_one_level_when_capped(self):
         create_questions(self.data, FakeModel(), commit=True)
         self.answer_all('A 300-hour accredited programme.', supported=False)
         result = judge_run(self.data, FakeModel())
@@ -241,8 +269,8 @@ class FlowTests(TestCase):
         DepthPastCase.objects.filter(condition_id=F1).update(status='approved')
         later = export('run-2', credited={F1: 1})
         create_questions(later, FakeModel(), commit=True)
-        rows = [{'question_id': str(q.pk), 'kind': 'answer', 'answer': 'About 40 hours.', 'supported': True}
-                for q in DepthQuestion.objects.filter(run_ref='run-2', kind='depth')]
+        rows = [{'question_id': str(q.pk), 'kind': 'answer', 'answer': 'About 40 hours.', 'supported': True,
+                 'document_ids': [DOCUMENT]} for q in DepthQuestion.objects.filter(run_ref='run-2', kind='depth')]
         load_responses(rows, commit=True)
         model = FakeModel()
         result = judge_run(later, model)
@@ -312,7 +340,8 @@ class FlowTests(TestCase):
     def test_report_with_reserved_credit(self):
         create_questions(self.data, FakeModel(), commit=True)
         question = [q for q in DepthQuestion.objects.filter(kind='depth') if q.condition_ids == [F1]][0]
-        load_responses([{'question_id': str(question.pk), 'kind': 'answer', 'answer': 'accredited', 'supported': True}],
+        load_responses([{'question_id': str(question.pk), 'kind': 'answer', 'answer': 'accredited', 'supported': True,
+                         'document_ids': [DOCUMENT]}],
                        commit=True)
         judge_run(self.data, FakeModel(), commit=True)
         report = depth_report(self.data)
