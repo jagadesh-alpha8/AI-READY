@@ -242,7 +242,8 @@ def generate_recommendations(snapshot_id, task_id):
         # A requirement the assessment never evaluated (or whose output failed validation) is a processing
         # result, not an institutional shortcoming: it is re-assessed, never advised as missing evidence.
         unevaluated = {a['id'] for a in inputs['actions'] if processing_failure(a)}
-        model_actions = [a for a in inputs['actions'] if a['id'] not in unevaluated and (a['state'] != 'unknown' or strengths)]
+        # Every planned action is development advice (establish or complete); only reruns stay deterministic.
+        model_actions = [a for a in inputs['actions'] if a['id'] not in unevaluated]
         needs_model = bool(model_actions and snapshot.run.inputs['sources'])
         if needs_model:
             pool = get_router_pool()
@@ -255,7 +256,7 @@ def generate_recommendations(snapshot_id, task_id):
         provider_failure_streak = 0
         advice = [deterministic_advice(a, inputs, 'processing_rerun') for a in inputs['actions'] if a['id'] in unevaluated]
         advice += [deterministic_advice(a, inputs, 'deterministic_evidence_request') for a in inputs['actions']
-                   if a['state'] == 'unknown' and a['id'] not in model_ids | unevaluated]
+                   if a['type'] == 'supply_evidence' and a['id'] not in model_ids | unevaluated]
         from .semantic_retrieval import ranker_for
         semantic_ranker = ranker_for(inputs.get('retrieval_policy')) if needs_model else None
         with use_lease(lease):
