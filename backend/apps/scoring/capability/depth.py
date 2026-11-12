@@ -291,6 +291,13 @@ def judge_schema(dimension_ids):
     }
 
 
+def counted_exchanges(exchanges):
+    """The exchanges that can count towards depth: everything except typed answers without a supporting document.
+
+    Uploads and answers backed by a document stay; "don't know" stays (it changes nothing). Decision 3."""
+    return [e for e in exchanges if not (e['kind'] == 'answer' and not e['supported'])]
+
+
 def judge_depth(cid, record, exchanges, past_cases, model, *, depth_spec=None):
     """Judge one credited condition from its evidence, the college's answers and approved past cases.
 
@@ -318,9 +325,10 @@ def judge_depth(cid, record, exchanges, past_cases, model, *, depth_spec=None):
 #: evidence that earned the credit, and then the credit is withdrawn. 'never': a contradiction is recorded for review
 #: but the condition stays at least evidenced.
 LOWERING = ('on_contradiction', 'never')
-#: Decision 3 -- how much does an answer count without a document?  'cap_one_level' (recommended): a level that rests
-#: on unsupported answers is lowered one step (never below evidenced). 'same': no difference. 'ignore': such a level
-#: falls back to evidenced.
+#: Decision 3 -- how much does an answer count without a document?  Decided (Harsha, 12 Nov 2026): nothing.
+#: 'ignore' (default): typed answers without a document are dropped before judging (counted_exchanges), and a level
+#: that still rests on one falls back to evidenced. 'cap_one_level' (lower such a level one step) and 'same' (no
+#: difference) are kept for comparison runs only.
 UNSUPPORTED = ('cap_one_level', 'same', 'ignore')
 #: Decision 2 -- how much credit is reserved for depth?  '' (not decided): depth changes no credit; only the depth
 #: index is reported. 'separate': same, explicitly. 'reserve': DEPTH_CREDIT_SHARE of each credited condition's credit
@@ -329,7 +337,7 @@ UNSUPPORTED = ('cap_one_level', 'same', 'ignore')
 CREDIT_MODES = ('', 'separate', 'reserve')
 
 
-def apply_policy(judged, *, lowering='on_contradiction', unsupported='cap_one_level'):
+def apply_policy(judged, *, lowering='on_contradiction', unsupported='ignore'):
     """The final level from the model's judgment under decisions 1 and 3. Deterministic."""
     if lowering not in LOWERING or unsupported not in UNSUPPORTED:
         raise ValueError('Unknown depth policy.')

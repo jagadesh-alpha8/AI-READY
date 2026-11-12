@@ -847,8 +847,8 @@ CAPABILITY_EVIDENCE_LANE = os.getenv('CAPABILITY_EVIDENCE_LANE', 'true').strip()
 CAPABILITY_FOLLOW_UP_SEARCH = os.getenv('CAPABILITY_FOLLOW_UP_SEARCH', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Follow-up questions about the depth of evidence (apps/scoring/capability/depth.py; skeleton, Nov 2026). Depth results
 # are printed by the depth_* commands and stored in their own tables; they do not change the headline score in reports.
-# The three settings below hold decisions that are still open (see docs/capability/DEPTH_FOLLOW_UP_HANDOFF.md); the
-# defaults are the proposal's recommendations, except the credit mode, which is left undecided.
+# The settings below hold the open decisions (see docs/capability/DEPTH_FOLLOW_UP_HANDOFF.md): decisions 1 and 2 are
+# still open (1 defaults to the proposal's recommendation, 2 is left undecided); decision 3 is settled.
 DEPTH_MAX_QUESTIONS = int(os.getenv('DEPTH_MAX_QUESTIONS', '25'))
 DEPTH_MISSING_QUESTION_SLOTS = int(os.getenv('DEPTH_MISSING_QUESTION_SLOTS', '10'))
 # Decision 1: 'on_contradiction' (an answer that contradicts the credited evidence withdraws the credit) or 'never'.
@@ -857,8 +857,10 @@ DEPTH_ANSWERS_CAN_LOWER = os.getenv('DEPTH_ANSWERS_CAN_LOWER', 'on_contradiction
 # 'reserve' with DEPTH_CREDIT_SHARE between 0 and 1 (that share of each credited condition depends on depth).
 DEPTH_CREDIT_MODE = os.getenv('DEPTH_CREDIT_MODE', '').strip().lower()
 DEPTH_CREDIT_SHARE = os.getenv('DEPTH_CREDIT_SHARE', '')
-# Decision 3: 'cap_one_level' (a level resting on answers without documents drops one step), 'same' or 'ignore'.
-DEPTH_UNSUPPORTED_ANSWERS = os.getenv('DEPTH_UNSUPPORTED_ANSWERS', 'cap_one_level').strip().lower()
+# Decision 3, decided by Harsha (12 Nov 2026): a typed answer without a supporting document counts for nothing. 'ignore'
+# (default): such answers never reach the judge, and a level that still rests on one falls back to evidenced.
+# 'cap_one_level' and 'same' are kept only for comparison runs.
+DEPTH_UNSUPPORTED_ANSWERS = os.getenv('DEPTH_UNSUPPORTED_ANSWERS', 'ignore').strip().lower()
 # Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
 # every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.
 CAPABILITY_EMBEDDING_CACHE_DIR = os.getenv('CAPABILITY_EMBEDDING_CACHE_DIR', '')

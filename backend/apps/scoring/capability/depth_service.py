@@ -142,8 +142,10 @@ def approved_past_cases(condition_id, spec_version, limit=PAST_CASES):
 def judge_run(export, model, *, commit=False, max_calls=None):
     """Judge every credited condition of the run that has answered depth questions.
 
-    Conditions whose questions got no response stay evidenced (listed in 'unanswered'). Uploads to missing-evidence
-    questions are listed in 'awaiting_reassessment': they need extraction and a reassessment, not a depth judgment."""
+    Conditions whose questions got no response stay evidenced (listed in 'unanswered'). Under decision 3 ('ignore'),
+    typed answers without a supporting document are not sent to the judge; a condition with nothing else stays
+    evidenced without a model call (listed in 'answers_without_documents'). Uploads to missing-evidence questions are
+    listed in 'awaiting_reassessment': they need extraction and a reassessment, not a depth judgment."""
     run_ref, rubric, records = _records(export)
     rules = policy()
     spec = depth.spec()
@@ -151,7 +153,7 @@ def judge_run(export, model, *, commit=False, max_calls=None):
     questions = list(DepthQuestion.objects.filter(run_ref=run_ref).prefetch_related('responses'))
     if not questions:
         raise DepthError(f'Run {run_ref} has no questions.')
-    per_condition, unanswered, awaiting = {}, [], []
+    per_condition, unanswered, awaiting, without_documents = {}, [], [], []
     for question in questions:
         answered = question.responses.all()
         if question.kind == DepthQuestion.Kind.MISSING:
@@ -166,6 +168,11 @@ def judge_run(export, model, *, commit=False, max_calls=None):
         if not exchanges:
             unanswered.append(cid)
             continue
+        if rules['unsupported'] == 'ignore':
+            exchanges = depth.counted_exchanges(exchanges)
+            if not exchanges:
+                without_documents.append(cid)
+                continue
         if max_calls is not None and len(judged) >= max_calls:
             unanswered.append(cid)
             continue
@@ -192,7 +199,7 @@ def judge_run(export, model, *, commit=False, max_calls=None):
                                              level=row['final_level'], dimension_findings=row['dimension_findings'],
                                              reasoning=row['reason'], spec_version=spec['version'])
     return {'run_ref': run_ref, 'policy': rules, 'judged': judged, 'unanswered': sorted(unanswered),
-            'awaiting_reassessment': awaiting, 'saved': commit}
+            'answers_without_documents': sorted(without_documents), 'awaiting_reassessment': awaiting, 'saved': commit}
 
 
 # ------------------------------------------------------------------ report
