@@ -9,8 +9,8 @@ Assumptions (12 Nov 2026, recorded for Harsha in "AI-READY second layer: decisio
 - Order follows the rubric's own levels: an activity requirement is planned only once its key indicator has some
   provision credited or planned, an outcome only once it has some activity. Within that, the largest score gain for the
   least effort comes first; completing partial credit counts as less effort than establishing.
-- Tiers are provisional score bands on the final score (CAPABILITY_PROVISIONAL_TIERS, default Silver 70, Gold 80,
-  Platinum 90), not the rubric's uncalibrated badge policy, which stays untouched.
+- Tiers are provisional score bands on the final score (CAPABILITY_PROVISIONAL_TIERS, default Silver 60, Gold 70,
+  Platinum 80, Diamond 90), not the rubric's uncalibrated badge policy, which stays untouched.
 Projections use the engine's documented() arithmetic, the same as the headline score; they are projections, not
 promises, and completing an action changes no score until a reassessment finds the evidence.
 """
@@ -22,11 +22,11 @@ MAX_CONDITIONS = 24      # requirements in the plan
 STEP = 10                # the target is the next multiple of STEP above the current score
 EFFORT = {('complete', 'F'): 1, ('complete', 'A'): 1.5, ('complete', 'O'): 2,
           ('establish', 'F'): 2, ('establish', 'A'): 3, ('establish', 'O'): 4}
-DEFAULT_TIERS = (('Silver', 70), ('Gold', 80), ('Platinum', 90))
+DEFAULT_TIERS = (('Silver', 60), ('Gold', 70), ('Platinum', 80), ('Diamond', 90))
 
 
 def tiers():
-    """[(name, threshold)] from CAPABILITY_PROVISIONAL_TIERS ("Silver:70,Gold:80,Platinum:90"), ascending."""
+    """[(name, threshold)] from CAPABILITY_PROVISIONAL_TIERS ("Silver:60,Gold:70,Platinum:80,Diamond:90"), ascending."""
     from django.conf import settings
     raw = getattr(settings, 'CAPABILITY_PROVISIONAL_TIERS', '') or ''
     parsed = []
