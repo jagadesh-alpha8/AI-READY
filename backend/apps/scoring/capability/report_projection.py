@@ -4,6 +4,7 @@ This module does not read live facts, infer missing activity or change advice. I
 groups existing follow-ups for readers; strategic initiative planning is separate.
 """
 from collections import Counter
+from .action_plan import tiers
 import re
 
 
