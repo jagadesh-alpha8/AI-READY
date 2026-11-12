@@ -47,7 +47,7 @@ def parse_drive_folder_id(url):
     )
 
 
-def _list_one_folder(folder_id, folder_path, api_key, max_files):
+def _list_one_folder(folder_id, folder_path, api_key, max_files, *, require_complete=False):
     """One folder's immediate contents, paging until exhausted or `max_files`.
 
     Returns `(files, subfolders)` where each file dict gains a `folder_path`
@@ -58,11 +58,12 @@ def _list_one_folder(folder_id, folder_path, api_key, max_files):
     files = []
     subfolders = []
     page_token = None
+    seen_page_tokens = set()
 
     while len(files) < max_files:
         params = {
             'q': f"'{folder_id}' in parents and trashed=false",
-            'fields': 'nextPageToken, files(id,name,mimeType,size)',
+            'fields': 'nextPageToken,incompleteSearch,files(id,name,mimeType,size)',
             # Fixed page size. This used to be `min(100, max_files - len(files))`
             # against the GLOBAL running total, which shrank as the walk filled
             # up: at 199 of 200 files it asked for one record per round trip.
@@ -79,6 +80,11 @@ def _list_one_folder(folder_id, folder_path, api_key, max_files):
 
         _raise_for_drive_status(resp, context='listing the folder')
         payload = resp.json()
+        if require_complete and payload.get('incompleteSearch'):
+            raise RecoverableDriveImportError(
+                'Google Drive reported an incomplete folder search. '
+                'No files were imported by this scan. Retry the scan.'
+            )
         for entry in payload.get('files', []):
             if entry.get('mimeType') == _FOLDER_MIME_TYPE:
                 child_path = f"{folder_path}/{entry['name']}" if folder_path else entry['name']
@@ -89,12 +95,18 @@ def _list_one_folder(folder_id, folder_path, api_key, max_files):
         page_token = payload.get('nextPageToken')
         if not page_token:
             break
+        if page_token in seen_page_tokens:
+            raise RecoverableDriveImportError(
+                'Google Drive repeated a folder page token. Retry the scan.'
+            )
+        seen_page_tokens.add(page_token)
 
     return files, subfolders
 
 
 def list_drive_folder_files(
     folder_id, api_key, max_files, max_folders=200, *, stop_when=None, max_workers=8,
+    require_complete=False,
 ):
     """Return up to `max_files` {id, name, mimeType, size, folder_path} dicts
     for non-trashed files in `folder_id` itself AND anywhere under it, walking subfolders
@@ -116,17 +128,29 @@ def list_drive_folder_files(
     returns True the walk stops immediately — the importer uses it to stop
     once every checklist slot is filled, rather than walking a 200-folder
     Drive to find twelve documents it already has.
+
+    With `require_complete=True`, exceedance raises before the caller imports
+    anything; exact-cap results still check pending folders and provider pages.
     """
     if not api_key:
         raise PermanentDriveImportError('GOOGLE_DRIVE_API_KEY is not configured on the server.')
+    if max_files < 1 or max_folders < 1:
+        raise PermanentDriveImportError('Drive scan file and folder limits must be positive.')
+    if require_complete and stop_when is not None:
+        raise ValueError('A complete scan cannot use an early-stop predicate.')
 
     files = []
     visited = set()
     level = [(folder_id, '')]
 
-    while level and len(files) < max_files and len(visited) < max_folders:
+    while level and (require_complete or (len(files) < max_files and len(visited) < max_folders)):
         # Respect max_folders across the level, not just per folder.
         budget = max_folders - len(visited)
+        if require_complete and len({fid for fid, _ in level} - visited) > budget:
+            raise PermanentDriveImportError(
+                f'Drive scan exceeded GOOGLE_DRIVE_IMPORT_MAX_FOLDERS={max_folders}. '
+                'No files were imported by this scan. Increase the limit and retry.'
+            )
         current = []
         for fid, path in level:
             if fid not in visited and len(current) < budget:
@@ -135,20 +159,28 @@ def list_drive_folder_files(
         if not current:
             break
 
+        scan_limit = max_files + 1 if require_complete else max_files
         if len(current) == 1:
-            results = [_list_one_folder(current[0][0], current[0][1], api_key, max_files)]
+            results = [_list_one_folder(current[0][0], current[0][1], api_key, scan_limit,
+                                        require_complete=require_complete)]
         else:
             with ThreadPoolExecutor(max_workers=min(max_workers, len(current))) as pool:
                 # `map` yields in submission order, so the walk stays
                 # deterministic even though the requests race.
                 results = list(pool.map(
-                    lambda node: _list_one_folder(node[0], node[1], api_key, max_files), current,
+                    lambda node: _list_one_folder(node[0], node[1], api_key, scan_limit,
+                                                  require_complete=require_complete), current,
                 ))
 
         next_level = []
         for folder_files, subfolders in results:
             files.extend(folder_files)
             next_level.extend(subfolders)
+        if require_complete and len(files) > max_files:
+            raise PermanentDriveImportError(
+                f'Drive scan exceeded GOOGLE_DRIVE_IMPORT_MAX_FILES={max_files}. '
+                'No files were imported by this scan. Increase the limit and retry.'
+            )
 
         if stop_when is not None and stop_when(files):
             break

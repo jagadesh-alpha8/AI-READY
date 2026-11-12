@@ -173,6 +173,7 @@ export interface AIQIFMapping {
 }
 
 export interface Fact {
+  catalogue?: { version: string; type: string; latest_extraction_presence: string };
   id: string;
   sprint_id: string;
   document_id: string | null;
@@ -232,6 +233,7 @@ export interface Fact {
   /** The latest verification, or null when never verified. */
   verification?: FactVerificationSummary | null;
   pending_correction?: PendingCorrection | null;
+  source_review_required?: boolean;
   reviewed_by: string | null;
   reviewed_at: string | null;
   created_at: string;

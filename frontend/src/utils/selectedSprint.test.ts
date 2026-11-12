@@ -177,9 +177,13 @@ describe('rendered', async () => {
 
   it('every sprint step in the menu links to the selected sprint', () => {
     const html = render(sidebar.mod.Sidebar, { sprintId: 'S2', sprint: S2, status: 'ok' });
-    for (const step of ['upload', 'monitor', 'facts', 'gaps', 'confirmation', 'score', 'recommendations', 'report']) {
+    for (const step of ['upload', 'evidence', 'score', 'recommendations', 'report']) {
       assert.ok(html.includes(`href="/sprint/S2/${step}"`), step);
     }
+    for (const removed of ['Evidence Requests', 'Owner Workspace', 'Legacy', 'Goals &amp; Tasks', 'Sprint Transformation Plan']) {
+      assert.ok(!html.includes(removed), removed);
+    }
+    assert.ok(html.includes('Evidence &amp; Review'));
     assert.ok(!html.includes('/sprint/S1/'));
     assert.ok(!html.includes(PLACEHOLDER_SPRINT_ID));
   });

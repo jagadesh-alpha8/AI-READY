@@ -6,6 +6,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Local encoder dependencies can initialize ONNX Runtime during import. Its
+# pre-initialization switch disables the uploader as well as telemetry events.
+os.environ['ORT_DISABLE_TELEMETRY'] = '1'
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # settings.py -> config -> backend (BASE_DIR)
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -385,6 +389,8 @@ AI_BASE_URL = os.getenv('AI_BASE_URL', '')
 # Large local-model extraction requests can take longer than hosted API calls.
 # Keep the timeout configurable for both OpenAI-compatible and Anthropic clients.
 AI_REQUEST_TIMEOUT_SECONDS = int(os.getenv('AI_REQUEST_TIMEOUT_SECONDS', '300'))
+# Only applied to Google's direct compatible endpoint and supported thinking models.
+AI_GEMINI_REASONING_EFFORT = os.getenv('AI_GEMINI_REASONING_EFFORT', 'low')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 OPENAI_EXTRACTION_MODEL = os.getenv('OPENAI_EXTRACTION_MODEL', '')
 # Extra / overriding AI prices (USD per 1M tokens) as JSON -- see
@@ -448,10 +454,10 @@ FACT_AUTO_CONFIRM_MIN_CONFIDENCE = None if _auto_confirm in ('', 'off', 'none', 
 # confirms anything on its own: AI confidence alone never confirms a fact. Kept so existing env files still load.
 
 # Fact verification and safe automation (apps/facts/verification/policy.py).
-# 'shadow' (default): every fact is verified and the policy records what it WOULD do; no fact changes.
-# 'enforce': verified facts the policy allows are confirmed by the system account. Switch only after
-# `python manage.py fact_verification_report --shadow` shows the rules agree with reviewers.
-FACT_VERIFICATION_MODE = os.getenv('FACT_VERIFICATION_MODE', 'shadow').strip().lower()
+# 'enforce' (default): verified facts the policy allows are confirmed by the system account, so people only see
+# facts the rules could not settle (on the VISTAS corpus 443 of 653 facts were verified exactly and allowed).
+# 'shadow': every fact is verified and the policy only records what it WOULD do; no fact changes.
+FACT_VERIFICATION_MODE = os.getenv('FACT_VERIFICATION_MODE', 'enforce').strip().lower()
 # Risk by data type ('low' | 'medium' | 'high'), field-key overrides, and what each risk may automate.
 FACT_RISK_BY_TYPE = {}
 FACT_RISK_BY_FIELD = {}
@@ -545,6 +551,8 @@ AI_SDK_MAX_RETRIES = int(os.getenv('AI_SDK_MAX_RETRIES', 2))
 # Repeatable extraction: the same document gives the same facts. AI_TEMPERATURE 0 = always the most likely answer;
 # AI_SEED fixes what randomness is left (OpenAI-compatible endpoints only -- Ollama, vLLM, OpenAI; Anthropic has no
 # seed). Empty AI_TEMPERATURE / AI_SEED = the provider's own default.
+# Explicit endpoint opt-out; preserve defaults for other configured deployments.
+AI_SEND_SAMPLING_PARAMS = os.getenv('AI_SEND_SAMPLING_PARAMS', 'true').lower() == 'true'
 AI_TEMPERATURE = float(os.getenv('AI_TEMPERATURE', '0')) if os.getenv('AI_TEMPERATURE', '0').strip() else None
 AI_SEED = int(os.getenv('AI_SEED', '42')) if os.getenv('AI_SEED', '42').strip() else None
 AI_RATE_LIMIT_ENABLED = (os.getenv('AI_RATE_LIMIT_ENABLED', 'false' if _RUNNING_TESTS else 'true').lower()
@@ -577,7 +585,7 @@ GOOGLE_DRIVE_API_KEY = os.getenv('GOOGLE_DRIVE_API_KEY', '')
 # indefinitely. Subfolders are scanned recursively (breadth-first);
 # GOOGLE_DRIVE_IMPORT_MAX_FOLDERS separately caps how many folders total get
 # walked, guarding against a deeply-nested or unexpectedly wide tree.
-GOOGLE_DRIVE_IMPORT_MAX_FILES = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_FILES', 200))
+GOOGLE_DRIVE_IMPORT_MAX_FILES = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_FILES', 1000))
 GOOGLE_DRIVE_IMPORT_MAX_FOLDERS = int(os.getenv('GOOGLE_DRIVE_IMPORT_MAX_FOLDERS', 200))
 
 # Retry policy for transient Drive API failures (network hiccups, 5xx),
@@ -759,3 +767,84 @@ AIQIF_AI_CHECK_ENABLED = os.getenv(
 ).strip().lower() not in ('', '0', 'false', 'off')
 AIQIF_AI_CHECK_MIN_CONFIDENCE = float(os.getenv('AIQIF_AI_CHECK_MIN_CONFIDENCE', 0.8))
 AIQIF_AI_CHECK_MAX_PER_DOCUMENT = int(os.getenv('AIQIF_AI_CHECK_MAX_PER_DOCUMENT', 40))
+
+
+# Capability assessments are additive and opt-in until development inference is validated.
+CAPABILITY_ASSESSMENT_ENABLED = os.getenv('CAPABILITY_ASSESSMENT_ENABLED', 'false').lower() == 'true'
+CAPABILITY_MAX_HTTP_CALLS = int(os.getenv('CAPABILITY_MAX_HTTP_CALLS', '72'))
+CAPABILITY_MAX_COST_USD = os.getenv('CAPABILITY_MAX_COST_USD', '2.00')
+CAPABILITY_OUTPUT_TOKENS = int(os.getenv('CAPABILITY_OUTPUT_TOKENS', '12000'))
+# Accuracy: 2 assesses every indicator packet twice and leaves any requirement the two passes disagree on unknown,
+# routed to review (never credited). Doubles assessment requests: raise CAPABILITY_MAX_HTTP_CALLS (about 90) and
+# CAPABILITY_MAX_COST_USD accordingly. Assessment cost does not grow with corpus size (packets are bounded).
+# With CAPABILITY_GEMINI_REASONING_EFFORT=high, Gemini 3 requests take 60-160 s and can use ~23k thinking tokens; unless
+# set explicitly, the policy then uses a 300 s request timeout and 48000 output tokens for the assessment stage.
+CAPABILITY_AGREEMENT_PASSES = int(os.getenv('CAPABILITY_AGREEMENT_PASSES', '1'))
+# Frozen into each run's execution policy.
+# 'parts' (default): part-level judgment under the accreditation-reviewer standard, scored with partial credit
+# (part_judgment.py). 'conditions': the earlier strict met/unknown judge, kept for comparison runs.
+CAPABILITY_JUDGMENT = os.getenv('CAPABILITY_JUDGMENT', 'parts').strip().lower()
+# Gemini thinking level for the assessor only; empty = AI_GEMINI_REASONING_EFFORT (which extraction keeps using).
+CAPABILITY_GEMINI_REASONING_EFFORT = os.getenv('CAPABILITY_GEMINI_REASONING_EFFORT', '').strip() or None
+CAPABILITY_REQUEST_TIMEOUT_SECONDS = int(os.getenv('CAPABILITY_REQUEST_TIMEOUT_SECONDS', str(AI_REQUEST_TIMEOUT_SECONDS)))
+# Optional stage overrides; selected values are frozen when an execution starts.
+CAPABILITY_ASSESSMENT_OUTPUT_TOKENS = int(os.environ['CAPABILITY_ASSESSMENT_OUTPUT_TOKENS']) if os.getenv('CAPABILITY_ASSESSMENT_OUTPUT_TOKENS') else None
+CAPABILITY_RECOMMENDATION_OUTPUT_TOKENS = int(os.environ['CAPABILITY_RECOMMENDATION_OUTPUT_TOKENS']) if os.getenv('CAPABILITY_RECOMMENDATION_OUTPUT_TOKENS') else None
+CAPABILITY_ASSESSMENT_TIMEOUT_SECONDS = int(os.environ['CAPABILITY_ASSESSMENT_TIMEOUT_SECONDS']) if os.getenv('CAPABILITY_ASSESSMENT_TIMEOUT_SECONDS') else None
+CAPABILITY_RECOMMENDATION_TIMEOUT_SECONDS = int(os.environ['CAPABILITY_RECOMMENDATION_TIMEOUT_SECONDS']) if os.getenv('CAPABILITY_RECOMMENDATION_TIMEOUT_SECONDS') else None
+CAPABILITY_MAX_INPUT_TOKEN_BOUND = int(os.getenv('CAPABILITY_MAX_INPUT_TOKEN_BOUND', '131072'))
+# Safety stop for one assessment run. Unset = sized from the call budget, indicator concurrency and request timeout
+# (see capability.execution.policy), so a slow high-effort run is never cut off while each request is within its own
+# timeout. Set a number to override.
+CAPABILITY_MAX_DURATION_SECONDS = int(os.environ['CAPABILITY_MAX_DURATION_SECONDS']) if os.getenv('CAPABILITY_MAX_DURATION_SECONDS') else None
+# Indicators judged at once (1-8). Packets are still built in order and results assembled in rubric order, so the
+# decisions do not depend on this; it only shortens wall-clock time (high effort: ~2 h sequential -> ~30-40 min at 4).
+# Default 1 keeps the strictly sequential request order; set 4 for pilot runs.
+CAPABILITY_INDICATOR_CONCURRENCY = int(os.getenv('CAPABILITY_INDICATOR_CONCURRENCY', '1'))
+CAPABILITY_STALE_SECONDS = int(os.getenv('CAPABILITY_STALE_SECONDS', '900'))
+
+if EXTRACTION_QUEUE:
+    CELERY_TASK_ROUTES['apps.scoring.tasks.run_capability_assessment'] = {'queue': EXTRACTION_QUEUE}
+
+# Separate explicit opt-in; shares the configured per-execution capability budget ceilings.
+CAPABILITY_RECOMMENDATIONS_ENABLED = os.getenv('CAPABILITY_RECOMMENDATIONS_ENABLED', 'false').lower() == 'true'
+if EXTRACTION_QUEUE:
+    CELERY_TASK_ROUTES['apps.scoring.capability.recommendation_execution.generate_recommendations'] = {'queue': EXTRACTION_QUEUE}
+
+# Experimental, explicit plan interpretation; shares configured request/cost caps.
+CAPABILITY_PLANS_ENABLED = os.getenv('CAPABILITY_PLANS_ENABLED', 'false').lower() == 'true'
+
+# Capability retrieval: installing weights never changes the live retrieval policy.
+# Workers never download artifacts or use hosted embedding inference.
+CAPABILITY_EMBEDDING_PATH = os.getenv('CAPABILITY_EMBEDDING_PATH', '')
+CAPABILITY_EMBEDDING_MODEL = os.getenv('CAPABILITY_EMBEDDING_MODEL', 'BAAI/bge-small-en-v1.5')
+CAPABILITY_RETRIEVAL_MODE = os.getenv('CAPABILITY_RETRIEVAL_MODE', 'bm25')
+# Retrieval options for multi-document sprints (apps/scoring/capability/structure.py). All off by
+# default; each is frozen into a run's retrieval policy when on, so a run keeps the options it started with.
+# Exact duplicate pages (whitespace and case ignored) are read once.
+CAPABILITY_DEDUPLICATE_PAGES = os.getenv('CAPABILITY_DEDUPLICATE_PAGES', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Experimental: routed picks inside NAAC metric sections plus a per-document share cap of the keyword
+# lane. Offline tests showed no recall gain yet; keep off for assessments.
+CAPABILITY_STRUCTURE_ROUTING = os.getenv('CAPABILITY_STRUCTURE_ROUTING', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Keyword selection passes over a window that mostly repeats (more than half its distinct words) a window
+# already chosen from a different document, so restated text (AQAR, annexures) does not crowd out new evidence.
+CAPABILITY_REPEAT_SKIP = os.getenv('CAPABILITY_REPEAT_SKIP', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Empty for the default 30,000 + 6,000 character packet; 'protected-baseline-then-discovery-wide-v1' for a
+# 90,000-character keyword lane; 'protected-baseline-then-discovery-xwide-v1' for 200,000 (hybrid mode only;
+# raise CAPABILITY_MAX_INPUT_TOKEN_BOUND to 400000).
+CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '')
+# Targeted extra search after part judgment (apps/scoring/capability/follow_up.py): parts every pass marked
+# not found get one more search with the part's own description; only those conditions are judged again, and
+# the second judgment can only add credit. Needs hybrid retrieval and CAPABILITY_JUDGMENT=parts. Adds up to one
+# request per indicator per pass, so CAPABILITY_MAX_HTTP_CALLS must allow it (150 with two passes).
+# With two agreement passes: conditions the passes disagree on get a third judgment (only those, one request per
+# indicator). Condition judge: the majority state stands. Part judge: passes also disagree when their credits differ
+# by 0.5 or more, and the median credit of the three passes stands (part_judgment.CREDIT_GAP).
+CAPABILITY_TIE_BREAK = os.getenv('CAPABILITY_TIE_BREAK', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Extracted-evidence lane (reviewed_evidence.evidence_lane): adds the source page of each relevant extracted AI item
+# to the indicator's packet (up to 18,000 characters), so evidence extraction found reaches the judge.
+CAPABILITY_EVIDENCE_LANE = os.getenv('CAPABILITY_EVIDENCE_LANE', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+CAPABILITY_FOLLOW_UP_SEARCH = os.getenv('CAPABILITY_FOLLOW_UP_SEARCH', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
+# every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.
+CAPABILITY_EMBEDDING_CACHE_DIR = os.getenv('CAPABILITY_EMBEDDING_CACHE_DIR', '')

@@ -1,0 +1,2 @@
+# Optional local CPU embeddings; no hosted inference or model downloads in workers.
+fastembed==0.9.1

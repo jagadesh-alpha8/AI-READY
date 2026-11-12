@@ -26,7 +26,7 @@ export const SprintSetup: React.FC = () => {
   // nothing to choose. `sprint_mode` is left off the create payload entirely
   // and Sprint.mode's model default supplies it — one place decides the
   // method, rather than a form that always sends the same value.
-  const [academicYear, setAcademicYear] = useState('2026-27');
+  const [academicYear, setAcademicYear] = useState('');
   // A sprint used to be created with no name at all, so every list showed a
   // bare code ("SPR-2AC52B86") that says nothing about whose sprint it is.
   // The name defaults to the selected college and follows it until the user
@@ -44,7 +44,7 @@ export const SprintSetup: React.FC = () => {
 
   React.useEffect(() => {
     if (nameEdited || !selectedInstitution) return;
-    setName(`${selectedInstitution.name} — AI Readiness ${academicYear}`);
+    setName(`${selectedInstitution.name} — AI Readiness${academicYear.trim() ? ` ${academicYear.trim()}` : ''}`);
   }, [selectedInstitution, academicYear, nameEdited]);
 
   React.useEffect(() => {
@@ -67,7 +67,7 @@ export const SprintSetup: React.FC = () => {
       const sprintRes = await createSprint({
         institution_id: selectedInstId,
         academic_year: academicYear,
-        name: name.trim() || `${selectedInstitution?.name ?? 'Institution'} — AI Readiness ${academicYear}`,
+        name: name.trim() || `${selectedInstitution?.name ?? 'Institution'} — AI Readiness${academicYear.trim() ? ` ${academicYear.trim()}` : ''}`,
       });
 
       const newSprintId = sprintRes.data.id;
@@ -147,14 +147,15 @@ export const SprintSetup: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="label">Academic Year *</label>
+              <label className="label">Academic year label (optional)</label>
               <input
                 type="text"
                 value={academicYear}
                 onChange={(e) => setAcademicYear(e.target.value)}
-                required
+                maxLength={20}
                 className="input"
               />
+              <p className="text-xs text-ink-500 mt-1.5">An optional workspace label. Evidence periods are established during assessment; this does not set the scoring period.</p>
             </div>
 
             <div>

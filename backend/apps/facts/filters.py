@@ -52,11 +52,20 @@ class ExtractedFactFilter(django_filters.FilterSet):
         choices=[*ExtractedFact.VerificationStatus.choices, ('none', 'Not verified yet')], method='filter_verification')
     automation_decision = django_filters.CharFilter(field_name='automation_decision')
     risk_level = django_filters.CharFilter(field_name='risk_level')
+    review_queue = django_filters.ChoiceFilter(choices=[('exceptions', 'Exceptions'), ('verified', 'Verified')],
+                                              method='filter_review_queue')
     #: Free text: field ID / name, value, quote, source file name, AI-QIF indicator.
     q = django_filters.CharFilter(method='filter_search')
 
     def filter_verification(self, queryset, name, value):
         return queryset.filter(verification_status='' if value == 'none' else value)
+
+    def filter_review_queue(self, queryset, name, value):
+        queryset = queryset.filter(status=ExtractedFact.Status.EXTRACTED)
+        if value == 'verified':
+            return queryset.filter(verification_status='verified').exclude(risk_level='high')
+        return queryset.filter(~Q(verification_status='verified') | Q(risk_level='high')
+                               | Q(automation_decision='review'))
 
     def filter_tag_review(self, queryset, name, value):
         from .aiqif_tagging import queued_tags_q

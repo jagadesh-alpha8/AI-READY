@@ -2,9 +2,8 @@
 
 Settings (config/settings.py):
 
-- FACT_VERIFICATION_MODE: 'shadow' (default) records every verification and what the policy *would* do, and
-  changes no fact; 'enforce' lets the policy confirm eligible facts. Switch to 'enforce' only after the shadow
-  report (`python manage.py fact_verification_report`) shows the rules agree with reviewers.
+- FACT_VERIFICATION_MODE: 'enforce' (default) lets the policy confirm eligible facts; 'shadow' records every verification and what the policy *would* do, and
+  changes no fact. The shadow report (`python manage.py fact_verification_report`) compares the rules with reviewers.
 - FACT_RISK_BY_TYPE: data type -> risk ('low' | 'medium' | 'high'); FACT_RISK_BY_FIELD: {field_key regex: risk}
   overrides it. A calculated value, a fact read by the vision fallback and an institution-profile fact are always
   'high'.

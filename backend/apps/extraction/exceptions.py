@@ -68,6 +68,10 @@ class AIResponseError(PermanentExtractionError):
     doesn't care which provider answered can catch just this one type."""
 
 
+class AIOutputTruncated(AIResponseError):
+    """Generation allowance exhausted; repeating an identical JSON request is not repair."""
+
+
 class ExtractionCancelled(Exception):
     """The user stopped this job (Stop / Stop Processing on the AI Processing
     Monitor). Raised at the next safe checkpoint -- between pipeline steps or

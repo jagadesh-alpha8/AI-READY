@@ -278,8 +278,9 @@ class UserAdminViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_403_FORBIDDEN)
         try:
             with transaction.atomic():
-                # Lock only the user row: get_queryset() joins the nullable institution (an outer join), and
-                # PostgreSQL refuses FOR UPDATE on the nullable side of an outer join.
+                # The queryset joins the nullable institution for display/audit
+                # fields. PostgreSQL cannot lock that side of an outer join;
+                # only the account being deleted needs this row lock.
                 user = self.get_queryset().select_for_update(of=('self',)).get(pk=kwargs['pk'])
                 if user.pk == request.user.pk:
                     return Response({'detail': 'You cannot permanently delete your own account.'},

@@ -32,6 +32,7 @@ def mark_sprint_collecting(sprint):
 def create_document_from_file(
     *, sprint, file_obj, document_type, owner_role='', title='', uploaded_by=None,
     document_type_source=Document.TypeSource.UPLOADER,
+    drive_file_id='', source_path='',
 ):
     """Validate + persist a Document exactly like the manual upload endpoint
     (extension allowlist, size limit via MAX_DOCUMENT_UPLOAD_SIZE, SHA-256
@@ -73,11 +74,15 @@ def create_document_from_file(
             or 'application/octet-stream'
         )
 
-        # A changed file with the same name starts the next version in THIS
-        # sprint. Equal content is rejected above, regardless of filename.
-        previous = (Document.objects.filter(sprint=sprint, original_filename__iexact=file_obj.name,
-                                            superseded_at__isnull=True)
-                    .order_by('-version_number', '-created_at').first())
+        # Drive IDs own imported lineage; basenames own manual lineage only.
+        # Equal content is rejected above, regardless of filename or source.
+        current = Document.objects.filter(sprint=sprint, superseded_at__isnull=True)
+        if drive_file_id:
+            current = current.filter(drive_file_id=drive_file_id)
+        else:
+            # Manual uploads must not silently replace an imported Drive source.
+            current = current.filter(drive_file_id='', original_filename__iexact=file_obj.name)
+        previous = current.order_by('-version_number', '-created_at').first()
 
         document = Document.objects.create(
             sprint=sprint,
@@ -88,6 +93,8 @@ def create_document_from_file(
             title=data['title'],
             owner_role=data['owner_role'],
             original_filename=file_obj.name,
+            drive_file_id=drive_file_id,
+            source_path=source_path,
             file=file_obj,
             mime_type=mime_type,
             file_size=file_obj.size,

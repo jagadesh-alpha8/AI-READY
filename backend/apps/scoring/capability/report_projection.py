@@ -1,0 +1,388 @@
+"""Inference-free presentation of a frozen assessment, never a new scoring method.
+
+This module does not read live facts, infer missing activity or change advice. It
+groups existing follow-ups for readers; strategic initiative planning is separate.
+"""
+from collections import Counter
+import re
+
+
+PILLARS = {
+    'AIQIF-C1': 'Leadership and investment',
+    'AIQIF-C2': 'Responsible and safe AI',
+    'AIQIF-C3': 'Curriculum and teaching',
+    'AIQIF-C4': 'Faculty and staff',
+    'AIQIF-C5': 'Student skills and careers',
+    'AIQIF-C6': 'Technology and data',
+    'AIQIF-C7': 'Research and innovation',
+    'AIQIF-C8': 'Services and partnerships',
+    'AIQIF-C9': 'Measurement and improvement',
+}
+AREA_TITLES = {
+    'AIQIF-C1.1': 'AI strategy and priorities', 'AIQIF-C1.2': 'Decision-making and accountability',
+    'AIQIF-C1.3': 'Funding and resource planning', 'AIQIF-C1.4': 'Adoption and staff support',
+    'AIQIF-C2.1': 'Responsible-use guidance', 'AIQIF-C2.2': 'Privacy and risk management',
+    'AIQIF-C2.3': 'Oversight of AI systems and data', 'AIQIF-C2.4': 'Human review and appeals',
+    'AIQIF-C3.1': 'AI learning within programmes', 'AIQIF-C3.2': 'AI literacy across disciplines',
+    'AIQIF-C3.3': 'AI in teaching and assessment', 'AIQIF-C3.4': 'Applied AI learning',
+    'AIQIF-C4.1': 'Faculty AI literacy', 'AIQIF-C4.2': 'Role-specific faculty skills',
+    'AIQIF-C4.3': 'AI in academic work', 'AIQIF-C4.4': 'Staff development and support',
+    'AIQIF-C5.1': 'Student AI literacy and access', 'AIQIF-C5.2': 'Advanced student skills',
+    'AIQIF-C5.3': 'Student projects and portfolios', 'AIQIF-C5.4': 'Internships and career progression',
+    'AIQIF-C6.1': 'Computing access and AI suitability', 'AIQIF-C6.2': 'Usable institutional data',
+    'AIQIF-C6.3': 'Security and recovery', 'AIQIF-C6.4': 'Accessible AI learning environments',
+    'AIQIF-C7.1': 'AI research and applied inquiry', 'AIQIF-C7.2': 'Innovation and mentoring support',
+    'AIQIF-C7.3': 'Funding, intellectual property and enterprise', 'AIQIF-C7.4': 'Research collaboration and public benefit',
+    'AIQIF-C8.1': 'Digital services and AI operations', 'AIQIF-C8.2': 'Industry collaboration',
+    'AIQIF-C8.3': 'Employment and enterprise pathways', 'AIQIF-C8.4': 'Measuring educational and business benefits',
+    'AIQIF-C9.1': 'Institutional measurement and review', 'AIQIF-C9.2': 'Traceable institutional evidence',
+    'AIQIF-C9.3': 'Keeping assessments up to date', 'AIQIF-C9.4': 'Testing, feedback and improvement',
+}
+STAGES = {'F': 'Starting capability', 'A': 'Repeated use', 'O': 'Results and review'}
+STATE_LABELS = {'met': 'Demonstrated', 'not_met': 'Documented shortfall',
+                'unknown': 'Not established', 'conflicting': 'Contradictory evidence'}
+CODE = re.compile(r'AIQIF-C\d+\.\d+(?:\.[FAO]\d+)?')
+
+
+def readable(value):
+    """Translate generated references, never modify original source quotations."""
+    def label(match):
+        code = match.group()
+        parts = code.split('.')
+        title = AREA_TITLES.get('.'.join(parts[:2]), 'the relevant assessment area')
+        return title + (f" ({STAGES.get(parts[2][0], 'requirement').lower()})" if len(parts) > 2 else '')
+    return CODE.sub(label, str(value or ''))
+
+
+def score_label(lower, upper):
+    if lower == upper:
+        return f'{lower:g} / 100'
+    return 'Not established'
+
+
+def bounds_note(lower, upper):
+    if lower == upper:
+        return 'Single value under the recorded capability method.'
+    if lower == 0 and upper == 100:
+        return 'The unresolved evidence does not support a useful numerical estimate.'
+    return f'The recorded method permits {lower:g} to {upper:g} / 100; this is a range, not an estimated score.'
+
+
+def finding(counts):
+    if counts['conflicting']:
+        return 'Some evidence is contradictory and needs reconciliation.'
+    if counts['not_met']:
+        return 'At least one requirement has a documented shortfall.'
+    if counts['unknown']:
+        return ('Some requirements are demonstrated; others remain unresolved.' if counts['met'] else
+                'The evidence assessed does not establish this capability.')
+    return 'The requirements are demonstrated under the recorded method.'
+
+
+def advisory_state(recommendation):
+    if recommendation is None:
+        return {'kind': 'basic', 'status': 'not_requested', 'label': 'Basic assessment report',
+                'explanation': 'No tailored recommendation version was selected. Follow-ups come from the stored assessment requirements.'}
+    status = recommendation['status']
+    tailoring = recommendation.get('tailoring')
+    if (status == 'completed' and tailoring and tailoring.get('mode') == 'tailored'
+            and any(a.get('origin') == 'model_tailored' for a in tailoring.get('advice', []))):
+        has_basic = any(a.get('origin') != 'model_tailored' for a in tailoring.get('advice', []))
+        return {'kind': 'tailored', 'status': status, 'label': 'Assessment with tailored advice',
+                'explanation': 'Advice is linked to the selected saved assessment.' + (
+                    ' Some requirements use basic guidance or processing follow-ups.' if has_basic else '')}
+    explanations = {
+        'queued': 'Tailored advice is queued. This export contains basic assessment follow-ups.',
+        'running': 'Tailored advice is still being generated. This export contains basic assessment follow-ups.',
+        'failed': 'Tailored advice could not be completed. This export retains the assessment and basic follow-ups.',
+        'cancelled': 'Tailored advice was cancelled. This export retains the assessment and basic follow-ups.',
+    }
+    return {'kind': 'basic', 'status': status, 'label': 'Basic assessment report',
+            'explanation': explanations.get(status, 'The selected version contains basic guidance; bespoke institutional advice is not established.')}
+
+
+CREDIT_LABELS = {'demonstrated': 'Demonstrated', 'partly': 'Partly demonstrated',
+                 'not_found': 'Not found in the documents', 'shortfall': 'Documented shortfall',
+                 'not_checked': 'Not checked (processing failure)'}
+SCORE_NOTE = ('The share of the readiness conditions that the supplied documents show. A condition with only some of '
+              'its parts evidenced, or with weaker related evidence, earns partial credit; a condition the documents '
+              'do not show earns none.')
+
+
+def credit_status(record):
+    """One condition's status under part credit: demonstrated, partly, not_found, shortfall or not_checked."""
+    from .decision_causes import NOT_EVALUATED
+    if record.get('cause') == NOT_EVALUATED:
+        return 'not_checked'
+    if record.get('state') == 'not_met':
+        return 'shortfall'
+    value = record.get('credit', 1.0 if record.get('state') == 'met' else 0.0)
+    return 'demonstrated' if value >= 1 else 'partly' if value > 0 else 'not_found'
+
+
+def credit_finding(statuses):
+    counts = Counter(statuses)
+    if counts['not_checked']:
+        return 'Some requirements could not be checked because processing failed; re-run before relying on this area.'
+    if counts['demonstrated'] == len(statuses):
+        return 'All requirements are demonstrated in the documents.'
+    if counts['demonstrated'] or counts['partly']:
+        return (f"{counts['demonstrated']} of {len(statuses)} requirements demonstrated"
+                + (f", {counts['partly']} partly" if counts['partly'] else '') + '.')
+    return 'The documents do not show this capability yet.'
+
+
+DOCUMENTED_NOTE = ('Documented readiness counts what the supplied documents evidence, including partial credit for '
+                   'conditions with some of their parts evidenced or with related but weaker evidence. The range '
+                   'above counts only fully demonstrated conditions.')
+DIGITAL_NOTE = ('Including digital groundwork also counts digital systems that are not AI (for example an ERP, LMS or '
+                'e-governance module) where a condition asks for AI. It shows the foundation in place, not AI adoption.')
+
+
+def documented_label(value):
+    return f'Documented readiness {value:g} / 100'
+
+
+def build_report_view(report, actions):
+    result = report['assessment']['result']
+    documented = result.get('documented')
+    documented_areas = {i['code']: i['score'] for i in documented['indicators']} if documented else {}
+    documented_pillars = {p['code']: p['score'] for p in documented['pillars']} if documented else {}
+    decisions = {r['condition_id']: r for r in report['assessment']['records']}
+    # Part-credit runs report one score; earlier runs keep their recorded range.
+    single = result.get('score') is not None and documented is not None
+    action_by_id = {a['id']: a for a in actions}
+    state = advisory_state(report.get('recommendation'))
+    source_labels = {str(p['page_id']): f"{d['filename']}, page {p.get('number', '?')}"
+                     for d in report['source_manifest'] for p in d.get('pages', [])}
+    areas, followups = [], []
+    for order, indicator in enumerate(result['indicators']):
+        rows = [decisions[c['id']] for c in indicator['conditions']]
+        counts = Counter(row['state'] for row in rows)
+        stage_results = []
+        for stage, title in STAGES.items():
+            if single:
+                statuses = [credit_status(decisions[c['id']]) for c in indicator['conditions'] if c['level'] == stage]
+                status = next((k for k in ('not_checked', 'shortfall', 'not_found', 'partly') if k in statuses),
+                              'demonstrated')
+                if status == 'not_found' and any(x in ('demonstrated', 'partly') for x in statuses):
+                    status = 'partly'
+                stage_results.append({'title': title, 'status': CREDIT_LABELS[status]})
+                continue
+            states = [decisions[c['id']]['state'] for c in indicator['conditions'] if c['level'] == stage]
+            status = ('conflicting' if 'conflicting' in states else 'not_met' if 'not_met' in states
+                      else 'unknown' if 'unknown' in states else 'met')
+            stage_results.append({'title': title, 'status': STATE_LABELS[status]})
+        available = [action_by_id[c['id']] for c in indicator['conditions'] if c['id'] in action_by_id]
+        # Earlier steps precede advanced outcomes. Weight/code-order score optimisation
+        # is deliberately not used as an institutional strategy.
+        available.sort(key=lambda a: ('FAO'.index(a['id'].rsplit('.', 1)[-1][0]),
+                                      {'conflicting': 0, 'not_met': 1, 'unknown': 2}.get(a['state'], 3)))
+        first = available[0] if available else None
+        title = AREA_TITLES.get(indicator['code'], readable(indicator['name']))
+        if single:
+            area = {'key': indicator['code'], 'pillar_key': indicator['pillar'], 'title': title,
+                    'score': f"{documented_areas[indicator['code']]:g} / 100", 'score_explanation': '',
+                    'finding': credit_finding([credit_status(r) for r in rows]), 'stages': stage_results,
+                    'strengths': [readable(c['text']) for c in indicator['conditions']
+                                  if credit_status(decisions[c['id']]) == 'demonstrated'],
+                    'next_step': 'Maintain the demonstrated capability and retain supporting evidence.'}
+        else:
+            area = {'key': indicator['code'], 'pillar_key': indicator['pillar'], 'title': title,
+                    'score': score_label(indicator['lower'], indicator['upper']),
+                    'score_explanation': bounds_note(indicator['lower'], indicator['upper']),
+                    **({'documented_score': documented_label(documented_areas[indicator['code']])} if documented else {}),
+                    'finding': finding(counts), 'stages': stage_results,
+                    'next_step': 'Maintain the demonstrated capability and retain supporting evidence.'}
+        if first:
+            advice = first.get('advice')
+            prefixes = {'unknown': 'Show or put in place: ' if single else 'Check whether existing records establish: ',
+                        'conflicting': 'Reconcile the evidence for: ',
+                        'not_met': 'Address the documented requirement: '}
+            initial = prefixes.get(first['state'], '') + readable(first['requirement'])
+            area['next_step'] = initial
+            followups.append({
+                'title': title, 'area_key': indicator['code'], 'condition_id': first['id'],
+                'linked_requirement_ids': [a['id'] for a in available],
+                'reason': area['finding'], 'next_step': initial,
+                'steps': [readable(s) for s in advice['steps']] if advice else [initial],
+                'suggested_role': readable(advice['suggested_role']) if advice else 'Relevant institutional lead (suggested)',
+                'effort': {'small': 'Small', 'medium': 'Medium', 'large': 'Large', 'unknown': 'Not estimated'}.get(
+                    advice.get('effort') if advice else 'unknown', 'Not estimated'),
+                'completion': readable(advice['completion_evidence'] if advice else first['completion_evidence']),
+                'dependencies': list(dict.fromkeys(readable(d) for d in advice.get('dependencies', []))) if advice else [],
+                'sources': [{'label': source_labels.get(str(c['source_id']), 'Saved source reference'),
+                             'quote': c['quote']} for c in (advice.get('basis', []) if advice else first.get('citations', []))],
+                'guidance': ('Tailored suggestion' if state['kind'] == 'tailored' and advice and
+                             advice.get('origin') == 'model_tailored' else 'Basic assessment follow-up'),
+                '_sort': ('FAO'.index(first['id'].rsplit('.', 1)[-1][0]),
+                          {'conflicting': 0, 'not_met': 1, 'unknown': 2}.get(first['state'], 3), order),
+            })
+        areas.append(area)
+    followups.sort(key=lambda a: a['_sort'])
+    for row in followups:
+        row.pop('_sort')
+    pillars = []
+    for pillar in result['pillars']:
+        children = [a for a in areas if a['pillar_key'] == pillar['code']]
+        followup = next((a for a in followups if any(c['key'] == a['area_key'] for c in children)), None)
+        pillars.append({'title': PILLARS.get(pillar['code'], 'Assessment area'),
+                        **({'score': f"{documented_pillars[pillar['code']]:g} / 100", 'score_value': documented_pillars[pillar['code']],
+                            'score_explanation': ''} if single else
+                           {'score': score_label(pillar['lower'], pillar['upper']),
+                            'score_explanation': bounds_note(pillar['lower'], pillar['upper']),
+                            **({'documented_score': documented_label(documented_pillars[pillar['code']])} if documented else {})}),
+                        'areas': children, 'next_step': followup['next_step'] if followup else
+                        'Maintain demonstrated capability and review new evidence.'})
+    counts = Counter(row['state'] for row in decisions.values())
+    diagnostics = report['diagnostics']
+    scope = report.get('scope') or {}
+    scope_notices = [{k: question[k] for k in ('code', 'severity', 'message')}
+                     for question in scope.get('questions', [])]
+    if single:
+        # Only scope questions someone must act on; the standing interpretation notes are in the limitations.
+        scope_notices = [q for q in scope_notices if q['severity'] == 'review']
+    elif scope.get('mode') == 'default':
+        scope_notices.insert(0, {'code': 'default_source_specific_scope', 'severity': 'limitation',
+            'message': 'This is an institutional overview using source-specific populations and periods. Universal coverage and current-year activity are not presumed.'})
+    if report.get('refines_run_id'):
+        scope_notices.append({'code': 'scope_refinement', 'severity': 'limitation',
+            'message': 'This is a refined assessment scope. A result change from an earlier scope does not by itself show institutional improvement.'})
+    foundation = report.get('deterministic_plan', {}).get('foundation_plan')
+    priorities = followups[:5]
+    if foundation:
+        priorities = []
+        for goal in foundation['goals'][:5]:
+            goal_actions = [action_by_id[cid] for cid in goal['target_condition_ids'] if cid in action_by_id]
+            advice_steps = [readable(step) for a in goal_actions if a.get('advice') for step in a['advice']['steps']][:3]
+            basis = []
+            for action in goal_actions:
+                for cite in action.get('citations', []):
+                    if cite not in basis:
+                        basis.append(cite)
+            for asset in goal['existing_strengths']:
+                for cite in asset['basis']:
+                    if cite not in basis:
+                        basis.append(cite)
+            priorities.append({'title': goal['title'], 'area_key': goal['target_condition_ids'][0].rsplit('.', 1)[0],
+                'reason': ('Verify unresolved practices before implementation; they are not presumed absent.' if goal['conditional'] else 'The recorded requirements identify a documented development need.'),
+                'steps': goal['improvement_steps'],
+                'evidence_steps': advice_steps + goal['evidence_steps'],
+                'improvement_steps': goal['improvement_steps'],
+                'improvement_condition': goal['improvement_condition'], 'suggested_role': goal['suggested_role'] + ' (suggested)',
+                'effort': 'Confirm for the chosen route', 'completion': '; '.join(dict.fromkeys(goal['completion_evidence'])),
+                'dependencies': goal['depends_on'], 'sources': [{'label': source_labels.get(str(c['source_id']), 'Saved source reference'), 'quote': c['quote']} for c in basis[:3]],
+                'guidance': 'Proposed foundation goal; current achievement is not verified'})
+    needs_scope_review = any(q['severity'] == 'review' for q in scope_notices)
+    return {
+        'version': 'readable-assessment-0.3', 'institution': scope.get('institution', {}).get('assessed_name') or report['profile']['name'],
+        'population': report['population'], 'period': report['reference_period'],
+        'scope_notices': scope_notices,
+        'methodology': result['methodology'], 'methodology_status': result['methodology_status'],
+        'methodology_notice': ('Readiness method ' + result['methodology'] + ', scored with part credit. Achievement levels (Silver, Gold, Platinum) are not yet calibrated, so no badge is awarded.') if single else ('This report uses independent assertion credit under the experimental readiness method. Source-period findings do not prove current operation. Achievement levels are not calibrated.' if result.get('aggregation') == 'independent_conditions' else 'This report uses its recorded historical capability method. Start a new assessment to use the revised readiness method. Experimental results do not constitute accreditation.'),
+        **(single_headline(result, decisions, report) if single else {
+            'score': score_label(result['lower'], result['upper']),
+            'score_explanation': bounds_note(result['lower'], result['upper']),
+            **({'documented_score': documented_label(documented['overall']), 'documented_explanation': DOCUMENTED_NOTE}
+               if documented else {}),
+            **({'digital_score': f"Including digital groundwork {result['documented_with_digital']['overall']:g} / 100",
+                'digital_explanation': DIGITAL_NOTE} if result.get('documented_with_digital') else {}),
+            'assessment_state': 'Evidence review required — readiness baseline not established' if foundation and foundation['baseline']['status'] == 'needs_evidence_review' else 'Provisional findings' if counts['unknown'] or counts['conflicting'] or needs_scope_review else 'Assessment completed'}),
+        'advisory': state, 'pillars': pillars, 'areas': areas, 'priorities': priorities, 'foundation_plan': foundation,
+        'followup_count': len(followups),
+        'priority_note': ('Foundation goals reuse verified strengths and separate evidence checks from conditional development. Timing is illustrative; no achievement is awarded.' if foundation else 'These starting points use the earliest unresolved capability steps, with contradictions first within each step. Institutional benefit, cost and feasibility have not been assessed. All areas remain available in the detail.'),
+        'evidence_summary': (f"{diagnostics['source_documents']} source "
+                             f"{'document' if diagnostics['source_documents'] == 1 else 'documents'} and "
+                             f"{diagnostics['readable_pages']}"
+                             + (f" of {diagnostics['readable_pages'] + diagnostics['unreadable_or_unavailable_pages']} expected"
+                                if diagnostics.get('unreadable_or_unavailable_pages') else ' readable')
+                             + f" {'page' if diagnostics['readable_pages'] == 1 else 'pages'} were included in this saved assessment."),
+        'limitations': single_limitations(report, diagnostics) if single else [
+            'Missing or unreadable records do not establish that an activity is absent.',
+            'Findings apply only to the recorded population and period; historical evidence does not establish current performance.',
+            review_limitation(report),
+            'Completing a suggested task does not change the score. New supporting evidence must be assessed in a new version.',
+            'These explanations summarise saved decisions and do not independently verify their factual accuracy.',
+        ] + [q['message'] for q in scope_notices] + ([scope['limitations']] if scope.get('limitations') else []) + (['Some source pages were unreadable or unavailable. Check the supporting evidence inventory.']
+             if diagnostics['unreadable_or_unavailable_pages'] else []) +
+            (['Some requirement decisions could not be validated and remain unresolved. See the supporting evidence.']
+             if diagnostics['validation_issues'] else []) +
+            ([f"{diagnostics['indicators_with_bounded_context']} assessment areas used selected subsets of source passages. This is not a complete page-by-page review; missing support in a selected passage does not prove absence from all documents."]
+             if diagnostics.get('indicators_with_bounded_context') else []),
+    }
+
+
+def single_limitations(report, diagnostics):
+    notes = ['The score counts what the supplied documents show. Capability that exists but is not documented in them '
+             'is not counted; supplying the records raises the score in a new assessment.',
+             'Findings describe the periods the documents report and do not by themselves show current operation.']
+    if diagnostics.get('unreadable_or_unavailable_pages'):
+        notes.append(f"{diagnostics['unreadable_or_unavailable_pages']} source pages were unreadable or unavailable.")
+    return notes
+
+
+def unconfirmed_reliance(report, decisions):
+    """(credited conditions citing an extracted fact nobody has confirmed, of which citing one in an open conflict).
+    The judge reads unreviewed evidence instead of ignoring it; this says how much of the score rests on it."""
+    from apps.facts.verification.grounding import parse_pages
+    ledger = report.get('reviewed_evidence') or {}
+    pages = {str(p['page_id']): (str(d['document_id']), p.get('number')) for d in report.get('source_manifest', [])
+             for p in d.get('pages', [])}
+    disputed = {cid for i in ledger.get('issues', []) if i.get('kind') == 'conflict' and i.get('status') != 'resolved'
+                for cid in i.get('claim_ids', [])}
+    open_claims = []
+    for claim in ledger.get('claims', []):
+        if claim.get('disposition') not in ('extracted', 'evidence_requested'):
+            continue
+        src = claim.get('source') or {}
+        quote = ' '.join(str(src.get('quote') or '').split())
+        if src.get('document_id') and quote:
+            open_claims.append((str(src['document_id']), set(parse_pages(src.get('page', ''))), quote, claim['id'] in disputed))
+    unconfirmed = in_conflict = 0
+    for record in decisions.values():
+        if record.get('credit', 0) <= 0:
+            continue
+        hits = []
+        for cite in record.get('citations', []):
+            doc, page = pages.get(str(cite.get('source_id')), (None, None))
+            text = ' '.join(str(cite.get('quote') or '').split())
+            hits.extend(d for c_doc, c_pages, c_quote, d in open_claims
+                        if c_doc == doc and page in c_pages and text and (c_quote in text or text in c_quote))
+        unconfirmed += bool(hits)
+        in_conflict += any(hits)
+    return unconfirmed, in_conflict
+
+
+def single_headline(result, decisions, report=None):
+    statuses = Counter(credit_status(r) for r in decisions.values())
+    total = len(decisions)
+    unconfirmed, in_conflict = unconfirmed_reliance(report or {}, decisions)
+    return {
+        'unconfirmed_reliance': unconfirmed, 'disputed_reliance': in_conflict,
+        'reliance_note': (f"{unconfirmed} credited requirements cite extracted facts no one has confirmed yet"
+                          + (f" ({in_conflict} of them with a disputed value)" if in_conflict else '')
+                          + '. They are credited on the source text; confirming or correcting those facts in the review '
+                            'queue can change them.') if unconfirmed else '',
+        'score': f"{result['score']:g} / 100", 'score_value': result['score'], 'score_explanation': SCORE_NOTE,
+        'condition_summary': (f"{statuses['demonstrated']} of {total} requirements demonstrated, {statuses['partly']} partly "
+                              f"demonstrated, {statuses['not_found']} not found in the documents"
+                              + (f", {statuses['shortfall']} with a documented shortfall" if statuses['shortfall'] else '')
+                              + (f", {statuses['not_checked']} not checked because processing failed" if statuses['not_checked'] else '')
+                              + '.'),
+        'not_checked': statuses['not_checked'],
+        'assessment_state': ('Incomplete: some requirements were not checked' if statuses['not_checked']
+                             else 'Assessment completed'),
+    }
+
+
+def review_limitation(inputs):
+    ledger = inputs.get('reviewed_evidence')
+    if not ledger:
+        return 'This historical assessment did not include the reviewed-evidence ledger. Start a fresh assessment to include current decisions.'
+    batch = ledger.get('review_batch')
+    unresolved = sum(i['status'] != 'resolved' for i in ledger.get('issues', []))
+    overflow = sum(not c['initial'] for c in batch['cases']) if batch else 0
+    deferred = sum(d['action'] in ('defer', 'cannot_establish') for d in batch['decisions'].values()) if batch else 0
+    return (f"This assessment froze {len(ledger['claims'])} claims with their review decisions. "
+            f"{unresolved} evidence issues, {overflow} optional overflow questions and {deferred} deferred/unestablished answers remain recorded. "
+            'Review acceptance is not capability credit; insufficient evidence remains unknown.')

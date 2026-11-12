@@ -85,3 +85,13 @@ def cost_usd(model, *, input_tokens=0, output_tokens=0, cache_read_tokens=0, cac
         + Decimal(cache_read_tokens) * p_read + Decimal(cache_write_tokens) * p_write
     ) / _PER_MILLION
     return total.quantize(Decimal('0.000001'))
+
+
+def positive_token_prices(model):
+    """Hosted budgets need positive configured rates, even for a free-tier account."""
+    try:
+        prices = prices_for(model) or {}
+        values = [Decimal(str(prices[key])) for key in ('input', 'output')]
+        return all(value.is_finite() and value > 0 for value in values)
+    except (KeyError, TypeError, ValueError, ArithmeticError):
+        return False

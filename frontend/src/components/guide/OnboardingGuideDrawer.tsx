@@ -80,7 +80,7 @@ export const OnboardingGuideDrawer: React.FC<OnboardingGuideDrawerProps> = ({
                 AI Readiness Platform Guide
               </h2>
               <p className="text-xs text-ink-500 mt-0.5">
-                11-step end-to-end audit workflow from setup to report export
+                Assessment workflow from setup to report export
               </p>
             </div>
           </div>

@@ -240,3 +240,237 @@ class BaselineDecisionHistory(models.Model):
 
     def __str__(self):
         return f'{self.baseline_id} — {self.action}'
+
+
+class CapabilityHistoryQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValueError('Capability history cannot be updated.')
+
+    def delete(self):
+        raise ValueError('Capability history cannot be deleted.')
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValueError('Capability history cannot be updated.')
+
+
+class CapabilityRun(models.Model):
+    """Frozen inputs. Status and outputs are append-only CapabilityRunEvent rows.
+
+    Service writes lock this row before appending events. Never reuse legacy CRI rows.
+    Raw SQL bypasses application immutability and is not supported.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.ForeignKey('sprints.Sprint', on_delete=models.PROTECT, related_name='capability_runs')
+    objects = CapabilityHistoryQuerySet.as_manager()
+    inputs = models.JSONField()
+    inputs_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Capability run inputs are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Capability history cannot be deleted.')
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+class CapabilityRunEvent(models.Model):
+    """Append-only checkpoints; a completed event publishes all outputs together."""
+    id = models.BigAutoField(primary_key=True)
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='events')
+    objects = CapabilityHistoryQuerySet.as_manager()
+    state = models.CharField(max_length=16, choices=[(s, s) for s in
+        ('queued', 'running', 'partial', 'completed', 'failed', 'cancelled')])
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Capability events are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Capability history cannot be deleted.')
+
+    class Meta:
+        ordering = ['id']
+
+
+class CapabilityExecution(models.Model):
+    """Mutable dispatch/ownership ledger; evidence and events stay immutable.
+
+    No automatic replay after worker loss: a reserved request might already be billed.
+    Cancel the stranded run and start a new, explicitly budgeted assessment instead.
+    """
+    run = models.OneToOneField(CapabilityRun, on_delete=models.PROTECT, primary_key=True, related_name='execution')
+    sprint = models.ForeignKey('sprints.Sprint', on_delete=models.PROTECT, related_name='capability_executions')
+    idempotency_key = models.CharField(max_length=100)
+    request_hash = models.CharField(max_length=64)
+    task_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    status = models.CharField(max_length=16, default='queued')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    requests_reserved = models.PositiveIntegerField(default=0)
+    usd_reserved = models.DecimalField(max_digits=12, decimal_places=6, default=0)
+    heartbeat_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['sprint', 'idempotency_key'], name='capability_idempotency_per_sprint'),
+            models.UniqueConstraint(fields=['sprint'], condition=models.Q(status__in=['queued', 'running']),
+                                    name='one_active_capability_execution'),
+        ]
+
+
+class RecommendationSnapshot(models.Model):
+    """Pinned inputs; completed assessment history is never reopened."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='recommendation_snapshots')
+    assessment_event = models.ForeignKey(CapabilityRunEvent, on_delete=models.PROTECT)
+    inputs = models.JSONField()
+    inputs_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    objects = CapabilityHistoryQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Recommendation inputs are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Recommendation history cannot be deleted.')
+
+
+class RecommendationEvent(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    snapshot = models.ForeignKey(RecommendationSnapshot, on_delete=models.PROTECT, related_name='events')
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    objects = CapabilityHistoryQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Recommendation events are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Recommendation history cannot be deleted.')
+
+    class Meta:
+        ordering = ['id']
+
+
+class RecommendationExecution(models.Model):
+    snapshot = models.OneToOneField(RecommendationSnapshot, on_delete=models.PROTECT, primary_key=True, related_name='execution')
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT)
+    idempotency_key = models.CharField(max_length=100)
+    request_hash = models.CharField(max_length=64)
+    task_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    status = models.CharField(max_length=16, default='queued')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    requests_reserved = models.PositiveIntegerField(default=0)
+    usd_reserved = models.DecimalField(max_digits=12, decimal_places=6, default=0)
+    heartbeat_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['run', 'idempotency_key'], name='recommendation_idempotency'),
+            models.UniqueConstraint(fields=['run'], condition=models.Q(status__in=['queued', 'running']), name='one_active_recommendation'),
+        ]
+
+
+class RecommendationActionState(models.Model):
+    """User workflow separate from historical advice and assessment scores."""
+    snapshot = models.ForeignKey(RecommendationSnapshot, on_delete=models.PROTECT, related_name='action_states')
+    condition_id = models.CharField(max_length=64)
+    owner = models.CharField(max_length=200, blank=True)
+    feasibility = models.CharField(max_length=20, default='unreviewed', choices=[(s, s) for s in ('unreviewed', 'feasible', 'blocked')])
+    status = models.CharField(max_length=20, default='proposed', choices=[(s, s) for s in ('proposed', 'in_progress', 'completed', 'dismissed')])
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['snapshot', 'condition_id'], name='recommendation_action_state')]
+
+
+class InstitutionalPlanVersion(models.Model):
+    """Submitted/generated plan text is separate from assessed institutional evidence."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='institutional_plans')
+    parent = models.ForeignKey('self', on_delete=models.PROTECT, null=True, blank=True)
+    origin = models.CharField(max_length=16, choices=[('submitted', 'submitted'), ('suggested', 'suggested')])
+    text = models.TextField()
+    text_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    objects = CapabilityHistoryQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Plan versions are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Plan history cannot be deleted.')
+
+
+class PlanScenario(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    plan = models.ForeignKey(InstitutionalPlanVersion, on_delete=models.PROTECT, related_name='scenarios')
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='plan_scenarios')
+    assessment_event = models.ForeignKey(CapabilityRunEvent, on_delete=models.PROTECT)
+    inputs = models.JSONField()
+    inputs_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    objects = CapabilityHistoryQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Scenario inputs are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Scenario history cannot be deleted.')
+
+
+class PlanScenarioEvent(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    scenario = models.ForeignKey(PlanScenario, on_delete=models.PROTECT, related_name='events')
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    objects = CapabilityHistoryQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Scenario events are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Scenario history cannot be deleted.')
+
+    class Meta:
+        ordering = ['id']
+
+
+class PlanScenarioExecution(models.Model):
+    scenario = models.OneToOneField(PlanScenario, on_delete=models.PROTECT, primary_key=True, related_name='execution')
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT)
+    idempotency_key = models.CharField(max_length=100)
+    request_hash = models.CharField(max_length=64)
+    task_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    status = models.CharField(max_length=16, default='queued')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    requests_reserved = models.PositiveIntegerField(default=0)
+    usd_reserved = models.DecimalField(max_digits=12, decimal_places=6, default=0)
+    heartbeat_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['run', 'idempotency_key'], name='plan_scenario_idempotency'),
+            models.UniqueConstraint(fields=['run'], condition=models.Q(status__in=['queued', 'running']), name='one_active_plan_scenario'),
+        ]

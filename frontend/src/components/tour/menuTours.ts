@@ -312,8 +312,8 @@ export const MENU_TOURS: Record<MenuKey, MenuTourConfig> = {
       {
         id: 'facts-confidence',
         number: 1,
-        title: 'CRI Evidence Confidence',
-        purpose: 'Evaluates empirical confidence based on confirmed facts, source citations, and verified metrics.',
+        title: 'Review exceptions',
+        purpose: 'Model confidence is not verification. Review exceptions without blocking capability assessment.',
         tour_target: 'facts-summary-tile',
         tour_location: 'AI Readiness Audit > Extracted Facts Review',
       },
@@ -329,7 +329,7 @@ export const MENU_TOURS: Record<MenuKey, MenuTourConfig> = {
         id: 'facts-bulk',
         number: 3,
         title: 'Bulk Confirmation',
-        purpose: 'Review and confirm high-confidence facts in batches to speed up audit progression.',
+        purpose: 'Accept only verified, policy-eligible facts in batches; high-risk exceptions require individual review.',
         tour_target: 'facts-bulk-confirm',
         tour_location: 'Facts Review > Action Bar',
       },
@@ -1091,6 +1091,21 @@ export const MENU_TOURS: Record<MenuKey, MenuTourConfig> = {
   },
 };
 
+// Capability routes replace the historical CRI/approval sequence for the administrator experience.
+for (const key of ['sprint-score', 'sprint-recommendations', 'sprint-report', 'cri-benchmark-intelligence', 'transformation-plan', 'goals-tasks'] as MenuKey[]) {
+  MENU_TOURS[key] = {
+    menuKey: key, menuTitle: key === 'sprint-report' ? 'Capability Report & Export' : 'Institutional AI Capability',
+    menuPurpose: 'Frozen evidence, capability bounds and grounded conditional pathways without a baseline approval gate.',
+    roles: 'all', steps: [
+      { id: `${key}-history`, number: 1, title: 'Select an assessment', purpose: 'Select a frozen assessment and reference period. Failed or cancelled runs do not publish scores.', tour_target: 'capability-history', tour_location: 'Capability > History' },
+      { id: `${key}-start`, number: 2, title: 'Explicit assessment start', purpose: 'Start an institutional overview from source-supported scope. Optionally refine scope below the result. Model calls use configured credits; reading and refreshing do not.', tour_target: 'capability-start', tour_location: 'Capability > Start assessment' },
+      { id: `${key}-standing`, number: 3, title: 'Evidence and capability are separate', purpose: 'Capability bounds preserve unresolved evidence. Experimental tiers are not accreditation standards.', tour_target: 'capability-header', tour_location: 'Capability > Standing' },
+    ],
+  };
+}
+MENU_TOURS.dashboard.steps = MENU_TOURS.dashboard.steps.map(step => step.id === 'dashboard-metrics' ? { ...step, purpose: 'Platform counts and the selected institution’s frozen capability assessment; no averaged legacy CRI headline.' } : step);
+MENU_TOURS['sprint-approval'].menuTitle = 'Legacy Baseline Approval';
+
 export const ALL_MENU_TOURS: MenuTourConfig[] = Object.values(MENU_TOURS);
 
 function canRoleAccess(roles?: readonly UserRole[] | readonly string[] | 'all', role?: UserRole): boolean {
@@ -1112,7 +1127,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
       id: 'nav-tour-dashboard',
       number: num++,
       title: 'Dashboard',
-      purpose: 'Central executive cockpit showing CRI score health, audit progress, and sprint metrics.',
+      purpose: 'Selected institution capability, evidence resolution and sprint metrics.',
       tour_target: 'nav-dashboard',
       tour_location: 'Main Navigation > Cockpit',
     });
@@ -1145,7 +1160,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     {
       key: 'sprint-setup',
       title: '1. Sprint Setup',
-      purpose: 'Configure a new discovery sprint, select evaluation academic years, and define audit scope.',
+      purpose: 'Create an institutional workspace. Its year label is optional; evidence scope is established when assessment starts.',
     },
     {
       key: 'sprint-upload',
@@ -1160,7 +1175,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     {
       key: 'evidence-intelligence',
       title: '4. Evidence Intelligence',
-      purpose: 'Interactive evidence graph linking uploaded institutional documents directly to AI-QIF readiness criteria.',
+      purpose: 'Documents, fact exceptions, missing evidence, conflicts and accreditation evidence in one workspace.',
     },
     {
       key: 'sprint-facts',
@@ -1175,7 +1190,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     {
       key: 'sprint-gaps',
       title: '7. Gap Dashboard',
-      purpose: 'Identify readiness gaps where required evidence is missing, and see their exact point deductions on the CRI score.',
+      purpose: 'Inspect legacy fact-review gaps. Capability evidence distinguishes missing evidence from documented shortfalls.',
     },
     {
       key: 'sprint-confirmation',
@@ -1184,18 +1199,18 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     },
     {
       key: 'sprint-score',
-      title: '9. Live CRI Preview',
-      purpose: 'Real-time preview of the College Readiness Index across all 9 evaluation criteria as facts and gaps are settled.',
+      title: '9. Capability & Evidence',
+      purpose: 'Frozen capability bounds and evidence decisions for all 36 indicators. New evidence needs a new explicit assessment.',
     },
     {
       key: 'sprint-approval',
-      title: '10. Baseline Approval',
-      purpose: 'Formal sign-off and baseline freeze by InGage consultants and college leadership before final recommendations.',
+      title: '10. Legacy Baseline Approval',
+      purpose: 'Historical CRI approval only. Capability recommendations and report export do not require this step.',
     },
     {
       key: 'sprint-recommendations',
       title: '11. Recommendations',
-      purpose: 'Explore AI-recommended transformation initiatives and interventions customized for your institution.',
+      purpose: 'Review saved guidance and optionally evaluate an institutional plan. Tailored advice and conditional plan review require explicit requests.',
     },
     {
       key: 'sprint-report',
@@ -1204,7 +1219,11 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     },
   ];
 
-  for (const item of SPRINT_STEPS) {
+  const visibleSteps = new Set(['sprint-setup', 'sprint-upload', 'evidence-intelligence', 'sprint-score', 'sprint-recommendations', 'sprint-report']);
+  const names: Record<string, string> = { 'sprint-upload': 'Upload & Processing', 'evidence-intelligence': 'Evidence & Review', 'sprint-score': 'Assessment', 'sprint-recommendations': 'Recommendations & Action Plan', 'sprint-report': 'Reports' };
+  let auditNumber = 0;
+  for (const item of SPRINT_STEPS.filter((s) => visibleSteps.has(s.key))) {
+    item.title = `${++auditNumber}. ${names[item.key] || 'Sprint Setup'}`;
     const config = MENU_TOURS[item.key];
     if (config && canRoleAccess(config.roles, role)) {
       steps.push({
@@ -1282,7 +1301,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     },
   ];
 
-  for (const mod of MODULES) {
+  for (const mod of MODULES.filter((m) => ['benchmark-studio', 'benchmark-assessment', 'admin-settings'].includes(m.key))) {
     const config = MENU_TOURS[mod.key];
     if (config && canRoleAccess(config.roles, role)) {
       steps.push({
@@ -1310,7 +1329,7 @@ export function getNavigationTour(role?: UserRole): MenuTourConfig {
     id: 'nav-tour-workflow-guide-btn',
     number: num++,
     title: 'Workflow Guide (Top Bar)',
-    purpose: 'Open the 11-step audit workflow guide drawer anytime to check real platform progress and next actionable steps.',
+    purpose: 'Open the assessment workflow guide drawer anytime to check real platform progress and next actionable steps.',
     tour_target: 'workflow-guide-btn',
     tour_location: 'Top Navigation Bar',
   });

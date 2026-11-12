@@ -7,7 +7,17 @@ from django.db import models
 from apps.scoring.constants import AIQIF_INDICATOR_CHOICES, PILLAR_CHOICES
 
 
+class ActiveFactManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(retired_at__isnull=True)
+
+
 class ExtractedFact(models.Model):
+    objects = ActiveFactManager()
+    all_objects = models.Manager()
+    retired_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    source_review_required = models.BooleanField(default=False)
+
     class Status(models.TextChoices):
         EXTRACTED = 'extracted', 'Extracted'
         CONFIRMED = 'confirmed', 'Confirmed'
@@ -162,6 +172,8 @@ class ExtractedFact(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        base_manager_name = 'all_objects'
+        default_manager_name = 'objects'
         ordering = ['-created_at']
 
     def __str__(self):
@@ -268,6 +280,11 @@ class FactCorrectionProposal(models.Model):
         return f'Correction of {self.fact_id} ({self.status})'
 
 
+class ActiveMappingManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(fact__retired_at__isnull=True)
+
+
 class FactAIQIFMapping(models.Model):
     """One AI-QIF key indicator a fact is evidence for, with why and how
     sure. A fact can support several indicators (one row each), or none.
@@ -278,6 +295,9 @@ class FactAIQIFMapping(models.Model):
     counts a tag only once a reviewer has confirmed it (`review_status`) on a
     confirmed/corrected fact -- the AI's own `status` never counts.
     The fact's source document, page and quote stay on the fact itself."""
+
+    objects = ActiveMappingManager()
+    all_objects = models.Manager()
 
     class Status(models.TextChoices):
         MAPPED = 'mapped', 'Mapped'
@@ -346,6 +366,8 @@ class FactAIQIFMapping(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        base_manager_name = 'all_objects'
+        default_manager_name = 'objects'
         ordering = ['-confidence', 'indicator_code']
         constraints = [
             models.UniqueConstraint(fields=['fact', 'indicator_code'], name='unique_aiqif_indicator_per_fact'),
@@ -382,6 +404,7 @@ class FactReviewHistory(models.Model):
         #: A correction was proposed / its proposal rejected (FactCorrectionProposal); an approval is CORRECTED.
         CORRECTION_PROPOSED = 'correction_proposed', 'Correction Proposed'
         CORRECTION_REJECTED = 'correction_rejected', 'Correction Rejected'
+        SOURCE_REPAIRED = 'source_repaired', 'Source quotation repaired by rules'
 
     class DecisionSource(models.TextChoices):
         """Who decided: '' = a person (and every row from before this existed)."""
@@ -583,3 +606,17 @@ class EvidenceRequestEvent(models.Model):
 
     class Meta:
         ordering = ['created_at']
+
+
+class ReviewBatch(models.Model):
+    """One persisted initial question set per sprint. Answering never refills it.
+
+    Cases include overflow with initial=False; explicit follow-up is separate from
+    the initial budget. Case inputs/revisions are frozen for stale-write checks.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.OneToOneField('sprints.Sprint', on_delete=models.CASCADE, related_name='review_batch')
+    cases = models.JSONField(default=list)
+    decisions = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)

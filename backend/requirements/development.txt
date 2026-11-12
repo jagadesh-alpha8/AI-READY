@@ -2,3 +2,5 @@
 pytest-django>=4.7.0
 black>=24.1.0
 flake8>=7.0.0
+# Preserve exceptions and useful tracebacks in Django parallel test workers.
+tblib>=3.0,<4

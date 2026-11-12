@@ -120,11 +120,16 @@ export interface PlatformAIUsage extends AIUsageTotals {
 }
 
 export interface ExtractionWarning {
-  kind: 'chunk_failed' | 'chunks_skipped' | 'unreadable_pages' | 'unsupported_format' | 'no_text' | string;
+  kind: 'chunk_failed' | 'chunks_skipped' | 'unreadable_pages' | 'unsupported_format' | 'no_text' | 'quotation_checks' | string;
   detail: string;
   chunk?: number;
   chunks?: number[];
   pages?: string[];
+  /** quotation_checks only: facts kept (repaired included), citation pages repaired, and facts dropped. */
+  accepted?: number;
+  repaired?: number;
+  rejected?: number;
+  other_rejected?: number;
 }
 
 export type DocumentProcessingState = 'complete' | 'partial' | 'failed' | 'active' | 'not_processed';

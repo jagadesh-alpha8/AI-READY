@@ -64,6 +64,7 @@ def run_drive_import_job(self, job_id):
             folder_id, settings.GOOGLE_DRIVE_API_KEY, settings.GOOGLE_DRIVE_IMPORT_MAX_FILES,
             max_folders=settings.GOOGLE_DRIVE_IMPORT_MAX_FOLDERS,
             max_workers=settings.GOOGLE_DRIVE_IMPORT_CONCURRENCY,
+            require_complete=True,
         )
     except PermanentDriveImportError as exc:
         _fail(job, str(exc))
@@ -88,7 +89,8 @@ def run_drive_import_job(self, job_id):
         if is_importable(entry):
             importable.append(entry)
         else:
-            skipped.append({'filename': _display_name(entry), 'reason': 'Unsupported file type.'})
+            skipped.append({**_source_identity(entry), 'filename': _display_name(entry),
+                            'reason': 'Unsupported file type.', 'reason_code': 'unsupported_type'})
 
     claimed = _claim_slots(importable)
     slot_by_file_id = {meta['id']: slot for slot, meta in claimed.items()}
@@ -122,7 +124,8 @@ def run_drive_import_job(self, job_id):
             break
         progress['current_file'] = _display_name(entry)
         if isinstance(outcome, Exception):
-            skipped.append({'filename': _display_name(entry), 'reason': str(outcome)})
+            skipped.append({**_source_identity(entry), 'filename': _display_name(entry),
+                            'reason': str(outcome), 'reason_code': 'download_failed'})
             _save_progress(job, results, imported, progress)
             continue
         content, filename, mime_type = outcome
@@ -143,17 +146,21 @@ def run_drive_import_job(self, job_id):
             document = create_document_from_file(
                 sprint=job.sprint, file_obj=upload, document_type=document_type,
                 owner_role=owner_role, uploaded_by=job.created_by, document_type_source=type_source,
+                drive_file_id=entry['id'], source_path=_display_name(entry, filename),
             )
         except DocumentValidationError as exc:
-            skipped.append({'filename': _display_name(entry, filename), 'reason': _flatten_errors(exc.errors)})
+            skipped.append({**_source_identity(entry, filename), 'filename': _display_name(entry, filename),
+                            'reason': _flatten_errors(exc.errors), 'reason_code': 'validation_rejected'})
             _save_progress(job, results, imported, progress)
             continue
 
         imported += 1
         if slot:
-            results[slot] = {'status': 'found', 'filename': filename, 'document_id': str(document.id)}
+            results[slot] = {**_source_identity(entry, filename), 'status': 'found',
+                             'filename': filename, 'document_id': str(document.id)}
         else:
             additional.append({
+                **_source_identity(entry, filename),
                 'filename': filename, 'folder': entry.get('folder_path', ''), 'document_id': str(document.id),
             })
         _save_progress(job, results, imported, progress)
@@ -216,6 +223,10 @@ def _display_name(entry, filename=None):
     name = filename or entry['name']
     folder = entry.get('folder_path', '')
     return f'{folder}/{name}' if folder else name
+
+
+def _source_identity(entry, filename=None):
+    return {'drive_file_id': entry['id'], 'source_path': _display_name(entry, filename)}
 
 
 def _flatten_errors(errors):

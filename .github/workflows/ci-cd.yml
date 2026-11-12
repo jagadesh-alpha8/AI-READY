@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, A1]
 
 permissions:
   contents: read
@@ -31,7 +31,7 @@ jobs:
 
       - run: pip install -r requirements/development.txt
 
-      - run: python manage.py test
+      - run: python manage.py test --parallel 4
         env:
           SECRET_KEY: ci-test-secret-key
           JWT_SECRET_KEY: ci-test-jwt-secret-key
@@ -39,11 +39,9 @@ jobs:
           ALLOWED_HOSTS: localhost,127.0.0.1
 
   # The same tests on PostgreSQL, the production database: SQLite ignores row locks (SELECT ... FOR UPDATE) and
-  # some constraints, so bugs like the tag-confirm 500 only show up here. Informational for now -- it does not
-  # block the deploy (build-and-push needs only backend-test); make it required once it has been green a while.
+  # some constraints. Keep this required so production-database regressions cannot bypass CI.
   backend-test-postgres:
     runs-on: ubuntu-latest
-    continue-on-error: true
     defaults:
       run:
         working-directory: backend
@@ -57,7 +55,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U ci"
+          --health-cmd "pg_isready -U ci -d ai_ready"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -72,7 +70,9 @@ jobs:
 
       - run: pip install -r requirements/development.txt
 
-      - run: python manage.py test
+      - run: |
+          python manage.py test apps.scoring.test_review_snapshot_concurrency apps.scoring.test_capability_storage apps.scoring.test_evidence_reliability apps.facts.test_review_journey
+          python manage.py test --parallel 4
         env:
           DATABASE_URL: postgres://ci:ci@localhost:5432/ai_ready
           SECRET_KEY: ci-test-secret-key
@@ -90,15 +90,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
       - run: npm ci
+      - run: npm test
       - run: npm run build
 
   build-and-push:
-    needs: [backend-test, frontend-build]
+    needs: [backend-test, backend-test-postgres, frontend-build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:

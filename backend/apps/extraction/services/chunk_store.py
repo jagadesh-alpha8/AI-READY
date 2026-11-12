@@ -2,13 +2,13 @@
 
 A document's text is split into chunks (openai_fact_extractor._build_chunks). For each chunk the store keeps
 its page range, status, attempt count, error, and the validated facts the AI returned, keyed by the hash of
-the exact text sent. On a retry, a continuation or "Process again" of a failed / partial job:
+the exact text and versioned extraction protocol. On a retry, a continuation or "Process again" of a failed / partial job:
 
 - a COMPLETED chunk with the same text is reused -- no AI call, its saved facts are merged as before;
 - a FAILED or never-finished chunk is sent to the AI again;
 - a chunk whose text changed (e.g. a page that was unreadable is now OCR'd) is a new chunk.
 
-Facts still reach the database only through ExtractionPipeline._persist_facts (one row per field_key,
+Facts still reach the database only through ExtractionPipeline._persist_facts (scoped observations,
 reviewed facts never overwritten), so reusing a chunk never duplicates a fact.
 
 The number of NEW AI chunk calls one attempt makes is capped by OPENAI_FACT_EXTRACTION_MAX_CHUNKS (0 = no
@@ -31,7 +31,8 @@ def chunk_text(chunk_pages):
 
 
 def chunk_hash(chunk_pages):
-    return hashlib.sha256(chunk_text(chunk_pages).encode('utf-8')).hexdigest()
+    from ..observations import digest, protocol
+    return digest({'text': chunk_text(chunk_pages), 'protocol': protocol()})
 
 
 class ChunkStore:

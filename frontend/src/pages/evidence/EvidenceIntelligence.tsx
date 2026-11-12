@@ -159,7 +159,7 @@ export const EvidenceIntelligence: React.FC = () => {
       <div className="space-y-6">
         <PageHeader
           icon={FileStack}
-          title="Evidence Intelligence"
+          title="Source Documents"
           description="Every document this assessment relies on, what state it is in, and what is still missing."
         />
         <EmptyState
@@ -187,7 +187,7 @@ export const EvidenceIntelligence: React.FC = () => {
       <div data-tour="evidence-header">
         <PageHeader
           icon={FileStack}
-          title="Evidence Intelligence"
+          title="Source Documents"
           description="Every document this assessment relies on, what state it is in, and what is still missing."
           actions={
             activeSprintId && (
