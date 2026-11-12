@@ -26,8 +26,9 @@ much the evidence is worth. This stage does that after the provisional assessmen
    - At most `DEPTH_MAX_QUESTIONS` (25) in total, `DEPTH_MISSING_QUESTION_SLOTS` (10) of them reserved for missing
      evidence. Depth questions go to the credited conditions with the highest weight × credit first.
 2. The institution responds: an answer, uploaded documents, or "don't know". There is no screen yet:
-   `depth_load_responses responses.json --commit` loads a file. An answer counts as **supported** only when a document
-   backs it.
+   `depth_load_responses responses.json --commit` loads a file (consultant-attested: rows are saved as checked). An
+   answer counts as **supported** only when a document backs it: a row marked supported must name its `document_ids`.
+   Through the API (second layer, `SECOND_LAYER_HANDOFF.md`) answers are searched for and checked instead.
 3. `depth_judge export.json --commit` judges each credited condition with answered questions: one model call places it
    at **evidenced**, **substantiated** or **strong** against the indicator's level descriptions and any **approved
    past cases** for the same condition. Then the open decisions are applied in code (below). Each judgment is saved

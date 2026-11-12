@@ -204,13 +204,17 @@ class PolicyTests(SimpleTestCase):
         self.assertIsNone(depth.depth_index({}, export()['assessment']['records'], data['rubric']))
 
 
+DOCUMENT = '00000000-0000-0000-0000-00000000d0c1'
+
+
 @override_settings(DEPTH_MAX_QUESTIONS=8, DEPTH_MISSING_QUESTION_SLOTS=2)
 class FlowTests(TestCase):
     def setUp(self):
         self.data = export(credited={F1: 1, F2: 1})
 
     def answer_all(self, text, supported=True):
-        rows = [{'question_id': str(q.pk), 'kind': 'answer', 'answer': text, 'supported': supported}
+        rows = [{'question_id': str(q.pk), 'kind': 'answer', 'answer': text, 'supported': supported,
+                 'document_ids': [DOCUMENT] if supported else []}
                 for q in DepthQuestion.objects.filter(kind='depth')]
         return load_responses(rows, commit=True, via='consultant')
 
@@ -265,8 +269,8 @@ class FlowTests(TestCase):
         DepthPastCase.objects.filter(condition_id=F1).update(status='approved')
         later = export('run-2', credited={F1: 1})
         create_questions(later, FakeModel(), commit=True)
-        rows = [{'question_id': str(q.pk), 'kind': 'answer', 'answer': 'About 40 hours.', 'supported': True}
-                for q in DepthQuestion.objects.filter(run_ref='run-2', kind='depth')]
+        rows = [{'question_id': str(q.pk), 'kind': 'answer', 'answer': 'About 40 hours.', 'supported': True,
+                 'document_ids': [DOCUMENT]} for q in DepthQuestion.objects.filter(run_ref='run-2', kind='depth')]
         load_responses(rows, commit=True)
         model = FakeModel()
         result = judge_run(later, model)
@@ -336,7 +340,8 @@ class FlowTests(TestCase):
     def test_report_with_reserved_credit(self):
         create_questions(self.data, FakeModel(), commit=True)
         question = [q for q in DepthQuestion.objects.filter(kind='depth') if q.condition_ids == [F1]][0]
-        load_responses([{'question_id': str(question.pk), 'kind': 'answer', 'answer': 'accredited', 'supported': True}],
+        load_responses([{'question_id': str(question.pk), 'kind': 'answer', 'answer': 'accredited', 'supported': True,
+                         'document_ids': [DOCUMENT]}],
                        commit=True)
         judge_run(self.data, FakeModel(), commit=True)
         report = depth_report(self.data)

@@ -274,3 +274,17 @@ for suffix in ('', '/'):
         path('/<uuid:sprint_id>/review-batch' + suffix, SprintReviewBatchView.as_view()),
         path('/<uuid:sprint_id>/review-batch/<str:case_id>' + suffix, SprintReviewCaseView.as_view()),
     ]
+
+# Second assessment layer (skeleton): follow-up questions one at a time, and optional additional evidence.
+from apps.scoring.capability.layer2_views import (
+    AdditionalEvidenceView, FollowUpView, QuestionResponsesView, QuestionsView, ResponseView,
+)
+for suffix in ('', '/'):
+    prefix = '/<uuid:sprint_id>/capability-runs/<uuid:run_id>'
+    urlpatterns += [
+        path(prefix + '/questions' + suffix, QuestionsView.as_view()),
+        path(prefix + '/questions/<uuid:question_id>/responses' + suffix, QuestionResponsesView.as_view()),
+        path(prefix + '/responses/<uuid:response_id>' + suffix, ResponseView.as_view()),
+        path(prefix + '/responses/<uuid:response_id>/follow-up' + suffix, FollowUpView.as_view()),
+        path(prefix + '/additional-evidence' + suffix, AdditionalEvidenceView.as_view()),
+    ]
