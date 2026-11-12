@@ -12,12 +12,13 @@ def record(cid, credit=0.0, state=None, reason='Not established in the supplied 
 
 class TierTests(SimpleTestCase):
     def test_default_bands_on_the_final_score(self):
-        self.assertEqual(action_plan.tier_for(69.9)['current'], None)
-        self.assertEqual((action_plan.tier_for(69.9)['next'], action_plan.tier_for(69.9)['points_to_next']),
+        self.assertEqual(action_plan.tier_for(59.9)['current'], None)
+        self.assertEqual((action_plan.tier_for(59.9)['next'], action_plan.tier_for(59.9)['points_to_next']),
                          ('Silver', 0.1))
-        self.assertEqual(action_plan.tier_for(70)['current'], 'Silver')
-        self.assertEqual(action_plan.tier_for(85)['current'], 'Gold')
-        self.assertEqual((action_plan.tier_for(95)['current'], action_plan.tier_for(95)['next']), ('Platinum', None))
+        self.assertEqual(action_plan.tier_for(60)['current'], 'Silver')
+        self.assertEqual(action_plan.tier_for(75)['current'], 'Gold')
+        self.assertEqual((action_plan.tier_for(85)['current'], action_plan.tier_for(85)['next']), ('Platinum', 'Diamond'))
+        self.assertEqual((action_plan.tier_for(95)['current'], action_plan.tier_for(95)['next']), ('Diamond', None))
         self.assertTrue(action_plan.tier_for(10)['provisional'])
 
     @override_settings(CAPABILITY_PROVISIONAL_TIERS='Bronze:50, Silver:75, broken, Gold:x')
@@ -100,4 +101,4 @@ class PlanTests(SimpleTestCase):
     def test_full_score_needs_no_plan(self):
         plan = action_plan.build(self.rubric, [record(cid, 1.0) for cid in self.ids])
         self.assertEqual((plan['score'], plan['target'], plan['actions']), (100.0, None, []))
-        self.assertEqual(plan['tier']['current'], 'Platinum')
+        self.assertEqual(plan['tier']['current'], 'Diamond')
