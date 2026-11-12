@@ -34,8 +34,12 @@ class StartSerializer(serializers.Serializer):
 
 
 def summary(execution):
-    done = execution.run.events.filter(payload__kind='indicator').count()
+    second = (execution.run.inputs or {}).get('second_layer')
+    # A final run (second layer) is published whole, without per-indicator checkpoints.
+    done = 36 if second and execution.status == 'completed' else execution.run.events.filter(payload__kind='indicator').count()
     return {'id': str(execution.run_id), 'status': execution.status, 'completed_indicators': done,
+            'stage': 'final' if second else 'provisional',
+            'provisional_run_id': second['provisional_run_id'] if second else None,
             'total_indicators': 36, 'requests_reserved': execution.requests_reserved,
             'reserved_cost_usd': str(execution.usd_reserved), 'created_at': execution.created_at,
             'heartbeat_at': execution.heartbeat_at,
@@ -62,6 +66,10 @@ class CapabilityRunsView(APIView):
         page = paginator.paginate_queryset(rows, request, view=self)
         response = paginator.get_paginated_response([summary(row) for row in page])
         response.data['enabled'] = settings.CAPABILITY_ASSESSMENT_ENABLED
+        # Line 1 of the questionnaire comes before a run: say how many of its questions still await an answer.
+        from apps.facts.review_queue import view as review_view
+        review = review_view(sprint)
+        response.data['review_questions_awaiting'] = sum(1 for c in review['cases'] if c['state'] == 'awaiting')
         return response
 
     def post(self, request, sprint_id):

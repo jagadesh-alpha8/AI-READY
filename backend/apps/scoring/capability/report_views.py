@@ -40,6 +40,24 @@ def validate_report_identity(run, event, snapshot=None, completed=None):
             raise ReportIntegrityError()
 
 
+def assessment_stage(run, event):
+    """Whether this report shows the provisional result (before follow-up questions and additional evidence) or the
+    final one published after them (layer2_service.publish_final)."""
+    second = (run.inputs or {}).get('second_layer')
+    score = event.payload.get('result', {}).get('score')
+    if second:
+        return {'stage': 'final', 'provisional_run_id': second['provisional_run_id'],
+                'provisional_score': second.get('provisional_score'), 'score': score,
+                'note': (f"Final result: includes the evidence the institution sent after the provisional score "
+                         f"({second.get('provisional_score')} provisional, {score} final).")}
+    from .layer2_service import final_run_id
+    final = final_run_id(str(run.pk))
+    return {'stage': 'provisional', 'final_run_id': final, 'score': score,
+            'note': ('Provisional result: a final result that includes later evidence has been published (run '
+                     f'{final}).') if final else
+                    'Provisional result: follow-up questions and any additional evidence may still change it.'}
+
+
 class CapabilityReportView(RunView):
     def get(self, request, sprint_id, run_id):
         execution = self.authorized(request, sprint_id, run_id)
@@ -75,7 +93,7 @@ class CapabilityReportView(RunView):
             'refines_run_id': run.inputs.get('refines_run_id'), 'source_manifest': run.inputs['manifest'],
             'assessment_protocol': run.inputs.get('assessment_protocol'),
             'retrieval_policy': run.inputs.get('retrieval_policy'),
-            'assessment': event.payload, 'recommendation': recommendation,
+            'assessment': event.payload, 'assessment_stage': assessment_stage(run, event), 'recommendation': recommendation,
             'deterministic_plan': snapshot.inputs if recommendation else build_inputs(run, event, {}),
             'notice': 'Experimental internal methodology, not an external accreditation standard. Unknown evidence is not failure. '
                       'Tier pathways are conditional sufficient scenarios, not optimal or guaranteed. Workflow completion does not change scores; reassessment is required.'}
