@@ -8,7 +8,7 @@ import { achievedTier, scoreLabel } from '../utils/capability';
 import { getSprintOverview } from '../services/sprints';
 import type { Sprint, SprintOverview } from '../types/api';
 import { date, num } from '../utils/format';
-import { ROUTES, TIERS, institutionLevel, levelRank, nextTier, tierName } from '../utils/maturity';
+import { TIERS, institutionLevel, levelRank, nextTier, tierName } from '../utils/maturity';
 import { pathOf } from '../navigation';
 import type { PageKey } from '../utils/access';
 
@@ -108,14 +108,6 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
         </section>
       </div>
 
-      <div className="route-options">
-        <div><span className="eyebrow">Choose the pace</span><h2>Three routes. One verified destination.</h2></div>
-        {ROUTES.map((r) => (
-          <Link key={r.key} className={`route-card ${r.key === 'progressive' ? 'recommended' : ''}`} to={pathOf('plan')}>
-            <span>{r.name}</span><strong>{r.period}</strong><small>{r.effort} effort</small><i aria-hidden="true">→</i>
-          </Link>
-        ))}
-      </div>
     </>
   );
 }

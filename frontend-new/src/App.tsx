@@ -24,12 +24,10 @@ import { CriStanding } from './pages/CriStanding';
 import { Pathway } from './pages/Pathway';
 import { TransformationPlan } from './pages/TransformationPlan';
 import { GoalsTasks } from './pages/GoalsTasks';
-import { Progress } from './pages/Progress';
 import { Reports } from './pages/Reports';
 import { Advisor } from './pages/Advisor';
 import { Compliance } from './pages/Compliance';
 import { Team } from './pages/Team';
-import { Notifications } from './pages/Notifications';
 import { Settings } from './pages/Settings';
 import { Help } from './pages/Help';
 import { BackendStatus } from './pages/BackendStatus';
@@ -38,7 +36,7 @@ import { ProcessingControl } from './pages/ProcessingControl';
 import { Verification } from './pages/Verification';
 import { AIQIFTagging } from './pages/AIQIFTagging';
 import { BaselineApproval } from './pages/BaselineApproval';
-import { DepthFollowUp } from './pages/DepthFollowUp';
+import { Questionnaire } from './pages/Questionnaire';
 import { RecommendedActions } from './pages/RecommendedActions';
 import { PlanComparison } from './pages/PlanComparison';
 import { Institutions } from './pages/Institutions';
@@ -61,12 +59,10 @@ const PAGES: Record<PageKey, () => JSX.Element> = {
   pathway: Pathway,
   plan: TransformationPlan,
   goals: GoalsTasks,
-  progress: Progress,
   reports: Reports,
   copilot: Advisor,
   compliance: Compliance,
   team: Team,
-  notifications: Notifications,
   benchmarkstudio: BenchmarkLibrary,
   admin: Settings,
   help: Help,
@@ -76,7 +72,7 @@ const PAGES: Record<PageKey, () => JSX.Element> = {
   verification: Verification,
   aiqif: AIQIFTagging,
   baseline: BaselineApproval,
-  depth: DepthFollowUp,
+  questionnaire: Questionnaire,
   actions: RecommendedActions,
   plancompare: PlanComparison,
   institutions: Institutions,

@@ -140,3 +140,22 @@ Overlapping menus were merged into the original roadmap menus; no endpoint was d
 
 Menus that still show sample data (Level pathway, Progress & reassessment, Notifications, the sample blocks and the
 Silver/Gold/Platinum visuals) are unchanged while their APIs are requested from the backend team.
+
+### New flow and second layer (12 Nov 2026, after Siddharth's reply)
+
+- **Flow:** menus grouped as Start · 1 Initial evidence · 2 Assessment · 3 Report & recommendations; the journey strip
+  follows it (Set up, Initial evidence, Assessment, Report & recommendations). Benchmark comparison, Gap analysis and
+  CRI & maturity standing sit in the report step.
+- **Questionnaire** (`src/pages/Questionnaire.tsx`, replaces Depth follow-up), one item at a time with answer box,
+  prominent upload and Skip:
+  - line 1, before the assessment: guided review cases (`/sprints/{id}/review-batch`), Skip only moves on;
+  - line 2, after the provisional score: `GET .../capability-runs/{run}/questions` (a follow-up first),
+    `POST .../questions/{q}/responses`, `POST .../responses/{r}/follow-up`, `GET .../responses/{r}` polled while
+    "pending"; at most one follow-up; files are uploaded through the document API first and processed, then
+    referenced by id;
+  - additional evidence: `GET/POST .../additional-evidence` with at least one area, key indicator or requirement.
+- **Removed after the reply:** R-02 and R-06 samples (score history now on CRI & maturity standing), R-08
+  (Notifications menu), R-09 sample, the AI advisor sample (renamed Evidence search), the three fixed paces (D-03).
+- **Report step:** each indicator, requirement and area has room for "how this score was reached"
+  (`ScoreExplanation` in `src/types/capability.ts`), shown when the backend sends it.
+- Open items are tracked in `src/utils/apiStatus.ts` (Backend status screen, Review mode).

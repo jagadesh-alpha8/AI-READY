@@ -59,12 +59,10 @@ export const PAGE_ROLES = {
   pathway: 'all', // benchmark-assessment
   plan: 'all', // transformation-plan
   goals: ALL_ROLES, // goals-tasks
-  progress: 'all', // sprint-score
   reports: 'all', // sprint-report
   copilot: 'all', // ai-copilot
   compliance: ALL_ROLES, // compliance-mapping
   team: 'all', // admin-settings (role matrix for all; user list for users.manage)
-  notifications: ALL_ROLES, // reminders
   benchmarkstudio: STAFF, // benchmark-studio
   admin: 'all', // admin-settings
   help: 'all',
@@ -74,7 +72,7 @@ export const PAGE_ROLES = {
   verification: ALL_ROLES, // sprint-facts: verification, guided review, corrections
   aiqif: ALL_ROLES, // sprint-facts: AI-QIF indicator tags (expert queue: Super Admin)
   baseline: ALL_ROLES, // baseline-approval
-  depth: 'all', // A2 depth-of-evidence follow-up
+  questionnaire: ALL_ROLES, // A2 second layer: review items, follow-up questions, additional evidence
   actions: 'all', // ai-recommendations: grounded advice and action tracking
   plancompare: 'all', // transformation-plan: compare a written plan with the assessment
   institutions: STAFF, // institution management

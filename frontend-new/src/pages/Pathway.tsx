@@ -1,13 +1,13 @@
 import { CyclePicker } from '../components/CyclePicker';
 import { RequireSprint } from '../components/RequireSprint';
-import { Dummy, Empty, ErrorState, Loading, PageHeading, PageLink, Panel, Pill, Table } from '../components/ui';
+import { Empty, ErrorState, Loading, PageHeading, PageLink, Panel, Pill, Table } from '../components/ui';
 import { useCapability } from '../hooks/useCapability';
 import { useCycle } from '../hooks/useCycle';
 import type { CycleBenchmarkRow, Sprint } from '../types/api';
 import { KIND_LABEL } from '../utils/benchmark';
 import { achievedTier, capabilityTone, tierLabel } from '../utils/capability';
 import { num } from '../utils/format';
-import { ROUTES, TIERS, institutionLevel, levelRank, meetsLevel, nextTier, tierName } from '../utils/maturity';
+import { TIERS, institutionLevel, levelRank, meetsLevel, nextTier, tierName } from '../utils/maturity';
 
 export function Pathway() {
   return <RequireSprint>{(sprint) => <PathwayBody sprint={sprint} />}</RequireSprint>;
@@ -77,15 +77,7 @@ function PathwayBody({ sprint }: { sprint: Sprint }) {
           <p className="muted">{cap.foundation.baseline.message} Durations are illustrative.</p>
         </Panel>
       ) : (
-        <Dummy code="R-04" title="Progression timeline" note="Shown from the foundation plan once a capability recommendation exists; until then these are the handoff's typical periods.">
-          <div className="route-timeline">
-            {ROUTES.map((r) => (
-              <div key={r.key} className={`route-row ${r.key} ${r.key === 'progressive' ? 'recommended' : ''}`}>
-                <span>{r.name}</span><div className="route-track"><i /></div><b>{r.period}</b>
-              </div>
-            ))}
-          </div>
-        </Dummy>
+        <p className="muted">The progression timeline comes from the foundation plan once grounded advice exists for a completed assessment.</p>
       )}
     </>
   );

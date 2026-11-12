@@ -50,3 +50,37 @@ export async function downloadCapabilityReport(sprint: string, run: string, form
   });
   saveBlob(res.data, `capability-${run.slice(0, 8)}-${audience}.${format}`);
 }
+
+// --- second assessment layer (A2, PR #45): the questionnaire's second line and additional evidence ---------------
+// Documents are uploaded first through the document API and referenced by id (they must belong to the sprint).
+export interface Layer2Question {
+  id: string; rank: number; kind: 'depth' | 'missing'; text: string; indicator_code: string; condition_ids: string[]; status: string;
+}
+export interface Layer2Progress { questions: number; open: number; answered: number; checks_waiting: number; follow_ups_open: number }
+export interface Layer2Next { type: 'question' | 'follow_up'; text: string; question: Layer2Question; response_id: string | null }
+export interface Layer2Response {
+  id: string; question_id: string; parent_id: string | null; kind: 'answer' | 'upload' | 'dont_know';
+  answer: string; document_ids: string[]; status: 'pending' | 'checked'; supported: boolean | null;
+  follow_up: string | null; dimensions: { dimension_id: string; support: string; note: string }[];
+  passages_found: number; created_at: string;
+}
+export interface AdditionalEvidenceItem {
+  id: string; document_ids: string[]; note: string; picked: string[]; routed_indicators: string[]; unknown_picks: string[];
+  over_cap: string[]; status: 'pending' | 'checked'; passages_found: number; created_at: string;
+}
+type Reply = { answer?: string; document_ids?: string[]; skip?: boolean };
+
+export const getNextQuestion = (sprint: string, run: string) =>
+  http.get<{ next: Layer2Next | null; progress: Layer2Progress }>(`${root(sprint)}/${run}/questions`);
+export const answerQuestion = (sprint: string, run: string, question: string, body: Reply) =>
+  http.post<Layer2Response>(`${root(sprint)}/${run}/questions/${question}/responses`, body);
+export const getResponse = (sprint: string, run: string, response: string) =>
+  http.get<Layer2Response>(`${root(sprint)}/${run}/responses/${response}`);
+/** The one answer to a follow-up; never followed up again. */
+export const answerFollowUp = (sprint: string, run: string, response: string, body: Reply) =>
+  http.post<Layer2Response>(`${root(sprint)}/${run}/responses/${response}/follow-up`, body);
+export const listAdditionalEvidence = (sprint: string, run: string) =>
+  http.get<{ results: AdditionalEvidenceItem[] }>(`${root(sprint)}/${run}/additional-evidence`);
+/** picked: readiness areas, key indicators or requirements the documents are for (at least one). */
+export const addAdditionalEvidence = (sprint: string, run: string, body: { document_ids: string[]; note: string; picked: string[] }) =>
+  http.post<AdditionalEvidenceItem>(`${root(sprint)}/${run}/additional-evidence`, body);

@@ -637,3 +637,8 @@ a.feature-card:hover, a.feature-card:focus-visible, .sequence-card:hover, .seque
   .spinner { animation-duration: 2.4s; }
   .readiness-stamp, .readiness-stamp:hover { transform: none; }
 }
+
+/* Questionnaire: one item at a time (answer, upload, skip). Layout only; colours come from the theme. */
+.questionnaire-item { display: grid; gap: var(--s2); }
+.questionnaire-item h3 { margin: 0; font-size: 18px; line-height: 1.4; }
+.questionnaire-item fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: var(--s1); }

@@ -85,4 +85,6 @@ export const startReviewBatch = (sprintId: string, followUp = false) =>
   http.post<ReviewBatch>(`/sprints/${sprintId}/review-batch`, followUp ? { optional_follow_up: true } : {});
 export const decideReviewCase = (sprintId: string, caseId: string, body: {
   action: ReviewAction; fact_id?: string; value?: unknown; reason?: string; source_institution?: string; optional_follow_up?: boolean;
+  /** A document (already uploaded to the sprint) that supports a corrected value. */
+  source_document_id?: string; source_page?: string; source_snippet?: string;
 }) => http.post<ReviewBatch>(`/sprints/${sprintId}/review-batch/${caseId}`, body);

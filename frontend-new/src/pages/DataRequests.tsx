@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { EvidenceRequestDialog } from '../components/EvidenceRequestDetail';
 import { RequireSprint } from '../components/RequireSprint';
-import { ActionDialog, Dummy, SampleTable, Empty, ErrorState, Loading, Notice, PageHeading, Pill, Stat, Table } from '../components/ui';
+import { ActionDialog, Empty, ErrorState, Loading, Notice, PageHeading, Pill, Stat, Table } from '../components/ui';
 import { useAccess } from '../hooks/useAccess';
 import { useResource } from '../hooks/useResource';
 import { listEvidenceRequests, submitEvidence } from '../services/evidenceRequests';
@@ -71,13 +71,6 @@ function RequestsBody({ sprint }: { sprint: Sprint }) {
             ))}
           </Table>
         )}
-      <Dummy code="R-02" title="Reminder and escalation status" note="The backend tracks due dates and overdue state but keeps no reminder or escalation records yet.">
-        <SampleTable columns={['Request', 'Reminders sent', 'Last reminder', 'Escalation']} rows={[
-          ['AI governance and policy pack', '2', '02 Nov', 'None'],
-          ['AI curriculum mapping', '3', '08 Nov', 'Escalated to Dean Academics'],
-          ['Research and innovation outcomes', '1', '09 Nov', 'None'],
-        ]} />
-      </Dummy>
       {viewing && <EvidenceRequestDialog id={viewing} sprintId={sprint.id} onClose={() => setViewing(null)} onChanged={() => void all.refetch()} />}
       {responding && (
         <ActionDialog

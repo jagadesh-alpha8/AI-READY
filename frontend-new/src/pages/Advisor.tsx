@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { RequireSprint } from '../components/RequireSprint';
-import { Dummy, Empty, Notice, PageHeading, Panel } from '../components/ui';
+import { Empty, Notice, PageHeading, Panel } from '../components/ui';
 import { searchEvidence } from '../services/evidenceSearch';
 import type { EvidenceResult, Sprint } from '../types/api';
 import { errorMessage, statusOf } from '../utils/errors';
@@ -11,7 +11,7 @@ export function Advisor() {
   return <RequireSprint>{(sprint) => <AdvisorBody sprint={sprint} />}</RequireSprint>;
 }
 
-/** Grounded answers only: every passage shown cites the institution's own document and page. */
+/** Evidence search: cited passages from the sprint's own documents (no written answers; R-03 is not planned). */
 function AdvisorBody({ sprint }: { sprint: Sprint }) {
   const [question, setQuestion] = useState('');
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -36,20 +36,13 @@ function AdvisorBody({ sprint }: { sprint: Sprint }) {
   return (
     <>
       <PageHeading page="copilot" />
-      <Dummy code="R-03" title="Written advisor answers" note="The backend offers grounded evidence search, not a conversational answer endpoint. Real questions below return cited passages from this sprint's documents.">
-        <div className="advisor-answer">
-          <div className="activity"><span className="activity-icon">You</span><div><strong>Why is faculty capability blocking Gold?</strong></div></div>
-          <p><b>AI readiness advisor</b>: Gold requires repeatable adoption across departments and measured impact. Current evidence confirms that 63% of faculty completed foundational training, but only 38% of programmes show verified curriculum integration.</p>
-          <span className="status neutral">Sample answer</span>
-        </div>
-      </Dummy>
       <Panel className="advisor-panel">
         <form className="advisor-ask" onSubmit={ask}>
           <label className="sr-only" htmlFor="advisor-q">Question</label>
-          <input id="advisor-q" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about this institution's evidence, score or plan…" />
-          <button className="primary-action" disabled={busy || !question.trim()}>{busy ? 'Searching…' : 'Ask advisor'}</button>
+          <input id="advisor-q" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Search this institution's documents…" />
+          <button className="primary-action" disabled={busy || !question.trim()}>{busy ? 'Searching…' : 'Search evidence'}</button>
         </form>
-        {turns.length === 0 && <Empty title="Ask a question">For example: “Is there an approved AI policy?” or “How many faculty completed AI training?”</Empty>}
+        {turns.length === 0 && <Empty title="Search the evidence">For example: “Is there an approved AI policy?” or “How many faculty completed AI training?”</Empty>}
         <div className="activity-list">
           {turns.map((t, i) => (
             <div key={i} className="advisor-turn">
@@ -58,7 +51,6 @@ function AdvisorBody({ sprint }: { sprint: Sprint }) {
                 : t.error ? <Notice tone="error">{t.error}</Notice>
                   : !t.results?.length ? <p className="muted">No passage in this sprint's documents answers that.</p> : (
                     <div className="advisor-answer">
-                      <strong>AI readiness advisor</strong>
                       {t.results.map((r, j) => (
                         <blockquote key={j}>
                           <p>{r.text}</p>

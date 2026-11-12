@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAccess } from '../hooks/useAccess';
 import type { useCapability } from '../hooks/useCapability';
 import { cancelRun, startRun } from '../services/capability';
-import type { Result, Run } from '../types/capability';
+import type { Result, Run, ScoreExplanation } from '../types/capability';
 import {
   capabilityTone, causeLabel, indicatorScoreLabel, isPartCredit, newKey, partLabel, partTone, pillarScoreLabel, scoreLabel, stateCounts,
   stateLabel, tierLabel,
@@ -12,6 +12,26 @@ import { dateTime } from '../utils/format';
 import { ActionDialog, Bar, Notice, Panel, Pill, Stat } from './ui';
 
 type Cap = ReturnType<typeof useCapability>;
+
+/**
+ * How a score was reached (report step). The backend will send it per requirement and per area; until then the
+ * space shows what will appear there, so the layout is settled before the data arrives.
+ */
+export function ScoreExplanationBlock({ explanation, placeholder = true }: { explanation?: ScoreExplanation; placeholder?: boolean }) {
+  if (!explanation) {
+    return placeholder ? (
+      <p className="muted">How this score was reached (what was found and credited, where we looked for what was not found, and the next step) appears here once the report step provides it.</p>
+    ) : null;
+  }
+  return (
+    <dl className="kv">
+      {explanation.text && <><dt>How it was reached</dt><dd>{explanation.text}</dd></>}
+      {explanation.found && <><dt>Found and credited</dt><dd>{explanation.found}</dd></>}
+      {explanation.looked && <><dt>Where we looked</dt><dd>{explanation.looked}</dd></>}
+      {explanation.next_step && <><dt>Next step</dt><dd>{explanation.next_step}</dd></>}
+    </dl>
+  );
+}
 
 /** Score bounds, evidence resolution and Silver / Gold / Platinum eligibility of one frozen run. */
 export function CapabilityStanding({ result, run }: { result: Result; run: Run }) {
@@ -39,6 +59,12 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
               <div key={p.code} className="bar-row"><span>{p.code}</span><span className="muted">{pillarScoreLabel(result, p.code, p.lower, p.upper)}</span><b /></div>
             );
           })}
+          <details className="indicator">
+            <summary>How each area score was reached</summary>
+            {result.documented?.pillars.some((x) => x.explanation) ? result.documented.pillars.map((x) => (
+              <article key={x.code} className="condition"><b>{x.code}</b><ScoreExplanationBlock explanation={x.explanation} /></article>
+            )) : <ScoreExplanationBlock />}
+          </details>
         </Panel>
       )}
       {causes && (causes.unknown_evidentiary + causes.unknown_review + causes.unknown_processing) > 0 && (
@@ -98,6 +124,10 @@ export function CapabilityEvidence({ run }: { run: Run }) {
           return (
             <details key={i.code} className="indicator">
               <summary><b>{i.code}</b> {i.name}<span className="muted"> · {indicatorScoreLabel(a.result, i.code, i.lower, i.upper)}</span></summary>
+              <section className="condition">
+                <b>How this score was reached</b>
+                <ScoreExplanationBlock explanation={i.explanation || a.result.documented?.indicators.find((x) => x.code === i.code)?.explanation} />
+              </section>
               {conditions.map((c) => {
                 const d = records.get(c.id);
                 return (
@@ -109,6 +139,7 @@ export function CapabilityEvidence({ run }: { run: Run }) {
                     </div>
                     <p>{c.text}</p>
                     {d?.reason && <p className="muted">{d.reason}</p>}
+                    <ScoreExplanationBlock explanation={d?.explanation} placeholder={false} />
                     {!!d?.parts?.length && (
                       <ul className="plain-list">
                         {d.parts.map((part) => (

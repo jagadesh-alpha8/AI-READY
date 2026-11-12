@@ -70,9 +70,11 @@ test('errors read DRF shapes', () => {
 });
 
 test('journey, gap classes and params', () => {
+  // Set up, Initial evidence, Assessment, Report & recommendations (flow agreed 12 Nov 2026).
   assert.equal(journeyStep('draft'), 0);
-  assert.equal(journeyStep('reviewing'), 2);
-  assert.equal(journeyStep('report_ready'), 4);
+  assert.equal(journeyStep('reviewing'), 1);
+  assert.equal(journeyStep('baseline_pending'), 2);
+  assert.equal(journeyStep('report_ready'), 3);
   assert.equal(journeyStep(undefined), 0);
   assert.equal(gapClass('conflict'), 'Contradiction requiring resolution');
   assert.equal(gapClass('missing_document'), 'Evidence-only gap');

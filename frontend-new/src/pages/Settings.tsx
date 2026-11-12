@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Dummy, ErrorState, Loading, Notice, PageHeading, Panel, Pill, Stat, Table } from '../components/ui';
+import { ErrorState, Loading, Notice, PageHeading, Panel, Pill, Stat, Table } from '../components/ui';
 import { useAccess } from '../hooks/useAccess';
 import { useResource } from '../hooks/useResource';
 import { changePassword } from '../services/auth';
@@ -73,20 +73,6 @@ export function Settings() {
           )}
         </Panel>
       )}
-      <Dummy code="R-09" title="Organisation, integrations, data governance and audit settings" note="Managed in Django admin and server configuration; the API exposes no settings endpoints.">
-        <div className="feature-grid">
-          {[['Organisation settings', 'Brand, customer hierarchy, terminology and regional configuration.'],
-            ['Identity and access', 'Roles, permissions, authentication, sessions and access reviews.'],
-            ['AI and processing', 'Approved models, budgets, extraction protocols and human review controls.'],
-            ['Integrations', 'Storage, SIS, LMS, HRMS, email, analytics and secure APIs.'],
-            ['Data governance', 'Retention, consent, encryption, residency and deletion policies.'],
-            ['Audit and monitoring', 'Immutable activity logs, health diagnostics, incidents and service status.']]
-            .filter(([t]) => !(t === 'AI and processing' && can('ai.usage')))
-            .map(([t, d], i) => (
-              <article key={t} className="feature-card muted-card"><div className="feature-icon">{String(i + 1).padStart(2, '0')}</div><h3>{t}</h3><p>{d}</p></article>
-            ))}
-        </div>
-      </Dummy>
     </>
   );
 }

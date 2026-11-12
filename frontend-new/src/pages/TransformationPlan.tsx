@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AuditRecommendationTable } from '../components/AuditRecommendations';
 import { RequireSprint } from '../components/RequireSprint';
-import { Dummy, Empty, ErrorState, Loading, Notice, PageHeading, Panel, Pill, Table } from '../components/ui';
+import { Empty, ErrorState, Loading, Notice, PageHeading, Panel, Pill, Table } from '../components/ui';
 import { useAccess } from '../hooks/useAccess';
 import { useCapability } from '../hooks/useCapability';
 import { useCycle } from '../hooks/useCycle';
@@ -11,7 +11,6 @@ import { generateRecommendations, listRecommendations } from '../services/recomm
 import type { ImprovementPlan, Recommendation, Sprint } from '../types/api';
 import { errorMessage } from '../utils/errors';
 import { humanize } from '../utils/format';
-import { ROUTES } from '../utils/maturity';
 
 export function TransformationPlan() {
   return <RequireSprint>{(sprint) => <PlanBody sprint={sprint} />}</RequireSprint>;
@@ -23,7 +22,6 @@ function PlanBody({ sprint }: { sprint: Sprint }) {
   const plan = useResource<ImprovementPlan>(() => getPlan(cycleId), `plan:${cycleId}`, !!cycleId);
   const recs = useResource<Recommendation[]>(() => listRecommendations(sprint.id), sprint.id);
   const { foundation } = useCapability(sprint.id);
-  const [route, setRoute] = useState<string>('');
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
@@ -41,38 +39,23 @@ function PlanBody({ sprint }: { sprint: Sprint }) {
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
       {foundation ? (
         <Panel title="Transformation routes" sub={`${foundation.destination} · from the capability foundation plan`}>
-          <div className="pace-grid" role="radiogroup" aria-label="Transformation pace">
+          <div className="pace-grid">
             {foundation.routes.map((r) => (
-              <article key={r.name} className={`pace-card ${route === r.name ? 'recommended' : ''}`}>
+              <article key={r.name} className="pace-card">
                 <span className="eyebrow">Route</span>
                 <strong>{r.name}</strong>
                 <p>{r.assumptions.join(' ')}</p>
                 <div className="pace-stats"><div><span>Indicative</span><b>{r.indicative_duration}</b></div><div><span>Goals</span><b>{r.outcomes.length}</b></div></div>
-                <button role="radio" aria-checked={route === r.name} className={route === r.name ? 'primary-action' : 'secondary-button'} onClick={() => setRoute(r.name)}>
-                  {route === r.name ? 'Selected for review' : 'Explore route'}
-                </button>
               </article>
             ))}
           </div>
           <p className="muted">{foundation.baseline.message} Same goals on every route; only sequencing changes.</p>
         </Panel>
       ) : (
-        <Dummy code="D-03" title="Transformation routes" note="Real routes come from the capability foundation plan once a recommendation is generated for a completed assessment. Until then these are the handoff's sample routes.">
-          <div className="pace-grid">
-            {ROUTES.map((r) => (
-              <article key={r.key} className={`pace-card ${r.key === 'progressive' ? 'recommended' : ''}`}>
-                <span className="eyebrow">{r.eyebrow}</span>
-                <strong>{r.name}</strong>
-                <p>{r.text}</p>
-                <div className="pace-stats"><div><span>Next level</span><b>{r.period}</b></div><div><span>Effort</span><b>{r.effort}</b></div></div>
-              </article>
-            ))}
-          </div>
-        </Dummy>
+        <Panel title="Transformation routes" sub="From the capability foundation plan">
+          <p className="muted">Routes appear once grounded advice is written for a completed assessment (Recommended actions).</p>
+        </Panel>
       )}
-      <Dummy code="R-05" title="Route approval" note="The backend has no programme approval model yet: the selected route is not saved. The route changes time and resourcing, never the evidence a level requires.">
-        <div className="button-row"><span className="muted">Selected: {route || 'none'}</span><button className="primary-action" disabled>Request sponsor approval</button></div>
-      </Dummy>
 
       {foundation && foundation.goals.length > 0 && (
         <Panel title="Foundation goals" sub="From the capability assessment: what to establish, then what to improve">

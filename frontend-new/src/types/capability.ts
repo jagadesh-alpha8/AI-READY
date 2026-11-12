@@ -40,6 +40,7 @@ export interface Indicator {
   lower: number;
   upper: number;
   conditions: Condition[];
+  explanation?: ScoreExplanation;
 }
 
 export interface Tier {
@@ -51,11 +52,17 @@ export interface Tier {
   gates: Record<string, number>;
 }
 
+/**
+ * How a score was reached (report step, announced 12 Nov 2026; not yet sent by the backend): what was found and
+ * credited, where the assessment looked for what it did not find, and the next step.
+ */
+export interface ScoreExplanation { found?: string; looked?: string; next_step?: string; text?: string }
+
 export interface Documented {
   method?: string;
   overall: number;
-  pillars: { code: string; score: number }[];
-  indicators: { code: string; level: number; score: number }[];
+  pillars: { code: string; score: number; explanation?: ScoreExplanation }[];
+  indicators: { code: string; level: number; score: number; explanation?: ScoreExplanation }[];
 }
 
 export interface Result {
@@ -114,6 +121,8 @@ export interface ConditionRecord {
   parts?: { id: string; finding: string; credited_as: PartCredit; citations: Citation[] }[];
   /** Why an unknown is unknown: evidence, review guard, or processing (decision_causes.py). */
   cause?: string;
+  /** Per-requirement explanation (report step; not yet sent by the backend). */
+  explanation?: ScoreExplanation;
 }
 
 /** decision_causes.summary(): reads "unknown" as missing evidence, a review hold, or a processing problem. */

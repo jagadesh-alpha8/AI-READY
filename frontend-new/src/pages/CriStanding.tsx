@@ -1,5 +1,6 @@
 import { CapabilityStanding } from '../components/Capability';
 import { RequireSprint } from '../components/RequireSprint';
+import { ScoreHistory } from '../components/ScoreHistory';
 import { CheckItem, Empty, ErrorState, Loading, Notice, PageHeading, PageLink, Panel, Pill, Stat } from '../components/ui';
 import { useCapability } from '../hooks/useCapability';
 import { useCycle } from '../hooks/useCycle';
@@ -47,6 +48,7 @@ function CriBody({ sprint }: { sprint: Sprint }) {
         <Empty title="No audit CRI yet" action={<PageLink to="assessment" className="primary-action">Go to the assessment</PageLink>}>
           No CRI has been calculated for this sprint. An unscored institution is shown as unverified, not as failing.
         </Empty>
+        <ScoreHistory sprint={sprint} onReassessed={() => void overview.refetch()} />
       </>
     );
   }
@@ -113,6 +115,7 @@ function CriBody({ sprint }: { sprint: Sprint }) {
           <Stat label="Outcome" value={out.value === null ? '—' : num(out.value, 1)} note={`${out.n} scored`} />
         </div>
       </Panel>
+      <ScoreHistory sprint={sprint} onReassessed={() => void overview.refetch()} />
     </>
   );
 }

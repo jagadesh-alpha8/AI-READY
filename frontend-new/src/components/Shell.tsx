@@ -40,7 +40,7 @@ export function Shell({ page, children }: { page: PageKey; children: ReactNode }
 
   const summary = useResource<EvidenceRequestSummary>(getEvidenceRequestSummary, `er-summary:${user?.id}`, canSee('requests'));
   const openForMe = (summary.data?.assigned_to_me || 0) + (summary.data?.awaiting_my_review || 0);
-  const badges: Partial<Record<PageKey, number>> = { requests: summary.data?.assigned_to_me, notifications: summary.data?.assigned_to_me_overdue };
+  const badges: Partial<Record<PageKey, number>> = { requests: summary.data?.assigned_to_me };
 
   const current = PAGE_STEP[page] ?? journeyStep(sprint?.status);
   const next = nextActionFor(sprint?.status);
@@ -114,8 +114,8 @@ export function Shell({ page, children }: { page: PageKey; children: ReactNode }
             </label>
             <button className={review ? 'primary-action' : 'secondary-button'} aria-pressed={review} title="Mark every screen with its backend status"
               onClick={() => setReview(!review)}>{review ? 'Review mode on' : 'Review mode'}</button>
-            <button className="icon-button" title="Ask the AI advisor" aria-label="Search evidence" onClick={() => navigate('/copilot')}>⌕</button>
-            <button className="icon-button notification" title="Notifications" aria-label={`Notifications${openForMe ? `, ${openForMe} open` : ''}`} onClick={() => navigate('/notifications')}>
+            <button className="icon-button" title="Evidence search" aria-label="Evidence search" onClick={() => navigate('/copilot')}>⌕</button>
+            <button className="icon-button notification" title="Data requests waiting for you" aria-label={`Data requests${openForMe ? `, ${openForMe} open` : ''}`} onClick={() => navigate(pathOf('requests'))}>
               ◌{openForMe > 0 && <i />}
             </button>
             {canSee(next) && (

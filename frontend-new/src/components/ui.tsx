@@ -76,7 +76,7 @@ export function SampleTable({ columns, rows }: { columns: string[]; rows: ReactN
 // --- layout pieces --------------------------------------------------------------------------------------
 
 /** Pages about moving between maturity tiers show the CURRENT → SILVER → GOLD → PLATINUM line in their heading. */
-const MATURITY_PAGES: ReadonlySet<PageKey> = new Set<PageKey>(['cri', 'pathway', 'plan', 'gaps', 'benchmark', 'progress']);
+const MATURITY_PAGES: ReadonlySet<PageKey> = new Set<PageKey>(['cri', 'pathway', 'plan', 'gaps', 'benchmark']);
 
 export function PageHeading({ page, actions, title }: { page: PageKey; actions?: ReactNode; title?: string }) {
   const [eyebrow, defaultTitle, text] = PAGE_META[page];
