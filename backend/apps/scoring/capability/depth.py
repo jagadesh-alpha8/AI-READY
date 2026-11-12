@@ -269,6 +269,8 @@ Rules:
   same way; if this case differs in a way that matters, say how.
 - Each answer is marked supported (a document backs it) or not. Set relies_on_unsupported to true when the level you
   choose depends on an answer that is not supported.
+- An answer with checked_against_documents was already checked against the documents found for it: rely on that check
+  and its passages. A dimension it found not supported is not established by the answer alone.
 - Set contradicts_evidence to true only when an answer plainly contradicts the quoted evidence that earned the credit
   (for example the college says the programme never ran). A weak or missing answer is not a contradiction.
 - For each dimension, record what the evidence and answers establish, in a few words, or "not established"."""

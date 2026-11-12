@@ -123,11 +123,20 @@ def load_responses(rows, *, commit=False, via='file'):
 
 
 def _exchanges(questions):
+    """The college's checked responses, follow-up answers included. A response checked in the second layer
+    (layer2.py) carries what its documents were found to support; one still waiting for its check is left out."""
+    from . import layer2
     out = []
     for question in questions:
         for response in question.responses.all():
-            out.append({'question': question.text, 'kind': response.kind, 'answer': response.answer,
-                        'documents': len(response.document_ids), 'supported': response.supported})
+            if response.status != DepthResponse.Status.CHECKED:
+                continue
+            row = {'question': response.parent.follow_up_text if response.parent_id else question.text,
+                   'kind': response.kind, 'answer': response.answer, 'documents': len(response.document_ids),
+                   'supported': response.supported}
+            if response.support_check:
+                row['checked_against_documents'] = layer2.evidence_for_judge(response.support_check)
+            out.append(row)
     return out
 
 
@@ -150,7 +159,7 @@ def judge_run(export, model, *, commit=False, max_calls=None):
     rules = policy()
     spec = depth.spec()
     by_id = {r['condition_id']: r for r in records}
-    questions = list(DepthQuestion.objects.filter(run_ref=run_ref).prefetch_related('responses'))
+    questions = list(DepthQuestion.objects.filter(run_ref=run_ref).prefetch_related('responses', 'responses__parent'))
     if not questions:
         raise DepthError(f'Run {run_ref} has no questions.')
     per_condition, unanswered, awaiting, without_documents = {}, [], [], []

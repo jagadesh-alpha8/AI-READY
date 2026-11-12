@@ -645,18 +645,23 @@ def _agreement_pass(indicator, validated, *, service, payload, schema_sources, c
 
 
 def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope,
-             structure=None):
-    """Build one indicator's frozen packet and request payload (local work, no model call)."""
+             structure=None, fixed_context=None):
+    """Build one indicator's frozen packet and request payload (local work, no model call).
+
+    fixed_context: a packet given whole (the second assessment layer: a provisional packet plus new windows, see
+    layer2.py). Retrieval and the extracted-evidence lane are skipped; the packet already holds what they added."""
     from .scope import context_scope
     from .reviewed_evidence import for_context
-    if structure is None:
+    if fixed_context is not None:
+        context = list(fixed_context)
+    elif structure is None:
         context = select_context(indicator, sources, semantic_ranker=semantic_ranker)
     else:
         # Retrieval reads the duplicate-free pages; validation still accepts any frozen source.
         context = select_context(indicator, structure['sources'], semantic_ranker=semantic_ranker, structure=structure)
     lane_audit = None
     from django.conf import settings
-    if getattr(settings, 'CAPABILITY_EVIDENCE_LANE', True):
+    if fixed_context is None and getattr(settings, 'CAPABILITY_EVIDENCE_LANE', True):
         from .reviewed_evidence import evidence_lane
         lane_aliases = None
         if structure is not None and structure.get('dropped'):
@@ -979,11 +984,21 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources):
             'error': outcome['issue']}
 
 
-def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions', tie_break=False):
+def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions', tie_break=False, fixed_contexts=None):
     """Assess every indicator. Packets are built in rubric order; with concurrency > 1 the model work for up to
     that many indicators runs at once. Records, traces and on_indicator calls stay in rubric order, so results
-    do not depend on concurrency; only request numbering in the billing ledger interleaves."""
+    do not depend on concurrency; only request numbering in the billing ledger interleaves.
+
+    fixed_contexts: {indicator code: packet} for every indicator of the rubric, used instead of retrieval (the second
+    assessment layer re-judges chosen requirements on their provisional packet plus new windows; layer2.py). The
+    targeted extra search is not combined with it."""
     rubric = rubric or release()
+    if fixed_contexts is not None:
+        missing = [i['code'] for i in rubric['indicators'] if i['code'] not in fixed_contexts]
+        if missing:
+            raise ValueError(f'No fixed packet for {", ".join(missing)}.')
+        if (retrieval_policy or {}).get('follow_up') is not None:
+            raise ValueError('Fixed packets cannot be combined with the targeted extra search.')
     if agreement_passes not in (1, 2):
         raise ValueError('agreement_passes must be 1 or 2.')
     if tie_break and agreement_passes != 2:
@@ -1071,10 +1086,13 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
         if on_indicator is not None:
             on_indicator(outcome['validated'], traces[-1])
 
+    def fixed(indicator):
+        return None if fixed_contexts is None else fixed_contexts[indicator['code']]
+
     if concurrency == 1:
         for indicator in rubric['indicators']:
             with ranker_guard:
-                job = _prepare(indicator, **prepare)
+                job = _prepare(indicator, **prepare, fixed_context=fixed(indicator))
             emit(job, run(job))
     else:
         from concurrent.futures import ThreadPoolExecutor
@@ -1090,7 +1108,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
             futures = []
             for indicator in rubric['indicators']:
                 with ranker_guard:
-                    job = _prepare(indicator, **prepare)  # local encoder: sequential, in rubric order
+                    job = _prepare(indicator, **prepare, fixed_context=fixed(indicator))  # local encoder: sequential
                 # Each worker runs in a copy of this context: usage attribution and the router lease are ContextVars.
                 futures.append((job, executor.submit(contextvars.copy_context().run, run_in_thread, job)))
             for job, future in futures:

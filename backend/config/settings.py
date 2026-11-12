@@ -861,6 +861,10 @@ DEPTH_CREDIT_SHARE = os.getenv('DEPTH_CREDIT_SHARE', '')
 # (default): such answers never reach the judge, and a level that still rests on one falls back to evidenced.
 # 'cap_one_level' and 'same' are kept only for comparison runs.
 DEPTH_UNSUPPORTED_ANSWERS = os.getenv('DEPTH_UNSUPPORTED_ANSWERS', 'ignore').strip().lower()
+# Second assessment layer (apps/scoring/capability/layer2.py; skeleton, Nov 2026). When true, an answer submitted
+# through the API is searched for and checked in the request (one model call, unmetered); otherwise it waits for the
+# layer2_check_pending command.
+SECOND_LAYER_CHECK_ON_SUBMIT = os.getenv('SECOND_LAYER_CHECK_ON_SUBMIT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
 # every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.
 CAPABILITY_EMBEDDING_CACHE_DIR = os.getenv('CAPABILITY_EMBEDDING_CACHE_DIR', '')
