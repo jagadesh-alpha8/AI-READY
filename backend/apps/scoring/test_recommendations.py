@@ -79,6 +79,12 @@ class RecommendationTests(APITestCase):
     def detail(self, execution):
         return self.client.get(f'{self.url}/{execution.snapshot_id}').data
 
+    @staticmethod
+    def batches(execution):
+        """Key indicators in the priority plan: one tailoring batch (one model call) each."""
+        return len({a['indicator'] for a in execution.snapshot.inputs['actions']
+                    if a['type'] == 'develop_capability'})
+
     def unchanged(self):
         self.assertEqual(list(self.run.events.values_list('id', 'payload')), self.original_events)
 
@@ -87,14 +93,20 @@ class RecommendationTests(APITestCase):
         self.assertEqual(ex.status, 'completed')
         data = self.detail(ex)
         self.assertFalse(data['fallback'])
+        n = self.batches(ex)
         self.assertEqual(len(data['plan']['current_standing']['indicators']), 36)
-        self.assertEqual(len({a['indicator'] for a in data['plan']['actions']}), 36)
+        # A short ranked plan, not one action per requirement: at most 8 key indicators.
+        self.assertTrue(2 <= n <= 8)
+        self.assertEqual(len({a['indicator'] for a in data['plan']['actions']}), n)
         self.assertEqual({a['condition_id'] for a in data['tailoring']['advice']}, {a['id'] for a in data['plan']['actions']})
-        self.assertEqual([p['target'] for p in data['plan']['pathways']], ['Silver', 'Gold', 'Platinum'])
+        self.assertEqual(data['plan']['pathways'], [])
+        self.assertIsNone(data['plan']['priority_plan']['tier']['current'])
+        self.assertEqual(data['plan']['priority_plan']['tier']['next'], 'Silver')
         self.assertEqual(data['plan']['current_standing']['exact_score'], 0)
         self.assertEqual(data['plan']['next_overall']['target'], 10)
-        self.assertEqual(ex.requests_reserved, 36)
-        self.assertEqual(AIUsage.objects.filter(recommendation_snapshot=ex.snapshot, capability_run=self.run).count(), 36)
+        self.assertTrue(data['plan']['next_overall']['scenario_sufficient'])
+        self.assertEqual(ex.requests_reserved, n)
+        self.assertEqual(AIUsage.objects.filter(recommendation_snapshot=ex.snapshot, capability_run=self.run).count(), n)
         self.unchanged()
         with self.assertRaises(ValueError):
             RecommendationSnapshot.objects.filter(pk=ex.snapshot_id).update(inputs={})
@@ -103,9 +115,9 @@ class RecommendationTests(APITestCase):
         with self.assertRaises(ValueError):
             ex.snapshot.save()
         self.execute(ex)
-        self.assertEqual(self.sdk.chat.completions.create.call_count, 36)
+        self.assertEqual(self.sdk.chat.completions.create.call_count, n)
 
-    def test_unknown_checks_receive_verified_strengths_without_changing_baseline(self):
+    def test_nothing_found_gets_development_advice_built_on_verified_strengths(self):
         self.run = create_run(institution_id=self.institution.pk, sprint_id=self.sprint.pk,
                               population='All faculty and students', reference_period='2025-26')
         checkpoint(institution_id=self.institution.pk, run_id=self.run.pk, state='running')
@@ -129,14 +141,17 @@ class RecommendationTests(APITestCase):
         self.sdk.chat.completions.create.side_effect = respond
         ex = self.execute(self.start())
         self.assertEqual(ex.status, 'completed')
-        self.assertEqual(len(captured), 36)
+        self.assertEqual(len(captured), self.batches(ex))
         self.assertTrue(all(p['established_strengths'][0]['condition_id'] == known['condition_id'] for p in captured))
         self.assertTrue(all(p['foundation_goals'] for p in captured))
-        self.assertTrue(all(a['operation'] == 'gather_evidence' for p in captured for a in p['actions']))
+        # Missing evidence usually means the capability is missing: the advice is to establish it.
+        self.assertTrue(all(a['operation'] == 'develop_and_verify' and a['gap'] == 'establish'
+                            for p in captured for a in p['actions']))
         data = self.detail(ex)
         foundation = data['plan']['foundation_plan']
         self.assertTrue(all(known['condition_id'] not in g['target_condition_ids'] for g in foundation['goals']))
-        self.assertEqual(len(data['tailoring']['advice']), 215)
+        self.assertEqual(len(data['tailoring']['advice']), len(data['plan']['actions']))
+        self.assertIn(known['condition_id'], [s['condition_id'] for s in data['plan']['priority_plan']['strengths']])
         self.unchanged()
 
     def test_reads_replays_and_new_versions(self):
@@ -307,9 +322,10 @@ class RecommendationTests(APITestCase):
         self.assertEqual(ex.status, 'completed')
         advice = self.detail(ex)['tailoring']['advice']
         self.assertTrue(advice)
-        self.assertEqual(sum(a['origin'] == 'deterministic_fallback' for a in advice), 36)
+        n = self.batches(ex)
+        self.assertEqual(sum(a['origin'] == 'deterministic_fallback' for a in advice), n)
         self.assertTrue(any(a['origin'] == 'model_tailored' for a in advice))
-        self.assertEqual(ex.requests_reserved, 72)
+        self.assertEqual(ex.requests_reserved, 2 * n)
         batches = list(ex.snapshot.events.filter(payload__kind='advice_batch'))
         self.assertTrue(all(len(e.payload['validation']['initial_invalid']) == 1 for e in batches))
         self.assertTrue(all(len(e.payload['validation']['final_fallback_ids']) == 1 for e in batches))
@@ -348,7 +364,7 @@ class RecommendationTests(APITestCase):
         self.assertEqual(path['target'], 25)
         self.assertTrue(path['scenario_sufficient'])
 
-    def test_missing_evidence_never_goes_to_model_and_bounds_remain_uncertain(self):
+    def test_missing_evidence_gets_tailored_development_advice_and_bounds_remain_uncertain(self):
         # New assessment leaves one entire indicator unknown, with documented shortfalls elsewhere.
         self.run = create_run(institution_id=self.institution.pk, sprint_id=self.sprint.pk, population='All', reference_period='2025-26')
         checkpoint(institution_id=self.institution.pk, run_id=self.run.pk, state='running')
@@ -368,10 +384,8 @@ class RecommendationTests(APITestCase):
         self.assertIsNone(data['plan']['current_standing']['exact_score'])
         self.assertGreater(data['plan']['current_standing']['upper'], 0)
         requests = [json.loads(c.kwargs['messages'][1]['content']) for c in self.sdk.chat.completions.create.call_args_list]
-        self.assertFalse(any(a['state'] == 'unknown' for req in requests for a in req['actions']))
-        evidence_advice = [a for a in data['tailoring']['advice'] if a['condition_id'] in unknown]
-        self.assertTrue(evidence_advice)
-        self.assertTrue(all(a['origin'] == 'deterministic_evidence_request' for a in evidence_advice))
+        self.assertTrue(all(a['operation'] == 'develop_and_verify' for req in requests for a in req['actions']))
+        self.assertFalse(any(a['origin'] == 'deterministic_evidence_request' for a in data['tailoring']['advice']))
 
     def test_contradictions_cannot_drop_an_inconvenient_source(self):
         actions = [{'id': 'C1', 'operation': 'reconcile_sources', 'type': 'resolve_contradiction',
@@ -399,8 +413,8 @@ class RecommendationTests(APITestCase):
             generate_recommendations.run(str(ex.snapshot_id), str(ex.task_id))
         ex.refresh_from_db()
         self.assertEqual(ex.status, 'completed')
-        self.assertEqual(ex.requests_reserved, 36)
-        self.assertEqual(AIUsage.objects.filter(recommendation_snapshot=ex.snapshot).count(), 36)
+        self.assertEqual(ex.requests_reserved, self.batches(ex))
+        self.assertEqual(AIUsage.objects.filter(recommendation_snapshot=ex.snapshot).count(), self.batches(ex))
         self.unchanged()
 
     def test_snapshot_mismatch_and_disabled_worker_spend_nothing(self):
