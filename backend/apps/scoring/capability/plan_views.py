@@ -64,7 +64,7 @@ class PlanEvaluationView(RunView):
             if (original_event.payload.get('value_hash') != digest(value)
                     or value.get('text') != scenario.plan.text
                     or value.get('text_hash') != scenario.plan.text_hash
-                    or value.get('evaluation', {}).get('baseline') != scenario.assessment_event.payload['result']):
+                    or not baseline_matches(value.get('evaluation', {}), scenario)):
                 raise AssessmentConflict('The saved original plan review failed its identity check.')
             original_review = value
         return {**summary(execution), 'inputs_hash': scenario.inputs_hash,
@@ -83,6 +83,15 @@ class PlanEvaluationView(RunView):
 
     def get(self, request, sprint_id, run_id, scenario_id):
         return Response(self.payload(self.plan_execution(request, sprint_id, run_id, scenario_id)))
+
+
+def baseline_matches(evaluation, scenario):
+    """A saved review belongs to this baseline: its strict result is the stored result's strict part, and its score is
+    the scenario's frozen part-credit score (None for runs scored before part credit)."""
+    stored = scenario.assessment_event.payload['result']
+    baseline = evaluation.get('baseline')
+    return (isinstance(baseline, dict) and all(stored.get(k) == v for k, v in baseline.items())
+            and evaluation.get('baseline_score') == scenario.inputs.get('baseline_score'))
 
 
 class CancelPlanEvaluationView(PlanEvaluationView):
@@ -112,8 +121,14 @@ class PlanEvaluationReportView(PlanEvaluationView):
                 for scenario in evaluation['scenarios'].values():
                     for pillar in scenario['result']['pillars']:
                         pillar['title'] = PILLARS.get(pillar['code'], pillar['code'])
+                    for pillar in (scenario.get('score') or {}).get('pillars', []):
+                        pillar['title'] = PILLARS.get(pillar['code'], pillar['code'])
                 for mapping in evaluation['accepted']:
                     mapping['title'] = readable(mapping['condition_id'])
+                coverage = evaluation.get('priority_coverage')
+                if coverage:
+                    for key in ('covered', 'missed', 'outside_priority_plan'):
+                        coverage[key + '_titles'] = [readable(cid) for cid in coverage[key]]
             content = render_to_string('scoring/plan_comparison.html', {'report': presentation})
         response = HttpResponse(content, content_type='application/json' if fmt == 'json' else 'text/html; charset=utf-8')
         response['Content-Disposition'] = f'attachment; filename="plan-comparison-{scenario_id}.{fmt}"'
