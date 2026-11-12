@@ -27,6 +27,10 @@ from . import layer2_service as service
 from .layer2 import Layer2Error
 
 
+ANSWER_CHARS = 4000   # a reply is a claim and a pointer; documents carry the detail
+NOTE_CHARS = 2000
+
+
 def flag(value):
     """A boolean from JSON or a form field: "false", "0" and "" are false (bool("false") would be true)."""
     if isinstance(value, bool):
@@ -81,6 +85,9 @@ class _RunScoped(APIView):
         documents, error = self.documents(execution, request.data.get('document_ids'))
         if error is not None:
             return error
+        if len(str(request.data.get('answer') or '')) > ANSWER_CHARS:
+            return Response({'detail': f'Keep the answer under {ANSWER_CHARS} characters; attach documents for the '
+                                       'detail.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
             response = service.submit(question, answer=request.data.get('answer') or '', document_ids=documents,
                                       skip=flag(request.data.get('skip')), parent=parent, user=request.user)
@@ -88,7 +95,10 @@ class _RunScoped(APIView):
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         if settings.SECOND_LAYER_CHECK_ON_SUBMIT and response.status == DepthResponse.Status.PENDING:
             from .depth import default_model
-            service.check_response(response, default_model())
+            try:
+                service.check_response(response, default_model())
+            except Exception:  # never surface provider errors; the answer is saved and the command checks it later
+                response.refresh_from_db()
         return Response(serialize_response(response), status=status.HTTP_201_CREATED)
 
 
@@ -140,6 +150,9 @@ class AdditionalEvidenceView(_RunScoped):
         picked = request.data.get('picked') or []
         if not isinstance(picked, list):
             return Response({'detail': 'picked must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(str(request.data.get('note') or '')) > NOTE_CHARS:
+            return Response({'detail': f'Keep the note under {NOTE_CHARS} characters.'},
+                            status=status.HTTP_400_BAD_REQUEST)
         try:
             item = service.add_evidence(str(execution.run_id), execution.run.inputs['rubric'], document_ids=documents,
                                         note=request.data.get('note') or '', picked=picked, user=request.user)

@@ -11,14 +11,18 @@ What the first layer taught, and this layer keeps:
 - Typed text is the query and the claim, never evidence on its own (Harsha, 12 Nov).
 
 Pure logic, no database (layer2_service.py holds that side):
-- search_with_answer: windows for one answer -- the attached pages first (whole when they fit), then the corpus.
-- check_answer: one model call per depth answer -- is each asked-about dimension supported by what the search found;
-  at most one follow-up, which the model may decline to ask.
+- search_with_answer: windows for one answer -- the attached pages first (whole when they fit), then the corpus,
+  leaving out the requirement's provisional packet and passages that mostly repeat it.
+- check_answer: one model call per depth reply (typed answer, documents, or both) -- what the passages show for each
+  asked-about dimension, read against the credited evidence; at most one follow-up, which the model may decline.
 - route_additional: which key indicators an additional-evidence submission goes to.
-- credit_targets / fixed_contexts / subset_rubric: what the credit path re-judges, on which packet.
+- credit_targets / fixed_contexts / subset_rubric: what the credit path re-judges, on which packet. New means new in
+  content: restatements of the packet are not added.
 - merge_new_evidence: a re-judged requirement takes the new result only if its credit is higher and an improved part
-  cites a passage that was not in its provisional packet. Taking the higher of two judgments of the same packet would
-  raise scores through ordinary run-to-run variation alone.
+  cites a passage whose text was not in its provisional packet (or the condition's missing gate part now rests on
+  such a passage). Taking the higher of two judgments of the same packet would raise scores through ordinary
+  run-to-run variation alone.
+- check_export_rule: the export must be scored under this worker's part rule, so the score has one scale.
 """
 import hashlib
 import json
@@ -160,10 +164,12 @@ def search_with_answer(query, attached, corpus, *, packet=(), attachment_limit=A
                        corpus_limit=CORPUS_CHARS, ranker=None, fallback_query=''):
     """Windows that may support an answer, searched with the institution's own words.
 
-    query: the answer's (or note's) text. fallback_query: used only to rank inside a large attachment when the answer
-    is empty; the corpus is searched only with the institution's own words. attached: the frozen pages of the documents
+    query: the answer's (or note's) text, for a depth answer anchored with the credited quotations (anchored_query).
+    fallback_query: used only to rank inside a large attachment when the answer is empty (profile_query or the
+    credited quotations, never rubric wording); the corpus is searched only with the institution's own words. attached: the frozen pages of the documents
     sent with the answer. corpus: the run's frozen pages; an answer often points at something already submitted that
-    the first pass missed. packet: windows already sent to the judge; their text is never sent again.
+    the first pass missed. packet: the requirement's provisional packet; its text, and passages that mostly repeat it,
+    are never taken again, so the corpus share goes to text the first pass did not see.
 
     Attachment and corpus have separate budgets, so a large attachment cannot crowd out the corpus. The attachment is
     sent whole when it fits (a reply is usually a certificate, a register or a syllabus; ranking it risks dropping the
@@ -183,8 +189,8 @@ def search_with_answer(query, attached, corpus, *, packet=(), attachment_limit=A
                     covered.setdefault(source['id'], []).append((a, b))
                     kept.append(_shingles(source['text'][a:b]))
     elif attached:
-        for source, a, b in _ranked(query if query.strip() else fallback_query, attached, ranker, covered,
-                                    attachment_limit, kept=kept):
+        for source, a, b in _ranked(query if query.strip() else fallback_query, attached, _attachment_ranker(ranker),
+                                    covered, attachment_limit, kept=kept):
             windows.append(_window(source, a, b, 'answer_attachment'))
     rest = [s for s in corpus if s['id'] not in attached_ids and (s.get('text') or '').strip()]
     for source, a, b in _ranked(query, rest, ranker, covered, corpus_limit, kept=kept):
@@ -200,21 +206,87 @@ def page_windows(sources, pages, role='extraction_tag'):
             if (str(s.get('document_id')), int(s.get('page_number') or 0)) in wanted and (s.get('text') or '').strip()]
 
 
+CREDITED_CHARS = 6000       # the credited evidence shown to the depth check
+
+
+def credited_windows(record, packet, limit=CREDITED_CHARS):
+    """The packet windows that hold the record's citations: what earned the credit, shown to the depth check so it can
+    read the answer against it (role credited_evidence). These never go to the credit path, which needs new text."""
+    cited = [(c.get('source_id'), _norm(c.get('quote'))) for c in (record or {}).get('citations') or []]
+    out, seen, used = [], set(), 0
+    for window in packet:
+        key = (window.get('id'), window.get('text_offset', 0))
+        if key in seen or window.get('evidence_role') == 'report_timestamp':
+            continue
+        text = _norm(window.get('text'))
+        if any(sid == window.get('id') and quote and quote in text for sid, quote in cited):
+            if used + len(window['text']) > limit:
+                break
+            seen.add(key)
+            out.append({**window, 'evidence_role': 'credited_evidence'})
+            used += len(window['text'])
+    return out
+
+
+def anchored_query(answer, record):
+    """The search query for a depth answer: the institution's answer plus the quotations that earned the credit. Both
+    are the institution's own words; the quotations keep a short answer ("yes, 300 hours") from being an empty query
+    and point the search at records about the same programme or activity, in the language records use."""
+    quotes = ' '.join(c.get('quote') or '' for c in (record or {}).get('citations') or [])[:1500]
+    return ' '.join(part for part in ((answer or '').strip(), quotes) if part)
+
+
+def profile_query(rubric, condition_ids):
+    """Records-language search query for requirements (the main retrieval's evidence-record profiles), used only to
+    rank inside a large document when the institution wrote nothing. Never the rubric's own wording."""
+    from .query_profiles import evidence_query
+    wanted = set(condition_ids)
+    queries = []
+    for indicator in rubric['indicators']:
+        for condition in indicator['conditions']:
+            if condition['id'] in wanted:
+                try:
+                    queries.append(evidence_query(condition))
+                except ValueError:
+                    continue
+    return ' '.join(q for q in queries if q)
+
+
+def _attachment_ranker(ranker):
+    """A second ranker on the same embedding model for attached documents. The ranker keeps one corpus index; ranking
+    an attachment with it and then the corpus would rebuild (and, without an embedding cache, re-embed) the whole
+    corpus for every answer."""
+    from .semantic_retrieval import SemanticRanker
+    if not isinstance(ranker, SemanticRanker):
+        return ranker
+    twin = getattr(ranker, '_layer2_attachment_ranker', None)
+    if twin is None:
+        twin = SemanticRanker(ranker.model, tokenizer=ranker._tokenizer, token_limit=ranker._token_limit,
+                              cache=ranker.cache)
+        ranker._layer2_attachment_ranker = twin
+    return twin
+
+
 # ------------------------------------------------------------------ checking a depth answer against the documents
 
-CHECK_PROMPT = """You are an experienced auditor from an accreditation or rating agency. A college answered one of your
-follow-up questions about evidence it submitted. Decide, for each dimension the question asked about, whether the
-passages supplied support what the college says.
+CHECK_PROMPT = """You are an experienced auditor from an accreditation or rating agency. A college replied to one of your
+follow-up questions about evidence it submitted, in words, with documents, or both. Decide, for each dimension the
+question asked about, what the passages supplied show.
 
 Judge as a peer reviewer: a submitted record is evidence of what it states, and several passages can support a claim
 together. A record does not have to repeat the college's words: a certificate naming a programme and its provider
-supports "we ran it with that provider" even if it never states the hours. The college's answer is a claim, never
-evidence by itself: a claim no passage supports stays not supported, however plausible it sounds.
+supports "we ran it with that provider" even if it never states the hours. The college's answer tells you what to look
+for and what it claims; it is never evidence by itself: a claim no passage supports stays not supported, however
+plausible it sounds. The passages decide. When the college sent documents without writing anything, or the passages
+show more than the answer says, judge each dimension on what the passages show.
+
+Each passage has a role: credited_evidence is what earned the credit in the first assessment; answer_attachment is from
+the documents sent with this reply; answer_search was found elsewhere in what the college had already submitted.
 
 For each dimension:
-- supported: the passages show what the answer claims for this dimension.
+- supported: the passages show it.
 - partly: they show some of it; say in the note what is missing.
-- not_supported: nothing supplied supports it, or the answer says nothing about it.
+- not_supported: no passage shows it.
 For supported or partly, list the ids of the passages you relied on.
 
 follow_up: if a dimension the question asked about is still not supported and one more question could settle it
@@ -246,14 +318,16 @@ def _cited(window):
             'text': window['text'], 'evidence_role': window.get('evidence_role')}
 
 
-def check_answer(question, answer, windows, dimensions, model, *, allow_follow_up=True):
-    """One depth answer checked against the windows found for it.
+def check_answer(question, answer, windows, dimensions, model, *, allow_follow_up=True, counts_from=None):
+    """One depth reply (typed answer, documents, or both) checked against the windows found for it.
 
     dimensions: [{'id', 'name', 'ask'}] the question asked about. Returns {'dimensions': [{'dimension_id', 'support',
     'passage_ids', 'note'}], 'supported', 'follow_up', 'passages', 'model_called', 'version'}. With no windows there is
     nothing to check: no model call, every dimension not supported, and the fixed follow-up asks for a document.
     The model's output is checked, not trusted: unknown dimensions are dropped, a missing dimension is not supported,
-    and supported or partly with no valid passage id becomes not supported (each finding must be traceable)."""
+    and supported or partly with no valid passage id becomes not supported (each finding must be traceable).
+    counts_from: the passage roles that may make a dimension count (None: every role). A dimension resting only on
+    passages of other roles is reported as not supported, with a note (SECOND_LAYER_CORPUS_SUPPORT)."""
     ids = [d['id'] for d in dimensions]
     if not windows:
         return {'version': VERSION, 'model_called': False, 'supported': False, 'passages': [],
@@ -261,10 +335,11 @@ def check_answer(question, answer, windows, dimensions, model, *, allow_follow_u
                                 'note': 'No supporting passage was found.'} for d in ids],
                 'follow_up': NO_SUPPORT_FOLLOW_UP if allow_follow_up else None}
     passage_ids = [f'p{n}' for n in range(1, len(windows) + 1)]
-    payload = {'question': question, 'answer': answer,
+    payload = {'question': question, 'answer': answer or '(no written answer: the college sent documents only)',
                'dimensions': [{'id': d['id'], 'name': d.get('name', d['id']),
                                'what_an_auditor_asks': d.get('ask', '')} for d in dimensions],
-               'passages': [{'id': pid, 'document_id': w.get('document_id'), 'page': w.get('page_number'),
+               'passages': [{'id': pid, 'role': w.get('evidence_role') or 'answer_search',
+                             'document_id': w.get('document_id'), 'page': w.get('page_number'),
                              'text': w['text']} for pid, w in zip(passage_ids, windows)]}
     response = model(CHECK_PROMPT, json.dumps(payload, ensure_ascii=False), check_schema(ids, passage_ids),
                      'answer_check') or {}
@@ -280,6 +355,10 @@ def check_answer(question, answer, windows, dimensions, model, *, allow_follow_u
         note = (row.get('note') or '').strip() if isinstance(row.get('note'), str) else ''
         if support in COUNTS and not cited:
             support, note = 'not_supported', (note + ' [No passage cited; not counted.]').strip()
+        elif support in COUNTS and counts_from is not None and not any(
+                windows[passage_ids.index(p)].get('evidence_role') in counts_from for p in cited):
+            support, cited = 'not_supported', []
+            note = (note + ' [Shown only by evidence already submitted; not counted under the current setting.]').strip()
         findings.append({'dimension_id': did, 'support': support, 'passage_ids': cited if support in COUNTS else [],
                          'note': note})
     follow = response.get('follow_up') if isinstance(response.get('follow_up'), str) else ''
@@ -343,34 +422,55 @@ def route_additional(rubric, picked, extracted_codes=(), cap=ROUTE_CAP):
 # ------------------------------------------------------------------ credit path
 
 
-def credit_targets(records, rubric, routes):
-    """{indicator code: {'conditions': [...], 'windows': [...]}} to re-judge.
+#: Order in which new windows take a key indicator's budget (NEW_CHARS): documents sent for a "nothing found" question
+#: and additional evidence are what the credit path is for; pages extraction tagged come next; windows found for depth
+#: answers (which also feed the depth judge) come last, so they cannot crowd out the others.
+ROUTE_ORDER = {'missing': 0, 'additional': 1, 'extraction_tag': 2, 'depth': 3}
 
-    routes: [{'indicator', 'conditions' (list, or None for every requirement of the indicator), 'windows'}] from
-    answers to "nothing found" questions and from routed additional evidence. Only requirements below full credit are
-    re-judged (credit can only rise); a route with no windows brings nothing to judge."""
+
+def add_windows(target, windows, kind):
+    """Add windows to a target, keeping them in ROUTE_ORDER (stable within a kind)."""
+    target.setdefault('ranked', []).extend((ROUTE_ORDER.get(kind, len(ROUTE_ORDER)), w) for w in windows)
+    target['ranked'].sort(key=lambda row: row[0])
+    target['windows'] = [w for _, w in target['ranked']]
+
+
+def credit_targets(records, rubric, routes):
+    """{indicator code: {'conditions', 'windows', 'documents'}} to re-judge.
+
+    routes: [{'indicator', 'conditions' (list, or None for every requirement of the indicator), 'windows', 'kind'
+    ('missing', 'additional' or 'depth'), 'documents' (ids sent with it)}] from answers to "nothing found" questions,
+    supported depth answers and routed additional evidence. Only requirements below full credit are re-judged (credit
+    can only rise). A route with no windows still counts when it brought documents: their extraction-tagged pages may
+    join the packet (rejudge_credit); a target left with no windows at all is dropped there."""
     credit = {r['condition_id']: r.get('credit') or 0 for r in records}
     by_code = {i['code']: i for i in rubric['indicators']}
     targets = {}
     for route in routes:
         code = route.get('indicator')
         windows = [w for w in route.get('windows') or [] if (w.get('text') or '').strip()]
-        if code not in by_code or not windows:
+        documents = [str(d) for d in route.get('documents') or []]
+        if code not in by_code or not (windows or documents):
             continue
         allowed = route.get('conditions')
         ids = [c['id'] for c in by_code[code]['conditions']
                if (allowed is None or c['id'] in allowed) and credit.get(c['id'], 0) < 1]
         if not ids:
             continue
-        entry = targets.setdefault(code, {'conditions': [], 'windows': []})
+        entry = targets.setdefault(code, {'conditions': [], 'windows': [], 'documents': []})
         entry['conditions'] = sorted(set(entry['conditions']) | set(ids))
-        entry['windows'].extend(windows)
+        entry['documents'] = sorted(set(entry['documents']) | set(documents))
+        add_windows(entry, windows, route.get('kind', 'missing'))
     return {code: targets[code] for code in [i['code'] for i in rubric['indicators']] if code in targets}
 
 
 def fixed_contexts(traces, targets, limit=NEW_CHARS):
     """({code: packet}, audit): each target indicator's provisional packet (from the run's trace) plus its new windows,
-    without repeating text already in the packet, at most `limit` new characters per indicator."""
+    at most `limit` new characters per indicator, taken in the targets' window order (ROUTE_ORDER).
+
+    New means new in content, not only in position: text already in the packet is never sent again, and neither is a
+    piece that mostly repeats a packet window or a piece already added (an annual report restating the self-study
+    report, a duplicate page under another id). Pieces under MIN_PIECE characters are not worth a place."""
     from .follow_up import _uncovered
     packets = {t['indicator']: list(t.get('source_excerpts') or []) for t in traces}
     contexts, audit = {}, {}
@@ -378,22 +478,28 @@ def fixed_contexts(traces, targets, limit=NEW_CHARS):
         if code not in packets:
             raise Layer2Error(f'No provisional packet for {code} in the run trace.')
         packet = packets[code]
-        covered, added, used = _spans(packet), [], 0
+        covered, added, used, restated = _spans(packet), [], 0, 0
+        kept = [_shingles(w.get('text')) for w in packet]
         for window in target['windows']:
+            if limit - used < MIN_PIECE:
+                break
             start = window.get('text_offset', 0)
             for a, b in _uncovered(start, start + len(window['text']), covered.get(window['id'], [])):
                 b = min(b, a + (limit - used))
-                if b - a < 1 or not window['text'][a - start:b - start].strip():
+                text = window['text'][a - start:b - start]
+                if b - a < MIN_PIECE or not text.strip():
                     continue
-                piece = {**window, 'text': window['text'][a - start:b - start], 'text_offset': a}
-                added.append(piece)
+                shingles = _shingles(text)
+                if _restates(shingles, kept):
+                    restated += 1
+                    continue
+                added.append({**window, 'text': text, 'text_offset': a})
                 covered.setdefault(window['id'], []).append((a, b))
+                kept.append(shingles)
                 used += b - a
-            if used >= limit:
-                break
         contexts[code] = packet + added
         audit[code] = {'conditions': target['conditions'], 'provisional_windows': len(packet),
-                       'added_windows': len(added), 'added_chars': used}
+                       'added_windows': len(added), 'added_chars': used, 'restatements_skipped': restated}
     return contexts, audit
 
 
@@ -409,9 +515,10 @@ def _norm(text):
 
 
 def is_new(citation, packet):
-    """True when the citation's quote is not inside any provisional window of the same source."""
+    """True when the citation's quote is not in the provisional packet. Content decides, not position: a quote whose
+    text the packet already held under any source (a restated annexure, a duplicate page) is not new."""
     quote = _norm(citation.get('quote'))
-    return bool(quote) and not any(quote in _norm(w.get('text')) for w in packet if w.get('id') == citation.get('source_id'))
+    return bool(quote) and not any(quote in _norm(w.get('text')) for w in packet)
 
 
 def _part_credit(part):
@@ -441,16 +548,51 @@ def _recredit(parts, cid, digital=False):
     return first
 
 
-def merge_new_evidence(provisional, rejudged, packets):
+_EVIDENCED = ('full', 'related')
+_FAILED = ('Model evaluation failed', 'Evaluation call budget reached', 'No readable source context',
+           'Reviewed-evidence context exceeds')
+
+
+def _gates(cid, parts):
+    """Ids of the condition's gate parts (part_judgment.credit): flagged in the spec, else the first part."""
+    from .part_judgment import _load
+    spec = (_load()[0]['conditions'].get(cid) or {}).get('parts') or []
+    return {p['id'] for p in spec if p.get('gate')} or ({parts[0]['id']} if parts else set())
+
+
+def _missing_in_a_pass(part):
+    """True when a provisional part was not evidenced in at least one judging pass (so its gate held credit at 0)."""
+    if part is None:
+        return True
+    return part.get('credited_as') not in _EVIDENCED or part.get('second_credited_as', part.get('credited_as')) \
+        not in _EVIDENCED
+
+
+def _failed(record):
+    from .decision_causes import NOT_EVALUATED
+    issue = record.get('validation_issue') or record.get('reason') or ''
+    return record.get('cause') == NOT_EVALUATED or any(issue.startswith(f) for f in _FAILED)
+
+
+def indicator_of(rubric):
+    """{condition id: key indicator code}."""
+    return {c['id']: i['code'] for i in rubric['indicators'] for c in i['conditions']}
+
+
+def merge_new_evidence(provisional, rejudged, packets, *, rubric=None):
     """(records, audit). packets: {indicator code: provisional packet}.
 
     Works part by part. A part takes its re-judged result only when its credit rose AND it cites a passage that was
-    not in the provisional packet, in either judging pass; every other part keeps its provisional result. The
-    condition's credit is then recomputed from those parts (gates within each pass), and the record is replaced only
-    when that credit is higher. So a rise from ordinary run-to-run variation on the old packet is never taken, even
-    beside a part that genuinely rose on new evidence. A part the second judgment found contradicted is flagged for
-    review and changes nothing (whether new evidence may withdraw credit is depth decision 1, still open)."""
+    not in the provisional packet, in either judging pass. One exception: when a gate part (the subject, or the AI
+    part of an AI condition) was missing in the provisional result and now rests on new evidence, the condition's
+    other parts that rose may take their re-judged result even when they cite the packet: old text the judge could
+    not credit without the subject becomes evidence once the subject is shown ('unlocked_parts'). Every other part
+    keeps its provisional result. The condition's credit is then recomputed from those parts (gates within each
+    pass), and the record is replaced only when that credit is higher. A part the second judgment found contradicted
+    is flagged for review and changes nothing (whether new evidence may withdraw credit is depth decision 1, still
+    open). A requirement whose re-judgment failed keeps its provisional record and is reported as not re-judged."""
     second = {r['condition_id']: r for r in rejudged}
+    codes = indicator_of(rubric) if rubric is not None else {}
     records, audit = [], []
     for record in provisional:
         cid = record['condition_id']
@@ -458,48 +600,99 @@ def merge_new_evidence(provisional, rejudged, packets):
         if twin is None:
             records.append(record)
             continue
-        packet = packets.get(cid.rsplit('.', 1)[0], [])
-        old_parts = {p['id']: p for p in record.get('parts') or []}
-        chosen, taken, reverted = [], [], []
-        for part in twin.get('parts') or []:
-            before = old_parts.get(part['id'])
-            rose = _part_credit(part) > _part_credit(before)
-            if rose and any(is_new(c, packet) for c in _part_citations(part)):
-                chosen.append(part)
-                taken.append(part['id'])
-            else:
-                if rose:
-                    reverted.append(part['id'])
-                chosen.append(before if before is not None else
-                              {'id': part['id'], 'finding': 'not_found', 'credited_as': 'not_found', 'citations': []})
-        contradicted = [p['id'] for p in twin.get('parts') or [] if p.get('finding') == 'contradicted'
-                        and (old_parts.get(p['id']) or {}).get('finding') != 'contradicted']
         old_credit = record.get('credit') or 0
+        if _failed(twin):
+            row = {'condition_id': cid, 'decision': 'not re-judged (the re-judgment failed)',
+                   'previous_credit': old_credit, 'second_credit': None, 'final_credit': old_credit,
+                   'new_evidence_parts': [], 'unlocked_parts': [], 'reverted_parts': [], 'contradicted_parts': [],
+                   'issue': twin.get('validation_issue') or twin.get('reason') or ''}
+            audit.append(row)
+            records.append({**record, 'second_layer': {'version': VERSION, **{k: v for k, v in row.items()
+                                                                              if k != 'condition_id'}}})
+            continue
+        packet = packets.get(codes.get(cid) or cid.rsplit('.', 1)[0], [])
+        old_parts = {p['id']: p for p in record.get('parts') or []}
+        twin_parts = twin.get('parts') or []
+        gates = _gates(cid, twin_parts)
+        rose = {p['id']: _part_credit(p) > _part_credit(old_parts.get(p['id'])) for p in twin_parts}
+        new = {p['id']: any(is_new(c, packet) for c in _part_citations(p)) for p in twin_parts}
+        unlocked_by_gate = any(p['id'] in gates and rose[p['id']] and new[p['id']]
+                               and _missing_in_a_pass(old_parts.get(p['id'])) for p in twin_parts)
+        chosen, taken, unlocked, reverted = [], [], [], []
+        for part in twin_parts:
+            pid, before = part['id'], old_parts.get(part['id'])
+            if rose[pid] and new[pid]:
+                chosen.append(part)
+                taken.append(pid)
+            elif rose[pid] and unlocked_by_gate and pid not in gates:
+                chosen.append(part)
+                unlocked.append(pid)
+            else:
+                if rose[pid]:
+                    reverted.append(pid)
+                chosen.append(before if before is not None else
+                              {'id': pid, 'finding': 'not_found', 'credited_as': 'not_found', 'citations': []})
+        contradicted = [p['id'] for p in twin_parts if p.get('finding') == 'contradicted'
+                        and (old_parts.get(p['id']) or {}).get('finding') != 'contradicted']
         new_credit = _recredit(chosen, cid) if taken else old_credit
         take = bool(taken) and new_credit > old_credit
         if take:
             decision = 'replaced'
+        elif taken:
+            decision = 'new evidence, no rise in credit'
         elif (twin.get('credit') or 0) > old_credit:
             decision = 'rise without new evidence'
         else:
             decision = 'no rise'
         row = {'condition_id': cid, 'decision': decision, 'previous_credit': old_credit,
                'second_credit': twin.get('credit') or 0, 'final_credit': new_credit if take else old_credit,
-               'new_evidence_parts': taken if take else [], 'reverted_parts': reverted if take else [],
-               'contradicted_parts': contradicted}
+               'new_evidence_parts': taken, 'unlocked_parts': unlocked if take else [],
+               'reverted_parts': reverted, 'contradicted_parts': contradicted}
         audit.append(row)
         marker = {'version': VERSION, **{k: v for k, v in row.items() if k != 'condition_id'}}
         if take:
+            marker['rejudge_pass_credits'] = twin.get('pass_credits')
             full = all(p.get('credited_as') == 'full' and p.get('second_credited_as', 'full') == 'full' for p in chosen)
             citations = []
             for p in chosen:
                 citations.extend(c for c in p.get('citations') or [] if c not in citations)
-            records.append({**twin, 'parts': chosen, 'credit': new_credit, 'state': 'met' if full else 'unknown',
+            # The re-judge's per-pass credits and agreement note describe its own passes, not this merged credit
+            # (reverted parts keep their provisional result), so they are kept in the marker, not on the record,
+            # where assessment_consistency would read them as this condition's passes.
+            replaced = {k: v for k, v in twin.items() if k not in ('pass_credits', 'agreement')}
+            state = 'not_met' if any(p.get('finding') == 'contradicted' for p in chosen) else 'met' if full else 'unknown'
+            records.append({**replaced, 'parts': chosen, 'credit': new_credit, 'state': state,
                             'digital_credit': max(new_credit, _recredit(chosen, cid, digital=True)),
                             'citations': citations, 'second_layer': marker})
         else:
             records.append({**record, 'second_layer': marker})
     return records, audit
+
+
+def check_export_rule(records, traces, targets):
+    """Refuse an export scored under a different part rule than this worker's. Re-judged requirements are scored
+    under today's rule while copied ones keep the export's, so mixing rules (f5919156 was scored with related evidence
+    at 0.5 and the subject as a share) would put two scales in one score. Checks the traces' part metadata and that
+    each target requirement's recorded credit is what today's rule gives its parts."""
+    from .part_judgment import metadata
+    current = metadata()
+    wanted = {code for code in targets}
+    for trace in traces:
+        if trace.get('indicator') not in wanted:
+            continue
+        recorded = trace.get('judgment') or {}
+        different = [k for k in ('parts_version', 'parts_hash', 'related_credit') if recorded.get(k) != current[k]]
+        if different:
+            raise Layer2Error(f"The export for {trace['indicator']} was scored with a different part rule "
+                              f"({', '.join(different)} differ from this worker). Use an export from a run on the "
+                              'current rule.')
+    ids = {cid for t in targets.values() for cid in t['conditions']}
+    for record in records:
+        if record['condition_id'] not in ids or record.get('validation_issue') or not record.get('parts'):
+            continue
+        if abs(_recredit(record['parts'], record['condition_id']) - (record.get('credit') or 0)) > 1e-3:
+            raise Layer2Error(f"{record['condition_id']}: its recorded credit is not what the current part rule gives "
+                              'its parts. Use an export from a run on the current rule.')
 
 
 def contradictions(audit):

@@ -33,6 +33,16 @@ class Migration(migrations.Migration):
                 max_length=10,
             ),
         ),
+        # Responses saved before this migration were judged as they were: checked. New ones start pending.
+        migrations.AlterField(
+            model_name="depthresponse",
+            name="status",
+            field=models.CharField(
+                choices=[("pending", "Waiting for a check"), ("checked", "Checked")],
+                default="pending",
+                max_length=10,
+            ),
+        ),
         migrations.AddField(
             model_name="depthresponse",
             name="windows",

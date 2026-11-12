@@ -540,7 +540,9 @@ class DepthResponse(models.Model):
     answer = models.TextField(blank=True)
     document_ids = models.JSONField(default=list, blank=True)
     supported = models.BooleanField(default=False)
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.CHECKED)
+    # Pending by default: a response is trusted only once something has checked it (the second layer's check, or a
+    # consultant loading rows from a file, which sets checked explicitly).
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     windows = models.JSONField(default=list, blank=True, help_text='Passages the search found for the answer.')
     support_check = models.JSONField(default=dict, blank=True, help_text='The answer checked against those passages.')
     follow_up_text = models.TextField(blank=True, help_text='The one follow-up question the check asked, if any.')

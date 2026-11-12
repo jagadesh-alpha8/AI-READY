@@ -43,8 +43,14 @@ class Command(BaseCommand):
         except Layer2Error as exc:
             raise CommandError(str(exc))
         for row in result['merge']:
-            self.stdout.write(f"  {row['condition_id']}: {row['decision']} "
-                              f"({row['previous_credit']} -> {row['second_credit']})")
+            detail = f"credit {row['previous_credit']} -> {row['final_credit']}"
+            if row['second_credit'] is not None and row['second_credit'] != row['final_credit']:
+                detail += f"; the re-judgment alone gave {row['second_credit']}"
+            if row.get('unlocked_parts'):
+                detail += f"; parts counted once the subject was shown: {', '.join(row['unlocked_parts'])}"
+            if row.get('issue'):
+                detail += f"; {row['issue']}"
+            self.stdout.write(f"  {row['condition_id']}: {row['decision']} ({detail})")
         for row in result['contradictions']:
             self.stdout.write(f"  For review, not applied: new evidence contradicts {row['condition_id']} "
                               f"(parts {', '.join(row['parts'])}).")

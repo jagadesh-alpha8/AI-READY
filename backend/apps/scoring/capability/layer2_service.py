@@ -13,8 +13,10 @@ Checks wait while an attached document is still being extracted (check_pending r
 NOT metered against a run budget yet; commands cap them. Publishing the result as a run that refines the provisional
 one is not built: rejudge_credit returns the merged records and the final score.
 """
+import threading
 import uuid
 
+from django.conf import settings
 from django.db import transaction
 
 from apps.scoring.models import AdditionalEvidence, CapabilityRun, DepthQuestion, DepthResponse
@@ -24,6 +26,7 @@ from .layer2 import Layer2Error
 
 
 RUN_RANKER = object()  # default for `ranker`: the provisional run's own retrieval ranker
+_RANKERS, _RANKERS_LOCK = {}, threading.Lock()   # one ranker per run per process (building one loads the model)
 
 
 def _uuid(value):
@@ -45,16 +48,25 @@ def run_sprint_id(run_ref):
 def ranker_for_run(run_ref):
     """(ranker or None, 'hybrid' or 'keyword', note): the embedding ranker of the provisional run's frozen retrieval
     policy, so the second layer searches the way the run did. Keyword-only when the run used keyword retrieval, is not
-    in this database, or this worker lacks the run's embedding model (the note says which)."""
+    in this database, or this worker lacks the run's embedding model (the note says which). Built once per run per
+    process: each build loads the model, and its corpus index is reused across answers."""
     from .semantic_retrieval import SemanticRetrievalUnavailable, ranker_for
     run = _run(run_ref)
     if run is None:
         return None, 'keyword', 'Run not in this database.'
+    key = str(run.pk)
+    with _RANKERS_LOCK:
+        if key in _RANKERS:
+            return _RANKERS[key]
     try:
         ranker = ranker_for((run.inputs or {}).get('retrieval_policy'))
     except (SemanticRetrievalUnavailable, OSError, ImportError) as exc:
         return None, 'keyword', f'Embedding ranker unavailable ({type(exc).__name__}).'
-    return ranker, ('hybrid' if ranker is not None else 'keyword'), ''
+    result = (ranker, ('hybrid' if ranker is not None else 'keyword'), '')
+    with _RANKERS_LOCK:
+        _RANKERS.clear()  # keep one: rankers hold the corpus vectors
+        _RANKERS[key] = result
+    return result
 
 
 def _resolve_ranker(ranker, run_ref):
@@ -106,6 +118,33 @@ def run_sources(run_ref):
     """The run's frozen pages (the corpus an answer is also searched in), or [] when the run is not in this database."""
     run = _run(run_ref)
     return list((run.inputs or {}).get('sources') or []) if run else []
+
+
+def run_rubric(run_ref):
+    from .engine import release
+    run = _run(run_ref)
+    return (run.inputs or {}).get('rubric') or release() if run else release()
+
+
+def provisional(run_ref):
+    """(records by condition id, packets by key indicator) from the run's completed assessment in this database, or
+    ({}, {}) when there is none. The packets are the traces' source_excerpts: exactly what the judge saw."""
+    run = _run(run_ref)
+    event = run.events.filter(state='completed', payload__result__isnull=False).last() if run else None
+    if event is None:
+        return {}, {}
+    payload = event.payload or {}
+    return ({r['condition_id']: r for r in payload.get('records') or []},
+            {t['indicator']: t.get('source_excerpts') or [] for t in payload.get('traces') or []})
+
+
+def support_roles():
+    """Passage roles that can make a depth answer count (SECOND_LAYER_CORPUS_SUPPORT). True (default): what the
+    attached documents show, what the search found among documents already submitted, and the credited evidence
+    itself. False: only the attached documents."""
+    if getattr(settings, 'SECOND_LAYER_CORPUS_SUPPORT', True):
+        return None
+    return {'answer_attachment'}
 
 
 def tagged_pages(document_ids, indicator_code):
@@ -217,12 +256,17 @@ def submit(question, *, answer='', document_ids=(), skip=False, parent=None, use
     return response
 
 
-def check_response(response, model, *, attached=None, corpus=None, ranker=RUN_RANKER, depth_spec=None):
+def check_response(response, model, *, attached=None, corpus=None, ranker=RUN_RANKER, depth_spec=None, context=None):
     """Search with the answer and, for a depth question, check it against what was found (one model call, none when
     nothing was found). For a "nothing found" question no model call is made here: the windows go to the credit path,
     which judges them. Returns the response; it stays pending while an attached document is still being extracted.
-    The search uses the run's own ranker unless one is given; the check records which ranking was used and any
-    attached document whose extraction failed."""
+
+    context: (records by condition id, packets by key indicator) of the provisional run (provisional(); read from the
+    database when not given). The search leaves out the requirement's provisional packet and passages that mostly
+    repeat it, so `windows` (what the credit path gets) is text the first pass did not see. The depth check also reads
+    the credited evidence itself (credited_windows), so it can judge the answer against what earned the credit.
+    The search uses the run's own ranker unless one is given; the check records which ranking was used, any attached
+    document whose extraction failed, and which kinds of passage the support rests on."""
     if response.status == DepthResponse.Status.CHECKED:
         return response
     question = response.question
@@ -236,18 +280,33 @@ def check_response(response, model, *, attached=None, corpus=None, ranker=RUN_RA
             return response
     if corpus is None:
         corpus = run_sources(question.run_ref)
+    records, packets = provisional(question.run_ref) if context is None else context
+    packet = packets.get(question.indicator_code) or []
+    record = records.get(question.condition_ids[0]) if question.condition_ids else None
     ranker, ranking, note = _resolve_ranker(ranker, question.run_ref)
     asked = response.parent.follow_up_text if response.parent_id else question.text
-    windows = layer2.search_with_answer(response.answer, attached, corpus, ranker=ranker, fallback_query=asked)
     first = response.parent_id is None
     if question.kind == DepthQuestion.Kind.DEPTH:
-        result = layer2.check_answer(asked, response.answer, windows, dimensions_for(question, depth_spec), model,
-                                     allow_follow_up=first)
+        quotes = layer2.anchored_query('', record)
+        windows = layer2.search_with_answer(layer2.anchored_query(response.answer, record) if response.answer.strip()
+                                            else '', attached, corpus, packet=packet, ranker=ranker,
+                                            fallback_query=quotes or asked)
+        result = layer2.check_answer(asked, response.answer, layer2.credited_windows(record, packet) + windows,
+                                     dimensions_for(question, depth_spec), model, allow_follow_up=first,
+                                     counts_from=support_roles())
     else:
-        result = {'version': layer2.VERSION, 'model_called': False, 'supported': bool(windows), 'dimensions': [],
-                  'passages': [], 'follow_up': None if (windows or not first) else layer2.NO_SUPPORT_FOLLOW_UP,
+        fallback = layer2.profile_query(run_rubric(question.run_ref), question.condition_ids) or asked
+        windows = layer2.search_with_answer(response.answer, attached, corpus, packet=packet, ranker=ranker,
+                                            fallback_query=fallback)
+        roles = support_roles()
+        counted = [w for w in windows if roles is None or w.get('evidence_role') in roles]
+        result = {'version': layer2.VERSION, 'model_called': False, 'supported': bool(counted), 'dimensions': [],
+                  'passages': [], 'follow_up': None if (counted or not first) else layer2.NO_SUPPORT_FOLLOW_UP,
                   'note': 'Judged in the credit path, on the provisional packet plus these passages.'}
-    result['search'] = {'ranking': ranking, 'note': note, 'documents_failed': failed}
+        windows = counted
+    cited = {p.get('evidence_role') for p in result.get('passages') or []}
+    result['search'] = {'ranking': ranking, 'note': note, 'documents_failed': failed,
+                        'packet_windows_left_out': len(packet), 'support_from': sorted(r for r in cited if r)}
     response.windows = windows
     response.support_check = result
     response.supported = result['supported']
@@ -262,6 +321,7 @@ def check_pending(run_ref, model, *, ranker=RUN_RANKER, max_calls=None):
     corpus = run_sources(run_ref)
     if ranker is RUN_RANKER:
         ranker = _resolve_ranker(ranker, run_ref)[0]
+    context = provisional(run_ref)
     spec = depth.spec()
     checked = waiting = calls = 0
     for response in (DepthResponse.objects.filter(question__run_ref=run_ref, status=DepthResponse.Status.PENDING)
@@ -269,7 +329,7 @@ def check_pending(run_ref, model, *, ranker=RUN_RANKER, max_calls=None):
         if max_calls is not None and calls >= max_calls:
             waiting += 1
             continue
-        check_response(response, model, corpus=corpus, ranker=ranker, depth_spec=spec)
+        check_response(response, model, corpus=corpus, ranker=ranker, depth_spec=spec, context=context)
         if response.status == DepthResponse.Status.CHECKED:
             checked += 1
             calls += int(bool(response.support_check.get('model_called')))
@@ -314,9 +374,12 @@ def check_additional(item, rubric, *, attached=None, extracted=None, ranker=RUN_
     if extracted is None:
         extracted = extracted_indicators(item.document_ids)
     routing = layer2.route_additional(rubric, item.picked, extracted)
-    names = ' '.join(i['name'] for i in rubric['indicators'] if i['code'] in routing['indicators'])
+    # With no note, a large document is ranked with the requirements' records-language profiles, never rubric wording.
+    wanted = [c['id'] for i in rubric['indicators'] if i['code'] in routing['indicators'] for c in i['conditions']
+              if c['id'] in (routing['conditions'].get(i['code']) or [c['id']])]
     item.routing = {**routing, 'search': {'ranking': ranking, 'note': note, 'documents_failed': failed}}
-    item.windows = layer2.search_with_answer(item.note, attached, [], ranker=ranker, fallback_query=names)
+    item.windows = layer2.search_with_answer(item.note, attached, [], ranker=ranker,
+                                             fallback_query=layer2.profile_query(rubric, wanted))
     item.status = AdditionalEvidence.Status.CHECKED
     item.save(update_fields=['routing', 'windows', 'status'])
     return item
@@ -335,17 +398,20 @@ def credit_routes(run_ref):
                      .select_related('question').order_by('created_at'))
     for response in depth_answers:
         routes.append({'indicator': response.question.indicator_code, 'conditions': list(response.question.condition_ids),
-                       'windows': response.windows, 'from': f'depth-response:{response.pk}'})
+                       'windows': response.windows, 'documents': list(response.document_ids), 'kind': 'depth',
+                       'from': f'depth-response:{response.pk}'})
     answers = (DepthResponse.objects.filter(question__run_ref=run_ref, question__kind=DepthQuestion.Kind.MISSING,
                                             status=DepthResponse.Status.CHECKED)
                .exclude(kind=DepthResponse.Kind.DONT_KNOW).select_related('question').order_by('created_at'))
     for response in answers:
         routes.append({'indicator': response.question.indicator_code, 'conditions': list(response.question.condition_ids),
-                       'windows': response.windows, 'from': f'response:{response.pk}'})
+                       'windows': response.windows, 'documents': list(response.document_ids), 'kind': 'missing',
+                       'from': f'response:{response.pk}'})
     for item in AdditionalEvidence.objects.filter(run_ref=run_ref, status=AdditionalEvidence.Status.CHECKED):
         for code in item.routing.get('indicators', []):
             routes.append({'indicator': code, 'conditions': item.routing.get('conditions', {}).get(code),
-                           'windows': item.windows, 'from': f'additional:{item.pk}'})
+                           'windows': item.windows, 'documents': list(item.document_ids), 'kind': 'additional',
+                           'from': f'additional:{item.pk}'})
     return routes
 
 
@@ -354,50 +420,61 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
     passages, with the main judge (part judgment, two passes, tie-break). Merge with layer2.merge_new_evidence.
 
     export: the provisional run's assessment export (run_id, rubric, population, reference_period, scope,
-    assessment.records and assessment.traces). service: the model service for evaluate. Returns the merged records,
-    the provisional and final scores, and an audit. Nothing is published (skeleton)."""
+    retrieval_policy, assessment.records and assessment.traces). It must be scored under this worker's part rule
+    (layer2.check_export_rule) and, when the run is in this database, be that run's export. service: the model service
+    for evaluate. Returns the merged records, the provisional and final scores, and an audit. Nothing is published
+    (skeleton)."""
     try:
         run_ref, rubric, records = export['run_id'], export['rubric'], export['assessment']['records']
     except (KeyError, TypeError):
         raise Layer2Error('Not an assessment export: needs run_id, rubric and assessment.records.')
     traces = export['assessment'].get('traces') or []
+    run = _run(run_ref)
+    if run is not None and export.get('inputs_hash') and export['inputs_hash'] != run.inputs_hash:
+        raise Layer2Error("The export's inputs do not match run %s in this database." % run_ref)
     routes = credit_routes(run_ref) if routes is None else routes
     targets = layer2.credit_targets(records, rubric, routes)
-    provisional = layer2.final_score(records, rubric)
-    result = {'version': layer2.VERSION, 'run_ref': run_ref, 'routes': len(routes), 'provisional_score': provisional,
-              'saved': False}
-    if not targets:
-        return {**result, 'targets': {}, 'context_audit': {}, 'merge': [], 'records': records, 'contradictions': [],
-                'final_score': provisional, 'traces': [], 'note': 'No new evidence to re-judge.'}
+    provisional_score = layer2.final_score(records, rubric)
+    result = {'version': layer2.VERSION, 'run_ref': run_ref, 'routes': len(routes),
+              'provisional_score': provisional_score, 'saved': False}
     sprint_id = run_sprint_id(run_ref)
     frozen = run_sources(run_ref)
     frozen_documents = {s.get('document_id') for s in frozen}
-    new_documents = sorted({w['document_id'] for t in targets.values() for w in t['windows']
-                            if w.get('document_id') and w['document_id'] not in frozen_documents})
-    if sprint_id is not None and new_documents:
-        # Pages extraction tagged for the indicator in the new documents join its packet, whatever their wording.
-        # (The run's own documents went through the extracted-evidence lane in the first layer.)
-        new_pages = document_sources(new_documents, sprint_id)[0]
+    new_documents = sorted({d for t in targets.values() for d in t['documents'] if d not in frozen_documents}
+                           | {w['document_id'] for t in targets.values() for w in t['windows']
+                              if w.get('document_id') and w['document_id'] not in frozen_documents})
+    new_pages = document_sources(new_documents, sprint_id)[0] if sprint_id is not None and new_documents else []
+    if new_pages:
+        # Pages extraction tagged for the indicator, in the new documents sent for that indicator, join its packet
+        # whatever their wording. (The run's own documents went through the extracted-evidence lane in the first layer.)
         for code, target in targets.items():
-            pages = tagged_pages(new_documents, code)
+            mine = [d for d in target['documents'] if d not in frozen_documents]
+            pages = tagged_pages(mine, code) if mine else set()
             if pages:
-                target['windows'].extend(layer2.page_windows(new_pages, pages))
+                layer2.add_windows(target, layer2.page_windows(new_pages, pages), 'extraction_tag')
+    targets = {code: t for code, t in targets.items() if t['windows']}
+    if not targets:
+        return {**result, 'targets': {}, 'context_audit': {}, 'merge': [], 'records': records, 'contradictions': [],
+                'final_score': provisional_score, 'traces': [], 'note': 'No new evidence to re-judge.'}
+    layer2.check_export_rule(records, traces, targets)
     contexts, context_audit = layer2.fixed_contexts(traces, targets)
     subset = layer2.subset_rubric(rubric, targets)
     if len(subset['indicators']) > max_calls:
         raise Layer2Error(f'{len(subset["indicators"])} key indicators to re-judge; the limit is {max_calls}.')
     if sources is None:
-        sources = frozen + (document_sources(new_documents, sprint_id)[0]
-                            if new_documents and sprint_id is not None else [])
+        sources = frozen + new_pages
     if evaluate_fn is None:
         from .evaluation import evaluate as evaluate_fn
+    # The run's own retrieval policy, so page aliases for reviewed evidence and the trace match the first pass; the
+    # targeted extra search is not repeated (the packet already holds what it added).
+    policy = {k: v for k, v in (export.get('retrieval_policy') or {}).items() if k != 'follow_up'} or None
     outcome = evaluate_fn(sources, service=service, population=export.get('population') or 'Not recorded',
                           reference_period=export.get('reference_period') or 'Not recorded', rubric=subset,
                           scope=export.get('scope'), reviewed_evidence=export.get('reviewed_evidence'),
-                          judgment='parts', agreement_passes=2, tie_break=True, max_calls=len(subset['indicators']),
-                          fixed_contexts=contexts)
+                          retrieval_policy=policy, judgment='parts', agreement_passes=2, tie_break=True,
+                          max_calls=len(subset['indicators']), fixed_contexts=contexts)
     packets = {t['indicator']: t.get('source_excerpts') or [] for t in traces}
-    merged, merge_audit = layer2.merge_new_evidence(records, outcome['records'], packets)
+    merged, merge_audit = layer2.merge_new_evidence(records, outcome['records'], packets, rubric=rubric)
     return {**result, 'targets': {code: t['conditions'] for code, t in targets.items()},
             'context_audit': context_audit, 'merge': merge_audit, 'records': merged,
             'contradictions': layer2.contradictions(merge_audit),

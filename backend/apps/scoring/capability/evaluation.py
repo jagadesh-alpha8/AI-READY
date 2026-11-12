@@ -991,7 +991,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
 
     fixed_contexts: {indicator code: packet} for every indicator of the rubric, used instead of retrieval (the second
     assessment layer re-judges chosen requirements on their provisional packet plus new windows; layer2.py). The
-    targeted extra search is not combined with it."""
+    targeted extra search is not combined with it; the run's retrieval policy may be passed for page aliases and the
+    trace, and no embedding ranker is built."""
     rubric = rubric or release()
     if fixed_contexts is not None:
         missing = [i['code'] for i in rubric['indicators'] if i['code'] not in fixed_contexts]
@@ -1010,7 +1011,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     if type(max_calls) is not int or not 0 <= max_calls <= 36:
         raise ValueError('Indicator budget must be an integer from 0 to 36.')
     from .semantic_retrieval import ranker_for
-    semantic_ranker = ranker_for(retrieval_policy)
+    # Fixed packets need no retrieval: the run's policy is still passed (page aliases, the trace), but no encoder.
+    semantic_ranker = None if fixed_contexts is not None else ranker_for(retrieval_policy)
     from apps.extraction.services.provider_features import direct_gemini
     base_url = getattr(service, 'base_url', None)
     gemini = getattr(service, 'provider', None) == 'gemini' or (

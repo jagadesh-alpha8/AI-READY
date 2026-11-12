@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APITestCase
 
-from .capability import depth, evaluation, layer2
+from .capability import depth, evaluation, layer2, part_judgment
 from .capability.engine import release
 from .capability.layer2 import Layer2Error
 from .capability.layer2_service import (add_evidence, check_additional, check_pending, check_response,
@@ -24,6 +24,8 @@ ANNEXURE = {'id': 'page-7', 'document_id': 'doc-ssr', 'page_number': 7,
 CANTEEN = {'id': 'page-9', 'document_id': 'doc-ssr', 'page_number': 9,
            'text': 'Canteen menu and library opening times for the semester.' + FILLER}
 ANSWER = 'Our faculty completed the Certificate Programme in Machine Learning with IIT Madras.'
+# Only in the certificate: the programme's name alone is also in the annexure, so a quote of it is not new.
+NEW_QUOTE = 'Issued by the Centre for Continuing Education'
 
 
 class Reply:
@@ -186,8 +188,10 @@ class CreditPathTests(SimpleTestCase):
         self.assertEqual(contexts[self.code][:1], self.packet)
         self.assertEqual([w['id'] for w in contexts[self.code][1:]], ['att-1'])
         self.assertEqual(audit[self.code]['added_chars'], len(CERTIFICATE['text']))
-        small, _ = layer2.fixed_contexts([{'indicator': self.code, 'source_excerpts': self.packet}], targets, limit=40)
-        self.assertEqual(sum(len(w['text']) for w in small[self.code][1:]), 40)
+        small, _ = layer2.fixed_contexts([{'indicator': self.code, 'source_excerpts': self.packet}], targets, limit=150)
+        self.assertEqual(sum(len(w['text']) for w in small[self.code][1:]), 150)
+        tiny, _ = layer2.fixed_contexts([{'indicator': self.code, 'source_excerpts': self.packet}], targets, limit=40)
+        self.assertEqual(tiny[self.code], self.packet)  # pieces under MIN_PIECE are not worth a place
         with self.assertRaises(Layer2Error):
             layer2.fixed_contexts([], targets)
 
@@ -195,7 +199,7 @@ class CreditPathTests(SimpleTestCase):
         cid = self.ids[0]
         packets = {self.code: self.packet}
         provisional = [record(cid, 0)]
-        new = [record(cid, 1, 'full', [{'source_id': 'att-1', 'quote': 'Certificate Programme in Machine Learning'}])]
+        new = [record(cid, 1, 'full', [{'source_id': 'att-1', 'quote': NEW_QUOTE}])]
         old = [record(cid, 1, 'full', [{'source_id': 'page-7', 'quote': 'completed the Certificate Programme'}])]
         merged, audit = layer2.merge_new_evidence(provisional, new, packets)
         self.assertEqual((merged[0]['credit'], audit[0]['decision']), (1, 'replaced'))
@@ -209,7 +213,7 @@ class CreditPathTests(SimpleTestCase):
     def test_merge_reads_both_passes_of_a_combined_record(self):
         cid = 'X-1.1.A1'
         old_cite = {'source_id': 'page-7', 'quote': 'completed the Certificate Programme'}
-        new_cite = {'source_id': 'att-1', 'quote': 'Certificate Programme in Machine Learning'}
+        new_cite = {'source_id': 'att-1', 'quote': NEW_QUOTE}
         subject = {'id': 's', 'finding': 'full', 'credited_as': 'full', 'second_finding': 'full',
                    'second_credited_as': 'full', 'citations': [old_cite], 'second_citations': [old_cite],
                    'part_credit': 1.0}
@@ -228,7 +232,7 @@ class CreditPathTests(SimpleTestCase):
     def test_a_part_that_rose_without_new_evidence_keeps_its_provisional_result(self):
         cid = 'X-1.1.A2'
         old_cite = {'source_id': 'page-7', 'quote': 'completed the Certificate Programme'}
-        new_cite = {'source_id': 'att-1', 'quote': 'Certificate Programme in Machine Learning'}
+        new_cite = {'source_id': 'att-1', 'quote': NEW_QUOTE}
         part = lambda pid, finding, cites: {'id': pid, 'finding': finding, 'credited_as': finding, 'citations': cites}
         provisional = {'condition_id': cid, 'credit': 0.0, 'state': 'unknown',
                        'parts': [part('s', 'full', [old_cite]), part('a', 'not_found', []), part('b', 'not_found', [])]}
@@ -339,13 +343,14 @@ class FlowTests(TestCase):
         packet = [{**ANNEXURE, 'text_offset': 0}]
         export = {'run_id': 'run-x', 'rubric': self.rubric, 'population': 'All', 'reference_period': '2025-26',
                   'assessment': {'records': [record(self.missing_cid, 0)],
-                                 'traces': [{'indicator': self.code, 'source_excerpts': packet}]}}
+                                 'traces': [{'indicator': self.code, 'source_excerpts': packet,
+                                             'judgment': part_judgment.metadata()}]}}
         seen = {}
 
         def judge(sources, **kwargs):
             seen.update(kwargs)
             return {'records': [record(self.missing_cid, 1, 'full', [
-                {'source_id': 'att-1', 'quote': 'Certificate Programme in Machine Learning'}])], 'traces': []}
+                {'source_id': 'att-1', 'quote': NEW_QUOTE}])], 'traces': []}
         result = rejudge_credit(export, service=None, evaluate_fn=judge, sources=[ANNEXURE, CERTIFICATE])
         self.assertEqual([c['id'] for c in seen['rubric']['indicators'][0]['conditions']], [self.missing_cid])
         self.assertEqual([w['id'] for w in seen['fixed_contexts'][self.code]], ['page-7', 'att-1'])
@@ -461,6 +466,17 @@ class SecondLayerAPITests(APITestCase):
         self.assertTrue(response.supported)
         self.assertEqual(response.windows[0]['document_id'], str(self.doc.pk))
 
+    def test_long_answers_are_refused_and_a_failed_check_on_submit_keeps_the_answer(self):
+        long = self.client.post(f'{self.url}/questions/{self.question.pk}/responses',
+                                {'answer': 'x' * 5000}, format='json')
+        self.assertEqual(long.status_code, 400)
+        with override_settings(SECOND_LAYER_CHECK_ON_SUBMIT=True), \
+                patch('apps.scoring.capability.layer2_service.check_response', side_effect=RuntimeError('provider')), \
+                patch('apps.scoring.capability.depth.default_model', return_value=Reply({})):
+            made = self.client.post(f'{self.url}/questions/{self.question.pk}/responses',
+                                    {'answer': 'Our register', 'document_ids': [str(self.doc.pk)]}, format='json')
+        self.assertEqual((made.status_code, made.data['status']), (201, 'pending'))
+
     def test_additional_evidence(self):
         empty = self.client.post(f'{self.url}/additional-evidence',
                                  {'document_ids': [str(self.doc.pk)], 'note': 'x', 'picked': []}, format='json')
@@ -472,3 +488,235 @@ class SecondLayerAPITests(APITestCase):
         self.assertEqual(made.data['routed_indicators'], [self.code])
         self.assertEqual(len(self.client.get(f'{self.url}/additional-evidence/').data['results']), 1)
         self.assertEqual(AdditionalEvidence.objects.count(), 1)
+
+
+# ------------------------------------------------------------------ audit of PR #45 (12 Nov): one test per finding
+
+def gated_condition():
+    """A real condition with a gate part and at least two other parts."""
+    spec = part_judgment._load()[0]['conditions']
+    for cid, item in spec.items():
+        parts = [p['id'] for p in item['parts']]
+        gates = [p['id'] for p in item['parts'] if p.get('gate')] or parts[:1]
+        if len(parts) >= 3 and parts[0] in gates:
+            return cid, cid.rsplit('.', 1)[0], parts
+    raise AssertionError('No gated condition with three parts.')
+
+
+def two_pass(pid, first, second=None, cites=(), second_cites=None):
+    value = {'full': 1.0, 'related': part_judgment.RELATED_CREDIT}
+    second = first if second is None else second
+    return {'id': pid, 'finding': first, 'credited_as': first, 'second_finding': second, 'second_credited_as': second,
+            'citations': list(cites), 'second_citations': list(cites if second_cites is None else second_cites),
+            'part_credit': round((value.get(first, 0) + value.get(second, 0)) / 2, 4)}
+
+
+OLD_TEXT = 'The B.Tech programme includes a practical laboratory assessment of every student each semester.'
+NEW_TEXT = 'The college runs an approved Minor in Artificial Intelligence and Machine Learning from 2024-25.'
+
+
+class AuditFixTests(SimpleTestCase):
+    def setUp(self):
+        self.cid, self.code, self.parts = gated_condition()
+        self.packet = [{'id': 'page-old', 'document_id': 'doc-ssr', 'page_number': 3, 'text': OLD_TEXT + FILLER,
+                        'text_offset': 0}]
+        self.old = {'source_id': 'page-old', 'quote': OLD_TEXT}
+        self.new = {'source_id': 'page-new', 'quote': NEW_TEXT}
+
+    def test_document_only_reply_is_judged_on_the_documents(self):
+        spec, code, cid, dims = spec_condition()
+        model = Reply({'dimensions': [{'dimension_id': dims[0]['id'], 'support': 'supported', 'passage_ids': ['p1'],
+                                       'note': ''}], 'follow_up': ''})
+        window = layer2._window(CERTIFICATE, 0, len(CERTIFICATE['text']), 'answer_attachment')
+        result = layer2.check_answer('Who ran it?', '', [window], dims[:2], model)
+        self.assertTrue(result['supported'])
+        sent = model.calls[0][1]
+        self.assertIn('documents only', sent['answer'])
+        self.assertEqual(sent['passages'][0]['role'], 'answer_attachment')
+        self.assertIn('sent documents without writing anything', layer2.CHECK_PROMPT)
+        self.assertNotIn('the answer says nothing about it', layer2.CHECK_PROMPT)
+
+    def test_corpus_support_can_be_switched_off(self):
+        spec, code, cid, dims = spec_condition()
+        model = Reply({'dimensions': [{'dimension_id': dims[0]['id'], 'support': 'supported', 'passage_ids': ['p1'],
+                                       'note': ''}], 'follow_up': ''})
+        found = layer2._window(ANNEXURE, 0, len(ANNEXURE['text']), 'answer_search')
+        on = layer2.check_answer('Who ran it?', ANSWER, [found], dims[:1], model)
+        off = layer2.check_answer('Who ran it?', ANSWER, [found], dims[:1], model, counts_from={'answer_attachment'})
+        self.assertEqual((on['supported'], off['supported']), (True, False))
+        self.assertIn('already submitted', off['dimensions'][0]['note'])
+
+    def test_a_restated_copy_is_not_new_evidence(self):
+        copy = {'id': 'aqar-page', 'document_id': 'doc-aqar', 'page_number': 1, 'text': 'AQAR 2024-25. ' + OLD_TEXT + FILLER,
+                'text_offset': 0}
+        self.assertFalse(layer2.is_new({'source_id': 'aqar-page', 'quote': OLD_TEXT}, self.packet))
+        targets = {self.code: {'conditions': [self.cid], 'windows': [copy]}}
+        contexts, audit = layer2.fixed_contexts([{'indicator': self.code, 'source_excerpts': self.packet}], targets)
+        self.assertEqual(contexts[self.code], self.packet)
+        self.assertEqual(audit[self.code]['restatements_skipped'], 1)
+
+    def test_new_evidence_for_a_missing_gate_unlocks_the_other_parts(self):
+        gate, *rest = self.parts
+        provisional = {'condition_id': self.cid, 'credit': 0.0, 'state': 'unknown',
+                       'parts': [two_pass(p, 'not_found') for p in self.parts]}
+        rejudged = {'condition_id': self.cid, 'credit': 1.0, 'state': 'met', 'pass_credits': [1.0, 1.0],
+                    'parts': [two_pass(gate, 'full', cites=[self.new])] + [two_pass(p, 'full', cites=[self.old])
+                                                                          for p in rest]}
+        merged, audit = layer2.merge_new_evidence([provisional], [rejudged], {self.code: self.packet})
+        self.assertEqual(audit[0]['decision'], 'replaced')
+        self.assertEqual((audit[0]['new_evidence_parts'], audit[0]['unlocked_parts']), ([gate], rest))
+        self.assertEqual(merged[0]['credit'], 1.0)
+        # The re-judge's own pass credits move to the marker; they do not describe the merged record.
+        self.assertNotIn('pass_credits', merged[0])
+        self.assertEqual(merged[0]['second_layer']['rejudge_pass_credits'], [1.0, 1.0])
+
+    def test_no_unlock_when_the_gate_was_already_credited(self):
+        gate, first, *others = self.parts
+        provisional = {'condition_id': self.cid, 'credit': 0.0, 'state': 'unknown',
+                       'parts': [two_pass(gate, 'full', cites=[self.old])] + [two_pass(p, 'not_found')
+                                                                              for p in [first, *others]]}
+        rejudged = {'condition_id': self.cid, 'credit': 1.0, 'state': 'met',
+                    'parts': [two_pass(gate, 'full', cites=[self.old]), two_pass(first, 'full', cites=[self.new])]
+                    + [two_pass(p, 'full', cites=[self.old]) for p in others]}
+        merged, audit = layer2.merge_new_evidence([provisional], [rejudged], {self.code: self.packet})
+        self.assertEqual((audit[0]['new_evidence_parts'], audit[0]['unlocked_parts'], audit[0]['reverted_parts']),
+                         ([first], [], others))
+
+    def test_a_failed_rejudgment_is_reported_not_called_no_rise(self):
+        failed = {'condition_id': self.cid, 'credit': 0.0, 'state': 'unknown', 'parts': [], 'cause': 'not_evaluated',
+                  'validation_issue': 'Model evaluation failed (Timeout). Capability is unknown.'}
+        provisional = {'condition_id': self.cid, 'credit': 0.0, 'state': 'unknown',
+                       'parts': [two_pass(p, 'not_found') for p in self.parts]}
+        merged, audit = layer2.merge_new_evidence([provisional], [failed], {self.code: self.packet})
+        self.assertTrue(audit[0]['decision'].startswith('not re-judged'))
+        self.assertEqual(merged[0]['parts'], provisional['parts'])
+
+    def test_new_windows_take_the_budget_in_route_order(self):
+        rubric = release()
+        indicator = next(i for i in rubric['indicators'] if i['code'] == self.code)
+        records = [{'condition_id': c['id'], 'credit': 0.0} for c in indicator['conditions']]
+        depth_window = {'id': 'depth-page', 'document_id': 'd', 'page_number': 1, 'text': 'D' * 300, 'text_offset': 0}
+        missing_window = {'id': 'missing-page', 'document_id': 'm', 'page_number': 1, 'text': 'M ' * 150,
+                          'text_offset': 0}
+        targets = layer2.credit_targets(records, rubric, [
+            {'indicator': self.code, 'conditions': None, 'windows': [depth_window], 'kind': 'depth'},
+            {'indicator': self.code, 'conditions': None, 'windows': [missing_window], 'kind': 'missing'},
+            {'indicator': self.code, 'conditions': None, 'windows': [], 'documents': ['doc-x'], 'kind': 'additional'}])
+        self.assertEqual([w['id'] for w in targets[self.code]['windows']], ['missing-page', 'depth-page'])
+        self.assertEqual(targets[self.code]['documents'], ['doc-x'])
+
+    def test_export_scored_under_another_part_rule_is_refused(self):
+        targets = {self.code: {'conditions': [self.cid], 'windows': []}}
+        old_rule = {**part_judgment.metadata(), 'related_credit': 0.5}
+        with self.assertRaises(Layer2Error):
+            layer2.check_export_rule([], [{'indicator': self.code, 'judgment': old_rule}], targets)
+        with self.assertRaises(Layer2Error):
+            layer2.check_export_rule([], [{'indicator': self.code}], targets)
+        # Subject counted as a share (the rule before 528c550): the recorded credit is not today's.
+        shared = {'condition_id': self.cid, 'credit': 0.5,
+                  'parts': [two_pass(self.parts[0], 'full')] + [two_pass(p, 'not_found') for p in self.parts[1:]]}
+        with self.assertRaises(Layer2Error):
+            layer2.check_export_rule([shared], [{'indicator': self.code, 'judgment': part_judgment.metadata()}],
+                                     targets)
+        layer2.check_export_rule([{**shared, 'credit': 0.0}],
+                                 [{'indicator': self.code, 'judgment': part_judgment.metadata()}], targets)
+
+    def test_credited_evidence_and_anchored_query(self):
+        record = {'citations': [self.old]}
+        windows = layer2.credited_windows(record, self.packet + [{**CANTEEN, 'text_offset': 0}])
+        self.assertEqual([(w['id'], w['evidence_role']) for w in windows], [('page-old', 'credited_evidence')])
+        self.assertEqual(layer2.anchored_query('Yes, 300 hours.', record), 'Yes, 300 hours. ' + OLD_TEXT)
+        self.assertEqual(layer2.anchored_query('Yes.', None), 'Yes.')
+
+    def test_fallback_query_is_records_language_not_rubric_wording(self):
+        rubric = release()
+        indicator = rubric['indicators'][0]
+        query = layer2.profile_query(rubric, [indicator['conditions'][0]['id']])
+        self.assertTrue(query)
+        self.assertNotEqual(query, indicator['name'])
+
+    def test_fixed_packets_build_no_embedding_ranker(self):
+        indicator = release()['indicators'][0]
+        with patch('apps.scoring.capability.semantic_retrieval.ranker_for', side_effect=AssertionError('built')):
+            outcome = evaluation.evaluate([], service=None, population='All', reference_period='2025-26',
+                                          rubric={**release(), 'indicators': [indicator]}, max_calls=0,
+                                          judgment='parts', fixed_contexts={indicator['code']: []},
+                                          retrieval_policy={'mode': 'hybrid', 'follow_up': None})
+        self.assertEqual(len(outcome['records']), len(indicator['conditions']))
+
+
+class AuditFixFlowTests(TestCase):
+    def setUp(self):
+        self.spec, self.code, self.cid, self.dims = spec_condition()
+        self.question = DepthQuestion.objects.create(
+            run_ref='run-y', kind='depth', indicator_code=self.code, condition_ids=[self.cid],
+            dimension_ids=[d['id'] for d in self.dims[:2]], text='Who ran the training?', rank=1,
+            spec_version=self.spec['version'])
+
+    def test_search_leaves_out_the_packet_and_the_check_reads_the_credited_evidence(self):
+        packet = [{**ANNEXURE, 'text_offset': 0}]
+        record = {'condition_id': self.cid, 'citations': [{'source_id': 'page-7', 'quote': 'Dr Rao completed the '
+                                                           'Certificate Programme in Machine Learning'}]}
+        other = {'id': 'page-12', 'document_id': 'doc-aqar', 'page_number': 12,
+                 'text': 'The Certificate Programme in Machine Learning with IIT Madras ran for 120 hours in 2024-25,'
+                         ' with a final project assessed by the centre.' + FILLER}
+        model = Reply({'dimensions': [{'dimension_id': self.dims[0]['id'], 'support': 'supported',
+                                       'passage_ids': ['p1', 'p2'], 'note': ''}], 'follow_up': ''})
+        response = submit(self.question, answer=ANSWER)
+        check_response(response, model, attached=[], corpus=[ANNEXURE, other, CANTEEN], ranker=None,
+                       context=({self.cid: record}, {self.code: packet}))
+        self.assertEqual([w['id'] for w in response.windows], ['page-12'])  # the packet's page is not taken again
+        roles = [p['role'] for p in model.calls[0][1]['passages']]
+        self.assertEqual(roles, ['credited_evidence', 'answer_search'])
+        self.assertEqual(response.support_check['search']['support_from'], ['answer_search', 'credited_evidence'])
+
+    def test_new_responses_start_pending_and_the_file_path_needs_documents(self):
+        from .capability.depth_service import DepthError, load_responses
+        self.assertEqual(DepthResponse(question=self.question, kind='answer').status, DepthResponse.Status.PENDING)
+        with self.assertRaises(DepthError):
+            load_responses([{'question_id': str(self.question.pk), 'kind': 'answer', 'answer': 'Yes.',
+                             'supported': True}], commit=True)
+        load_responses([{'question_id': str(self.question.pk), 'kind': 'answer', 'answer': 'Yes.', 'supported': True,
+                         'document_ids': ['00000000-0000-0000-0000-0000000000aa']}], commit=True)
+        self.assertEqual(DepthResponse.objects.get().status, DepthResponse.Status.CHECKED)
+
+    def test_depth_judge_waits_for_pending_checks(self):
+        from .capability.depth_service import judge_run
+        submit(self.question, answer=ANSWER)
+        export = {'run_id': 'run-y', 'rubric': release(),
+                  'assessment': {'records': [{'condition_id': self.cid, 'credit': 1.0, 'state': 'met', 'parts': [],
+                                              'citations': []}]}}
+        model = Reply({})
+        result = judge_run(export, model, commit=True)
+        self.assertEqual((result['awaiting_check'], result['judged'], result['unanswered']), ([self.cid], [], []))
+        self.assertFalse(model.calls)
+
+
+class RankerAndRouteTests(SimpleTestCase):
+    def test_attachments_get_their_own_ranker_so_the_corpus_index_is_kept(self):
+        stub = object()
+        self.assertIs(layer2._attachment_ranker(stub), stub)
+        self.assertIsNone(layer2._attachment_ranker(None))
+
+        from .capability.semantic_retrieval import SemanticRanker
+
+        class Model:
+            model_name = 'stub'
+        ranker = SemanticRanker(Model(), tokenizer=object(), token_limit=512)
+        twin = layer2._attachment_ranker(ranker)
+        self.assertIsNot(twin, ranker)
+        self.assertIs(layer2._attachment_ranker(ranker), twin)
+        self.assertIs(twin.model, ranker.model)
+
+    def test_a_route_with_documents_but_nothing_found_reaches_no_judge_without_tagged_pages(self):
+        rubric = release()
+        indicator = rubric['indicators'][0]
+        export = {'run_id': 'run-z', 'rubric': rubric, 'population': 'All', 'reference_period': '2025-26',
+                  'assessment': {'records': [{'condition_id': c['id'], 'credit': 0.0} for c in indicator['conditions']],
+                                 'traces': []}}
+        routes = [{'indicator': indicator['code'], 'conditions': None, 'windows': [], 'documents': ['doc-x'],
+                   'kind': 'missing'}]
+        with patch('apps.scoring.capability.layer2_service._run', return_value=None):
+            result = rejudge_credit(export, service=None, routes=routes,
+                                    evaluate_fn=lambda *a, **k: self.fail('no judge call expected'))
+        self.assertEqual(result['note'], 'No new evidence to re-judge.')
