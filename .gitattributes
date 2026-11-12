@@ -2,3 +2,6 @@
 # endings there break the shebang ("bad interpreter"). Force LF regardless
 # of the checking-out machine's core.autocrlf setting.
 *.sh text eol=lf
+
+# Binary documents: never convert line endings.
+*.pdf binary
