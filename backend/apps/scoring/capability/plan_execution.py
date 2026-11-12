@@ -12,7 +12,8 @@ from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
 from apps.scoring.models import (CapabilityRun, InstitutionalPlanVersion, PlanScenario,
                                   PlanScenarioEvent, PlanScenarioExecution)
-from .engine import ENGINE_VERSION, LEGACY_ENGINE_VERSION, assess, validate_release
+from . import action_plan
+from .engine import ENGINE_VERSION, LEGACY_ENGINE_VERSION, assess, documented, validate_release
 from .evaluation import select_context
 from .execution import policy, AssessmentConflict, AssessmentDisabled, BudgetExceeded, ExecutionStopped
 from .provider import MeteredService, UnpricedModel, UsageUnavailable
@@ -36,9 +37,35 @@ def validate_baseline(run, event):
     records = event.payload['records']
     decisions = {r['condition_id']: r['state'] for r in records}
     expected = {c['id'] for i in inputs['rubric']['indicators'] for c in i['conditions']}
-    if len(records) != len(expected) or set(decisions) != expected or assess(decisions, inputs['rubric']) != event.payload['result']:
+    stored = event.payload['result']
+    # A part-credit result carries the strict result's keys plus documented/score; both must replay.
+    strict = assess(decisions, inputs['rubric'])
+    if (len(records) != len(expected) or set(decisions) != expected
+            or any(stored.get(k) != v for k, v in strict.items())
+            or ('documented' in stored and documented({r['condition_id']: r.get('credit', 0) for r in records},
+                                                      inputs['rubric']) != stored['documented'])):
         raise AssessmentConflict('The saved baseline does not replay under its recorded method.')
     return decisions
+
+
+def baseline_credits(event):
+    return {r['condition_id']: action_plan.credit_of(r) for r in event.payload['records']}
+
+
+def baseline_view(run, event):
+    """What the plan stages are told about the assessment: part credits, the reported score, strengths, partly
+    shown requirements with the parts still missing, and the priority plan."""
+    rubric = run.inputs['rubric']
+    records = event.payload['records']
+    if rubric.get('aggregation') != 'independent_conditions':
+        return {}
+    credits = baseline_credits(event)
+    return {'baseline_credits': credits, 'baseline_score': documented(credits, rubric)['overall'],
+            'strengths': sorted(c for c, v in credits.items() if v >= 1),
+            'partly_shown': [{'condition_id': r['condition_id'], 'credit': action_plan.credit_of(r),
+                              'missing_parts': action_plan.missing_parts(r)}
+                             for r in records if action_plan.gap_of(r) == 'complete'],
+            'priority_plan': action_plan.build(rubric, records)}
 
 
 @transaction.atomic
@@ -70,7 +97,7 @@ def start(*, run, user, key, plan_text):
         'engine_version': run.inputs['engine_version'], 'scope': run.inputs.get('scope'),
         'population': run.inputs['population'], 'reference_period': run.inputs['reference_period'],
         'profile': run.inputs['profile'], 'asset_sources': asset_sources,
-        'asset_context_is_subset': True, 'execution_policy': budget,
+        'asset_context_is_subset': True, 'execution_policy': budget, **baseline_view(run, event),
         'prompt_hash': digest(PROMPTS), 'schema_hash': digest(SCHEMAS)}
     scenario = PlanScenario.objects.create(plan=plan, run=run, assessment_event=event, inputs=inputs, inputs_hash=digest(inputs))
     execution = PlanScenarioExecution.objects.create(scenario=scenario, run=run, requested_by=user,
@@ -94,7 +121,8 @@ def validate_identity(scenario, completed=None):
             or inputs['profile'] != scenario.run.inputs['profile']
             or inputs['population'] != scenario.run.inputs['population']
             or inputs['reference_period'] != scenario.run.inputs['reference_period']
-            or inputs['baseline_decisions'] != {r['condition_id']: r['state'] for r in scenario.assessment_event.payload['records']}):
+            or inputs['baseline_decisions'] != {r['condition_id']: r['state'] for r in scenario.assessment_event.payload['records']}
+            or ('baseline_credits' in inputs and inputs['baseline_credits'] != baseline_credits(scenario.assessment_event))):
         raise AssessmentConflict('Saved plan and baseline identities do not match.')
     if completed and (completed.payload.get('inputs_hash') != scenario.inputs_hash
             or digest(completed.payload['comparison']) != completed.payload.get('comparison_hash')):
@@ -106,6 +134,26 @@ def validate_identity(scenario, completed=None):
         if (improved is None or improved.text != projection['text']
                 or improved.text_hash != digest(improved.text) or projection['text_hash'] != improved.text_hash):
             raise AssessmentConflict('Saved improved plan does not match this scenario.')
+
+
+ASSET_CHARS = 18000
+
+
+def ranked_assets(scenario):
+    """The documents most related to the plan, searched with the plan's own text by the run's own ranker, or None
+    when the run used keyword retrieval or this worker can't load its embedding model (the keyword subset frozen at
+    start is used then). Runs in the worker, not the request: building the ranker loads the model."""
+    from .layer2 import search_with_answer
+    from .layer2_service import ranker_for_run
+    try:
+        ranker, mode, _ = ranker_for_run(scenario.run)
+    except Exception:
+        return None
+    if ranker is None or mode != 'hybrid':
+        return None
+    windows = search_with_answer(scenario.inputs['plan_text'], [], scenario.run.inputs['sources'],
+                                 corpus_limit=ASSET_CHARS, ranker=ranker)
+    return windows or None
 
 
 def dispatch(scenario_id, task_id):
@@ -191,6 +239,11 @@ def evaluate_institutional_plan(scenario_id, task_id):
             lease = pool.acquire()
         with use_lease(lease):
             service = ScenarioMeter(get_ai_service(), execution)
+            ranked = ranked_assets(scenario)
+            if ranked is not None:
+                stage(scenario_id, 'asset_retrieval', {'mode': 'hybrid', 'windows': [
+                    {k: w.get(k) for k in ('id', 'text_offset')} | {'chars': len(w.get('text') or '')} for w in ranked]})
+                inputs = {**inputs, 'asset_sources': ranked}
             with usage_scope(sprint=scenario.run.sprint, stage='institutional_plan_evaluation', capability_run=scenario.run, plan_scenario=scenario):
                 comparison = run_pipeline(inputs, service, lambda label, value: stage(scenario_id, label, value))
             with transaction.atomic():
