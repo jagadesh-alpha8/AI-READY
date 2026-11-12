@@ -80,11 +80,13 @@ jobs:
           DEBUG: "True"
           ALLOWED_HOSTS: localhost,127.0.0.1
 
+  # The live frontend is frontend-new (the Maturity Roadmap UI). The earlier frontend/ folder stays in the repo
+  # for reference and rollback, but is no longer tested, built or deployed.
   frontend-build:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend
+        working-directory: frontend-new
     steps:
       - uses: actions/checkout@v4
 
@@ -92,10 +94,12 @@ jobs:
         with:
           node-version: "24"
           cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: frontend-new/package-lock.json
 
       - run: npm ci
+      - run: npm run lint
       - run: npm test
+      # tsc -b (type check) + vite build, the same build the Docker image runs.
       - run: npm run build
 
   build-and-push:
@@ -127,7 +131,7 @@ jobs:
       - name: Build & push frontend image
         uses: docker/build-push-action@v6
         with:
-          context: ./frontend
+          context: ./frontend-new
           push: true
           tags: |
             ${{ env.FRONTEND_IMAGE }}:latest

@@ -1,0 +1,33 @@
+{
+  "name": "ai-ready-campus-roadmap-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Maturity Roadmap frontend (AIFRC handoff, Option 4) for the existing AI Ready Campus Django/DRF backend.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty",
+    "lint": "eslint .",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@types/react": "^18.2.55",
+    "@types/react-dom": "^18.2.19",
+    "@vitejs/plugin-react": "^4.2.1",
+    "eslint": "^9.9.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "globals": "^15.9.0",
+    "typescript": "^5.2.2",
+    "typescript-eslint": "^8.2.0",
+    "vite": "^5.1.0"
+  }
+}
