@@ -21,6 +21,7 @@ not guessed at, not silently treated as empty.
 """
 import logging
 import os
+import re
 
 import pymupdf
 import numpy as np
@@ -30,7 +31,8 @@ from ..exceptions import PermanentExtractionError, RecoverableExtractionError
 from . import stub
 from .base import PageReader
 from .paddle_ocr import OCRResult, read_with
-from .text_cleaning import clean_text, is_meaningful_text, remove_repeated_headers_footers
+from .text_cleaning import clean_text, is_meaningful_text
+from .evidence_text import _placeholder, _with_tables, render_table, evidence_pages
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +132,7 @@ class PDFPageReader(PageReader):
         pages_to_read = min(total_page_count, max_pages) if max_pages else total_page_count
         cache = _page_cache(document)
 
-        raw_texts, reads = [], []
+        raw_texts, reads, unsaved = [], [], []
         ocr_done = vision_done = unreadable = reused = 0
         for index in range(pages_to_read):
             page_number = index + 1
@@ -154,7 +156,8 @@ class PDFPageReader(PageReader):
                     previous_vision_attempts=cached.vision_attempts if cached else 0,
                     job=job,
                 )
-                _save_page(document, page_number, read)
+                if not _save_page(document, page_number, read):
+                    unsaved.append((page_number, read))
             raw_texts.append(read.text)
             reads.append(read)
             ocr_done += read.source == 'ocr'
@@ -162,11 +165,13 @@ class PDFPageReader(PageReader):
             unreadable += read.status != 'ok'
             self._progress(index + 1, pages_to_read, ocr_done, unreadable, vision_done)
 
-        cleaned = [
-            _with_tables(clean_text(t), read.tables, page_number)
-            for page_number, (t, read) in enumerate(
-                zip(remove_repeated_headers_footers([clean_text(t) for t in raw_texts]), reads), start=1)
-        ]
+        # One more pass once the page loop (and its write load) is over, then refuse to finish with gaps.
+        _require_saved(document, [n for n, read in unsaved if not _save_page(document, n, read)])
+
+        cleaned = [p['text'] for p in evidence_pages([
+            {'page_number': n, 'text': text, 'tables': read.tables}
+            for n, (text, read) in enumerate(zip(raw_texts, reads), start=1)
+        ])]
 
         pages_out = [
             {
@@ -217,7 +222,7 @@ class PDFPageReader(PageReader):
         from .vision_fallback import run_vision_fallback, supports_vision
 
         text, tables = _page_text(page)
-        if is_meaningful_text(text, self.min_text_chars_per_page):
+        if is_meaningful_text(_with_tables(text, tables, page_number), self.min_text_chars_per_page):
             return _PageRead(
                 text, 'text', 'ok', None, '', tables, previous_attempts,
                 ocr_status='skipped', vision_status='skipped',
@@ -334,12 +339,29 @@ class PDFPageReader(PageReader):
             raise PermanentExtractionError(f'Could not read the {ext} file: {exc}') from exc
         if max_pages:
             texts = texts[:max_pages]
-        source = 'ocr' if ext in office_reader.IMAGE_EXTENSIONS else 'text'
+        is_image = ext in office_reader.IMAGE_EXTENSIONS
+        source = 'ocr' if is_image else 'text'
         pages_out = [
             {'page_number': i + 1, 'text': clean_text(t), 'char_count': len(t), 'text_source': source if t.strip() else 'none',
              'requires_ocr': False, 'tables': []}
             for i, t in enumerate(texts)
         ]
+        # Persist these pages as PDF pages are: the assessment freezes evidence only from page rows, so
+        # without them an image or office file is read and extracted but can never be cited.
+        unsaved = []
+        for i, t in enumerate(texts):
+            if t.strip():
+                status = 'ok'
+            elif is_image:
+                status = 'ocr_unavailable' if isinstance(self.ocr_provider, stub.NullOCRProvider) else 'unreadable'
+            else:
+                status = 'ok'  # an empty sheet or blank page: nothing to cite, not a read failure
+            read = _PageRead(t or '', source if t.strip() else 'none', status, None, '', [], 1 if is_image else 0,
+                             ocr_status=('ok' if t.strip() else status) if is_image else 'skipped',
+                             vision_status='skipped')
+            if not _save_page(document, i + 1, read):
+                unsaved.append((i + 1, read))
+        _require_saved(document, [n for n, read in unsaved if not _save_page(document, n, read)])
         if not pages_out and not warnings:
             warnings.append(f'The {ext} file contains no text.')
         logger.info('office_reader.read document_id=%s ext=%s pages=%d', document.id, ext, len(pages_out))
@@ -386,33 +408,63 @@ def _page_cache(document):
     return {p.page_number: p for p in DocumentPage.objects.filter(document=document)}
 
 
-def _save_page(document, page_number, read):
+#: Seconds to wait before each further attempt to save a page row when the database reports a lock.
+PAGE_SAVE_RETRY_DELAYS = (0.2, 0.5, 1.0, 2.0, 4.0)
+
+
+def _is_lock_error(exc):
+    from django.db import OperationalError
+    return isinstance(exc, OperationalError) and 'locked' in str(exc).lower()
+
+
+def _save_page(document, page_number, read, retry_delays=None):
+    """Persist one page read. True when saved (or nothing to save), False when the row could not be written.
+
+    The page row is the only copy of the page text the assessment freezes, so a lost write silently removes
+    the page from evidence. A database lock (SQLite under concurrent writers) is retried with backoff; the
+    caller decides what a final failure means."""
+    import time
+
     from apps.documents.models import Document
 
     from ..models import DocumentPage
 
     if not isinstance(document, Document) or not document.pk:
-        return
-    try:
-        conf = float(read.confidence) if isinstance(read.confidence, (int, float)) and not isinstance(read.confidence, bool) else None
-        DocumentPage.objects.update_or_create(document=document, page_number=page_number, defaults={
-            'text': read.text, 'text_source': read.source, 'status': read.status, 'ocr_confidence': conf,
-            'ocr_attempts': read.attempts, 'warning': read.warning, 'tables': read.tables,
-            'ocr_status': read.ocr_status, 'ocr_error': read.ocr_error,
-            'vision_status': read.vision_status, 'vision_error': read.vision_error,
-            'vision_attempts': read.vision_attempts, 'vision_facts': read.vision_facts,
-        })
-    except Exception as exc:  # the read itself succeeded; a failed save only costs a re-read next time
-        logger.warning('pdf_reader.page_cache_save_failed document_id=%s page=%s error=%s', document.id,
-                       page_number, exc)
+        return True
+    conf = float(read.confidence) if isinstance(read.confidence, (int, float)) and not isinstance(read.confidence, bool) else None
+    defaults = {
+        'text': read.text, 'text_source': read.source, 'status': read.status, 'ocr_confidence': conf,
+        'ocr_attempts': read.attempts, 'warning': read.warning, 'tables': read.tables,
+        'ocr_status': read.ocr_status, 'ocr_error': read.ocr_error,
+        'vision_status': read.vision_status, 'vision_error': read.vision_error,
+        'vision_attempts': read.vision_attempts, 'vision_facts': read.vision_facts,
+    }
+    delays = PAGE_SAVE_RETRY_DELAYS if retry_delays is None else retry_delays
+    for attempt in range(len(delays) + 1):
+        try:
+            DocumentPage.objects.update_or_create(document=document, page_number=page_number, defaults=defaults)
+            return True
+        except Exception as exc:
+            final = attempt == len(delays) or not _is_lock_error(exc)
+            logger.warning('pdf_reader.page_cache_save_failed document_id=%s page=%s attempt=%d final=%s error=%s',
+                           document.id, page_number, attempt + 1, final, exc)
+            if final:
+                return False
+            time.sleep(delays[attempt])
+    return False
+
+
+def _require_saved(document, unsaved):
+    """Fail the read (recoverable, so the job retries and reuses every page that was saved) rather than let a
+    job report complete while pages are missing from the evidence the assessment freezes."""
+    if unsaved:
+        raise RecoverableExtractionError(
+            f'{len(unsaved)} page read(s) of document {document.id} could not be saved '
+            f'(pages {", ".join(map(str, unsaved))}); the job will retry and re-read only those pages.')
 
 
 # -- tables ---------------------------------------------------------------------------------------------------
 
-def _placeholder(index):
-    """A letters-only line marking where table `index` sits in the page text: header/footer removal masks
-    digits, so a numbered marker repeated on many pages could be dropped as a footer."""
-    return 'AIOSTABLEMARKER' + ''.join(chr(97 + int(c)) for c in str(index))
 
 
 def _page_text(page):
@@ -434,7 +486,24 @@ def _page_text(page):
         if len(rows) < 2 or max(len(r) for r in rows) < 2:
             continue  # one line or one column: not a table worth restructuring
         header = [_cell(c) for c in (table.header.names if table.header and table.header.names else [])]
-        if header and rows[0] == header:
+        # PyMuPDF can promote the first data row of a continuation to the
+        # header. Keep dated rows as data when both rows have a year in the
+        # first column and a non-date description in the second.
+        if (not any(header) or rows[0] == header) and all(
+            len(row) >= 2 and _table_year(row[0]) and row[1] and not _table_year(row[1])
+            for row in rows[:2]
+        ):
+            header = []
+        elif (len(rows[0]) == 3
+                and [cell.casefold() for cell in rows[0]] == ['year', 'type of up-gradation / new purchase', 'remarks']
+                and _table_year(rows[1][0])):
+            # A section caption above the table can be detected as an external header.
+            header, rows = rows[0], rows[1:]
+        elif (len(header) == 3 and header == rows[0] and not any(header[:2])
+                and _table_year(rows[1][0])):
+            # Preserve a carry-over cell without guessing the preceding row's year or labels.
+            header = []
+        elif header and rows[0] == header:
             rows = rows[1:]
         elif not any(header):
             header, rows = rows[0], rows[1:]
@@ -459,23 +528,5 @@ def _cell(value):
     return ' '.join(str(value).split()) if value is not None else ''
 
 
-def render_table(table, page_number):
-    """A table as text the AI reads row by row, with its header and page, e.g.
-    [Table 1 on page 5 -- columns: Year | Students]
-    Year: 2023 | Students: 420"""
-    header = table.get('header') or []
-    lines = [f'[Table {table["index"]} on page {page_number} -- columns: {" | ".join(header) or "(none)"}]']
-    for row in table.get('rows') or []:
-        if header and len(header) == len(row):
-            lines.append(' | '.join(f'{h}: {v}' if h else v for h, v in zip(header, row)))
-        else:
-            lines.append(' | '.join(row))
-    return '\n'.join(lines)
-
-
-def _with_tables(text, tables, page_number):
-    for table in tables or []:
-        marker = _placeholder(table['index'])
-        rendered = render_table(table, page_number)
-        text = text.replace(marker, rendered) if marker in text else f'{text}\n{rendered}'.strip()
-    return text
+def _table_year(value):
+    return re.fullmatch(r'(?:19|20)\d{2}(?:\s*[-–/]\s*(?:\d{4}|\d{2}))?', value)

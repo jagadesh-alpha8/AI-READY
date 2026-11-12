@@ -33,3 +33,6 @@ openpyxl>=3.1
 # Optional at runtime: the app only imports the SDK when Pinecone is actually
 # configured, so the project still boots without it.
 pinecone>=5.0.0,<7.0.0
+
+# Structured recommendation validation (explicit runtime dependency).
+jsonschema>=4.20,<5

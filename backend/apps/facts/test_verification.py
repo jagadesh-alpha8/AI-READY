@@ -5,7 +5,7 @@ DocumentPage rows, exactly as the extraction pipeline saves it.
 """
 from decimal import Decimal
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -362,6 +362,30 @@ class AutomationTests(VerificationBase):
         self.assertEqual(r.data['confirmed'], [str(good.id)])
         self.assertIn('invalid', r.data['skipped'][0]['reason'])
 
+    def test_bulk_acceptance_cannot_bypass_verification_and_rechecks_stale_values(self):
+        good = self._fact()
+        unverified = self._fact(field_key='unverified', confidence_score=1)
+        stale = self._fact(field_key='stale')
+        engine.verify_fact(good)
+        engine.verify_fact(stale)
+        stale.value = 999; stale.save()
+        self.client.force_authenticate(self.iqac)
+        response = self.client.post(f'/api/v1/sprints/{self.sprint.id}/facts/bulk-confirm',
+            {'fact_ids': [str(good.pk), str(unverified.pk), str(stale.pk)], 'only_verified': False}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['confirmed'], [str(good.pk)])
+        self.assertEqual(response.data['skipped_count'], 2)
+        self.assertEqual(FactReviewHistory.objects.filter(fact__in=[unverified, stale]).count(), 0)
+
+    def test_exception_queue_excludes_verified_low_risk_facts_but_keeps_high_risk(self):
+        good = self._fact()
+        engine.verify_fact(good, apply_policy=True, current_mode='shadow')
+        pending = self._fact(field_key='not_checked')
+        self.client.force_authenticate(self.iqac)
+        response = self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts', {'review_queue': 'exceptions'})
+        rows = response.data['results'] if isinstance(response.data, dict) else response.data
+        self.assertEqual([row['id'] for row in rows], [str(pending.pk)])
+
     def test_extraction_end_runs_the_pipeline_on_the_document(self):
         self._fact()
         with override_settings(FACT_VERIFICATION_MODE='shadow'):
@@ -581,4 +605,19 @@ class ExtractorCalculationTests(TestCase):
 
     def test_policy_defaults(self):
         self.assertEqual(policy.policy()['high']['automate'], False)
-        self.assertEqual(policy.mode(), 'shadow')
+        self.assertEqual(policy.mode(), 'enforce')
+
+
+class BoundsAgreeTests(SimpleTestCase):
+    def test_a_number_inside_a_stated_bound_is_not_a_conflict(self):
+        from apps.facts.verification.conflicts import bounds_agree
+        self.assertTrue(bounds_agree(['17224', 'more than 15000']))
+        self.assertTrue(bounds_agree(['at least 60', '60']))
+        self.assertTrue(bounds_agree(['more than 100', 'more than 150']))
+
+    def test_real_disagreements_stay_conflicts(self):
+        from apps.facts.verification.conflicts import bounds_agree
+        self.assertFalse(bounds_agree(['13622', '4982']))
+        self.assertFalse(bounds_agree(['more than 60', '60']))
+        self.assertFalse(bounds_agree(['more than 15000', 'less than 10000']))
+        self.assertFalse(bounds_agree(['All of the above', 'Planning and development']))

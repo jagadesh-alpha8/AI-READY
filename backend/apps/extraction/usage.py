@@ -10,15 +10,22 @@ is logged and swallowed.
 """
 import contextvars
 import logging
+import threading
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
+
+#: Serialises this process's small bookkeeping writes (usage rows, capability request ledger, run progress) when
+#: model calls run in worker threads. SQLite allows one writer; an uncoordinated burst of threads can fail with
+#: "database is locked", and usage recording swallows its errors, so a lost row would go unnoticed. Model calls
+#: themselves are never made while holding it.
+DB_WRITE_LOCK = threading.RLock()
 
 _scope = contextvars.ContextVar('ai_usage_scope', default=None)
 
 
 @contextmanager
-def usage_scope(*, job=None, document=None, sprint=None, stage=None):
+def usage_scope(*, job=None, document=None, sprint=None, stage=None, capability_run=None, recommendation_snapshot=None, plan_scenario=None):
     """Attribute AI calls inside this block. Nested scopes inherit and override
     the outer one's fields (e.g. the pipeline sets the job once, then the stage
     per step)."""
@@ -31,6 +38,12 @@ def usage_scope(*, job=None, document=None, sprint=None, stage=None):
         current['sprint'] = sprint
     if stage is not None:
         current['stage'] = stage
+    if capability_run is not None:
+        current['capability_run'] = capability_run
+    if recommendation_snapshot is not None:
+        current['recommendation_snapshot'] = recommendation_snapshot
+    if plan_scenario is not None:
+        current['plan_scenario'] = plan_scenario
     token = _scope.set(current)
     try:
         yield
@@ -49,31 +62,60 @@ def _save(*, provider, model, input_tokens, output_tokens, cache_read_tokens=0, 
         return None
     try:
         from .models import AIUsage
-        from .pricing import cost_usd
+        from .pricing import cost_usd, positive_token_prices
 
         sprint = scope.get('sprint')
-        return AIUsage.objects.create(
-            institution_id=getattr(sprint, 'institution_id', None),
-            sprint=sprint,
-            document=scope.get('document'),
-            extraction_job=scope.get('job'),
-            stage=scope.get('stage') or AIUsage.Stage.OTHER,
-            provider=provider,
-            model=model or '',
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cache_read_tokens=cache_read_tokens,
-            cache_write_tokens=cache_write_tokens,
-            reasoning_tokens=reasoning_tokens,
-            duration_ms=max(0, int(duration_ms)),
-            cost_usd=cost_usd(
-                model, input_tokens=input_tokens, output_tokens=output_tokens,
-                cache_read_tokens=cache_read_tokens, cache_write_tokens=cache_write_tokens,
-            ),
-        )
+        with DB_WRITE_LOCK:
+            return AIUsage.objects.create(
+                institution_id=getattr(sprint, 'institution_id', None),
+                sprint=sprint,
+                document=scope.get('document'),
+                extraction_job=scope.get('job'),
+                capability_run=scope.get('capability_run'),
+                recommendation_snapshot=scope.get('recommendation_snapshot'),
+                plan_scenario=scope.get('plan_scenario'),
+                stage=scope.get('stage') or AIUsage.Stage.OTHER,
+                provider=provider,
+                model=model or '',
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
+                reasoning_tokens=reasoning_tokens,
+                duration_ms=max(0, int(duration_ms)),
+                cost_usd=None if provider == 'gemini' and not positive_token_prices(model) else cost_usd(
+                    model, input_tokens=input_tokens, output_tokens=output_tokens,
+                    cache_read_tokens=cache_read_tokens, cache_write_tokens=cache_write_tokens,
+                ),
+            )
     except Exception as exc:  # never let bookkeeping fail an extraction
         logger.error('ai_usage.record_failed model=%s error=%s', model, exc)
         return None
+
+
+def openai_token_counts(usage, *, gemini=False):
+    """Normalize billable output without adding reasoning to it twice.
+
+    Google's compatible endpoint can exclude thinking from completion_tokens
+    while including it in total_tokens. Only that known provider gets this
+    interpretation. Standard OpenAI reasoning is a subset of completion_tokens.
+    """
+    prompt = getattr(usage, 'prompt_tokens', None)
+    completion = getattr(usage, 'completion_tokens', None)
+    known = all(type(v) is int and v >= 0 for v in (prompt, completion))
+    reasoning = _int(getattr(getattr(usage, 'completion_tokens_details', None), 'reasoning_tokens', 0))
+    cached = _int(getattr(getattr(usage, 'prompt_tokens_details', None), 'cached_tokens', 0))
+    counts = {'prompt_tokens': _int(prompt), 'completion_tokens': _int(completion),
+              'reasoning_tokens': reasoning, 'cached_tokens': cached}
+    if gemini:
+        total = getattr(usage, 'total_tokens', None)
+        known = known and type(total) is int and total >= prompt + completion
+        if known:
+            counts.update(total_tokens=total, reported_completion_tokens=completion,
+                          completion_tokens=total - prompt,
+                          reasoning_tokens=max(reasoning, total - prompt - completion))
+    known = known and counts['cached_tokens'] <= counts['prompt_tokens'] and counts['reasoning_tokens'] <= counts['completion_tokens']
+    return counts, known
 
 
 def record_openai_usage(response, *, provider, model, duration_ms=0):
@@ -83,15 +125,18 @@ def record_openai_usage(response, *, provider, model, duration_ms=0):
     usage = getattr(response, 'usage', None)
     if usage is None:
         return None
-    prompt = _int(getattr(usage, 'prompt_tokens', 0))
-    cached = _int(getattr(getattr(usage, 'prompt_tokens_details', None), 'cached_tokens', 0))
+    counts, known = openai_token_counts(usage, gemini=provider == 'gemini')
+    if provider == 'gemini' and not known:
+        logger.error('ai_usage.invalid_gemini_usage model=%s', model)
+        return None
+    prompt, cached = counts['prompt_tokens'], counts['cached_tokens']
     return _save(
         provider=provider,
         model=model,  # as configured -- the price-table key (a router's combo name, not the routed model)
         input_tokens=max(0, prompt - cached),
-        output_tokens=_int(getattr(usage, 'completion_tokens', 0)),
+        output_tokens=counts['completion_tokens'],
         cache_read_tokens=cached,
-        reasoning_tokens=_int(getattr(getattr(usage, 'completion_tokens_details', None), 'reasoning_tokens', 0)),
+        reasoning_tokens=counts['reasoning_tokens'],
         duration_ms=duration_ms,
     )
 

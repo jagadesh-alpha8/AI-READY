@@ -1,0 +1,5 @@
+{
+ "_note": "Answers for the faculty AI training conditions (key indicator AIQIF-C4.1), describing a thin programme. Load with: python manage.py depth_load_responses faculty_training_weak.json --by-condition --run <run id> --commit. Every depth question for a listed condition gets this answer. Paired with faculty_training_strong.json: a working judge must place this one lower.",
+ "AIQIF-C4.1.F1": {"kind": "answer", "supported": false, "answer": "It was a weekly evening course at a local private training institute. There was no written syllabus beyond the session titles (Introduction to AI, ChatGPT for teachers, AI tools). Each session was about two hours. The institute is not accredited."},
+ "AIQIF-C4.1.F2": {"kind": "answer", "supported": false, "answer": "Three of our faculty attended, out of about 120 teaching staff, and each attended three sessions in March 2023. There was no test or certificate. We paid the registration fee of Rs 1,500 per person. It has not been repeated."}
+}

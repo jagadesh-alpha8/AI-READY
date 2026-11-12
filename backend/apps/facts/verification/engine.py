@@ -40,7 +40,7 @@ from . import derived, grounding, normalize, numeric, policy, precedent as prece
 logger = logging.getLogger(__name__)
 
 #: Bumped whenever the rules here change, so a stored verification says which rules produced it.
-POLICY_VERSION = 'fact-verification/1'
+POLICY_VERSION = 'fact-verification/2'
 
 
 @dataclass
@@ -122,7 +122,10 @@ def cross_source(snapshot, fact_scope, *, exclude_ids=()):
     out = {'status': 'no_other_source', 'compared': [], 'not_comparable': [], 'kind': 'deterministic'}
     if not snapshot.sprint_id or not snapshot.field_key:
         return out
-    others = (ExtractedFact.objects.filter(sprint_id=snapshot.sprint_id, field_key__iexact=snapshot.field_key)
+    from django.db.models.functions import Lower
+    from apps.facts.catalogue import matching_keys
+    others = (ExtractedFact.objects.filter(sprint_id=snapshot.sprint_id).annotate(concept_key=Lower('field_key'))
+              .filter(concept_key__in=[k.lower() for k in matching_keys(snapshot.field_key)])
               .exclude(status=ExtractedFact.Status.REJECTED).exclude(pk__in=[i for i in exclude_ids if i])
               .select_related('source_document', 'document'))
     if snapshot.fact_id:
@@ -313,7 +316,8 @@ def verify_fact(fact, *, source=FactVerification.Source.REVERIFY, provided_pages
     summary = dict(verification_status=result.outcome, grounding_status=result.grounding['status'],
                    validation_status=result.validation['status'], cross_source_status=result.cross_source['status'],
                    risk_level=result.risk_level, automation_decision=decision.action,
-                   automation_reason=decision.reason, verified_at=now)
+                   automation_reason=decision.reason, verified_at=now,
+                   source_review_required=fact.source_review_required and result.outcome != 'verified')
     ExtractedFact.objects.filter(pk=fact.pk).update(**summary)
     for name, value in summary.items():
         setattr(fact, name, value)

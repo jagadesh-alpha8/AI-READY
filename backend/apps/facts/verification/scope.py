@@ -31,12 +31,17 @@ _DEPARTMENT = re.compile(r'\b(?:department|dept\.?)\s+of\s+([a-z &]+?)(?:[,.;:)]
 
 
 def _period(text):
-    m = _PERIOD.search(text)
-    if m:
+    periods = set()
+    for m in _PERIOD.finditer(text):
         start, end = int(m.group(1)), m.group(2)
         end = int(end) if len(end) == 4 else (start // 100) * 100 + int(end)
         if end == start + 1:
-            return f'{start}-{str(end)[-2:]}'
+            periods.add(f'{start}-{str(end)[-2:]}')
+    if periods:
+        # A table header can name several years. Its first column does not date
+        # every extracted cell. Leave that association to the stated cell scope,
+        # which remains extraction-derived and cannot establish source currency.
+        return next(iter(periods)) if len(periods) == 1 else ''
     m = _AS_ON.search(text)
     if m:
         parsed = normalize.parse_date(m.group(1))
@@ -71,8 +76,10 @@ def read_scope(fact, *, stated=None):
     """The scope of one fact: {'period', 'population', 'unit', 'includes', 'excludes', 'sources': {part: source}}.
     `stated` is the extractor's own scope dict (AI), if any -- falls back to fact.scope."""
     stated = stated if stated is not None else (getattr(fact, 'scope', None) or {})
-    text = ' '.join(str(x or '') for x in (fact.field_key.replace('_', ' '), fact.field_name, fact.source_snippet))
-    period, population = _period(text), _population(text)
+    field_text = ' '.join(str(x or '') for x in (fact.field_key.replace('_', ' '), fact.field_name))
+    text = field_text + ' ' + (fact.source_snippet or '')
+    period = _period(field_text) or _period(fact.source_snippet or '')
+    population = _population(text)
     sources = {}
     scope = {'period': period, 'population': population, 'unit': _unit(fact.data_type, f'{fact.source_snippet or ""}'),
              'includes': list(stated.get('includes') or []), 'excludes': list(stated.get('excludes') or [])}
@@ -83,11 +90,23 @@ def read_scope(fact, *, stated=None):
     if population:
         sources['population'] = 'deterministic'
     elif stated.get('population'):
-        scope['population'] = [str(stated['population']).lower()]
+        scope['population'] = sorted(str(x).lower() for x in stated['population']) if isinstance(stated['population'], list) else [str(stated['population']).lower()]
         sources['population'] = 'extraction'
     sources['unit'] = 'deterministic'
+    if isinstance(stated.get('unit'), str) and stated['unit'].strip():
+        scope['unit'] = ' '.join(stated['unit'].lower().split())
+        sources['unit'] = 'extraction'
     if scope['includes'] or scope['excludes']:
         sources['categories'] = stated.get('source', 'extraction')
+    # Extracted entity labels can distinguish claims, never establish identity.
+    for key in ('entity', 'institution', 'department', 'programme'):
+        if stated.get(key):
+            scope[key] = str(stated[key]).strip().casefold()
+    from .measures import count_basis
+    basis = count_basis(fact.field_name)
+    if basis:
+        scope['count_basis'] = basis
+        sources['count_basis'] = 'field_label'
     scope['sources'] = sources
     return scope
 
@@ -96,6 +115,9 @@ def comparable(a, b):
     """(True, '') when two scopes can describe the same metric; (False, why) when a known part differs.
     Unknown parts (blank on either side) are listed in why only if nothing else differs."""
     diffs = []
+    for key in ('entity', 'institution', 'department', 'programme', 'count_basis'):
+        if a.get(key) and b.get(key) and a[key] != b[key]:
+            diffs.append(f'different {key} ({a[key]} vs {b[key]})')
     if a.get('period') and b.get('period') and _norm_period(a['period']) != _norm_period(b['period']):
         diffs.append(f'different periods ({a["period"]} vs {b["period"]})')
     pa, pb = set(a.get('population') or []), set(b.get('population') or [])

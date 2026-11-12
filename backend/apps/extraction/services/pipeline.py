@@ -161,7 +161,9 @@ class ExtractionPipeline:
         vision_facts = pages.get('vision_facts') or []
         if vision_facts:
             from .openai_fact_extractor import _merge_fact
-            facts_by_key = {f['field_key'].strip().lower(): f for f in raw_facts}
+            facts_by_key = {}
+            for fact in raw_facts:
+                _merge_fact(facts_by_key, fact)
             for vf in vision_facts:
                 _merge_fact(facts_by_key, vf)
             raw_facts = list(facts_by_key.values())
@@ -170,6 +172,8 @@ class ExtractionPipeline:
 
         self._advance(job, Step.MAPPING_AUDIT_FIELDS)
         mapped_facts = self.field_mapper.map_fields(document, raw_facts)
+        from ..observations import freeze
+        freeze(job, mapped_facts)
         facts_created = self._persist_facts(job, mapped_facts)
         self._ai_check_tags(job, document)
 
@@ -198,6 +202,8 @@ class ExtractionPipeline:
             analyze_pending_document_submissions(document, pages, job=job)
         except Exception:
             logger.exception('extraction.pipeline.final_evidence_assessment_hook_failed document_id=%s', document.id)
+        from apps.facts.lifecycle import reconcile_extraction
+        reconcile_extraction(job, getattr(job, '_seen_fact_ids', set()), pages)
         document.status = Document.Status.PROCESSED
         document.processed_at = timezone.now()
         update_fields = ['status', 'processed_at', 'updated_at']
@@ -308,7 +314,14 @@ class ExtractionPipeline:
                 issues.append({'kind': 'unreadable_pages', 'page_numbers': numbers[:200],
                                'detail': f'{len(other)} page(s) had no readable text, so nothing was extracted '
                                          f'from them.', 'pages': other[:50]})
-        job.extraction_warnings = issues
+        checks = report.get('quotation_checks') or {}
+        dropped = checks.get('rejected', 0) + checks.get('other_rejected', 0)
+        # Dropped facts are recorded, never silent; they do not make the reading of the document partial.
+        job.extraction_warnings = issues + ([{
+            'kind': 'quotation_checks', **checks,
+            'detail': f'{dropped} extracted fact(s) were dropped: {checks.get("rejected", 0)} quotation(s) not found on '
+                      f'the cited page and {checks.get("other_rejected", 0)} other validation failure(s). '
+                      f'{checks.get("repaired", 0)} citation page(s) were repaired.'}] if dropped or checks.get('repaired') else [])
         job.chunks_total = report.get('chunks_total', 0)
         job.chunks_completed = report.get('chunks_completed', 0)
         job.completeness = ExtractionJob.Completeness.PARTIAL if issues else ExtractionJob.Completeness.COMPLETE
@@ -317,11 +330,11 @@ class ExtractionPipeline:
 
     @staticmethod
     def _persist_facts(job, mapped_facts):
-        """Save this run's facts for the document, one row per field_key.
+        """Save this run's facts for the document, one row per scoped observation.
 
         Reprocessing a document must not duplicate its facts (or the gaps,
-        conflicts and recommendations that point at them), so a fact the
-        document already has for the same field_key is reused:
+        conflicts and recommendations that point at them), so an unambiguous observation already held by the
+        document is reused:
         - still unreviewed (EXTRACTED): updated in place with the new value,
           keeping its id so everything linked to it stays linked;
         - already reviewed (confirmed/corrected/rejected/evidence requested):
@@ -330,7 +343,7 @@ class ExtractionPipeline:
         - auto-confirmed (apps/facts/auto_confirm.py, never a person's decision):
           updated like an unreviewed fact and set back to EXTRACTED, so it is
           checked for auto-confirmation again with the new value.
-        Facts an earlier run found that this run didn't are kept.
+        Missing facts are reconciled only after the whole pipeline succeeds; partial runs never retire facts.
         AI-QIF tagging (apps/facts/aiqif_tagging.py) runs for every fact,
         reviewed ones included: a reviewed fact keeps its value and review,
         but its kind / NAAC metric / automatic tags are refreshed. A kind a
@@ -339,6 +352,7 @@ class ExtractionPipeline:
         from apps.facts.aiqif_tagging import Crosswalk, Precedents
         from apps.facts.auto_confirm import is_auto_confirmed
         from apps.facts.models import ExtractedFact
+        from apps.facts.catalogue import identity as observation_identity
 
         crosswalk = Crosswalk()
         precedents = Precedents()  # earlier expert decisions, applied to this run's tags (aiqif_tagging rule 4)
@@ -351,20 +365,31 @@ class ExtractionPipeline:
             return fact.status == ExtractedFact.Status.EXTRACTED or is_auto_confirmed(fact)
 
         existing = {}
+        by_scope = {}
         # Oldest first, so the newest unreviewed row wins a key -- unless a
         # reviewed row already holds it.
-        for fact in ExtractedFact.objects.filter(document=job.document).select_related('reviewed_by').order_by('created_at'):
-            key = fact.field_key.strip().lower()
+        for fact in ExtractedFact.all_objects.filter(document=job.document).select_related('reviewed_by').order_by('created_at'):
+            key = observation_identity(fact)
+            by_scope.setdefault(observation_identity(fact, include_value=False), []).append(fact)
             held = existing.get(key)
             if held is None or updatable(held):
                 existing[key] = fact
 
         count = 0
+        job._seen_fact_ids = set()
+        from collections import Counter
+        incoming_scopes = Counter(observation_identity(item, include_value=False) for item in mapped_facts)
         refreshed_fields = set()  # fields whose value may have changed: their conflict summaries are rebuilt
         with transaction.atomic():
             for item in mapped_facts:
                 fields = {name: value for name, value in item.items() if name != 'aiqif_mappings'}
-                fact = existing.get(fields['field_key'].strip().lower())
+                fact = existing.get(observation_identity(fields))
+                scoped_key = observation_identity(fields, include_value=False)
+                # Preserve existing IDs and human decisions for an unambiguous update.
+                # Multiple values in the same scope are separate observations, never
+                # winners chosen by confidence. The snapshot preserves every output.
+                if fact is None and incoming_scopes[scoped_key] == 1 and len(by_scope.get(scoped_key, [])) == 1:
+                    fact = by_scope[scoped_key][0]
                 if fact is None:
                     # The value and citation as first recorded are kept apart from the live ones for good.
                     fact = ExtractedFact.objects.create(
@@ -375,8 +400,10 @@ class ExtractionPipeline:
                         value_origin=(ExtractedFact.ValueOrigin.CALCULATED if fields.get('derivation')
                                       else ExtractedFact.ValueOrigin.EXTRACTED),
                     )
-                    existing[fact.field_key.strip().lower()] = fact
+                    existing[observation_identity(fact)] = fact
                 elif updatable(fact):
+                    fact.retired_at = None
+                    fact.source_review_required = False
                     for name, value in fields.items():
                         if name == 'fact_kind' and fact.kind_reviewed_by_id:
                             continue  # a Super Admin decided the kind
@@ -389,6 +416,7 @@ class ExtractionPipeline:
                     fact.save()
                     refreshed_fields.add(fact.field_key)
                 else:
+                    job._seen_fact_ids.add(fact.pk)
                     # Reviewed: value and review untouched; only its tagging is refreshed.
                     for name in tagging_fields:
                         if name in fields and not (name == 'fact_kind' and fact.kind_reviewed_by_id):
@@ -397,6 +425,7 @@ class ExtractionPipeline:
                     if 'aiqif_mappings' in item:
                         ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'], crosswalk, precedents)
                     continue
+                job._seen_fact_ids.add(fact.pk)
                 if 'aiqif_mappings' in item:
                     ExtractionPipeline._save_aiqif_mappings(fact, item['aiqif_mappings'], crosswalk, precedents)
                 count += 1

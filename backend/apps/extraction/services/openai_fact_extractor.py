@@ -55,8 +55,8 @@ _INDICATOR_GUIDE = '\n'.join(f'- {code}: {name}' for code, (_key, name) in AIQIF
 MAX_AIQIF_MAPPINGS_PER_FACT = 3
 
 SYSTEM_PROMPT = f"""You are extracting structured facts from one institutional audit document for a \
-higher-education AI-readiness audit platform. Extracted facts feed a scoring engine across the nine \
-criteria of the InGage AI-QIF framework. Tag every fact with the ONE `pillar` key whose criterion it is \
+higher-education AI-readiness audit platform. Facts support evidence review; capability assessment \
+evaluates source passages separately against the InGage AI-QIF framework. Tag every fact with the ONE `pillar` key whose criterion it is \
 evidence for:
 {_PILLAR_GUIDE}
 
@@ -71,8 +71,9 @@ Follow these rules exactly, without exception:
 - Never invent numbers, names, dates, statistics or institutional information.
 - If information is unavailable, return no fact. Do not create a fact with a guessed or approximate \
 value, and do not create a fact just because a category above seems like it should be present.
-- Every fact must have supporting evidence: a real snippet quoted or closely paraphrased from the \
-text you were given.
+- Every fact must have supporting evidence: an exact contiguous quotation copied from the \
+text you were given. Never paraphrase or join separate passages in `source_snippet`. \
+For a table, copy the rendered row including column labels. Cite its supplied page marker.
 - Prefer null over guessing. If you're confident a fact is real but unsure of one specific detail \
 (such as exactly which page it's on), return null for that detail -- but if you are not confident \
 the fact itself is real, do not include it at all.
@@ -124,6 +125,10 @@ plainly supports it too.
 - Never state or imply a maturity level, score or compliance verdict.
 
 Respond only with the requested structured fields."""
+
+from apps.facts.catalogue import extraction_guidance, identity as observation_identity
+
+SYSTEM_PROMPT += extraction_guidance()
 
 FACT_ITEM_SCHEMA = {
     'type': 'object',
@@ -453,10 +458,41 @@ class OpenAIFactExtractor(FactExtractor):
         valid_page_numbers = {str(page['page_number']) for page in chunk_pages}
         chunk_text = '\n'.join(page.get('text') or '' for page in chunk_pages)
         out = []
+        # accepted includes repaired; rejected_examples is bounded and persisted on the job (pipeline.py).
+        checks = getattr(self, 'report', {}).setdefault('quotation_checks', {
+            'accepted': 0, 'repaired': 0, 'rejected': 0, 'other_rejected': 0, 'rejected_examples': []})
         for raw_fact in raw_facts:
+            quotation_failure = False
+            original_page = raw_fact.get('source_page') if isinstance(raw_fact, dict) else None
             try:
-                out.append(self._validate_fact(raw_fact, valid_page_numbers, chunk_text))
+                # A page outside the chunk is a wrong citation, not a wrong fact: let the quotation repair it.
+                candidate = ({**raw_fact, 'source_page': None} if isinstance(original_page, str)
+                             and original_page not in valid_page_numbers else raw_fact)
+                fact = self._validate_fact(candidate, valid_page_numbers, chunk_text)
+                quote = ' '.join(fact['source_snippet'].split())
+                matching = [str(p['page_number']) for p in chunk_pages
+                            if quote in ' '.join((p.get('text') or '').split())]
+                if fact['source_page'] not in matching:
+                    if len(matching) == 1:
+                        fact['tagging_notes'].append({'kind': 'citation_page_repaired',
+                            'original_page': original_page if candidate is not raw_fact else fact['source_page'],
+                            'page': matching[0]})
+                        fact['source_page'] = matching[0]
+                        checks['repaired'] += 1
+                    else:
+                        quotation_failure = True
+                        raise FactValidationError(
+                            'source_snippet is not an exact quotation on its cited page; no unique repair.'
+                            if not matching else 'source_snippet occurs on several supplied pages, none of them the cited one.')
+                checks['accepted'] += 1
+                out.append(fact)
             except FactValidationError as exc:
+                checks['rejected' if quotation_failure else 'other_rejected'] += 1
+                if len(checks['rejected_examples']) < 50:
+                    raw = raw_fact if isinstance(raw_fact, dict) else {}
+                    checks['rejected_examples'].append({
+                        'chunk': chunk_index, 'field_key': raw.get('field_key'), 'cited_page': raw.get('source_page'),
+                        'reason': str(exc)[:200], 'quotation': ' '.join(str(raw.get('source_snippet') or '').split())[:300]})
                 logger.warning(
                     'fact_extractor.fact_rejected document_id=%s chunk=%d field_key=%r error=%s',
                     document.id, chunk_index,
@@ -682,11 +718,11 @@ def _validate_aiqif_mappings(raw_mappings, field_key, notes=None):
 
 
 def _merge_fact(facts_by_key, fact):
-    """Duplicate facts across chunks are merged by field_key, keeping
+    """Equivalent scoped observations across chunks are merged, keeping
     whichever has the strongest (highest-confidence) evidence rather than
-    creating more than one database row for the same fact -- with the AI-QIF
+    creating more than one database row for the same observation -- with the AI-QIF
     tags of both copies, so a tag is never lost to the merge."""
-    key = fact['field_key'].strip().lower()
+    key = observation_identity(fact)
     existing = facts_by_key.get(key)
     if existing is None:
         facts_by_key[key] = fact

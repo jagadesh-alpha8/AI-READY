@@ -150,10 +150,8 @@ export function canSeeSettingsTab(role: UserRole | undefined, tab: keyof typeof 
 
 /** The AI Readiness Audit steps, in order. Numbered per role from the ones it can see. */
 export const AUDIT_STEPS: MenuKey[] = [
-  'sprint-setup', 'sprint-upload', 'sprint-monitor', 'evidence-intelligence', 'sprint-facts', 'evidence-requests',
-  'sprint-gaps',
-  'sprint-confirmation',
-  'sprint-score', 'sprint-approval', 'sprint-recommendations', 'sprint-report',
+  'sprint-setup', 'sprint-upload', 'evidence-intelligence',
+  'sprint-score', 'sprint-recommendations', 'sprint-report',
 ];
 
 /** 1-based position of `key` among the audit steps this role can see (null if hidden). */

@@ -1,0 +1,159 @@
+{
+  "version": "LADDER-PROFILES-0.1",
+  "methodology": "LADDER-CANDIDATE-0.2",
+  "status": "experimental_not_active",
+  "profiles": {
+    "engineering": {
+      "label": "Engineering",
+      "calibrated": false,
+      "evidence_examples": "Assessed engineering projects, programme delivery and lab service records.",
+      "research_rule": "Applied inquiry solving a relevant institutional or vocational problem is admissible; publications, patents and a dedicated centre are not mandatory evidence formats.",
+      "applicability_rule": "All 216 candidate assertions remain visible. Profile choice does not exclude a requirement or change its denominator.",
+      "silver_proposal": {
+        "all_of": [
+          "LADDER02-C1.1.F2",
+          "LADDER02-C1.2.A1",
+          "LADDER02-C2.1.F1",
+          "LADDER02-C2.1.F2",
+          "LADDER02-C2.1.A1",
+          "LADDER02-C2.2.F1",
+          "LADDER02-C2.2.F2",
+          "LADDER02-C2.2.A1",
+          "LADDER02-C6.3.F1",
+          "LADDER02-C6.3.A2",
+          "LADDER02-C4.1.A1",
+          "LADDER02-C5.1.A1",
+          "LADDER02-C8.1.A1"
+        ],
+        "any_of": [
+          [
+            "LADDER02-C3.1.A1",
+            "LADDER02-C3.4.A1"
+          ]
+        ],
+        "additional_gate_context": [
+          "scope_verified",
+          "currency_verified",
+          "coverage_verified",
+          "critical_risks"
+        ],
+        "limitations": "A proposed minimum checklist, not a complete or approved Silver standard. Coverage thresholds, risk materiality and assessment quality need calibration. No badge is awarded."
+      }
+    },
+    "polytechnic": {
+      "label": "Polytechnic",
+      "calibrated": false,
+      "evidence_examples": "Assessed applied tasks, workshop/lab delivery and staff service records.",
+      "research_rule": "Applied inquiry solving a relevant institutional or vocational problem is admissible; publications, patents and a dedicated centre are not mandatory evidence formats.",
+      "applicability_rule": "All 216 candidate assertions remain visible. Profile choice does not exclude a requirement or change its denominator.",
+      "silver_proposal": {
+        "all_of": [
+          "LADDER02-C1.1.F2",
+          "LADDER02-C1.2.A1",
+          "LADDER02-C2.1.F1",
+          "LADDER02-C2.1.F2",
+          "LADDER02-C2.1.A1",
+          "LADDER02-C2.2.F1",
+          "LADDER02-C2.2.F2",
+          "LADDER02-C2.2.A1",
+          "LADDER02-C6.3.F1",
+          "LADDER02-C6.3.A2",
+          "LADDER02-C4.1.A1",
+          "LADDER02-C5.1.A1",
+          "LADDER02-C8.1.A1"
+        ],
+        "any_of": [
+          [
+            "LADDER02-C3.1.A1",
+            "LADDER02-C3.4.A1"
+          ]
+        ],
+        "additional_gate_context": [
+          "scope_verified",
+          "currency_verified",
+          "coverage_verified",
+          "critical_risks"
+        ],
+        "limitations": "A proposed minimum checklist, not a complete or approved Silver standard. Coverage thresholds, risk materiality and assessment quality need calibration. No badge is awarded."
+      }
+    },
+    "arts_science": {
+      "label": "Arts & Science",
+      "calibrated": false,
+      "evidence_examples": "Discipline-relevant AI literacy, assessed course work and service records.",
+      "research_rule": "Applied inquiry solving a relevant institutional or vocational problem is admissible; publications, patents and a dedicated centre are not mandatory evidence formats.",
+      "applicability_rule": "All 216 candidate assertions remain visible. Profile choice does not exclude a requirement or change its denominator.",
+      "silver_proposal": {
+        "all_of": [
+          "LADDER02-C1.1.F2",
+          "LADDER02-C1.2.A1",
+          "LADDER02-C2.1.F1",
+          "LADDER02-C2.1.F2",
+          "LADDER02-C2.1.A1",
+          "LADDER02-C2.2.F1",
+          "LADDER02-C2.2.F2",
+          "LADDER02-C2.2.A1",
+          "LADDER02-C6.3.F1",
+          "LADDER02-C6.3.A2",
+          "LADDER02-C4.1.A1",
+          "LADDER02-C5.1.A1",
+          "LADDER02-C8.1.A1"
+        ],
+        "any_of": [
+          [
+            "LADDER02-C3.1.A1",
+            "LADDER02-C3.2.A1",
+            "LADDER02-C3.4.A1"
+          ]
+        ],
+        "additional_gate_context": [
+          "scope_verified",
+          "currency_verified",
+          "coverage_verified",
+          "critical_risks"
+        ],
+        "limitations": "A proposed minimum checklist, not a complete or approved Silver standard. Coverage thresholds, risk materiality and assessment quality need calibration. No badge is awarded."
+      }
+    },
+    "iti": {
+      "label": "ITI",
+      "calibrated": false,
+      "evidence_examples": "Trade-relevant AI tasks, trainer capability and accessible practical learning records.",
+      "research_rule": "Applied inquiry solving a relevant institutional or vocational problem is admissible; publications, patents and a dedicated centre are not mandatory evidence formats.",
+      "applicability_rule": "All 216 candidate assertions remain visible. Profile choice does not exclude a requirement or change its denominator.",
+      "silver_proposal": {
+        "all_of": [
+          "LADDER02-C1.1.F2",
+          "LADDER02-C1.2.A1",
+          "LADDER02-C2.1.F1",
+          "LADDER02-C2.1.F2",
+          "LADDER02-C2.1.A1",
+          "LADDER02-C2.2.F1",
+          "LADDER02-C2.2.F2",
+          "LADDER02-C2.2.A1",
+          "LADDER02-C6.3.F1",
+          "LADDER02-C6.3.A2",
+          "LADDER02-C4.1.A1",
+          "LADDER02-C5.1.A1",
+          "LADDER02-C8.1.A1"
+        ],
+        "any_of": [
+          [
+            "LADDER02-C3.1.A1",
+            "LADDER02-C3.2.A1",
+            "LADDER02-C3.4.A1"
+          ]
+        ],
+        "additional_gate_context": [
+          "scope_verified",
+          "currency_verified",
+          "coverage_verified",
+          "critical_risks"
+        ],
+        "limitations": "A proposed minimum checklist, not a complete or approved Silver standard. Coverage thresholds, risk materiality and assessment quality need calibration. No badge is awarded."
+      }
+    }
+  },
+  "gold_platinum": "Not yet specified; never inferred from F/A/O percentages or a Silver checklist.",
+  "scope": "Offline profile/gate prototypes only. No approvals required for assessment, reporting or hypothetical planning."
+}

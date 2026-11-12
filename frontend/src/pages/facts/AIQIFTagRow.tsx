@@ -13,6 +13,7 @@ const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() :
 
 /** The fact's own review state -- separate from its tags' decisions. */
 export const FactReviewState: React.FC<{ fact: Fact }> = ({ fact }) => {
+  if (fact.source_review_required) return <p className="text-[11px] text-warning">Source support changed — review the retained decision</p>;
   const label = fact.status === 'confirmed' ? (fact.auto_confirmed ? 'Fact confirmed automatically' : 'Fact confirmed')
     : fact.status === 'corrected' ? 'Fact corrected'
       : fact.status === 'rejected' ? 'Fact rejected'

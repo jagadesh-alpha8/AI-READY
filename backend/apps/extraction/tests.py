@@ -75,7 +75,12 @@ FAKE_CLASSIFICATION_RESULT = {
 }
 
 
-def make_pdf_bytes(page_texts=('Sample document text for extraction pipeline tests.',)):
+# Extraction keeps a fact only when its quotation is printed on its page, so the default page prints the
+# sentence the shared fixture fact (_valid_fact) quotes.
+DEFAULT_PAGE = 'Sample document text for extraction pipeline tests.\nThe institution has 42 faculty members.'
+
+
+def make_pdf_bytes(page_texts=(DEFAULT_PAGE,)):
     """A real, pdfplumber-readable PDF -- one page per string in
     `page_texts`; an empty string produces a page with no text drawn on it
     (simulating a blank/scanned page)."""
@@ -104,7 +109,7 @@ def make_scanned_pdf_bytes():
     return bytes(pdf.output())
 
 
-def make_pdf(name='doc.pdf', page_texts=('Sample document text for extraction pipeline tests.',)):
+def make_pdf(name='doc.pdf', page_texts=(DEFAULT_PAGE,)):
     return SimpleUploadedFile(name, make_pdf_bytes(page_texts), content_type='application/pdf')
 
 
@@ -432,6 +437,8 @@ class SuccessfulRunTests(ExtractionJobTestBase):
         self.client.post(f'/api/v1/sprints/{self.sprint.id}/extraction-jobs/')
         self.assertEqual(self.document.extracted_facts.count(), 0)
 
+    # Written for the shadow review policy: facts stay 'extracted' until a person acts.
+    @override_settings(FACT_VERIFICATION_MODE='shadow')
     def test_facts_are_persisted_end_to_end_through_the_real_pipeline(self):
         """The core of 'connect OpenAIFactExtractor to ExtractedFact
         database': a fact the (mocked) AI returns must actually reach the
@@ -1504,7 +1511,7 @@ def _valid_fact(**overrides):
         'pillar': 'aiqif_c4',
         'owner_role': 'hr_officer',
         'source_page': '1',
-        'source_snippet': 'The institution has 42 faculty members.',
+        'source_snippet': 'The institution has 42 faculty members',
         'confidence_score': 0.96,
         'confidence_reason': 'Explicitly stated in the source.',
     }
@@ -1583,44 +1590,47 @@ class OpenAIFactExtractorTests(TestCase):
     def test_fact_with_missing_evidence_snippet_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(source_snippet='')]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
-    def test_fact_citing_a_page_outside_the_chunk_is_dropped(self):
-        """The core hallucination guard: a source_page the model wasn't
-        actually given (it only saw page 1) must not be trusted."""
+    def test_fact_citing_a_page_outside_the_chunk_is_repaired_or_dropped(self):
+        """The core hallucination guard: a source_page the model wasn't actually given (it only saw page 1) is
+        never trusted. The quotation decides: printed on exactly one supplied page, the citation moves there;
+        printed on none, the fact is dropped."""
+        pages = {'pages': [_page(1, 'The institution has 42 faculty members.')]}
         service = self._fake_service(results=[{'facts': [_valid_fact(source_page='99')]}])
-        extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
-        self.assertEqual(facts, [])
+        facts = OpenAIFactExtractor(openai_service=service).extract_facts(self.document, pages)
+        self.assertEqual([f['source_page'] for f in facts], ['1'])
+        self.assertIn({'kind': 'citation_page_repaired', 'original_page': '99', 'page': '1'}, facts[0]['tagging_notes'])
+        service = self._fake_service(results=[{'facts': [_valid_fact(source_page='99', source_snippet='There are 99 faculty')]}])
+        self.assertEqual(OpenAIFactExtractor(openai_service=service).extract_facts(self.document, pages), [])
 
-    def test_fact_with_null_source_page_is_still_accepted(self):
-        """'Prefer null over guessing' -- an honestly-unknown page shouldn't
-        be penalized the way a fabricated one is."""
+    def test_null_source_page_is_repaired_from_a_unique_exact_quote(self):
+        """A unique quotation identifies its page without model inference."""
         service = self._fake_service(results=[{'facts': [_valid_fact(source_page=None)]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(len(facts), 1)
-        self.assertEqual(facts[0]['source_page'], '')
+        self.assertEqual(facts[0]['source_page'], '1')
 
     # -- structured output / confidence validation ---------------------------
 
     def test_fact_with_invalid_data_type_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(data_type='integer')]}])  # not a real choice
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_fact_with_invalid_pillar_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(pillar='not_a_real_pillar')]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_fact_with_invalid_owner_role_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(owner_role='super_admin')]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_malformed_top_level_response_is_treated_like_any_other_chunk_failure(self):
@@ -1632,19 +1642,19 @@ class OpenAIFactExtractorTests(TestCase):
         the_others for why single-chunk failures shouldn't be fatal)."""
         service = self._fake_service(results=[{'not_facts': []}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_confidence_out_of_range_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(confidence_score=1.5)]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_negative_confidence_is_dropped(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(confidence_score=-0.2)]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     def test_boundary_confidence_values_are_accepted(self):
@@ -1653,14 +1663,14 @@ class OpenAIFactExtractorTests(TestCase):
             _valid_fact(field_key='b', confidence_score=1.0),
         ]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual({f['field_key'] for f in facts}, {'a', 'b'})
 
     # -- Django-side value typing --------------------------------------------
 
     def test_percentage_value_is_normalized_to_a_number(self):
         service = self._fake_service(results=[{'facts': [
-            _valid_fact(field_key='placement_rate', data_type='percentage', value='87%'),
+            _valid_fact(field_key='placement_rate', data_type='percentage', value='87%', source_snippet='Placement rate: 87%.'),
         ]}])
         extractor = OpenAIFactExtractor(openai_service=service)
         facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Placement rate: 87%.')]})
@@ -1670,7 +1680,7 @@ class OpenAIFactExtractorTests(TestCase):
         service = self._fake_service(results=[{'facts': [
             _valid_fact(
                 field_key='ai_software', data_type='list', pillar='aiqif_c6',
-                owner_role='lab_admin', value='TensorFlow; PyTorch; MATLAB',
+                owner_role='lab_admin', value='TensorFlow; PyTorch; MATLAB', source_snippet='Licensed AI software text.',
             ),
         ]}])
         extractor = OpenAIFactExtractor(openai_service=service)
@@ -1680,7 +1690,7 @@ class OpenAIFactExtractorTests(TestCase):
     def test_unparseable_number_is_dropped_not_coerced(self):
         service = self._fake_service(results=[{'facts': [_valid_fact(value='approximately forty-two')]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+        facts = extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
         self.assertEqual(facts, [])
 
     # -- multiple pages / multiple chunks / duplicates -----------------------
@@ -1694,7 +1704,7 @@ class OpenAIFactExtractorTests(TestCase):
             ),
         ]}])
         extractor = OpenAIFactExtractor(openai_service=service)
-        pages = {'pages': [_page(1, 'Faculty section text.'), _page(2, 'Enrolment section text.')]}
+        pages = {'pages': [_page(1, 'The institution has 42 faculty members.'), _page(2, 'Total student enrolment is 1200.')]}
 
         facts = extractor.extract_facts(self.document, pages)
 
@@ -1714,8 +1724,8 @@ class OpenAIFactExtractorTests(TestCase):
         first_call_content = service.extract_structured_data.call_args_list[0].kwargs['user_content']
         self.assertIn('chunk 1 of 3', first_call_content)
 
-    def test_duplicate_facts_across_chunks_keep_the_strongest_evidence(self):
-        pages = {'pages': [_page(i, f'Page {i} content. ' * 10) for i in range(1, 3)]}
+    def test_unscoped_observations_on_different_pages_are_preserved(self):
+        pages = {'pages': [_page(1, 'The institution has 42 faculty members. Weaker mention.' * 2), _page(2, 'The institution has 42 faculty members. Clear, explicit statement.' * 2)]}
         service = self._fake_service(results=[
             {'facts': [_valid_fact(source_page='1', confidence_score=0.6, source_snippet='Weaker mention.')]},
             {'facts': [_valid_fact(source_page='2', confidence_score=0.95, source_snippet='Clear, explicit statement.')]},
@@ -1724,9 +1734,8 @@ class OpenAIFactExtractorTests(TestCase):
 
         facts = extractor.extract_facts(self.document, pages)
 
-        self.assertEqual(len(facts), 1)
-        self.assertEqual(facts[0]['confidence_score'], 0.95)
-        self.assertEqual(facts[0]['source_page'], '2')
+        self.assertEqual(len(facts), 2)
+        self.assertEqual({f['source_page'] for f in facts}, {'1', '2'})
 
     def test_too_many_chunks_are_capped_not_unbounded(self):
         pages = {'pages': [_page(i, f'Page {i} content. ' * 10) for i in range(1, 6)]}
@@ -1743,10 +1752,10 @@ class OpenAIFactExtractorTests(TestCase):
         service = self._fake_service(side_effect=RecoverableExtractionError('rate limited'))
         extractor = OpenAIFactExtractor(openai_service=service)
         with self.assertRaises(RecoverableExtractionError):
-            extractor.extract_facts(self.document, {'pages': [_page(1, 'Some real page text here.')]})
+            extractor.extract_facts(self.document, {'pages': [_page(1, 'The institution has 42 faculty members.')]})
 
     def test_permanent_error_on_one_chunk_does_not_block_the_others(self):
-        pages = {'pages': [_page(i, f'Page {i} content. ' * 10) for i in range(1, 3)]}
+        pages = {'pages': [_page(1, 'The institution has 42 faculty members. Weaker mention.' * 2), _page(2, 'The institution has 42 faculty members. Clear, explicit statement.' * 2)]}
         service = self._fake_service(side_effect=[
             PermanentExtractionError('malformed response for this chunk'),
             {'facts': [_valid_fact(source_page='2')]},
@@ -2056,7 +2065,8 @@ class EndToEndGapAndConflictTests(ExtractionJobTestBase):
         upload = self.client.post(
             f'/api/v1/sprints/{self.sprint.id}/upload-file/',
             {
-                'file': make_pdf(name='doc2.pdf', page_texts=('A second, distinct document for conflict tests.',)),
+                'file': make_pdf(name='doc2.pdf', page_texts=(
+                    'A second, distinct document for conflict tests.\nThere are 47 teaching staff.',)),
                 'document_type': 'aqar_report',
             },
             format='multipart',
@@ -2871,6 +2881,8 @@ class DocumentClassificationTests(ExtractionJobTestBase):
         gap.refresh_from_db()
         self.assertEqual(gap.source_fact_id, first_fact.id)
 
+    # Written for the shadow review policy: facts stay 'extracted' until a person acts.
+    @override_settings(FACT_VERIFICATION_MODE='shadow')
     def test_reprocessing_leaves_a_reviewed_fact_as_the_reviewer_left_it(self):
         self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact(value='42')]}
         self._run()
@@ -3110,6 +3122,8 @@ class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
     def _api_facts(self):
         return {f['field_key']: f for f in self.client.get(f'/api/v1/sprints/{self.sprint.id}/facts/').data['results']}
 
+    # Written for the shadow review policy: facts stay 'extracted' until a person acts.
+    @override_settings(FACT_VERIFICATION_MODE='shadow')
     def test_tags_are_saved_and_shown_with_the_facts_evidence(self):
         self._run(
             _valid_fact(fact_kind='ai_evidence', aiqif_indicators=[_indicator('AIQIF-C4.1', 0.9, 'Faculty count.'),
@@ -3145,7 +3159,7 @@ class FactAIQIFMappingPersistenceTests(ExtractionJobTestBase):
         # The evidence stays on the fact; the CRI pillar is untouched by the tags.
         self.assertEqual(
             (faculty['source_document_id'], faculty['source_page'], faculty['source_snippet'], faculty['pillar']),
-            (self.document.id, '1', 'The institution has 42 faculty members.', 'aiqif_c4'),
+            (self.document.id, '1', 'The institution has 42 faculty members', 'aiqif_c4'),  # the literal quotation
         )
         self.assertEqual(facts['ai_labs']['aiqif_mapping_status'], 'needs_review')
         self.assertEqual((facts['campus_area']['aiqif_mapping_status'], facts['campus_area']['aiqif_mappings']),
@@ -3261,7 +3275,8 @@ class DocumentAnalyzerTests(TestCase):
     def test_one_request_returns_a_validated_classification_and_facts(self):
         analyzer = self._analyzer([{
             'classification': dict(FAKE_CLASSIFICATION_RESULT),
-            'facts': [_valid_fact(), _valid_fact(field_key='bad', source_page='99')],  # page 99 was not sent
+            # page 99 was not sent, and no supplied page prints this quotation: no page can be repaired
+            'facts': [_valid_fact(), _valid_fact(field_key='bad', source_page='99', source_snippet='A sentence no page prints')],
         }], max_chunk_chars=10_000)
         first, facts = self._analyze(analyzer, self._pages('The institution has 42 faculty members.'))
 
@@ -3291,7 +3306,7 @@ class DocumentAnalyzerTests(TestCase):
             {'classification': dict(FAKE_CLASSIFICATION_RESULT), 'facts': [_valid_fact()]},
             {'facts': [_valid_fact(field_key='total_students', field_name='Total Students', value='900',
                                    source_page='2')]},
-            {'facts': [_valid_fact(value='42', source_page='3', confidence_score=0.99)]},  # same key: merged
+            {'facts': [_valid_fact(value='42', source_page='3', confidence_score=0.99)]},  # same key, unknown scope: preserve its separate page observation
         ])
         first, facts = self._analyze(analyzer, self._pages(text, text, text))
 
@@ -3302,7 +3317,7 @@ class DocumentAnalyzerTests(TestCase):
             ('extracted_facts', 'fact_extraction'),
         ])
         self.classifier.classify.assert_not_called()
-        self.assertEqual(sorted(f['field_key'] for f in facts), ['total_faculty', 'total_students'])
+        self.assertEqual(sorted(f['field_key'] for f in facts), ['total_faculty', 'total_faculty', 'total_students'])
 
     def test_a_document_without_text_asks_for_classification_only(self):
         def classify(document, pages=None):
@@ -3409,6 +3424,8 @@ class CombinedAnalysisPipelineTests(ExtractionJobTestBase):
         self._run()
         self.assertEqual(self.document.classification_status, Document.ClassificationStatus.UNCLASSIFIED)
 
+    # Written for the shadow review policy: facts stay 'extracted' until a person acts.
+    @override_settings(FACT_VERIFICATION_MODE='shadow')
     def test_a_confirmed_category_and_a_reviewed_fact_survive_reprocessing(self):
         self._classify_as('naac_ssr', 0.45, 'Unsure.')
         self.fact_openai_mock.return_value.extract_structured_data.return_value = {'facts': [_valid_fact(value='42')]}
@@ -3764,6 +3781,8 @@ class GapEvidenceUploadTests(ExtractionJobTestBase):
         return GapItem.objects.get(sprint=self.sprint, gap_type='low_confidence')
 
     # -- missing document ------------------------------------------------------------------------------
+    # Written for the shadow review policy: facts stay 'extracted' until a person acts.
+    @override_settings(FACT_VERIFICATION_MODE='shadow')
     def test_missing_document_upload_is_processed_in_this_sprint_but_resolves_nothing_by_itself(self):
         gap = self._missing_gap()
         self._facts(_valid_fact(value='45', source_snippet='Signed evidence: the institution has 45 faculty members.'))
@@ -3973,7 +3992,8 @@ class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
     # One short line per page: a line wider than the page is cut off when the PDF is read. Each line is at least
     # PDF_MIN_TEXT_CHARS_PER_PAGE (40) characters, so it is read from the text layer in every environment -- a
     # shorter page counts as a scan, needs OCR / vision (absent in CI) and leaves the document partially read.
-    PAGES = ('Metric 1.1.3: MBA course on Artificial Intelligence.', 'Metric 2.1.2: MBA intake is 120 seats per year.')
+    PAGES = ('Metric 1.1.3: MBA course on Artificial Intelligence.', 'Metric 2.1.2: MBA intake is 120 seats per year.',
+             'Metric 2.1.2: 120 seats in the AI and Data Science programme.')
 
     def setUp(self):
         super().setUp()
@@ -4001,14 +4021,14 @@ class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
         return _valid_fact(**{
             'field_key': 'mba_ai_course', 'field_name': 'MBA AI course', 'value': 'Yes', 'data_type': 'boolean',
             'pillar': 'aiqif_c3', 'fact_kind': 'ai_evidence', 'naac_metric': '1.1.3',
-            'source_snippet': 'The MBA programme includes a compulsory course on Artificial Intelligence for Managers.',
+            'source_snippet': 'MBA course on Artificial Intelligence.',  # printed on page 1 (PAGES)
             'aiqif_indicators': [_indicator('AIQIF-C3.1', 0.5), _indicator('AIQIF-C3.2', 0.9)], **overrides})
 
     def _intake(self, **overrides):
         return _valid_fact(**{
             'field_key': 'mba_approved_intake', 'field_name': 'MBA approved intake', 'value': '120',
             'pillar': 'aiqif_c5', 'fact_kind': 'context', 'naac_metric': '2.1.2',
-            'source_snippet': 'Approved intake for MBA is 120 seats.',
+            'source_page': '2', 'source_snippet': 'MBA intake is 120 seats per year.',  # printed on page 2
             'aiqif_indicators': [_indicator('AIQIF-C3.1', 0.6)], **overrides})
 
     def test_the_crosswalk_decides_the_naac_linked_indicators_of_ai_evidence(self):
@@ -4047,7 +4067,7 @@ class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
         self.assertEqual(queue_counts(self.sprint)['tags'], 2)
 
     def test_ai_words_in_a_context_fact_send_it_to_the_expert(self):
-        fact = self._run(self._intake(field_key='ai_seats',
+        fact = self._run(self._intake(field_key='ai_seats', source_page='3',
                                       source_snippet='120 seats in the AI and Data Science programme.'))['ai_seats']
         self.assertEqual((fact.fact_kind, fact.kind_needs_check), ('context', True))
 
@@ -4117,10 +4137,10 @@ class AIQIFAutoTaggingPipelineTests(ExtractionJobTestBase):
                              'aiqif_mappings': [tag('AIQIF-C3.1', 0.8)]})
         _merge_fact(merged, {'field_key': 'k', 'confidence_score': 0.9, 'naac_metric': '',
                              'aiqif_mappings': [tag('AIQIF-C3.2', 0.9)]})
-        self.assertEqual(merged['k']['confidence_score'], 0.9)
-        self.assertEqual(sorted(m['indicator_code'] for m in merged['k']['aiqif_mappings']),
+        self.assertEqual(next(iter(merged.values()))['confidence_score'], 0.9)
+        self.assertEqual(sorted(m['indicator_code'] for m in next(iter(merged.values()))['aiqif_mappings']),
                          ['AIQIF-C3.1', 'AIQIF-C3.2'])
-        self.assertEqual(merged['k']['naac_metric'], '1.1.3')
+        self.assertEqual(next(iter(merged.values()))['naac_metric'], '1.1.3')
 
 
 class FailoverRedis(FakeRedis):
@@ -4428,7 +4448,10 @@ class RouterFailoverTaskTests(ExtractionJobTestBase):
         self.assertEqual(self.document.extracted_facts.filter(field_key='total_faculty').count(), 1)
         reviewed.refresh_from_db()
         self.assertEqual((reviewed.value, reviewed.status), (7, 'confirmed'))  # a person's value is kept
-        self.assertEqual(self.document.extracted_facts.count(), 2)
+        # The old reviewed row has no type/page/scope metadata. Do not silently
+        # identify it with the new, typed observation; preserve both and the review.
+        self.assertEqual(self.document.extracted_facts.count(), 3)
+        self.assertTrue(self.document.extracted_facts.filter(field_key='labs', value=9).exists())
         self.assertFalse(FactReviewHistory.objects.filter(fact=reviewed).exists())
 
     @override_settings(AI_PROCESSING_MODE='single')

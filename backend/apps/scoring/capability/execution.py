@@ -1,0 +1,198 @@
+"""Explicit assessment start/dispatch, idempotency, cancellation and safe terminal states."""
+from decimal import Decimal
+
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+from rest_framework.exceptions import APIException
+
+from apps.scoring.models import CapabilityExecution, CapabilityRunEvent
+from apps.sprints.models import Sprint
+from .storage import create_run, digest, checkpoint
+
+
+class AssessmentConflict(APIException):
+    status_code = 409
+    default_detail = 'An assessment is already active, or this idempotency key names a different request.'
+
+
+class AssessmentDisabled(APIException):
+    status_code = 503
+    default_detail = 'Capability inference is not enabled. Ask the deployment administrator to configure it.'
+
+
+class ExecutionStopped(Exception):
+    pass
+
+
+class BudgetExceeded(Exception):
+    pass
+
+
+class InputBudgetExceeded(Exception):
+    pass
+
+
+class ExecutionDeadlineExceeded(BudgetExceeded):
+    pass
+
+
+def _parts_metadata():
+    from .part_judgment import metadata
+    return {k: v for k, v in metadata().items() if k != 'judgment'}
+
+
+def policy(stage='assessment'):
+    from .evaluation import PROMPT_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA
+    calls = settings.CAPABILITY_MAX_HTTP_CALLS
+    cost = Decimal(str(settings.CAPABILITY_MAX_COST_USD))
+    prefix = 'CAPABILITY_RECOMMENDATION' if stage == 'recommendation' else 'CAPABILITY_ASSESSMENT'
+    output = getattr(settings, prefix + '_OUTPUT_TOKENS')
+    output = settings.CAPABILITY_OUTPUT_TOKENS if output is None else output
+    timeout = getattr(settings, prefix + '_TIMEOUT_SECONDS')
+    timeout = settings.CAPABILITY_REQUEST_TIMEOUT_SECONDS if timeout is None else timeout
+    input_limit = settings.CAPABILITY_MAX_INPUT_TOKEN_BOUND
+    effort = getattr(settings, 'CAPABILITY_GEMINI_REASONING_EFFORT', None) or settings.AI_GEMINI_REASONING_EFFORT
+    passes = getattr(settings, 'CAPABILITY_AGREEMENT_PASSES', 1)
+    judgment = getattr(settings, 'CAPABILITY_JUDGMENT', 'conditions')
+    concurrency = getattr(settings, 'CAPABILITY_INDICATOR_CONCURRENCY', 1)
+    # The targeted extra search adds up to one request per indicator per pass (36 or 72).
+    # The call setting is shared by both stages, so its ceiling rises for both; the floor applies to assessment.
+    follow_up = bool(getattr(settings, 'CAPABILITY_FOLLOW_UP_SEARCH', False))
+    # A tie-break pass adds at most one request per indicator (36), only where the two passes disagree.
+    tie_break = bool(getattr(settings, 'CAPABILITY_TIE_BREAK', False))
+    call_limit = 108 + (108 if follow_up else 0) + (36 if tie_break else 0)
+    call_floor = 74 if passes == 2 else 1
+    if follow_up and stage == 'assessment':
+        call_floor = 146 if passes == 2 else 74
+    if stage == 'assessment' and effort == 'high':
+        # Measured on Gemini 3 at high effort: 60-160 s per request and up to ~23k reasoning tokens.
+        # With the 30,000 packet (run 3e7c001f) the slowest request took 256 s and the longest used 40,883 output
+        # tokens, so the 90,000 and 200,000 packets (3 to 7 times the input) get the full output allowance and
+        # twice the time. Gemini 3.8 Flash allows 65,536 output tokens.
+        from .semantic_retrieval import WIDE_ALLOCATION, XWIDE_ALLOCATION
+        wide = getattr(settings, 'CAPABILITY_RETRIEVAL_ALLOCATION', '') in (WIDE_ALLOCATION, XWIDE_ALLOCATION)
+        if getattr(settings, prefix + '_TIMEOUT_SECONDS') is None and type(timeout) is int:
+            timeout = max(timeout, 600 if wide else 300)
+        if getattr(settings, prefix + '_OUTPUT_TOKENS') is None and type(output) is int:
+            output = max(output, 64000 if wide else 48000)
+    duration = getattr(settings, 'CAPABILITY_MAX_DURATION_SECONDS', None)
+    if duration is None and type(calls) is int and type(timeout) is int and type(concurrency) is int and concurrency >= 1:
+        # A safety stop, not a pace target: every request could use its full timeout, plus packet building.
+        duration = min(21600, max(1800, -(-calls // concurrency) * timeout + 600))
+    if (type(calls) is not int or not call_floor <= calls <= call_limit or not cost.is_finite() or not 0 < cost <= 100
+            or type(output) is not int or not 256 <= output <= 65536
+            or type(timeout) is not int or not 1 <= timeout <= 600
+            or type(input_limit) is not int or not 4096 <= input_limit <= 1000000
+            or type(duration) is not int or not 1 <= duration <= 21600
+            or effort not in {'default', 'minimal', 'low', 'medium', 'high'}
+            or passes not in (1, 2) or (tie_break and passes != 2)
+            or type(concurrency) is not int or not 1 <= concurrency <= 8
+            or judgment not in ('conditions', 'parts')):
+        raise AssessmentDisabled('Assessment budget configuration is invalid.')
+    return {'request_policy_version': 'bounded-stage-1', 'stage': stage, 'input_token_bound_limit': input_limit, 'max_duration_seconds': duration,
+            'gemini_reasoning_effort': effort, 'response_recovery_requests': 2, 'agreement_passes': passes, 'indicator_concurrency': concurrency,
+            **({'tie_break': 'median-credit-of-three-v1' if judgment == 'parts' else 'majority-of-three-v1'}
+               if tie_break and stage == 'assessment' else {}),
+            **({'judgment': 'parts', **_parts_metadata()} if judgment == 'parts' else {}),
+            'prompt_version': PROMPT_VERSION, 'prompt_hash': digest(SYSTEM_PROMPT),
+            'schema_hash': digest(DECISION_SCHEMA), 'max_http_calls': calls, 'max_cost_usd': str(cost), 'output_tokens': output,
+            'timeout_seconds': timeout, 'sdk_retries': 0, 'transient_retries_per_indicator': 1,
+            'corrective_batches_per_indicator': 1,
+            'cost_policy': 'reserve_utf8_bytes_plus_4096_tokens_at_configured_max_rates'}
+
+
+@transaction.atomic
+def start(*, sprint, user, idempotency_key, population=None, reference_period=None, scope_mode=None, refines_run_id=None, confirmed_source_institution=None):
+    # Serializes competing keys as well as repeated requests for this sprint (PostgreSQL).
+    Sprint.objects.select_for_update().get(pk=sprint.pk)
+    from .scope import intent
+    from rest_framework.exceptions import ValidationError
+    try:
+        mode, requested = intent(population, reference_period, scope_mode, refines_run_id, confirmed_source_institution)
+    except ValueError as exc:
+        raise ValidationError(str(exc))
+    signature = digest(requested)
+    existing = CapabilityExecution.objects.filter(sprint=sprint, idempotency_key=idempotency_key).first()
+    if existing:
+        if existing.request_hash != signature:
+            raise AssessmentConflict('This idempotency key was already used for different assessment inputs.')
+        return existing, False
+    if refines_run_id:
+        from apps.scoring.models import CapabilityRun
+        prior = CapabilityRun.objects.filter(pk=refines_run_id, sprint=sprint).first()
+        if prior is None or not prior.events.filter(state='completed', payload__result__isnull=False).exists():
+            raise ValidationError('Refinement requires a completed assessment in this sprint.')
+    if not settings.CAPABILITY_ASSESSMENT_ENABLED:
+        raise AssessmentDisabled()
+    if CapabilityExecution.objects.filter(sprint=sprint, status__in=['queued', 'running']).exists():
+        raise AssessmentConflict()
+    run = create_run(institution_id=sprint.institution_id, sprint_id=sprint.pk,
+                     population=population, reference_period=reference_period, scope_mode=mode,
+                     refines_run_id=refines_run_id, execution_policy=policy(),
+                     confirmed_source_institution=confirmed_source_institution)
+    execution = CapabilityExecution.objects.create(run=run, sprint=sprint, requested_by=user,
+        idempotency_key=idempotency_key, request_hash=signature)
+    # Never dispatch before the frozen evidence and idempotency record commit.
+    transaction.on_commit(lambda: dispatch(str(run.pk), str(execution.task_id)))
+    return execution, True
+
+
+def dispatch(run_id, task_id):
+    from apps.scoring.tasks import run_capability_assessment
+    try:
+        run_capability_assessment.apply_async(args=[run_id, task_id], task_id=task_id, retry=False)
+    except Exception:
+        # Broker timeout may have enqueued the task. A terminal ledger makes late delivery a no-op.
+        finish(run_id, 'failed', 'dispatch_failed')
+
+
+@transaction.atomic
+def claim(run_id, task_id):
+    execution = CapabilityExecution.objects.select_for_update(of=('self',)).select_related('run', 'sprint').get(run_id=run_id)
+    if execution.status != 'queued' or str(execution.task_id) != str(task_id):
+        return None
+    if not settings.CAPABILITY_ASSESSMENT_ENABLED:
+        finish(run_id, 'failed', 'inference_disabled')
+        return None
+    execution.status = 'running'
+    execution.heartbeat_at = timezone.now()
+    execution.save(update_fields=['status', 'heartbeat_at'])
+    checkpoint(institution_id=execution.sprint.institution_id, run_id=run_id, state='running')
+    return execution
+
+
+@transaction.atomic
+def finish(run_id, state, error_code):
+    execution = CapabilityExecution.objects.select_for_update().get(run_id=run_id)
+    if execution.status not in {'queued', 'running'}:
+        return False
+    execution.status = state
+    execution.heartbeat_at = timezone.now()
+    execution.save(update_fields=['status', 'heartbeat_at'])
+    # Fixed internal codes only, never exceptions or provider response bodies.
+    actions = {
+        'snapshot_or_methodology_mismatch': 'Update and restart both web and assessment workers to the same A1 version, then start a fresh assessment.',
+        'dispatch_failed': 'Check the broker and worker configuration, then start a new assessment.',
+        'inference_disabled': 'Enable configured capability inference before starting a new assessment.',
+        'model_pricing_required': 'Configure valid input/output model prices, then start a new assessment.',
+        'execution_deadline_exceeded': 'Review request durations and partial results before starting a fresh execution.',
+        'budget_exhausted': 'Review partial decisions and request/cost limits before starting a new assessment.',
+        'usage_telemetry_missing': 'Configure the provider to report token usage before starting a new assessment.',
+        'provider_quota_exhausted': 'Restore provider credit or quota before starting a new assessment.',
+    }
+    CapabilityRunEvent.objects.create(run_id=run_id, state=state, payload={
+        'error_code': error_code, 'next_action': actions.get(error_code,
+            'Start a new assessment with a new idempotency key.')})
+    return True
+
+
+@transaction.atomic
+def progress(run_id, records, trace):
+    execution = CapabilityExecution.objects.select_for_update().get(run_id=run_id)
+    if execution.status != 'running':
+        raise ExecutionStopped()
+    execution.heartbeat_at = timezone.now()
+    execution.save(update_fields=['heartbeat_at'])
+    CapabilityRunEvent.objects.create(run_id=run_id, state='partial', payload={
+        'kind': 'indicator', 'indicator': trace['indicator'], 'records': records, 'trace': trace})

@@ -62,3 +62,52 @@ class BaselineAdmin(admin.ModelAdmin):
         'updated_at',
     ]
     inlines = [BaselineDecisionHistoryInline]
+
+
+# ---------------------------------------------------------------- Follow-up questions about depth (skeleton)
+from django.utils import timezone
+
+from .models import DepthJudgment, DepthPastCase, DepthQuestion, DepthResponse
+
+
+class DepthResponseInline(admin.TabularInline):
+    model = DepthResponse
+    extra = 0
+    fields = ['kind', 'answer', 'document_ids', 'supported', 'submitted_via']
+
+
+@admin.register(DepthQuestion)
+class DepthQuestionAdmin(admin.ModelAdmin):
+    list_display = ['run_ref', 'rank', 'kind', 'indicator_code', 'status']
+    list_filter = ['kind', 'status']
+    search_fields = ['run_ref', 'indicator_code', 'text']
+    inlines = [DepthResponseInline]
+
+
+@admin.register(DepthJudgment)
+class DepthJudgmentAdmin(admin.ModelAdmin):
+    list_display = ['run_ref', 'condition_id', 'judged_level', 'final_level', 'provisional_credit', 'final_credit']
+    list_filter = ['final_level', 'contradicts_evidence', 'relies_on_unsupported']
+    search_fields = ['run_ref', 'condition_id']
+
+
+@admin.register(DepthPastCase)
+class DepthPastCaseAdmin(admin.ModelAdmin):
+    """Approving past cases (decision 4: who may do this is still open). Only approved cases guide later judgments."""
+    list_display = ['condition_id', 'level', 'status', 'reviewed_by', 'spec_version', 'created_at']
+    list_filter = ['status', 'level', 'spec_version']
+    search_fields = ['condition_id', 'reasoning']
+    readonly_fields = ['judgment', 'condition_id', 'level', 'dimension_findings', 'reasoning', 'spec_version',
+                       'reviewed_by', 'reviewed_at']
+    actions = ['approve', 'reject']
+
+    def _review(self, request, queryset, status):
+        queryset.update(status=status, reviewed_by=request.user, reviewed_at=timezone.now())
+
+    @admin.action(description='Approve as a reference for later judgments')
+    def approve(self, request, queryset):
+        self._review(request, queryset, DepthPastCase.Status.APPROVED)
+
+    @admin.action(description='Reject')
+    def reject(self, request, queryset):
+        self._review(request, queryset, DepthPastCase.Status.REJECTED)

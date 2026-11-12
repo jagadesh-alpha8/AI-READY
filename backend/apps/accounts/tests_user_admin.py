@@ -191,6 +191,20 @@ class UserAdministrationTests(APITestCase):
         self.assertEqual(event.target_institution_name, self.alpha.name)
         self.assertEqual(event.reason, 'Duplicate account created in error.')
 
+    def test_super_admin_can_permanently_delete_unreferenced_account_without_institution(self):
+        target = User.objects.create_user(
+            email='unused-platform@example.org', username='unused_platform', password=PASSWORD,
+            role=User.Role.CONSULTANT, institution=None,
+        )
+        target_id = target.pk
+        self._auth(self.super_admin)
+        response = self.client.post(f'/api/v1/users/{target_id}/permanent-delete')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(User.objects.filter(pk=target_id).exists())
+        event = UserDeletionAuditEvent.objects.get(target_user_id=target_id)
+        self.assertIsNone(event.target_institution_id)
+        self.assertEqual(event.target_institution_name, '')
+
     def test_permanent_delete_is_blocked_when_audit_records_reference_user(self):
         target = User.objects.create_user(
             email='iqac-history@alpha.edu', username='iqac_history', password=PASSWORD,
