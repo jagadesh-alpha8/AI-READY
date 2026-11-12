@@ -87,7 +87,7 @@ function SavedPlan({ sprint, run, id, refreshHistory }: { sprint: string; run: s
     </>}
   </div>;
 }
-type Scenario = { result: Result; paired_change: { lower: number; upper: number; basis: string }; score?: PlanScore | null };
+type Scenario = { result: Result; paired_change?: { lower: number; upper: number; basis: string }; score?: PlanScore | null };
 const signed = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}`;
 /** Part-credit plans show one score and its gain; plans evaluated before part credit keep their recorded ranges. */
 export const phaseLabel = (s: Scenario) => (s.score ? `${s.score.score.toFixed(1)} / 100 (${signed(s.score.gain)})` : scoreLabel(s.result));
@@ -100,7 +100,7 @@ function AreaResults({ scenario }: { scenario: Scenario }) {
     return <>{scenario.score.pillars.map((p) => <p key={p.code}>{areaNames[p.code] || p.code}: {p.score} / 100 ({signed(p.gain)})</p>)}</>;
   }
   return <>{scenario.result.pillars.map((p) => <p key={p.code}>{areaNames[p.code] || p.code}: {p.lower}–{p.upper} / 100</p>)}
-    <p>Paired conditional change: {scenario.paired_change.lower}–{scenario.paired_change.upper}. {scenario.paired_change.basis}</p></>;
+    {scenario.paired_change && <p>Paired conditional change: {scenario.paired_change.lower}–{scenario.paired_change.upper}. {scenario.paired_change.basis}</p>}</>;
 }
 
 export function PriorityCoverageView({ plan }: { plan: PlanEvaluation }) {
