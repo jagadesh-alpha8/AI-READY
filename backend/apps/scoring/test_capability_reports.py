@@ -144,7 +144,8 @@ class CapabilityReportTests(APITestCase):
         self.assertNotContains(response, '<script>')
         self.assertContains(response, '&lt;script&gt;profile_attack()&lt;/script&gt;')
         self.assertContains(response, '&lt;script&gt;source_attack()&lt;/script&gt;')
-        self.assertContains(response, 'AIQIF-NEXT-0.1')
+        self.assertContains(response, 'priority-plan-0.1')
+        self.assertContains(response, 'provisional tier')
 
     def test_default_leadership_report_is_readable_without_changing_assessment(self):
         import pymupdf
