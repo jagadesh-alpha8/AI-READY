@@ -12,6 +12,9 @@ export interface Job {
   stalled: boolean;
   reference_period?: string;
   rubric_version?: string;
+  /** A2 second layer: 'final' runs are published after the follow-up questions; they name their provisional run. */
+  stage?: 'provisional' | 'final';
+  provisional_run_id?: string | null;
 }
 
 export interface CapabilityPage<T> {
@@ -21,6 +24,8 @@ export interface CapabilityPage<T> {
   count: number;
   /** Whether the deployment allows starting assessments (settings.CAPABILITY_ASSESSMENT_ENABLED). */
   enabled: boolean;
+  /** Run list only: line-1 review questions still awaiting an answer (finish them before starting a run). */
+  review_questions_awaiting?: number;
 }
 
 export interface Citation { source_id: string; quote: string }
@@ -104,6 +109,42 @@ export interface CapabilityAction {
   suggestion: string;
   completion_evidence: string;
   state?: ConditionState;
+  /** Priority plan fields: establish (nothing shown), complete (partly shown) or rerun (not evaluated). */
+  gap?: 'establish' | 'complete' | 'rerun' | string | null;
+  credit?: number;
+  missing_parts?: string[];
+  /** The key indicator of the priority-plan action this requirement belongs to, if any. */
+  priority_action?: string | null;
+}
+
+/** Provisional score bands (Silver 60, Gold 70, Platinum 80, Diamond 90) until calibration (D-01). */
+export interface PriorityTier {
+  current: string | null;
+  next: string | null;
+  next_threshold: number | null;
+  points_to_next: number;
+  thresholds: { name: string; score: number }[];
+  provisional: boolean;
+  note: string;
+}
+
+/** The recommendation's priority plan on the part-credit score (action_plan.py). */
+export interface PriorityPlan {
+  score: number;
+  tier: PriorityTier;
+  target: number | null;
+  projected_score: number;
+  projected_tier: string | null;
+  reaches_target: boolean;
+  condition_ids: string[];
+  actions: {
+    indicator: string; name: string; pillar?: string; condition_ids: string[]; score_gain: number;
+    conditions: { condition_id: string; requirement: string; level: string; gap: string; credit: number; missing_parts: string[] }[];
+    builds_on?: string[];
+  }[];
+  strengths: { condition_id: string; indicator: string; requirement: string }[];
+  remaining: { pillar: string; establish: number; complete: number; reconcile: number; rerun: number }[];
+  note: string;
 }
 
 /** A2 part judgment: how each part of a condition was evidenced (part_judgment.py `credited_as`). */
@@ -161,7 +202,9 @@ export interface RecommendationPlan {
   foundation_plan?: FoundationPlan | null;
   actions: CapabilityAction[];
   next_improvements: string[];
-  next_overall: { target: number | null; requirement_ids: string[]; note?: string };
+  next_overall: { target: number | null; requirement_ids: string[]; note?: string; projected_score?: number };
+  priority_plan?: PriorityPlan | null;
+  pathways_note?: string;
   note: string;
 }
 

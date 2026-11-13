@@ -14,6 +14,8 @@ export function useCapability(sprintId: string) {
   const newest = list[0] || null;
   const completed = list.find((r) => r.status === 'completed') || null;
   const runId = completed?.id || '';
+  // Questions, responses and second-layer jobs always belong to the provisional run; a final run names it.
+  const provisionalId = (completed?.stage === 'final' ? completed.provisional_run_id : completed?.id) || '';
 
   const run = useResource<Run>(() => getRun(sprintId, runId), `cap-run:${runId}`, !!runId);
   const adviceList = useResource<CapabilityPage<Job>>(() => listAdvice(sprintId, runId), `cap-advice:${runId}`, !!runId);
@@ -30,6 +32,8 @@ export function useCapability(sprintId: string) {
     newest,
     running: isActive(newest),
     run,
+    provisionalId,
+    stage: completed?.stage || null,
     assessment,
     advice: advice.data,
     plan,

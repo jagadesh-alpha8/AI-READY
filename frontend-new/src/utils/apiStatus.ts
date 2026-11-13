@@ -31,11 +31,11 @@ export const PENDING: Record<string, string> = {
   'R-04': 'Progression timeline: exists only after a recommendation (recommendations are being reworked)',
   'R-05': 'Saving the chosen route and sponsor approval: later (waits for the recommendations rework)',
   'R-07': 'Roadmap PDF and board presentation: later (build on recommendations and the plan)',
-  'R-10': 'Second layer: answering works; starting question generation, the depth judgment and the depth report are still to build',
+  'R-10': 'Second layer: question planning, checks, depth judgment and the final result run as jobs; the depth report endpoint and past-case approval are still to build',
   'R-11': 'Benchmark Studio stays read-only for now (Harsha to confirm)',
   'R-12': 'How each score was reached (found and credited, where we looked, next step): coming with the report step',
-  'D-01': 'Silver / Gold / Platinum tiers: rubric not calibrated; waiting for Harsha to check with Vijay',
-  'D-02': 'Level pathway: rename to a requirements pathway or fold into the report, after D-01',
+  'D-01': 'Tiers are provisional score bands (Silver 60, Gold 70, Platinum 80, Diamond 90) until Harsha and Vijay calibrate them',
+  'D-02': 'Level pathway now shows the priority plan (provisional bands); its final name and place wait for D-01',
 };
 
 const p = (...codes: string[]): Pending[] => codes.map((code) => ({ code, text: PENDING[code] }));

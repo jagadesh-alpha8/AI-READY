@@ -56,7 +56,11 @@ export async function downloadCapabilityReport(sprint: string, run: string, form
 export interface Layer2Question {
   id: string; rank: number; kind: 'depth' | 'missing'; text: string; indicator_code: string; condition_ids: string[]; status: string;
 }
-export interface Layer2Progress { questions: number; open: number; answered: number; checks_waiting: number; follow_ups_open: number }
+export interface Layer2Progress {
+  questions: number; open: number; answered: number; checks_waiting: number; follow_ups_open: number;
+  /** Set once the final result has been published from this (provisional) run. */
+  final_run_id?: string | null;
+}
 export interface Layer2Next { type: 'question' | 'follow_up'; text: string; question: Layer2Question; response_id: string | null }
 export interface Layer2Response {
   id: string; question_id: string; parent_id: string | null; kind: 'answer' | 'upload' | 'dont_know';
@@ -84,3 +88,39 @@ export const listAdditionalEvidence = (sprint: string, run: string) =>
 /** picked: readiness areas, key indicators or requirements the documents are for (at least one). */
 export const addAdditionalEvidence = (sprint: string, run: string, body: { document_ids: string[]; note: string; picked: string[] }) =>
   http.post<AdditionalEvidenceItem>(`${root(sprint)}/${run}/additional-evidence`, body);
+
+// --- second-layer background jobs (PR #52/#54): always on the provisional run ------------------------------------
+export type SecondLayerOperation = 'questions' | 'checks' | 'depth' | 'rejudge';
+export type SecondLayerJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export interface SecondLayerJob {
+  id: string; run_id: string; operation: SecondLayerOperation; options: Record<string, boolean>;
+  status: SecondLayerJobStatus; error_code: string | null; detail: string | null;
+  result: Record<string, unknown> | null; final_run_id: string | null;
+  requests_reserved: number; usd_reserved: string;
+  created_at: string; started_at: string | null; finished_at: string | null;
+  reused?: boolean; note?: string;
+}
+export interface SecondLayerBudget { max_http_calls: number; max_cost_usd: string; requests_reserved: number; usd_reserved: string }
+export interface SecondLayerJobList { enabled: boolean; budget: SecondLayerBudget | null; results: SecondLayerJob[] }
+
+const jobsRoot = (sprint: string, run: string) => `${root(sprint)}/${run}/second-layer/jobs`;
+export const listSecondLayerJobs = (sprint: string, run: string) => http.get<SecondLayerJobList>(jobsRoot(sprint, run));
+export const getSecondLayerJob = (sprint: string, run: string, job: string) =>
+  http.get<SecondLayerJob>(`${jobsRoot(sprint, run)}/${job}`);
+/** 202 new job, 200 same key repeated, 409 another job active, 400 not startable yet, 503 jobs switched off. */
+export const startSecondLayerJob = (sprint: string, run: string, operation: SecondLayerOperation, key: string,
+  options: Record<string, boolean> = {}) =>
+  http.post<SecondLayerJob>(jobsRoot(sprint, run), { operation, options }, { headers: { 'Idempotency-Key': key } });
+export const cancelSecondLayerJob = (sprint: string, run: string, job: string) =>
+  http.post<SecondLayerJob>(`${jobsRoot(sprint, run)}/${job}/cancel`);
+
+/** The report's assessment_stage (provisional or final, with the note the HTML and PDF reports print). */
+export interface AssessmentStage {
+  stage: 'provisional' | 'final'; score?: number | null; note: string;
+  final_run_id?: string | null; provisional_run_id?: string; provisional_score?: number | null;
+}
+export async function getAssessmentStage(sprint: string, run: string): Promise<AssessmentStage | null> {
+  const res = await http.get<Blob>(`${root(sprint)}/${run}/report`, { params: { file: 'json' }, responseType: 'blob' });
+  const body = JSON.parse(await res.data.text()) as { assessment_stage?: AssessmentStage };
+  return body.assessment_stage || null;
+}

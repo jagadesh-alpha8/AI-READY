@@ -8,9 +8,9 @@ import { useRunner } from '../hooks/useRunner';
 import { cancelPlanEvaluation, downloadPlanEvaluation, getPlanEvaluation, listPlanEvaluations, startPlanEvaluation } from '../services/capability';
 import type { Sprint } from '../types/api';
 import type { CapabilityPage } from '../types/capability';
-import type { PlanComparison as Comparison, PlanEvaluationJob } from '../types/workflow';
+import type { PlanComparison as Comparison, PlanEvaluationJob, PlanEvaluationScores } from '../types/workflow';
 import { newKey } from '../utils/capability';
-import { dateTime, humanize } from '../utils/format';
+import { dateTime, humanize, num } from '../utils/format';
 
 export function PlanComparison() {
   return <RequireSprint>{(sprint) => <Body sprint={sprint} />}</RequireSprint>;
@@ -71,6 +71,7 @@ function Body({ sprint }: { sprint: Sprint }) {
         <>
           {c.error && <Notice tone="error">{c.error.next_action || c.error.error_code}</Notice>}
           <Panel title="The plan as written"><p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{c.original_text}</p></Panel>
+          <PlanScores original={c.comparison?.original?.evaluation || c.original_review?.evaluation} improved={c.comparison?.improved?.evaluation} />
           {c.comparison && (
             <>
               <Panel title="Suggested changes" sub={c.comparison.comparison_basis}>
@@ -94,5 +95,38 @@ function Body({ sprint }: { sprint: Sprint }) {
           onClose={() => setWriting(false)} />
       )}
     </>
+  );
+}
+
+const PHASES = ['implementation', 'results'] as const;
+const signed = (v?: number | null) => (v == null ? '' : ` (${v >= 0 ? '+' : ''}${num(v, 1)})`);
+
+/** One part-credit score per phase, for the plan as written and the suggested plan, and the priority-plan coverage. */
+function PlanScores({ original, improved }: { original?: PlanEvaluationScores; improved?: PlanEvaluationScores }) {
+  if (!original || original.baseline_score == null) return null;
+  const versions = [['As written', original], ['Suggested', improved]] as const;
+  const cov = original.priority_coverage;
+  return (
+    <Panel title="Projected score" sub={`Today ${num(original.baseline_score, 1)} on the part-credit score; a projection if the plan's actions are completed and shown`}>
+      <Table columns={['Plan', 'After implementation', 'After results', 'Priority requirements covered']}>
+        {versions.filter(([, e]) => e).map(([label, e]) => (
+          <tr key={label}>
+            <td><b>{label}</b></td>
+            {PHASES.map((ph) => {
+              const sc = e!.scenarios?.[ph]?.score;
+              return <td key={ph}>{sc?.score != null ? `${num(sc.score, 1)}${signed(sc.gain)}` : '—'}</td>;
+            })}
+            <td>{e!.priority_coverage ? `${e!.priority_coverage.covered.length} of ${e!.priority_coverage.covered.length + e!.priority_coverage.missed.length}` : '—'}</td>
+          </tr>
+        ))}
+      </Table>
+      {cov && (
+        <div className="check-list">
+          {cov.missed.length > 0 && <p><b>Priority requirements the plan misses:</b> {cov.missed.join(', ')}</p>}
+          {cov.outside_priority_plan.length > 0 && <p className="muted">Also targets, outside the priority plan: {cov.outside_priority_plan.join(', ')}</p>}
+          {cov.priority_projected_score != null && <p className="muted">The priority plan alone projects {num(cov.priority_projected_score, 1)}{cov.target != null ? ` against a target of ${cov.target}` : ''}.</p>}
+        </div>
+      )}
+    </Panel>
   );
 }

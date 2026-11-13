@@ -35,10 +35,14 @@ export function RunHistory({ sprint }: { sprint: Sprint }) {
       {runs.loading && !runs.data ? <Loading /> : runs.error ? <ErrorState error={runs.error} onRetry={() => void runs.refetch()} /> :
         !runs.data?.results.length ? <Empty title="No assessment runs yet">Start one from AI readiness assessment.</Empty> : (
           <>
-            <Table columns={['Run', 'Started', 'Scope', 'Rubric', 'Status', '']}>
+            <Table columns={['Run', 'Stage', 'Started', 'Scope', 'Rubric', 'Status', '']}>
               {runs.data.results.map((j) => (
                 <tr key={j.id} aria-selected={j.id === runId}>
                   <td><b>{j.id.slice(0, 8)}</b>{j.id === runId && <small className="cell-sub">Shown below</small>}</td>
+                  <td>
+                    <Pill tone={j.stage === 'final' ? 'good' : 'neutral'} label={j.stage === 'final' ? 'Final' : 'Provisional'} />
+                    {j.stage === 'final' && j.provisional_run_id && <small className="cell-sub">from {j.provisional_run_id.slice(0, 8)}</small>}
+                  </td>
                   <td>{dateTime(j.created_at)}</td>
                   <td>{j.reference_period || 'Default scope'}</td>
                   <td>{j.rubric_version || '—'}</td>

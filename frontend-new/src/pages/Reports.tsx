@@ -4,7 +4,7 @@ import { Dummy, Empty, ErrorState, Loading, Notice, PageHeading, Pill, Table } f
 import { useAccess } from '../hooks/useAccess';
 import { useCapability } from '../hooks/useCapability';
 import { usePolling, useResource } from '../hooks/useResource';
-import { downloadCapabilityReport } from '../services/capability';
+import { downloadCapabilityReport, getAssessmentStage, type AssessmentStage } from '../services/capability';
 import { http, saveBlob } from '../services/http';
 import { downloadReport, generateReport, listReports } from '../services/reports';
 import { listSprintFactsPage } from '../services/facts';
@@ -32,6 +32,8 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
   const { can } = useAccess();
   const reports = useResource<Report[]>(() => listReports(sprint.id), sprint.id);
   const cap = useCapability(sprint.id);
+  const capRunId = cap.run.data?.assessment ? cap.run.data.id : '';
+  const stage = useResource<AssessmentStage | null>(async () => ({ data: await getAssessmentStage(sprint.id, capRunId) }), `stage:${capRunId}`, !!capRunId);
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -107,6 +109,11 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
         ))}
       </div>
       <h2 className="section-title">Capability assessment report</h2>
+      {stage.data && (
+        <Notice tone={stage.data.stage === 'final' ? 'success' : 'info'}>
+          <Pill tone={stage.data.stage === 'final' ? 'good' : 'neutral'} label={stage.data.stage === 'final' ? 'Final result' : 'Provisional result'} /> {stage.data.note}
+        </Notice>
+      )}
       {!cap.run.data?.assessment ? <Empty title="No completed capability assessment">The capability report is available once an evidence-based assessment completes.</Empty> : (
         <Table columns={['Audience', 'Formats']}>
           {(['leadership', 'evidence'] as const).map((audience) => (

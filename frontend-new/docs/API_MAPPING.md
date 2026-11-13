@@ -159,3 +159,15 @@ Silver/Gold/Platinum visuals) are unchanged while their APIs are requested from 
 - **Report step:** each indicator, requirement and area has room for "how this score was reached"
   (`ScoreExplanation` in `src/types/capability.ts`), shown when the backend sends it.
 - Open items are tracked in `src/utils/apiStatus.ts` (Backend status screen, Review mode).
+
+## Second-layer jobs, provisional/final runs, priority plan (Siddharth, 13 Nov 2026 — main 29120f6)
+
+| Screen | Backend | Notes |
+|---|---|---|
+| Questionnaire › Follow-up questions (jobs panel) | `GET/POST /sprints/{s}/capability-runs/{provisional}/second-layer/jobs`, `GET …/jobs/{job}`, `POST …/jobs/{job}/cancel` | Buttons: Plan follow-up questions (`questions`, `replace` for Plan again), Judge evidence depth (`depth`), Publish final result (`rejudge`, `publish: true`, shown once every question is answered/skipped and checked). One active job at a time with progress and Cancel; budget line; job history. Error codes shown in plain words. Always the provisional run (`useCapability().provisionalId`). |
+| Questionnaire › answers | `GET …/responses/{id}`, `GET …/questions` | Answers stay `pending` until the `checks` job runs (starts by itself; beat sweep every 5 min). Questions are re-fetched after a check so a follow-up appears as `next.type = "follow_up"`. `progress.final_run_id` shows the published notice. |
+| Questionnaire first screen | — | `QUESTIONNAIRE_NOTICE` constant reserved for the "answers can lower a score" wording (Harsha, pending). |
+| AI readiness assessment › runs | `GET /sprints/{s}/capability-runs` | `stage` (Provisional/Final, with `provisional_run_id`) column; `review_questions_awaiting` prompt before a run. The newest completed run (the final one, once published) drives report, recommendations and plan comparison. |
+| Reports & exports | `GET …/capability-runs/{run}/report?file=json` → `assessment_stage` | Stage pill and note shown above the capability report downloads. |
+| Level pathway | `deterministic_plan.priority_plan` / `recommendation.plan.priority_plan` | Provisional bands (Silver 60 … Diamond 90), points to next, target/projection, priority actions with gap and missing parts. Falls back to the old tier panel for plans without `priority_plan`. |
+| Plan comparison | `…/plan-evaluations/{id}` → `comparison.{original,improved}.evaluation` | `baseline_score`, `scenarios.{implementation,results}.score`, `priority_coverage` (covered / missed / outside the priority plan). |

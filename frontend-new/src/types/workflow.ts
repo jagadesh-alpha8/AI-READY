@@ -281,10 +281,23 @@ export interface PlanEvaluationJob {
   created_at: string;
 }
 
+/** A2 part-credit plan evaluation: one score per phase and how the plan covers the priority plan. */
+export interface PlanEvaluationScores {
+  baseline_score?: number | null;
+  scenarios?: Record<string, { score?: { score?: number | null; gain?: number | null } | null }>;
+  priority_coverage?: {
+    covered: string[]; missed: string[]; outside_priority_plan: string[];
+    target?: number | null; priority_projected_score?: number | null;
+  } | null;
+}
+
 export interface PlanComparison extends PlanEvaluationJob {
   original_text: string;
   error: { error_code: string; next_action: string } | null;
+  original_review?: { evaluation?: PlanEvaluationScores } | null;
   comparison: null | {
+    original?: { evaluation?: PlanEvaluationScores };
+    improved?: { evaluation?: PlanEvaluationScores };
     comparison_basis: string;
     limitations: string[];
     improvement: {

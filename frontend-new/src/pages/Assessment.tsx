@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { RequireSprint } from '../components/RequireSprint';
-import { Bar, CheckItem, Empty, ErrorState, Loading, Notice, PageHeading, Panel, Stat } from '../components/ui';
+import { Bar, CheckItem, Empty, ErrorState, Loading, Notice, PageHeading, PageLink, Panel, Stat } from '../components/ui';
 import { CapabilityRunControl } from '../components/Capability';
 import { RunHistory } from '../components/RunHistory';
 import { useAccess } from '../hooks/useAccess';
@@ -55,6 +55,12 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
     <>
       <PageHeading page="assessment" actions={runButton} />
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
+      {!!cap.runs.data?.review_questions_awaiting && (
+        <Notice tone="info">
+          {cap.runs.data.review_questions_awaiting} evidence review question(s) still await an answer. Finish them before starting a run:{' '}
+          <PageLink to="questionnaire" className="link-button">open the questionnaire</PageLink>.
+        </Notice>
+      )}
       <CapabilityRunControl sprintId={sprint.id} cap={cap} />
       {!!cap.error && <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} title="Could not load the capability assessment" />}
       <RunHistory sprint={sprint} />

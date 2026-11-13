@@ -6,6 +6,7 @@ import { useCycle } from '../hooks/useCycle';
 import type { CycleBenchmarkRow, Sprint } from '../types/api';
 import { KIND_LABEL } from '../utils/benchmark';
 import { achievedTier, capabilityTone, tierLabel } from '../utils/capability';
+import type { PriorityPlan } from '../types/capability';
 import { num } from '../utils/format';
 import { TIERS, institutionLevel, levelRank, meetsLevel, nextTier, tierName } from '../utils/maturity';
 
@@ -23,13 +24,14 @@ function PathwayBody({ sprint }: { sprint: Sprint }) {
 
   if (cap.loading && cyclesState.loading) return <Loading label="Loading the pathway…" />;
   const result = cap.assessment?.result;
+  const priority = cap.plan?.priority_plan || null;
 
   return (
     <>
       <PageHeading page="pathway" actions={<CyclePicker cycles={cycles} value={cycleId} onChange={choose} />} />
       {!!cap.error && <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} title="Could not load the capability assessment" />}
 
-      {result ? (
+      {priority ? <PriorityPathway plan={priority} /> : result ? (
         <Panel title="Silver to Platinum eligibility" sub={`From the latest capability assessment · achieved: ${achievedTier(result) || 'none demonstrated yet'}`}>
           {result.badge_policy === 'not_calibrated' ? <p className="muted">Silver, Gold and Platinum standards are being calibrated; no badge is awarded yet.</p> : (
             <div className="tier-grid">
@@ -79,6 +81,52 @@ function PathwayBody({ sprint }: { sprint: Sprint }) {
       ) : (
         <p className="muted">The progression timeline comes from the foundation plan once grounded advice exists for a completed assessment.</p>
       )}
+    </>
+  );
+}
+
+/** Provisional score bands on the part-credit score and the priority actions that move it (priority_plan). */
+function PriorityPathway({ plan }: { plan: PriorityPlan }) {
+  const t = plan.tier;
+  return (
+    <>
+      <Panel title="Requirements pathway" sub={`Score ${num(plan.score, 1)} · ${t.current ? `${t.current} band` : 'below the first band'}${t.next ? ` · ${num(t.points_to_next, 1)} points to ${t.next}` : ''}`}>
+        <div className="tier-grid">
+          {t.thresholds.map((b) => {
+            const reached = plan.score >= b.score;
+            const projected = !reached && plan.projected_score >= b.score;
+            return (
+              <article key={b.name} className={`tier-card ${b.name.toLowerCase()}`}>
+                <span>{reached ? 'Reached' : b.name === t.next ? 'Next band' : 'Later band'}</span>
+                <h2>{b.name}</h2>
+                <strong>{b.score} points</strong>
+                <ul>
+                  <li>{reached ? 'At or above this score' : `${num(b.score - plan.score, 1)} points to go`}</li>
+                  {projected && <li>Reached if the priority actions are shown</li>}
+                </ul>
+              </article>
+            );
+          })}
+        </div>
+        <p className="muted">{t.note} Target {plan.target ?? '—'} · projected {num(plan.projected_score, 1)}{plan.projected_tier ? ` (${plan.projected_tier})` : ''}{plan.reaches_target ? ' · reaches the target' : ''}.</p>
+      </Panel>
+      <Panel title="Priority actions" sub="Per key indicator: each requirement's gap and the parts not yet shown">
+        {!plan.actions.length ? <p className="muted">No priority actions: nothing within reach changes the score.</p> : (
+          <Table columns={['Key indicator', 'Requirement', 'Gap', 'Missing parts', 'Gain']}>
+            {plan.actions.flatMap((a) => a.conditions.map((c, i) => (
+              <tr key={`${a.indicator}:${c.condition_id}`}>
+                <td>{i === 0 ? <><b>{a.indicator}</b><small className="cell-sub">{a.name}</small></> : ''}</td>
+                <td>{c.requirement}<small className="cell-sub">{c.condition_id} · {c.level}</small></td>
+                <td><Pill tone={c.gap === 'complete' ? 'warn' : c.gap === 'establish' ? 'bad' : 'neutral'} label={c.gap === 'establish' ? 'Establish' : c.gap === 'complete' ? 'Complete' : c.gap} /></td>
+                <td>{c.missing_parts.length ? c.missing_parts.join('; ') : '—'}</td>
+                <td>{i === 0 ? `+${num(a.score_gain, 1)}` : ''}</td>
+              </tr>
+            )))}
+          </Table>
+        )}
+        {plan.strengths.length > 0 && <p className="muted">{plan.strengths.length} requirement(s) already shown and built on.</p>}
+        <p className="muted">{plan.note}</p>
+      </Panel>
     </>
   );
 }
