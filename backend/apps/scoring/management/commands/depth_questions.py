@@ -6,7 +6,7 @@
     python manage.py depth_questions export.json --out questions.json   # also write them to a file to send
 
 One model call per credited condition tried, until DEPTH_MAX_QUESTIONS is used (--max-calls bounds it). These calls
-are not metered against a run budget yet.
+are unmetered (the API's questions job is metered: second_layer_jobs.py).
 """
 import json
 

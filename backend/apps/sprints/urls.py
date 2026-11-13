@@ -275,9 +275,10 @@ for suffix in ('', '/'):
         path('/<uuid:sprint_id>/review-batch/<str:case_id>' + suffix, SprintReviewCaseView.as_view()),
     ]
 
-# Second assessment layer (skeleton): follow-up questions one at a time, and optional additional evidence.
+# Second assessment layer: follow-up questions one at a time, optional additional evidence, and its background jobs.
 from apps.scoring.capability.layer2_views import (
-    AdditionalEvidenceView, FollowUpView, QuestionResponsesView, QuestionsView, ResponseView,
+    AdditionalEvidenceView, FollowUpView, JobCancelView, JobsView, JobView, QuestionResponsesView, QuestionsView,
+    ResponseView,
 )
 for suffix in ('', '/'):
     prefix = '/<uuid:sprint_id>/capability-runs/<uuid:run_id>'
@@ -287,4 +288,7 @@ for suffix in ('', '/'):
         path(prefix + '/responses/<uuid:response_id>' + suffix, ResponseView.as_view()),
         path(prefix + '/responses/<uuid:response_id>/follow-up' + suffix, FollowUpView.as_view()),
         path(prefix + '/additional-evidence' + suffix, AdditionalEvidenceView.as_view()),
+        path(prefix + '/second-layer/jobs' + suffix, JobsView.as_view()),
+        path(prefix + '/second-layer/jobs/<uuid:job_id>' + suffix, JobView.as_view()),
+        path(prefix + '/second-layer/jobs/<uuid:job_id>/cancel' + suffix, JobCancelView.as_view()),
     ]

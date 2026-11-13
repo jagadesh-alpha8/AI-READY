@@ -7,11 +7,17 @@ The institution's flow, one item at a time:
     check_response(response, model)                # search with the answer, check it, maybe ask one follow-up
     add_evidence(run_ref, rubric, document_ids=[...], note=..., picked=[...])   # optional additional evidence
     check_additional(item, rubric)
-    result = rejudge_credit(export, service)       # credit path on the provisional packets plus new passages
+    result = rejudge_credit(export_for_run(run_ref), service)   # credit path on the provisional packets plus new passages
+    final_run = publish_final(result, service=service)            # the final result, as a run refining the provisional one
 
-Checks wait while an attached document is still being extracted (check_pending runs them later). Model calls here are
-NOT metered against a run budget yet; commands cap them. Publishing the result as a run that refines the provisional
-one is not built: rejudge_credit returns the merged records and the final score.
+Checks wait while an attached document is still being extracted (check_pending runs them later). In production these
+steps run as background jobs (second_layer_jobs.py), whose model calls are metered against the run's second-layer
+budget; the management commands call them directly, unmetered, with a cap on calls.
+
+The final result is a new run (refines_run_id = the provisional run, inputs.second_layer says how it was made) whose
+frozen sources are the provisional run's plus the new documents' pages, published through storage.publish. Reports,
+recommendations and plan evaluations of that run therefore use the final credit without change, and the provisional
+run is never altered. Questions and answers stay keyed to the provisional run; the final run takes none of its own.
 """
 import threading
 import uuid
@@ -38,6 +44,33 @@ def _uuid(value):
 
 def _run(run_ref):
     return CapabilityRun.objects.filter(pk=run_ref).first() if _uuid(run_ref) else None
+
+
+def is_final(run):
+    return bool(run is not None and (run.inputs or {}).get('second_layer'))
+
+
+def _refuse_final(run):
+    if is_final(run):
+        raise Layer2Error('This run is a second-layer final result; use its provisional run '
+                          f"{run.inputs['second_layer']['provisional_run_id']}.")
+
+
+def export_for_run(run_ref):
+    """The provisional run's assessment export, built from this database (the shape rejudge_credit reads)."""
+    run = _run(run_ref)
+    if run is None:
+        raise Layer2Error('Run %s is not in this database.' % run_ref)
+    _refuse_final(run)
+    event = run.events.filter(state='completed', payload__result__isnull=False).last()
+    if event is None:
+        raise Layer2Error('Run %s has no completed assessment.' % run_ref)
+    inputs = run.inputs
+    return {'run_id': str(run.pk), 'inputs_hash': run.inputs_hash, 'rubric': inputs['rubric'],
+            'population': inputs.get('population'), 'reference_period': inputs.get('reference_period'),
+            'scope': inputs.get('scope'), 'reviewed_evidence': inputs.get('reviewed_evidence'),
+            'retrieval_policy': inputs.get('retrieval_policy'), 'assessment_event_id': event.pk,
+            'assessment': event.payload}
 
 
 def run_sprint_id(run_ref):
@@ -98,8 +131,8 @@ def document_sources(document_ids, sprint_id):
     ids = check_documents(document_ids, sprint_id)
     sources, ready, failed = [], True, []
     for document in Document.objects.filter(pk__in=ids, sprint_id=sprint_id).order_by('id'):
-        if document.status == Document.Status.FAILED:
-            failed.append(str(document.pk))
+        if document.status in (Document.Status.FAILED, Document.Status.REJECTED):
+            failed.append(str(document.pk))   # never extracted: waiting for it would hold the answer for ever
             continue
         pages = list(DocumentPage.objects.filter(document=document).order_by('page_number'))
         if not pages or document.status == Document.Status.PROCESSING:
@@ -217,7 +250,14 @@ def progress(run_ref):
             'answered': questions.exclude(status=DepthQuestion.Status.OPEN).count(),
             'checks_waiting': responses.filter(status=DepthResponse.Status.PENDING).count(),
             'follow_ups_open': responses.filter(parent__isnull=True, status=DepthResponse.Status.CHECKED)
-                                        .exclude(follow_up_text='').filter(follow_ups__isnull=True).count()}
+                                        .exclude(follow_up_text='').filter(follow_ups__isnull=True).count(),
+            'final_run_id': final_run_id(run_ref)}
+
+
+def final_run_id(run_ref):
+    """The newest final result published for this provisional run, or None."""
+    final = CapabilityRun.objects.filter(inputs__second_layer__provisional_run_id=str(run_ref)).order_by('-created_at').first()
+    return str(final.pk) if final else None
 
 
 def submit(question, *, answer='', document_ids=(), skip=False, parent=None, user=None, via='college'):
@@ -316,26 +356,35 @@ def check_response(response, model, *, attached=None, corpus=None, ranker=RUN_RA
     return response
 
 
-def check_pending(run_ref, model, *, ranker=RUN_RANKER, max_calls=None):
-    """Check every waiting response of a run whose documents are ready. Returns counts."""
+def check_pending(run_ref, model, *, ranker=RUN_RANKER, max_calls=None, skip_error=None):
+    """Check every waiting response of a run whose documents are ready. Returns counts.
+
+    skip_error: a test for exceptions that leave one response waiting (counted in 'failed') instead of stopping the
+    rest, such as a malformed model reply; anything else (a spent budget, a cancelled job) stops the loop."""
     corpus = run_sources(run_ref)
     if ranker is RUN_RANKER:
         ranker = _resolve_ranker(ranker, run_ref)[0]
     context = provisional(run_ref)
     spec = depth.spec()
-    checked = waiting = calls = 0
+    checked = waiting = calls = failed = 0
     for response in (DepthResponse.objects.filter(question__run_ref=run_ref, status=DepthResponse.Status.PENDING)
                      .select_related('question', 'parent').order_by('created_at')):
         if max_calls is not None and calls >= max_calls:
             waiting += 1
             continue
-        check_response(response, model, corpus=corpus, ranker=ranker, depth_spec=spec, context=context)
+        try:
+            check_response(response, model, corpus=corpus, ranker=ranker, depth_spec=spec, context=context)
+        except Exception as exc:
+            if skip_error is None or not skip_error(exc):
+                raise
+            failed += 1
+            continue
         if response.status == DepthResponse.Status.CHECKED:
             checked += 1
             calls += int(bool(response.support_check.get('model_called')))
         else:
             waiting += 1
-    return {'checked': checked, 'waiting': waiting, 'model_calls': calls}
+    return {'checked': checked, 'waiting': waiting, 'model_calls': calls, 'failed': failed}
 
 
 # ------------------------------------------------------------------ optional additional evidence
@@ -415,21 +464,24 @@ def credit_routes(run_ref):
     return routes
 
 
-def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=None, max_calls=36):
+def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=None, max_calls=36,
+                   evaluate_options=None):
     """Re-judge the requirements new evidence was submitted for, on each one's provisional packet plus the new
     passages, with the main judge (part judgment, two passes, tie-break). Merge with layer2.merge_new_evidence.
 
     export: the provisional run's assessment export (run_id, rubric, population, reference_period, scope,
     retrieval_policy, assessment.records and assessment.traces). It must be scored under this worker's part rule
     (layer2.check_export_rule) and, when the run is in this database, be that run's export. service: the model service
-    for evaluate. Returns the merged records, the provisional and final scores, and an audit. Nothing is published
-    (skeleton)."""
+    for evaluate. evaluate_options: further evaluate() arguments (a background job passes strict_errors so a spent
+    budget stops the re-judgment instead of becoming a failed requirement, and the run's concurrency). Returns the
+    merged records, the provisional and final scores, and an audit. Nothing is published (publish_final does)."""
     try:
         run_ref, rubric, records = export['run_id'], export['rubric'], export['assessment']['records']
     except (KeyError, TypeError):
         raise Layer2Error('Not an assessment export: needs run_id, rubric and assessment.records.')
     traces = export['assessment'].get('traces') or []
     run = _run(run_ref)
+    _refuse_final(run)
     if run is not None and export.get('inputs_hash') and export['inputs_hash'] != run.inputs_hash:
         raise Layer2Error("The export's inputs do not match run %s in this database." % run_ref)
     routes = credit_routes(run_ref) if routes is None else routes
@@ -455,7 +507,7 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
     targets = {code: t for code, t in targets.items() if t['windows']}
     if not targets:
         return {**result, 'targets': {}, 'context_audit': {}, 'merge': [], 'records': records, 'contradictions': [],
-                'final_score': provisional_score, 'traces': [], 'note': 'No new evidence to re-judge.'}
+                'final_score': provisional_score, 'traces': [], 'new_sources': [], 'note': 'No new evidence to re-judge.'}
     layer2.check_export_rule(records, traces, targets)
     contexts, context_audit = layer2.fixed_contexts(traces, targets)
     subset = layer2.subset_rubric(rubric, targets)
@@ -472,11 +524,83 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
                           reference_period=export.get('reference_period') or 'Not recorded', rubric=subset,
                           scope=export.get('scope'), reviewed_evidence=export.get('reviewed_evidence'),
                           retrieval_policy=policy, judgment='parts', agreement_passes=2, tie_break=True,
-                          max_calls=len(subset['indicators']), fixed_contexts=contexts)
+                          max_calls=len(subset['indicators']), fixed_contexts=contexts, **(evaluate_options or {}))
     packets = {t['indicator']: t.get('source_excerpts') or [] for t in traces}
     merged, merge_audit = layer2.merge_new_evidence(records, outcome['records'], packets, rubric=rubric)
     return {**result, 'targets': {code: t['conditions'] for code, t in targets.items()},
             'context_audit': context_audit, 'merge': merge_audit, 'records': merged,
             'contradictions': layer2.contradictions(merge_audit),
             'final_score': layer2.final_score(merged, rubric), 'traces': outcome.get('traces', []),
-            'note': 'Not published as a run yet: the run that refines the provisional one is still to be built.'}
+            'new_sources': new_pages, 'note': 'Publish with publish_final to make this the result reports use.'}
+
+
+def _inference(service, provisional_event):
+    """publish() needs inference identity. A metered service (a background job's) gives its per-call ledger; the
+    command's unmetered client gives none. The provisional run's inference is kept beside it."""
+    if hasattr(service, 'metadata'):
+        return {**service.metadata(), 'second_layer_metered': True,
+                'provisional': provisional_event.payload.get('inference')}
+    return {'provider': getattr(service, 'provider', None) or (type(service).__name__ if service is not None else 'none'),
+            'model': getattr(service, 'model', None) or 'unknown', 'settings': {}, 'calls': [],
+            'second_layer_metered': False, 'provisional': provisional_event.payload.get('inference')}
+
+
+def publish_final(result, *, service=None, user=None, inference=None):
+    """Publish a rejudge_credit result as the final result: a new run refining the provisional one, with the new
+    documents' pages added to its frozen sources and the merged records published through storage.publish (which
+    revalidates every citation and trace excerpt against those sources). Re-judged key indicators take their new
+    traces; the rest keep the provisional ones. Idempotent: the same result publishes once. Returns the final run."""
+    from apps.documents.models import Document
+    from apps.extraction.models import DocumentPage
+    from apps.extraction.services.evidence_text import evidence_pages
+    from apps.scoring.models import CapabilityExecution, CapabilityRunEvent
+    from .storage import checkpoint, digest, manifest_entry, publish
+    provisional_run = _run(result.get('run_ref'))
+    if provisional_run is None:
+        raise Layer2Error('The provisional run is not in this database; a final result cannot be published.')
+    _refuse_final(provisional_run)
+    event = provisional_run.events.filter(state='completed', payload__result__isnull=False).last()
+    if event is None:
+        raise Layer2Error('The provisional run has no completed assessment.')
+    new_sources = [s for s in result.get('new_sources') or []]
+    signature = digest({'provisional_event': event.pk, 'records': result['records'], 'traces': result.get('traces') or [],
+                        'new_sources': sorted(s['id'] for s in new_sources)})
+    key = 'second-layer-' + signature[:48]
+    sprint = provisional_run.sprint
+    with transaction.atomic():
+        CapabilityRun.objects.select_for_update().get(pk=provisional_run.pk)
+        existing = CapabilityExecution.objects.filter(sprint=sprint, idempotency_key=key).select_related('run').first()
+        if existing:
+            return existing.run
+        inputs = dict(provisional_run.inputs)
+        frozen_ids = {s['id'] for s in inputs['sources']}
+        added = [s for s in new_sources if s['id'] not in frozen_ids]
+        documents = {str(d.pk): d for d in Document.objects.filter(pk__in={s['document_id'] for s in added}, sprint=sprint)}
+        if len(documents) != len({s['document_id'] for s in added}):
+            raise Layer2Error('A new document does not belong to this sprint.')
+        manifest = list(inputs['manifest'])
+        for doc_id in sorted(documents):
+            # The same entry a full run freezes (reports and diagnostics read every field of it).
+            pages = list(DocumentPage.objects.filter(document=documents[doc_id]).order_by('page_number'))
+            rendered = {p['page_number']: p['text'] for p in evidence_pages([
+                {'page_number': p.page_number, 'text': p.text, 'tables': p.tables} for p in pages])}
+            manifest.append({**manifest_entry(documents[doc_id], pages, rendered), 'added_by': 'second_layer'})
+        inputs.update(sources=list(inputs['sources']) + added, manifest=manifest, refines_run_id=str(provisional_run.pk),
+                      second_layer={'version': layer2.VERSION, 'provisional_run_id': str(provisional_run.pk),
+                                    'provisional_event_id': event.pk, 'provisional_score': result.get('provisional_score'),
+                                    'final_score': result.get('final_score'), 'targets': result.get('targets') or {},
+                                    'merge': result.get('merge') or [], 'contradictions': result.get('contradictions') or [],
+                                    'context_audit': result.get('context_audit') or {}, 'routes': result.get('routes'),
+                                    'result_hash': signature, 'added_sources': [s['id'] for s in added]})
+        run = CapabilityRun.objects.create(sprint=sprint, inputs=inputs, inputs_hash=digest(inputs))
+        CapabilityRunEvent.objects.create(run=run, state='queued')
+        CapabilityExecution.objects.create(run=run, sprint=sprint, requested_by=user, idempotency_key=key,
+                                           request_hash=signature, status='completed')
+        checkpoint(institution_id=sprint.institution_id, run_id=run.pk, state='running')
+        rejudged = {t.get('indicator') for t in result.get('traces') or []}
+        traces = [t for t in event.payload.get('traces') or [] if t.get('indicator') not in rejudged] + list(
+            result.get('traces') or [])
+        publish(institution_id=sprint.institution_id, run_id=run.pk,
+                evaluation={'records': result['records'], 'traces': traces},
+                inference=inference or _inference(service, event))
+    return run

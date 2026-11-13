@@ -79,7 +79,7 @@ class SpecTests(SimpleTestCase):
         self.assertEqual(on_disk, json.loads(json.dumps(built)), 'Regenerate depth_spec_v0.json from depth_spec.py.')
 
     def test_spec_is_marked_as_an_unapproved_draft(self):
-        self.assertEqual(depth.spec()['status'], 'draft-model-written')
+        self.assertEqual(depth.spec()['status'], 'draft-audited')
 
     def test_faculty_readiness_is_open_and_syllabus_standard(self):
         spec = depth.spec()
@@ -131,7 +131,7 @@ class QuestionTests(SimpleTestCase):
         depth.questions_for_depth_target({'condition_ids': [F1]}, record, model)
         payload = model.calls[0][1]
         self.assertEqual(payload['quotes'][0]['quote'], WEAK)
-        self.assertEqual([d['id'] for d in payload['dimensions']], ['content', 'provider', 'intensity'])
+        self.assertEqual([d['id'] for d in payload['dimensions']], ['content', 'provider', 'intensity', 'investment'])
 
     def test_budget_is_shared_and_conditions_are_kept_whole(self):
         data = export(credited={F1: 1, F2: 1})
@@ -139,11 +139,11 @@ class QuestionTests(SimpleTestCase):
                                                 missing_slots=2)
         by_id = {r['condition_id']: r for r in data['assessment']['records']}
         planned, notes = depth.plan_questions(targets, missing, by_id, FakeModel(), max_questions=6)
-        # 2 reserved missing-evidence questions; F1 asks 2 (content is answered); F2's 3 do not fit the 2 left.
+        # 2 reserved missing-evidence questions; F1 asks 3 (content is answered); F2's 2 do not fit the 1 left.
         self.assertEqual(sum(q['kind'] == 'missing' for q in planned), 2)
-        self.assertEqual([q['condition_ids'] for q in planned if q['kind'] == 'depth'], [[F1], [F1]])
+        self.assertEqual([q['condition_ids'] for q in planned if q['kind'] == 'depth'], [[F1], [F1], [F1]])
         self.assertTrue(any(F2 in n and 'do not fit' in n for n in notes))
-        self.assertEqual([q['rank'] for q in planned], list(range(1, 5)))
+        self.assertEqual([q['rank'] for q in planned], list(range(1, 6)))
 
     def test_call_limit(self):
         data = export(credited={F1: 1, F2: 1})

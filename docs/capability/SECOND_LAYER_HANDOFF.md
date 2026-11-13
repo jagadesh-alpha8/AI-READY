@@ -4,7 +4,8 @@ What happens after the provisional score: the institution answers the second lin
 (depth questions about credited requirements, "nothing found" questions about uncredited ones), may answer one
 follow-up per question, and may add evidence it thinks was missed. Design: claude.ai doc "AI-READY: second assessment
 layer — architecture for follow-ups and new evidence". Code: `apps/scoring/capability/layer2.py` (logic),
-`layer2_service.py` (database), `layer2_views.py` (API), tests in `apps/scoring/test_layer2.py`.
+`layer2_service.py` (database), `layer2_views.py` (API), `second_layer_jobs.py` (background jobs, metered), tests in
+`apps/scoring/test_layer2.py` and `test_second_layer_jobs.py`.
 
 ## Rules the code keeps
 
@@ -54,17 +55,46 @@ layer — architecture for follow-ups and new evidence". Code: `apps/scoring/cap
 | Depth | `depth_judge export.json` (existing) now reads checked answers and their passages; a condition with an answer still waiting for its check is held (`awaiting_check`) | one per credited condition answered |
 | Credit | `layer2_rejudge export.json --run --out result.json` | two passes + tie-break per key indicator re-judged |
 
+## Background jobs (13 Nov)
+
+With `SECOND_LAYER_JOBS_ENABLED=true` the steps above run in Celery instead of from the commands, through
+`POST .../second-layer/jobs {operation, options}` (Idempotency-Key header; `GET` lists the run's jobs and its budget,
+`POST .../second-layer/jobs/{id}/cancel` stops one):
+
+| Operation | Does | Options |
+| --- | --- | --- |
+| `questions` | plans and saves the follow-up questions | `replace` (refused once the college has answered) |
+| `checks` | checks waiting answers and additional evidence | none |
+| `depth` | judges depth from checked answers (saves judgments and pending past cases) | none |
+| `rejudge` | re-judges credit and publishes the final result as a run refining the provisional one | `publish` (default true; false reports only) |
+
+- **Metered.** Every model call is reserved against the job (it must still be running, within its deadline) and the
+  run's `SecondLayerBudget`, which all of the run's jobs share. The budget is frozen when the first job starts:
+  `SECOND_LAYER_MAX_HTTP_CALLS` / `SECOND_LAYER_MAX_COST_USD`, or, when unset, the limits the run's own assessment had.
+  `manage.py layer2_budget RUN_ID [--max-calls N --max-cost X]` shows and raises it (logged on the ledger). Per-request
+  settings (output tokens, timeout, reasoning effort, input bound) are the assessment's. The ledger is
+  `SecondLayerEvent`; the final run's inference carries the rejudge job's calls (`second_layer_metered: true`).
+- **One active job per run**, and nothing saved after a cancel or a spent budget: each job writes its result in one
+  transaction that first checks the job is still running. The re-judgment runs with `strict_errors`, so a spent
+  budget stops it instead of becoming a "re-judgment failed" requirement. A job past its deadline plus 15 minutes is
+  taken to have lost its worker when the next job starts.
+- **Checks start on their own.** A submitted answer or additional evidence requests a checks job (quietly skipped when
+  another job is active); a checks job that finds items submitted while it ran queues another; the beat task
+  `sweep_second_layer_checks` (every `SECOND_LAYER_SWEEP_SECONDS`) starts one when a waiting item's documents finished
+  extraction since the run's last checks job. An item a job tried and left waiting (a malformed reply) is not retried
+  until something about it changes; start a checks job to retry it.
+- With jobs on, `SECOND_LAYER_CHECK_ON_SUBMIT` is ignored. The commands still work, unmetered, for consultants on a
+  frozen export. A rejected document now counts as failed, not as still being extracted.
+- Who may start jobs: `CanManageSprint`, like starting a run, so the college's coordinator can publish the final
+  result. Restrict `rejudge` to staff if Harsha prefers.
+
 `evaluate()` gained `fixed_contexts`: the credit path calls the main judge on a cut-down rubric with given packets
 instead of retrieval.
 
 ## Not built
 
-- Publishing the credit path's result as a run that refines the provisional run (`refines_run_id`); today it returns
-  merged records and the final score.
-- Metering of second-layer model calls against the run budget (they use the extraction client directly).
-- A Celery task for checks (answers wait for the command unless `SECOND_LAYER_CHECK_ON_SUBMIT` is on, which checks in
-  the request).
-- Who may answer: the views use `CanManageSprint`, like the run views.
+- Who may answer, and who may start jobs: the views use `CanManageSprint`, like the run views.
+- Front-end screens for the jobs (start, progress, cancel, budget).
 - Contradictions into the review queue and the report.
 - Depth judging for requirements newly credited in the credit path; a second round of questions.
 - Not run against a real model or the VISTAS export yet.

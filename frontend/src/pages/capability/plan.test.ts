@@ -52,3 +52,22 @@ it('keeps a saved original review visible without inventing a completed improved
   assert.match(html, /Workshop attendance does not establish competence/);
   assert.doesNotMatch(html, /Suggested improved plan/);
 });
+
+it('shows part-credit plans as one score and gain, with priority-plan coverage', () => {
+  const result = { lower: 0, upper: 100, exact_score: null, pillars: [{ code: 'AIQIF-C4', lower: 0, upper: 100 }] };
+  const score = (value: number, gain: number) => ({ score: value, gain, pillars: [{ code: 'AIQIF-C4', score: value, gain }], requirements: [], basis: 'Part-credit score' });
+  const plan = (value: number) => ({ text: 'Plan', evaluation: {
+    baseline: result, baseline_score: 31.4, accepted: [], rejected: [], note: 'Conditional.',
+    priority_coverage: { covered: ['a'], missed: ['b', 'c'], outside_priority_plan: ['d'], target: 40, priority_projected_score: 40.2 },
+    scenarios: { implementation: { result, paired_change: { lower: 0, upper: 5, basis: 'b' }, score: score(value, value - 31.4) },
+      results: { result, paired_change: { lower: 0, upper: 9, basis: 'b' }, score: score(value + 2, value - 29.4) } } } });
+  const data = { comparison: { original: plan(33.4), improved: plan(36.4), comparison_basis: 'Same baseline',
+    improvement: { constraint_note: '', changes: [] }, limitations: [] } };
+  const html = renderToStaticMarkup(React.createElement(bundle.mod.PlanComparisonView, { data }));
+  assert.match(html, /Current score: 31.4 \/ 100/);
+  assert.match(html, /33.4 \/ 100 \(\+2.0\)/);
+  assert.match(html, /complete 1 of the 3 priority requirements/);
+  assert.match(html, /40.2 \/ 100/);
+  assert.doesNotMatch(html, /Paired conditional change/);
+  assert.doesNotMatch(html, /unresolved range/);
+});

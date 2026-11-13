@@ -131,6 +131,12 @@ def render_pdf(report, indicators, actions):
     pdf.section('Next overall threshold')
     pdf.paragraph(f"Target: {next_step['target']} | Policy: {next_step['policy']['version']}")
     pdf.paragraph(next_step['policy']['basis'])
+    priority = report['deterministic_plan'].get('priority_plan')
+    if priority:
+        tier = priority['tier']
+        pdf.paragraph(f"Score {priority['score']}; provisional tier: {tier['current'] or 'none yet'}"
+                      + (f"; {tier['points_to_next']} points to {tier['next']}." if tier['next'] else '.'))
+        pdf.paragraph(f"Projected score after the priority plan: {priority['projected_score']}. {priority['note']}")
     if report['recommendation']:
         pdf.paragraph(f"Recommendation version: {report['recommendation']['id']} | {report['recommendation']['status']}")
     for action in actions:

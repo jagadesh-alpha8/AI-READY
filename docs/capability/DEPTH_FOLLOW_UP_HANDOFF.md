@@ -76,9 +76,9 @@ Every judgment stores the policy it was judged under.
 
 - **Response screen in the web app.** Responses come from a file. The models and `load_responses` are what a screen
   or API would call; a consultant-entered response should set `submitted_via='consultant'`.
-- **Cost metering.** Depth model calls use `get_ai_service()` directly; they are not reserved against a
-  `CapabilityExecution` budget like assessment calls. The commands cap calls (`--max-calls`, default 60 for
-  questions and 40 for judging). Wire them through `provider.MeteredService` before any production use.
+- **Cost metering.** Done for the API (13 Nov): the `questions` and `depth` background jobs reserve every call
+  against the run's second-layer budget (`second_layer_jobs.py`; see the second-layer handoff). The commands still
+  call `get_ai_service()` directly and cap calls (`--max-calls`, default 60 for questions and 40 for judging).
 - **Uploaded documents.** Uploads to missing-evidence questions are listed as "awaiting reassessment"; they still
   need extraction and a new assessment run. Uploads to depth questions count as supported answers, but their content
   is not read by the depth judge.

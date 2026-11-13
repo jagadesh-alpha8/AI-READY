@@ -10,7 +10,8 @@ from .capability import depth, evaluation, layer2, part_judgment
 from .capability.engine import release
 from .capability.layer2 import Layer2Error
 from .capability.layer2_service import (add_evidence, check_additional, check_pending, check_response,
-                                        credit_routes, document_sources, next_item, rejudge_credit, submit)
+                                        credit_routes, document_sources, export_for_run, next_item, progress,
+                                        publish_final, rejudge_credit, submit)
 from .capability.layer2_views import flag
 from .models import AdditionalEvidence, DepthQuestion, DepthResponse
 
@@ -720,3 +721,124 @@ class RankerAndRouteTests(SimpleTestCase):
             result = rejudge_credit(export, service=None, routes=routes,
                                     evaluate_fn=lambda *a, **k: self.fail('no judge call expected'))
         self.assertEqual(result['note'], 'No new evidence to re-judge.')
+
+
+class FinalResultTests(TestCase):
+    """The final result is published as a new run refining the provisional one; everything reads it unchanged."""
+    def setUp(self):
+        from apps.documents.models import Document
+        from apps.extraction.models import DocumentPage
+        from apps.institutions.models import Institution
+        from apps.sprints.models import Sprint
+        from .capability.storage import checkpoint, create_run, publish
+        self.institution = Institution.objects.create(name='College')
+        self.sprint = Sprint.objects.create(institution=self.institution)
+        self.run = create_run(institution_id=self.institution.pk, sprint_id=self.sprint.pk)
+        checkpoint(institution_id=self.institution.pk, run_id=self.run.pk, state='running')
+        self.event = publish(institution_id=self.institution.pk, run_id=self.run.pk,
+                             evaluation=evaluation.evaluate([], service=None, population='All', reference_period='2025-26'),
+                             inference={'provider': 'none', 'model': 'none', 'settings': {}, 'calls': []})
+        # Sent with an answer after the provisional run was frozen.
+        doc = Document.objects.create(sprint=self.sprint, document_type='naac_ssr')
+        DocumentPage.objects.create(document=doc, page_number=1, text=CERTIFICATE['text'])
+        self.new_sources = document_sources([str(doc.pk)], self.sprint.pk)[0]
+
+    def result(self):
+        export = export_for_run(self.run.pk)
+        records = [dict(r) for r in export['assessment']['records']]
+        cid = records[0]['condition_id']
+        records[0]['credit'] = 0.25
+        code = next(i['code'] for i in export['rubric']['indicators'] if any(c['id'] == cid for c in i['conditions']))
+        page = self.new_sources[0]
+        trace = {'indicator': code, 'source_ids': [page['id']], 'source_excerpts': [{**page, 'text_offset': 0}]}
+        return {'run_ref': str(self.run.pk), 'records': records, 'traces': [trace], 'new_sources': self.new_sources,
+                'provisional_score': 0, 'final_score': 0.1, 'targets': {code: [cid]}, 'merge': [],
+                'contradictions': [], 'context_audit': {}, 'routes': 1}
+
+    def test_final_run_refines_the_provisional_run_and_carries_the_new_pages(self):
+        from .capability.engine import documented
+        from .models import CapabilityRun
+        before = list(self.run.events.values_list('id', flat=True))
+        result = self.result()
+        final = publish_final(result)
+        self.assertEqual(final.inputs['refines_run_id'], str(self.run.pk))
+        self.assertEqual(final.inputs['second_layer']['provisional_run_id'], str(self.run.pk))
+        self.assertIn(self.new_sources[0]['id'], {s['id'] for s in final.inputs['sources']})
+        self.assertEqual(final.inputs['manifest'][-1]['added_by'], 'second_layer')
+        completed = final.events.filter(state='completed').last()
+        credits = {r['condition_id']: r.get('credit', 0) for r in result['records']}
+        self.assertEqual(completed.payload['result']['score'], documented(credits, final.inputs['rubric'])['overall'])
+        self.assertGreater(completed.payload['result']['score'], 0)
+        self.assertIn(self.new_sources[0]['id'], {sid for t in completed.payload['traces'] for sid in t['source_ids']})
+        self.assertEqual(final.execution.status, 'completed')
+        # The provisional run is untouched; the same result publishes once.
+        self.assertEqual(list(self.run.events.values_list('id', flat=True)), before)
+        self.assertEqual(publish_final(result).pk, final.pk)
+        self.assertEqual(CapabilityRun.objects.count(), 2)
+        self.assertEqual(progress(str(self.run.pk))['final_run_id'], str(final.pk))
+        self.assertIsNone(progress(str(final.pk))['final_run_id'])
+
+    def test_plan_evaluation_reads_the_final_credit(self):
+        from .capability.plan_execution import baseline_view, validate_baseline
+        final = publish_final(self.result())
+        event = final.events.filter(state='completed').last()
+        validate_baseline(final, event)
+        self.assertEqual(baseline_view(final, event)['baseline_score'], event.payload['result']['score'])
+
+    def test_a_final_run_is_never_refined_again_and_foreign_pages_are_refused(self):
+        from apps.documents.models import Document
+        from apps.extraction.models import DocumentPage
+        from apps.institutions.models import Institution
+        from apps.sprints.models import Sprint
+        final = publish_final(self.result())
+        with self.assertRaises(Layer2Error):
+            export_for_run(final.pk)
+        with self.assertRaises(Layer2Error):
+            publish_final({**self.result(), 'run_ref': str(final.pk)})
+        other = Sprint.objects.create(institution=Institution.objects.create(name='Other'))
+        foreign = Document.objects.create(sprint=other, document_type='naac_ssr')
+        page = DocumentPage.objects.create(document=foreign, page_number=1, text='Another college.')
+        result = self.result()
+        result['new_sources'] = [{'id': str(page.pk), 'document_id': str(foreign.pk), 'page_number': 1,
+                                  'text': 'Another college.', 'text_source': ''}]
+        result['traces'] = []
+        with self.assertRaises(Layer2Error):
+            publish_final(result)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class FinalResultReportTests(FinalResultTests):
+    """Every report surface works on a final run and says which result it shows."""
+    def setUp(self):
+        super().setUp()
+        from rest_framework.test import APIClient
+        from apps.accounts.models import User
+        from .models import CapabilityExecution
+        CapabilityExecution.objects.create(run=self.run, sprint=self.sprint, idempotency_key='provisional',
+                                           request_hash='provisional', status='completed')
+        user = User.objects.create_user(username='coordinator2', email='c2@example.com',
+                                        role=User.Role.IQAC_COORDINATOR, institution=self.institution)
+        self.client = APIClient()
+        self.client.force_authenticate(user)
+        self.base = f'/api/v1/sprints/{self.sprint.pk}/capability-runs'
+
+    def test_reports_on_the_final_run_and_the_run_list(self):
+        final = publish_final(self.result())
+        entry = final.inputs['manifest'][-1]
+        self.assertEqual((entry['added_by'], entry['pages'][0]['status']), ('second_layer', 'ok'))
+        self.assertIn('version', entry)
+        for audience in ('leadership', 'evidence'):
+            for fmt in ('html', 'pdf', 'json'):
+                response = self.client.get(f'{self.base}/{final.pk}/report', {'audience': audience, 'file': fmt})
+                self.assertEqual(response.status_code, 200, (audience, fmt))
+        data = json.loads(self.client.get(f'{self.base}/{final.pk}/report', {'file': 'json'}).content)
+        self.assertEqual(data['assessment_stage']['stage'], 'final')
+        self.assertIn('Final result', data['report_view']['stage_notice'])
+        old = json.loads(self.client.get(f'{self.base}/{self.run.pk}/report', {'file': 'json'}).content)
+        self.assertEqual((old['assessment_stage']['stage'], old['assessment_stage']['final_run_id']), ('provisional', str(final.pk)))
+        listed = self.client.get(self.base)
+        self.assertEqual(listed.status_code, 200)
+        stages = {row['id']: (row['stage'], row['provisional_run_id'], row['completed_indicators']) for row in listed.data['results']}
+        self.assertEqual(stages[str(final.pk)], ('final', str(self.run.pk), 36))
+        self.assertEqual(stages[str(self.run.pk)][0], 'provisional')
+        self.assertEqual(listed.data['review_questions_awaiting'], 0)

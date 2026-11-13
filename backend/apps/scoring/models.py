@@ -627,3 +627,66 @@ class AdditionalEvidence(models.Model):
 
     class Meta:
         ordering = ['run_ref', 'created_at']
+
+
+class SecondLayerBudget(models.Model):
+    """The second layer's spending limit for one provisional run, shared by all of its jobs (capability/
+    second_layer_jobs.py). Frozen when the first job starts; a consultant raises it with layer2_budget."""
+    run = models.OneToOneField(CapabilityRun, on_delete=models.PROTECT, primary_key=True,
+                               related_name='second_layer_budget')
+    max_http_calls = models.PositiveIntegerField()
+    max_cost_usd = models.DecimalField(max_digits=12, decimal_places=6)
+    requests_reserved = models.PositiveIntegerField(default=0)
+    usd_reserved = models.DecimalField(max_digits=12, decimal_places=6, default=0)
+    heartbeat_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class SecondLayerJob(models.Model):
+    """One background step of the second layer for a provisional run: plan the questions, check waiting answers and
+    additional evidence, judge depth, or re-judge credit and publish the final result. Model calls are reserved
+    against the job (status) and the run's SecondLayerBudget (limits); the ledger is SecondLayerEvent."""
+    class Operation(models.TextChoices):
+        QUESTIONS = 'questions', 'Plan the follow-up questions'
+        CHECKS = 'checks', 'Check waiting answers and additional evidence'
+        DEPTH = 'depth', 'Judge the depth of credited evidence'
+        REJUDGE = 'rejudge', 'Re-judge credit and publish the final result'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='second_layer_jobs')
+    operation = models.CharField(max_length=16, choices=Operation.choices)
+    options = models.JSONField(default=dict, blank=True)
+    idempotency_key = models.CharField(max_length=100)
+    request_hash = models.CharField(max_length=64)
+    task_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    status = models.CharField(max_length=16, default='queued')
+    error_code = models.CharField(max_length=64, blank=True)
+    detail = models.TextField(blank=True)
+    policy = models.JSONField(default=dict)
+    result = models.JSONField(default=dict, blank=True)
+    final_run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, null=True, blank=True, related_name='+')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    requests_reserved = models.PositiveIntegerField(default=0)
+    usd_reserved = models.DecimalField(max_digits=12, decimal_places=6, default=0)
+    heartbeat_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['run', 'idempotency_key'], name='second_layer_job_idempotency'),
+            models.UniqueConstraint(fields=['run'], condition=models.Q(status__in=['queued', 'running']),
+                                    name='one_active_second_layer_job'),
+        ]
+
+
+class SecondLayerEvent(models.Model):
+    """A second-layer job's ledger: request reservations and outcomes, and its terminal state."""
+    job = models.ForeignKey(SecondLayerJob, on_delete=models.PROTECT, related_name='events')
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['id']

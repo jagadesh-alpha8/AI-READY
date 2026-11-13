@@ -1,13 +1,16 @@
 """Pure conditional arithmetic; no inference, probabilities or baseline edits.
-Paired bounds use the same unresolved completion before/after (64 cases/indicator).
+
+The headline is a part-credit projection (credit_projection): the same documented() arithmetic as the reported score
+and the priority plan, so a plan's gain is one number in the same units. The strict met/not-met result and the paired
+bounds (64 cases per indicator) are kept beside it for audit only.
 """
 from copy import deepcopy
 from fractions import Fraction
 from itertools import product
 import re
-from .engine import ENGINE_VERSION, LEGACY_ENGINE_VERSION, STATES, assess, indicator_bounds, number, validate_release
+from .engine import ENGINE_VERSION, LEGACY_ENGINE_VERSION, STATES, assess, documented, indicator_bounds, number, validate_release
 
-VERSION = 'conditional-scenario-0.2'
+VERSION = 'conditional-scenario-0.3'
 RESULT_WORDS = re.compile(r'competenc|measured|demonstrably|sustained|improved|compare.+(?:outcome|benefit)|show.+(?:benefit|improvement)', re.I)
 
 
@@ -90,16 +93,44 @@ def paired_delta(baseline, overlay, rubric):
         'basis': 'Paired completions under the recorded engine; independent unresolved conditions. Not probabilities or a guaranteed real-world gain.'}
 
 
-def evaluate_plan(baseline, mappings, rubric, *, engine_version=ENGINE_VERSION):
+def part_credit_rubric(rubric):
+    return rubric.get('aggregation') == 'independent_conditions'
+
+
+def credit_projection(credits, accepted, rubric, phase):
+    """The part-credit score if the accepted actions for this phase are completed and shown: a development mapping
+    takes its requirement to full credit (the plan plus what the baseline already shows covers every part); a
+    withdrawal takes it to 0."""
+    after = dict(credits)
+    changed = []
+    for m in accepted:
+        if phase == 'results' or m['phase'] == 'implementation':
+            cid = m['condition_id']
+            value = 1.0 if m['state'] == 'met' else 0.0
+            if after.get(cid, 0.0) != value:
+                changed.append({'condition_id': cid, 'credit_before': credits.get(cid, 0.0), 'credit_after': value})
+            after[cid] = value
+    before, result = documented(credits, rubric), documented(after, rubric)
+    pillars_before = {p['code']: p['score'] for p in before['pillars']}
+    return {'score': result['overall'], 'gain': round(result['overall'] - before['overall'], 2),
+            'pillars': [{'code': p['code'], 'score': p['score'], 'gain': round(p['score'] - pillars_before[p['code']], 2)}
+                        for p in result['pillars']],
+            'requirements': changed, 'basis': 'Part-credit score, as reported; assumes the mapped actions are completed and shown.'}
+
+
+def evaluate_plan(baseline, mappings, rubric, *, engine_version=ENGINE_VERSION, credits=None):
     if engine_version not in {ENGINE_VERSION, LEGACY_ENGINE_VERSION}:
         raise ValueError('Recorded engine version is not supported.')
     validate_release(rubric)
     accepted, rejected = validate_overlays(baseline, mappings, rubric)
+    scored = credits is not None and part_credit_rubric(rubric)
     result = {'version': VERSION, 'baseline': assess(baseline, rubric), 'accepted': accepted,
               'rejected': rejected, 'scenarios': {}, 'actual_assessment_changed': False,
-              'note': 'If the actions are completed and the listed requirements demonstrated, the recorded experimental method would support these conditional results. Mapping validity and institutional success are not established by this calculation.'}
+              'baseline_score': documented(credits, rubric)['overall'] if scored else None,
+              'note': 'If the actions are completed and the listed requirements shown, the recorded method would give these conditional scores. Mapping validity and institutional success are not established by this calculation.'}
     for phase in ('implementation', 'results'):
         overlay = {m['condition_id']: m['state'] for m in accepted if phase == 'results' or m['phase'] == 'implementation'}
         result['scenarios'][phase] = {'result': assess({**baseline, **overlay}, rubric), 'overlay': overlay,
-                                    'paired_change': paired_delta(baseline, overlay, rubric)}
+                                    'paired_change': paired_delta(baseline, overlay, rubric),
+                                    'score': credit_projection(credits, accepted, rubric, phase) if scored else None}
     return result

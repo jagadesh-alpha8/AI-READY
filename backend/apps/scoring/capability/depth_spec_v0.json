@@ -1,7 +1,7 @@
 {
- "version": "AIQIF-DEPTH-0",
+ "version": "AIQIF-DEPTH-0.1",
  "rubric_version": "AIQIF-CAP-0.3",
- "status": "draft-model-written",
+ "status": "draft-audited",
  "questions_per_condition": {
   "standard": 2,
   "moderate": 3,
@@ -11,6 +11,7 @@
   "AIQIF-C1.1": {
    "name": "Digital and AI Strategy Readiness",
    "openness": "moderate",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): perspective or strategic plan, IQAC minutes",
    "dimensions": [
     {
      "id": "authority",
@@ -25,7 +26,7 @@
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "investment",
@@ -140,7 +141,8 @@
   },
   "AIQIF-C1.2": {
    "name": "AI Governance & Accountability",
-   "openness": "standard",
+   "openness": "moderate",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): committee terms of reference and minutes, IQAC minutes",
    "dimensions": [
     {
      "id": "authority",
@@ -150,7 +152,7 @@
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "ai_specificity",
@@ -161,11 +163,6 @@
      "id": "continuity",
      "name": "Continuity",
      "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     },
     {
      "id": "action",
@@ -220,7 +217,7 @@
      ],
      "dimensions": [
       "ai_specificity",
-      "proof"
+      "authority"
      ]
     },
     "AIQIF-C1.2.A2": {
@@ -231,7 +228,7 @@
      ],
      "dimensions": [
       "action",
-      "proof"
+      "continuity"
      ]
     },
     "AIQIF-C1.2.O1": {
@@ -252,7 +249,7 @@
      ],
      "dimensions": [
       "action",
-      "proof"
+      "result"
      ]
     }
    }
@@ -260,6 +257,7 @@
   "AIQIF-C1.3": {
    "name": "AI Investment & Resource Planning",
    "openness": "moderate",
+   "where": "NAAC Criterion 4 (Infrastructure and Learning Resources); NAAC Criterion 6 (Governance, Leadership and Management): budget and finance committee records; ABET Criterion 8 (Institutional Support)",
    "dimensions": [
     {
      "id": "investment",
@@ -274,7 +272,7 @@
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "authority",
@@ -329,7 +327,8 @@
      ],
      "dimensions": [
       "coverage",
-      "investment"
+      "investment",
+      "continuity"
      ]
     },
     "AIQIF-C1.3.A1": {
@@ -378,6 +377,7 @@
   "AIQIF-C1.4": {
    "name": "AI Adoption, Change & Institutional Alignment",
    "openness": "open",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): e-governance and service records",
    "dimensions": [
     {
      "id": "usage",
@@ -387,7 +387,7 @@
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "scope",
@@ -397,7 +397,7 @@
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "continuity",
@@ -418,11 +418,6 @@
      "id": "action",
      "name": "Action taken",
      "ask": "What changed as a result, and was the change checked afterwards?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     }
    ],
    "levels": {
@@ -473,7 +468,7 @@
      ],
      "dimensions": [
       "action",
-      "proof"
+      "owner"
      ]
     },
     "AIQIF-C1.4.O1": {
@@ -501,6 +496,7 @@
   "AIQIF-C2.1": {
    "name": "Responsible AI Policy & Principles",
    "openness": "standard",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management); NAAC Criterion 7 (Institutional Values and Best Practices): policies and codes of conduct",
    "dimensions": [
     {
      "id": "authority",
@@ -523,14 +519,14 @@
      "ask": "When did it happen, and is it still in force or running?"
     },
     {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
-    },
-    {
      "id": "action",
      "name": "Action taken",
      "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "independence",
+     "name": "Independence",
+     "ask": "Who carried out the review or check, and were they separate from the people who delivered the work?"
     }
    ],
    "levels": {
@@ -548,8 +544,7 @@
      ],
      "dimensions": [
       "authority",
-      "ai_specificity",
-      "recency"
+      "ai_specificity"
      ]
     },
     "AIQIF-C2.1.F2": {
@@ -568,8 +563,8 @@
       "deployment checklist or onboarding form"
      ],
      "dimensions": [
-      "proof",
-      "scope"
+      "scope",
+      "recency"
      ]
     },
     "AIQIF-C2.1.A2": {
@@ -578,8 +573,8 @@
       "exception register or sampled-use review"
      ],
      "dimensions": [
-      "proof",
-      "action"
+      "action",
+      "recency"
      ]
     },
     "AIQIF-C2.1.O1": {
@@ -589,7 +584,7 @@
      ],
      "dimensions": [
       "action",
-      "proof"
+      "recency"
      ]
     },
     "AIQIF-C2.1.O2": {
@@ -599,7 +594,7 @@
      ],
      "dimensions": [
       "action",
-      "proof"
+      "independence"
      ]
     }
    }
@@ -607,11 +602,12 @@
   "AIQIF-C2.2": {
    "name": "AI Risk, Privacy & Security Governance",
    "openness": "standard",
+   "where": "NAAC Criterion 4 (Infrastructure and Learning Resources): IT and data protection policies; NAAC Criterion 6 (Governance, Leadership and Management)",
    "dimensions": [
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "scope",
@@ -627,11 +623,6 @@
      "id": "ai_specificity",
      "name": "AI specificity",
      "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     },
     {
      "id": "measurement",
@@ -669,7 +660,7 @@
      ],
      "dimensions": [
       "scope",
-      "proof"
+      "authority"
      ]
     },
     "AIQIF-C2.2.A1": {
@@ -688,8 +679,8 @@
       "risk decision record for a vendor or access change"
      ],
      "dimensions": [
-      "proof",
-      "action"
+      "action",
+      "owner"
      ]
     },
     "AIQIF-C2.2.O1": {
@@ -699,7 +690,7 @@
      ],
      "dimensions": [
       "measurement",
-      "proof"
+      "scope"
      ]
     },
     "AIQIF-C2.2.O2": {
@@ -709,7 +700,7 @@
      ],
      "dimensions": [
       "action",
-      "proof"
+      "measurement"
      ]
     }
    }
@@ -717,6 +708,7 @@
   "AIQIF-C2.3": {
    "name": "AI Model, Data & Lifecycle Governance",
    "openness": "moderate",
+   "where": "NAAC Criterion 4 (Infrastructure and Learning Resources): IT and software registers",
    "dimensions": [
     {
      "id": "scope",
@@ -726,17 +718,12 @@
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "ai_specificity",
      "name": "AI specificity",
      "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     },
     {
      "id": "measurement",
@@ -752,6 +739,11 @@
      "id": "provenance",
      "name": "Data provenance",
      "ask": "Where does the data behind the AI service come from, and is that recorded for each change?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
     }
    ],
    "levels": {
@@ -778,7 +770,8 @@
       "an institutional circular or office order"
      ],
      "dimensions": [
-      "owner"
+      "owner",
+      "scope"
      ]
     },
     "AIQIF-C2.3.A1": {
@@ -787,8 +780,8 @@
       "evaluation or test report for a release"
      ],
      "dimensions": [
-      "proof",
-      "measurement"
+      "measurement",
+      "ai_specificity"
      ]
     },
     "AIQIF-C2.3.A2": {
@@ -798,7 +791,7 @@
      ],
      "dimensions": [
       "provenance",
-      "proof"
+      "continuity"
      ]
     },
     "AIQIF-C2.3.O1": {
@@ -817,7 +810,8 @@
       "rollback or retirement record"
      ],
      "dimensions": [
-      "proof"
+      "action",
+      "measurement"
      ]
     }
    }
@@ -825,11 +819,12 @@
   "AIQIF-C2.4": {
    "name": "Human Oversight, Ethics & AI Assurance",
    "openness": "moderate",
+   "where": "NAAC Criterion 7 (Institutional Values and Best Practices); NAAC Criterion 2 (Teaching-Learning and Evaluation): grievance and appeal procedures",
    "dimensions": [
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "ai_specificity",
@@ -840,11 +835,6 @@
      "id": "scope",
      "name": "Scope",
      "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     },
     {
      "id": "independence",
@@ -860,6 +850,11 @@
      "id": "action",
      "name": "Action taken",
      "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "usage",
+     "name": "Usage",
+     "ask": "How often is it used, by how many people, over what period?"
     }
    ],
    "levels": {
@@ -885,7 +880,7 @@
      ],
      "dimensions": [
       "scope",
-      "proof"
+      "owner"
      ]
     },
     "AIQIF-C2.4.A1": {
@@ -895,7 +890,7 @@
       "committee record of a reviewed AI decision"
      ],
      "dimensions": [
-      "proof",
+      "usage",
       "scope"
      ]
     },
@@ -906,7 +901,7 @@
      ],
      "dimensions": [
       "measurement",
-      "proof"
+      "independence"
      ]
     },
     "AIQIF-C2.4.O1": {
@@ -934,21 +929,17 @@
   "AIQIF-C3.1": {
    "name": "AI Curriculum Integration & Programme Design",
    "openness": "standard",
+   "where": "NAAC Criterion 1 (Curricular Aspects): Board of Studies and Academic Council minutes; ABET Criterion 5 (Curriculum)",
    "dimensions": [
-    {
-     "id": "authority",
-     "name": "Formal standing",
-     "ask": "Which body approved or adopted it, and when?"
-    },
     {
      "id": "content",
      "name": "Content depth",
-     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and at what depth?"
     },
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "intensity",
@@ -979,7 +970,6 @@
       "Board of Studies minutes"
      ],
      "dimensions": [
-      "authority",
       "content",
       "credits"
      ]
@@ -990,7 +980,8 @@
       "course outcomes (COs) in the syllabus"
      ],
      "dimensions": [
-      "content"
+      "content",
+      "intensity"
      ]
     },
     "AIQIF-C3.1.A1": {
@@ -1001,8 +992,7 @@
      ],
      "dimensions": [
       "coverage",
-      "intensity",
-      "recency"
+      "intensity"
      ]
     },
     "AIQIF-C3.1.A2": {
@@ -1040,11 +1030,12 @@
   "AIQIF-C3.2": {
    "name": "AI Literacy Across Disciplines",
    "openness": "moderate",
+   "where": "NAAC Criterion 1 (Curricular Aspects): value-added and open elective courses",
    "dimensions": [
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "scope",
@@ -1059,7 +1050,7 @@
     {
      "id": "content",
      "name": "Content depth",
-     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and at what depth?"
     },
     {
      "id": "continuity",
@@ -1150,6 +1141,7 @@
   "AIQIF-C3.3": {
    "name": "AI-Enabled Pedagogy & Assessment",
    "openness": "open",
+   "where": "NAAC Criterion 2 (Teaching-Learning and Evaluation): ICT-enabled teaching; ABET Criterion 3 (Student Outcomes)",
    "dimensions": [
     {
      "id": "scope",
@@ -1169,7 +1161,7 @@
     {
      "id": "content",
      "name": "Content depth",
-     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and at what depth?"
     },
     {
      "id": "measurement",
@@ -1214,7 +1206,8 @@
       "assignment brief or course policy on AI use"
      ],
      "dimensions": [
-      "guidance"
+      "guidance",
+      "scope"
      ]
     },
     "AIQIF-C3.3.A1": {
@@ -1264,26 +1257,22 @@
   "AIQIF-C3.4": {
    "name": "Experiential, Project & Applied AI Learning",
    "openness": "moderate",
+   "where": "NAAC Criterion 1 (Curricular Aspects): projects, field work and internships; NAAC Criterion 2 (Teaching-Learning and Evaluation); ABET Criterion 5 (Curriculum)",
    "dimensions": [
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "content",
      "name": "Content depth",
-     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and at what depth?"
     },
     {
      "id": "continuity",
      "name": "Continuity",
      "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     },
     {
      "id": "external",
@@ -1324,7 +1313,8 @@
       "mentor allocation list"
      ],
      "dimensions": [
-      "mentoring"
+      "mentoring",
+      "coverage"
      ]
     },
     "AIQIF-C3.4.A1": {
@@ -1334,7 +1324,6 @@
      ],
      "dimensions": [
       "coverage",
-      "proof",
       "content"
      ]
     },
@@ -1345,7 +1334,7 @@
      ],
      "dimensions": [
       "individual",
-      "proof"
+      "external"
      ]
     },
     "AIQIF-C3.4.O1": {
@@ -1374,11 +1363,12 @@
   "AIQIF-C4.1": {
    "name": "Faculty AI Literacy & Awareness",
    "openness": "open",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): faculty development and training programmes; NAAC Criterion 2 (Teaching-Learning and Evaluation); ABET Criterion 6 (Faculty)",
    "dimensions": [
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "intensity",
@@ -1393,7 +1383,7 @@
     {
      "id": "content",
      "name": "Content depth",
-     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and at what depth?"
     },
     {
      "id": "recency",
@@ -1409,11 +1399,6 @@
      "id": "investment",
      "name": "Investment",
      "ask": "What was spent or allocated: money, staff time, equipment?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     },
     {
      "id": "assessed",
@@ -1437,7 +1422,8 @@
      "dimensions": [
       "content",
       "provider",
-      "intensity"
+      "intensity",
+      "investment"
      ]
     },
     "AIQIF-C4.1.F2": {
@@ -1449,7 +1435,6 @@
      "dimensions": [
       "coverage",
       "intensity",
-      "proof",
       "recency"
      ]
     },
@@ -1501,11 +1486,12 @@
   "AIQIF-C4.2": {
    "name": "Role-Based Faculty AI Capability",
    "openness": "open",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): faculty development and training programmes; ABET Criterion 6 (Faculty)",
    "dimensions": [
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "intensity",
@@ -1520,12 +1506,7 @@
     {
      "id": "content",
      "name": "Content depth",
-     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and at what depth?"
     },
     {
      "id": "continuity",
@@ -1556,7 +1537,8 @@
      ],
      "dimensions": [
       "role_fit",
-      "content"
+      "content",
+      "provider"
      ]
     },
     "AIQIF-C4.2.F2": {
@@ -1576,7 +1558,7 @@
      ],
      "dimensions": [
       "coverage",
-      "proof"
+      "content"
      ]
     },
     "AIQIF-C4.2.A2": {
@@ -1614,6 +1596,7 @@
   "AIQIF-C4.3": {
    "name": "AI-Enabled Teaching, Research & Academic Practice",
    "openness": "open",
+   "where": "NAAC Criterion 2 (Teaching-Learning and Evaluation); NAAC Criterion 3 (Research, Innovations and Extension); ABET Criterion 6 (Faculty)",
    "dimensions": [
     {
      "id": "usage",
@@ -1623,17 +1606,12 @@
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "continuity",
      "name": "Continuity",
      "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     },
     {
      "id": "measurement",
@@ -1669,7 +1647,7 @@
      ],
      "dimensions": [
       "usage",
-      "proof"
+      "coverage"
      ]
     },
     "AIQIF-C4.3.F2": {
@@ -1678,7 +1656,8 @@
       "guideline defining review of AI-supported work"
      ],
      "dimensions": [
-      "review_step"
+      "review_step",
+      "coverage"
      ]
     },
     "AIQIF-C4.3.A1": {
@@ -1699,7 +1678,7 @@
      ],
      "dimensions": [
       "review_step",
-      "proof"
+      "measurement"
      ]
     },
     "AIQIF-C4.3.O1": {
@@ -1727,11 +1706,12 @@
   "AIQIF-C4.4": {
    "name": "Staff AI Capability, FDP & Change Enablement",
    "openness": "open",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): training for non-teaching staff",
    "dimensions": [
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "intensity",
@@ -1746,12 +1726,7 @@
     {
      "id": "content",
      "name": "Content depth",
-     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and at what depth?"
     },
     {
      "id": "measurement",
@@ -1767,6 +1742,11 @@
      "id": "role_fit",
      "name": "Role fit",
      "ask": "Which non-teaching role is it for (office, library, accounts, IT), and which task does it improve?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
     }
    ],
    "levels": {
@@ -1784,7 +1764,8 @@
      "dimensions": [
       "role_fit",
       "content",
-      "intensity"
+      "intensity",
+      "provider"
      ]
     },
     "AIQIF-C4.4.F2": {
@@ -1793,7 +1774,8 @@
       "help desk or mentor contact for staff"
      ],
      "dimensions": [
-      "coverage"
+      "coverage",
+      "role_fit"
      ]
     },
     "AIQIF-C4.4.A1": {
@@ -1803,7 +1785,7 @@
      ],
      "dimensions": [
       "coverage",
-      "proof"
+      "measurement"
      ]
     },
     "AIQIF-C4.4.A2": {
@@ -1812,8 +1794,8 @@
       "error log and resulting support action"
      ],
      "dimensions": [
-      "proof",
-      "role_fit"
+      "role_fit",
+      "action"
      ]
     },
     "AIQIF-C4.4.O1": {
@@ -1832,7 +1814,8 @@
       "follow-up evaluation after a training change"
      ],
      "dimensions": [
-      "result"
+      "result",
+      "measurement"
      ]
     }
    }
@@ -1840,11 +1823,12 @@
   "AIQIF-C5.1": {
    "name": "Student AI Literacy Provision and Attainment",
    "openness": "moderate",
+   "where": "NAAC Criterion 1 (Curricular Aspects): value-added courses; NAAC Criterion 5 (Student Support and Progression)",
    "dimensions": [
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "scope",
@@ -1859,7 +1843,7 @@
     {
      "id": "content",
      "name": "Content depth",
-     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and at what depth?"
     },
     {
      "id": "continuity",
@@ -1899,7 +1883,8 @@
       "learning objectives in the course description"
      ],
      "dimensions": [
-      "content"
+      "content",
+      "intensity"
      ]
     },
     "AIQIF-C5.1.A1": {
@@ -1919,7 +1904,8 @@
       "remedial or outreach action after low participation"
      ],
      "dimensions": [
-      "coverage"
+      "coverage",
+      "scope"
      ]
     },
     "AIQIF-C5.1.O1": {
@@ -1938,7 +1924,8 @@
       "follow-up results after a change"
      ],
      "dimensions": [
-      "result"
+      "result",
+      "measurement"
      ]
     }
    }
@@ -1946,16 +1933,17 @@
   "AIQIF-C5.2": {
    "name": "Advanced & Role-Specific AI Skills",
    "openness": "moderate",
+   "where": "NAAC Criterion 1 (Curricular Aspects): programmes, minors and electives; ABET Criterion 5 (Curriculum)",
    "dimensions": [
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "content",
      "name": "Content depth",
-     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and at what depth?"
     },
     {
      "id": "intensity",
@@ -2006,7 +1994,8 @@
       "practical or lab component in the scheme"
      ],
      "dimensions": [
-      "practical"
+      "practical",
+      "intensity"
      ]
     },
     "AIQIF-C5.2.A1": {
@@ -2026,7 +2015,8 @@
       "industry advisory board minutes"
      ],
      "dimensions": [
-      "external"
+      "external",
+      "content"
      ]
     },
     "AIQIF-C5.2.O1": {
@@ -2045,7 +2035,8 @@
       "later task evaluation after a revision"
      ],
      "dimensions": [
-      "result"
+      "result",
+      "practical"
      ]
     }
    }
@@ -2053,21 +2044,17 @@
   "AIQIF-C5.3": {
    "name": "Student AI Projects, Portfolio & Practice",
    "openness": "moderate",
+   "where": "NAAC Criterion 1 (Curricular Aspects): student projects; NAAC Criterion 3 (Research, Innovations and Extension)",
    "dimensions": [
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "content",
      "name": "Content depth",
-     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and how much of it is about AI specifically?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+     "ask": "What did it actually cover? Is there a syllabus, agenda or specification, and at what depth?"
     },
     {
      "id": "external",
@@ -2083,6 +2070,11 @@
      "id": "individual",
      "name": "Individual contribution",
      "ask": "How is each student's own contribution identified and checked?"
+    },
+    {
+     "id": "result",
+     "name": "Result",
+     "ask": "What was the measured result, and how does it compare with the target or baseline?"
     }
    ],
    "levels": {
@@ -2107,7 +2099,8 @@
       "evaluation rubric with an individual contribution criterion"
      ],
      "dimensions": [
-      "individual"
+      "individual",
+      "content"
      ]
     },
     "AIQIF-C5.3.A1": {
@@ -2117,7 +2110,7 @@
      ],
      "dimensions": [
       "individual",
-      "proof"
+      "coverage"
      ]
     },
     "AIQIF-C5.3.A2": {
@@ -2127,7 +2120,7 @@
      ],
      "dimensions": [
       "individual",
-      "proof"
+      "external"
      ]
     },
     "AIQIF-C5.3.O1": {
@@ -2146,7 +2139,8 @@
       "later evaluation after a change"
      ],
      "dimensions": [
-      "continuity"
+      "continuity",
+      "result"
      ]
     }
    }
@@ -2154,21 +2148,17 @@
   "AIQIF-C5.4": {
    "name": "AI Employability, Internships & Career Outcomes",
    "openness": "moderate",
+   "where": "NAAC Criterion 5 (Student Support and Progression): placement and progression records",
    "dimensions": [
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "ai_specificity",
      "name": "AI specificity",
      "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     },
     {
      "id": "external",
@@ -2186,9 +2176,9 @@
      "ask": "What was the measured result, and how does it compare with the target or baseline?"
     },
     {
-     "id": "denominator",
-     "name": "Denominator",
-     "ask": "Out of how many eligible students, and how was the cohort counted?"
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
     }
    ],
    "levels": {
@@ -2203,7 +2193,8 @@
       "internship or placement notice for an AI role"
      ],
      "dimensions": [
-      "ai_specificity"
+      "ai_specificity",
+      "external"
      ]
     },
     "AIQIF-C5.4.F2": {
@@ -2212,7 +2203,8 @@
       "eligibility criteria in the notice or policy"
      ],
      "dimensions": [
-      "coverage"
+      "coverage",
+      "scope"
      ]
     },
     "AIQIF-C5.4.A1": {
@@ -2222,7 +2214,6 @@
       "placement records"
      ],
      "dimensions": [
-      "proof",
       "ai_specificity",
       "external"
      ]
@@ -2234,7 +2225,8 @@
       "placement statistics with totals"
      ],
      "dimensions": [
-      "denominator"
+      "coverage",
+      "measurement"
      ]
     },
     "AIQIF-C5.4.O1": {
@@ -2245,7 +2237,7 @@
      "dimensions": [
       "measurement",
       "result",
-      "denominator"
+      "coverage"
      ]
     },
     "AIQIF-C5.4.O2": {
@@ -2254,7 +2246,8 @@
       "later review after a pathway change"
      ],
      "dimensions": [
-      "result"
+      "result",
+      "measurement"
      ]
     }
    }
@@ -2262,11 +2255,12 @@
   "AIQIF-C6.1": {
    "name": "Computing Provision and AI Workload Suitability",
    "openness": "standard",
+   "where": "NAAC Criterion 4 (Infrastructure and Learning Resources): IT infrastructure; ABET Criterion 7 (Facilities)",
    "dimensions": [
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "usage",
@@ -2284,14 +2278,14 @@
      "ask": "What was measured, how, and against what target or baseline?"
     },
     {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
-    },
-    {
      "id": "specification",
      "name": "Specification",
      "ask": "What hardware or cloud capacity is provided (GPUs, memory, cloud credits), and which AI workload does it support?"
+    },
+    {
+     "id": "action",
+     "name": "Action taken",
+     "ask": "What changed as a result, and was the change checked afterwards?"
     }
    ],
    "levels": {
@@ -2339,7 +2333,8 @@
       "upgrade after a reported shortfall"
      ],
      "dimensions": [
-      "proof"
+      "action",
+      "specification"
      ]
     },
     "AIQIF-C6.1.O1": {
@@ -2348,7 +2343,8 @@
       "service performance review"
      ],
      "dimensions": [
-      "measurement"
+      "measurement",
+      "usage"
      ]
     },
     "AIQIF-C6.1.O2": {
@@ -2357,8 +2353,8 @@
       "continuity or recovery exercise record"
      ],
      "dimensions": [
-      "proof",
-      "measurement"
+      "measurement",
+      "action"
      ]
     }
    }
@@ -2366,6 +2362,7 @@
   "AIQIF-C6.2": {
    "name": "Institutional Data Readiness",
    "openness": "moderate",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): e-governance; NAAC Criterion 4 (Infrastructure and Learning Resources)",
    "dimensions": [
     {
      "id": "scope",
@@ -2375,12 +2372,7 @@
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "measurement",
@@ -2416,7 +2408,8 @@
       "ERP module list"
      ],
      "dimensions": [
-      "scope"
+      "scope",
+      "ai_specificity"
      ]
     },
     "AIQIF-C6.2.F2": {
@@ -2426,7 +2419,8 @@
       "an institutional circular or office order"
      ],
      "dimensions": [
-      "owner"
+      "owner",
+      "scope"
      ]
     },
     "AIQIF-C6.2.A1": {
@@ -2436,7 +2430,7 @@
      ],
      "dimensions": [
       "ai_specificity",
-      "proof"
+      "measurement"
      ]
     },
     "AIQIF-C6.2.A2": {
@@ -2445,8 +2439,8 @@
       "issue log with dispositions"
      ],
      "dimensions": [
-      "proof",
-      "action"
+      "action",
+      "owner"
      ]
     },
     "AIQIF-C6.2.O1": {
@@ -2474,11 +2468,12 @@
   "AIQIF-C6.3": {
    "name": "AI Cybersecurity & Resilience",
    "openness": "standard",
+   "where": "NAAC Criterion 4 (Infrastructure and Learning Resources): IT policy and security",
    "dimensions": [
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "scope",
@@ -2489,11 +2484,6 @@
      "id": "ai_specificity",
      "name": "AI specificity",
      "ask": "Which part of it involves artificial intelligence or machine learning specifically, as opposed to general digital or IT work?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     },
     {
      "id": "measurement",
@@ -2524,7 +2514,8 @@
       "an institutional circular or office order"
      ],
      "dimensions": [
-      "owner"
+      "owner",
+      "scope"
      ]
     },
     "AIQIF-C6.3.F2": {
@@ -2533,7 +2524,8 @@
       "backup and recovery SOP"
      ],
      "dimensions": [
-      "scope"
+      "scope",
+      "measurement"
      ]
     },
     "AIQIF-C6.3.A1": {
@@ -2552,8 +2544,8 @@
       "incident report or drill record"
      ],
      "dimensions": [
-      "proof",
-      "action"
+      "action",
+      "measurement"
      ]
     },
     "AIQIF-C6.3.O1": {
@@ -2562,7 +2554,8 @@
       "security review against a criterion"
      ],
      "dimensions": [
-      "measurement"
+      "measurement",
+      "independence"
      ]
     },
     "AIQIF-C6.3.O2": {
@@ -2572,7 +2565,7 @@
      ],
      "dimensions": [
       "action",
-      "proof"
+      "measurement"
      ]
     }
    }
@@ -2580,11 +2573,12 @@
   "AIQIF-C6.4": {
    "name": "AI Labs, Digital Learning Environment & Accessibility",
    "openness": "standard",
+   "where": "NAAC Criterion 4 (Infrastructure and Learning Resources): laboratories and ICT facilities; ABET Criterion 7 (Facilities)",
    "dimensions": [
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "usage",
@@ -2624,7 +2618,8 @@
       "lab description with the AI activity it supports"
      ],
      "dimensions": [
-      "scope"
+      "scope",
+      "coverage"
      ]
     },
     "AIQIF-C6.4.F2": {
@@ -2633,7 +2628,8 @@
       "lab timetable or access policy"
      ],
      "dimensions": [
-      "access"
+      "access",
+      "coverage"
      ]
     },
     "AIQIF-C6.4.A1": {
@@ -2652,7 +2648,8 @@
       "response to an accessibility or capacity complaint"
      ],
      "dimensions": [
-      "action"
+      "action",
+      "access"
      ]
     },
     "AIQIF-C6.4.O1": {
@@ -2671,7 +2668,8 @@
       "follow-up after an improvement"
      ],
      "dimensions": [
-      "action"
+      "action",
+      "measurement"
      ]
     }
    }
@@ -2679,11 +2677,12 @@
   "AIQIF-C7.1": {
    "name": "AI Research Capability & Agenda",
    "openness": "moderate",
+   "where": "NAAC Criterion 3 (Research, Innovations and Extension): research projects, publications and patents",
    "dimensions": [
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "investment",
@@ -2739,7 +2738,8 @@
       "project with principal investigator named"
      ],
      "dimensions": [
-      "owner"
+      "owner",
+      "investment"
      ]
     },
     "AIQIF-C7.1.A1": {
@@ -2760,7 +2760,8 @@
       "research committee minutes"
      ],
      "dimensions": [
-      "continuity"
+      "continuity",
+      "result"
      ]
     },
     "AIQIF-C7.1.O1": {
@@ -2779,7 +2780,8 @@
       "review after a change in agenda or resources"
      ],
      "dimensions": [
-      "result"
+      "result",
+      "continuity"
      ]
     }
    }
@@ -2787,11 +2789,12 @@
   "AIQIF-C7.2": {
    "name": "AI Innovation and Mentoring Support",
    "openness": "open",
+   "where": "NAAC Criterion 3 (Research, Innovations and Extension): innovation ecosystem and incubation",
    "dimensions": [
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "investment",
@@ -2806,7 +2809,7 @@
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "continuity",
@@ -2852,7 +2855,8 @@
       "service or mentoring offer notice"
      ],
      "dimensions": [
-      "coverage"
+      "coverage",
+      "usage"
      ]
     },
     "AIQIF-C7.2.A1": {
@@ -2871,7 +2875,8 @@
       "service review minutes"
      ],
      "dimensions": [
-      "action"
+      "action",
+      "continuity"
      ]
     },
     "AIQIF-C7.2.O1": {
@@ -2899,6 +2904,7 @@
   "AIQIF-C7.3": {
    "name": "AI Funding, IP & Entrepreneurship",
    "openness": "moderate",
+   "where": "NAAC Criterion 3 (Research, Innovations and Extension): research funding, IPR and start-ups",
    "dimensions": [
     {
      "id": "investment",
@@ -2908,12 +2914,7 @@
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "external",
@@ -2929,6 +2930,11 @@
      "id": "stage",
      "name": "Stage reached",
      "ask": "How far has the project progressed: filed, granted, funded, incorporated, revenue?"
+    },
+    {
+     "id": "continuity",
+     "name": "Continuity",
+     "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
     }
    ],
    "levels": {
@@ -2944,7 +2950,8 @@
       "incubation centre description"
      ],
      "dimensions": [
-      "investment"
+      "investment",
+      "coverage"
      ]
     },
     "AIQIF-C7.3.F2": {
@@ -2953,7 +2960,8 @@
       "application form or contact notice"
      ],
      "dimensions": [
-      "coverage"
+      "coverage",
+      "continuity"
      ]
     },
     "AIQIF-C7.3.A1": {
@@ -2964,8 +2972,8 @@
       "incubation agreement"
      ],
      "dimensions": [
-      "proof",
-      "stage"
+      "stage",
+      "external"
      ]
     },
     "AIQIF-C7.3.A2": {
@@ -2974,7 +2982,8 @@
       "funding committee minutes"
      ],
      "dimensions": [
-      "investment"
+      "investment",
+      "stage"
      ]
     },
     "AIQIF-C7.3.O1": {
@@ -2994,7 +3003,8 @@
       "follow-up after a support change"
      ],
      "dimensions": [
-      "result"
+      "result",
+      "stage"
      ]
     }
    }
@@ -3002,6 +3012,7 @@
   "AIQIF-C7.4": {
    "name": "AI Collaboration, Knowledge Transfer & Societal Impact",
    "openness": "open",
+   "where": "NAAC Criterion 3 (Research, Innovations and Extension): collaborations, MoUs and extension",
    "dimensions": [
     {
      "id": "ai_specificity",
@@ -3011,12 +3022,7 @@
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "external",
@@ -3051,7 +3057,8 @@
       "MoU with an AI work plan"
      ],
      "dimensions": [
-      "ai_specificity"
+      "ai_specificity",
+      "owner"
      ]
     },
     "AIQIF-C7.4.F2": {
@@ -3060,7 +3067,8 @@
       "work plan with partner responsibilities"
      ],
      "dimensions": [
-      "owner"
+      "owner",
+      "continuity"
      ]
     },
     "AIQIF-C7.4.A1": {
@@ -3070,7 +3078,7 @@
      ],
      "dimensions": [
       "beyond_mou",
-      "proof"
+      "external"
      ]
     },
     "AIQIF-C7.4.A2": {
@@ -3079,7 +3087,8 @@
       "partner or beneficiary feedback"
      ],
      "dimensions": [
-      "external"
+      "external",
+      "result"
      ]
     },
     "AIQIF-C7.4.O1": {
@@ -3098,7 +3107,8 @@
       "follow-up after a collaboration change"
      ],
      "dimensions": [
-      "continuity"
+      "continuity",
+      "result"
      ]
     }
    }
@@ -3106,11 +3116,12 @@
   "AIQIF-C8.1": {
    "name": "Digital Services and AI-Enabled Operations",
    "openness": "open",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): e-governance",
    "dimensions": [
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "ai_specificity",
@@ -3161,7 +3172,8 @@
       "ERP or portal module description"
      ],
      "dimensions": [
-      "scope"
+      "scope",
+      "ai_specificity"
      ]
     },
     "AIQIF-C8.1.F2": {
@@ -3170,7 +3182,8 @@
       "service owner named in an order or SOP"
      ],
      "dimensions": [
-      "owner"
+      "owner",
+      "scope"
      ]
     },
     "AIQIF-C8.1.A1": {
@@ -3219,6 +3232,7 @@
   "AIQIF-C8.2": {
    "name": "Industry Integration & AI Partnerships",
    "openness": "moderate",
+   "where": "NAAC Criterion 3 (Research, Innovations and Extension): industry collaborations and MoUs",
    "dimensions": [
     {
      "id": "ai_specificity",
@@ -3228,12 +3242,7 @@
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "external",
@@ -3268,7 +3277,8 @@
       "industry MoU with an AI activity"
      ],
      "dimensions": [
-      "ai_specificity"
+      "ai_specificity",
+      "contribution"
      ]
     },
     "AIQIF-C8.2.F2": {
@@ -3277,7 +3287,8 @@
       "work plan stating the partner contribution"
      ],
      "dimensions": [
-      "contribution"
+      "contribution",
+      "coverage"
      ]
     },
     "AIQIF-C8.2.A1": {
@@ -3286,7 +3297,6 @@
       "delivery record: training held, projects run, interns hosted"
      ],
      "dimensions": [
-      "proof",
       "coverage",
       "contribution"
      ]
@@ -3307,7 +3317,8 @@
       "partnership outcome review"
      ],
      "dimensions": [
-      "result"
+      "result",
+      "external"
      ]
     },
     "AIQIF-C8.2.O2": {
@@ -3316,7 +3327,8 @@
       "follow-up after a jointly agreed change"
      ],
      "dimensions": [
-      "continuity"
+      "continuity",
+      "result"
      ]
     }
    }
@@ -3324,6 +3336,7 @@
   "AIQIF-C8.3": {
    "name": "AI Entrepreneurship, Placement & Workforce Outcomes",
    "openness": "moderate",
+   "where": "NAAC Criterion 5 (Student Support and Progression): placements; NAAC Criterion 3 (Research, Innovations and Extension): start-ups",
    "dimensions": [
     {
      "id": "ai_specificity",
@@ -3333,12 +3346,7 @@
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "measurement",
@@ -3351,9 +3359,14 @@
      "ask": "What was the measured result, and how does it compare with the target or baseline?"
     },
     {
-     "id": "denominator",
-     "name": "Denominator",
-     "ask": "Out of how many pathway participants, and how was the group counted?"
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
+    },
+    {
+     "id": "external",
+     "name": "External validation",
+     "ask": "Has anyone outside the institution (an accreditor, partner, funder, journal or client) reviewed or validated it?"
     }
    ],
    "levels": {
@@ -3368,7 +3381,8 @@
       "pathway or programme description"
      ],
      "dimensions": [
-      "ai_specificity"
+      "ai_specificity",
+      "coverage"
      ]
     },
     "AIQIF-C8.3.F2": {
@@ -3377,7 +3391,8 @@
       "referral or application route"
      ],
      "dimensions": [
-      "coverage"
+      "coverage",
+      "scope"
      ]
     },
     "AIQIF-C8.3.A1": {
@@ -3386,8 +3401,8 @@
       "verified placement or venture records"
      ],
      "dimensions": [
-      "proof",
-      "ai_specificity"
+      "ai_specificity",
+      "external"
      ]
     },
     "AIQIF-C8.3.A2": {
@@ -3396,7 +3411,7 @@
       "review of participation versus results"
      ],
      "dimensions": [
-      "denominator",
+      "coverage",
       "measurement"
      ]
     },
@@ -3407,7 +3422,7 @@
      ],
      "dimensions": [
       "result",
-      "denominator"
+      "coverage"
      ]
     },
     "AIQIF-C8.3.O2": {
@@ -3416,7 +3431,8 @@
       "follow-up after a portfolio change"
      ],
      "dimensions": [
-      "result"
+      "result",
+      "measurement"
      ]
     }
    }
@@ -3424,6 +3440,7 @@
   "AIQIF-C8.4": {
    "name": "Measured AI Business/Educational Outcomes",
    "openness": "open",
+   "where": "NAAC Criterion 7 (Institutional Values and Best Practices): best practices; NAAC Criterion 2 (Teaching-Learning and Evaluation): student performance and learning outcomes; ABET Criterion 4 (Continuous Improvement)",
    "dimensions": [
     {
      "id": "ai_specificity",
@@ -3458,7 +3475,7 @@
     {
      "id": "limits",
      "name": "Limitations",
-     "ask": "What else could explain the result, and what harms were checked?"
+     "ask": "What else could explain the result, and which review or report examined that and any harms?"
     }
    ],
    "levels": {
@@ -3473,7 +3490,8 @@
       "intervention plan stating the intended outcome"
      ],
      "dimensions": [
-      "ai_specificity"
+      "ai_specificity",
+      "baseline"
      ]
     },
     "AIQIF-C8.4.F2": {
@@ -3531,21 +3549,17 @@
   "AIQIF-C9.1": {
    "name": "Institutional Measurement and Readiness Review",
    "openness": "moderate",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): IQAC and AQAR; ABET Criterion 4 (Continuous Improvement)",
    "dimensions": [
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "continuity",
      "name": "Continuity",
      "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     },
     {
      "id": "measurement",
@@ -3560,7 +3574,17 @@
     {
      "id": "reproducible",
      "name": "Reproducibility",
-     "ask": "Could someone else recompute the review's figures from the records it cites?"
+     "ask": "Which records do the review's figures come from, and are those records listed or attached?"
+    },
+    {
+     "id": "authority",
+     "name": "Formal standing",
+     "ask": "Which body approved or adopted it, and when?"
+    },
+    {
+     "id": "method_change",
+     "name": "Method changes",
+     "ask": "Which changes were made to the review method, when and why, and are results before and after the change kept apart?"
     }
    ],
    "levels": {
@@ -3576,7 +3600,8 @@
       "AQAR or NAAC self-study report narrative"
      ],
      "dimensions": [
-      "measurement"
+      "measurement",
+      "owner"
      ]
     },
     "AIQIF-C9.1.F2": {
@@ -3585,7 +3610,8 @@
       "IQAC composition or order assigning the review"
      ],
      "dimensions": [
-      "owner"
+      "owner",
+      "authority"
      ]
     },
     "AIQIF-C9.1.A1": {
@@ -3604,7 +3630,8 @@
       "change log for the review method"
      ],
      "dimensions": [
-      "proof"
+      "method_change",
+      "continuity"
      ]
     },
     "AIQIF-C9.1.O1": {
@@ -3613,7 +3640,8 @@
       "review stating improvement priorities from results"
      ],
      "dimensions": [
-      "action"
+      "action",
+      "measurement"
      ]
     },
     "AIQIF-C9.1.O2": {
@@ -3631,16 +3659,12 @@
   "AIQIF-C9.2": {
    "name": "Evidence, Traceability & Auditability",
    "openness": "standard",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): IQAC documentation",
    "dimensions": [
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "independence",
@@ -3655,7 +3679,17 @@
     {
      "id": "traceable",
      "name": "Traceability",
-     "ask": "Can a sampled finding be followed to its requirement and the exact source passage?"
+     "ask": "Is there an index linking each finding to the requirement it supports and the exact source record?"
+    },
+    {
+     "id": "authority",
+     "name": "Formal standing",
+     "ask": "Which body approved or adopted it, and when?"
+    },
+    {
+     "id": "versions",
+     "name": "Earlier versions",
+     "ask": "Are earlier versions kept, with the date of and reason for each correction or reassessment?"
     }
    ],
    "levels": {
@@ -3670,7 +3704,8 @@
       "evidence index or document register"
      ],
      "dimensions": [
-      "traceable"
+      "traceable",
+      "owner"
      ]
     },
     "AIQIF-C9.2.F2": {
@@ -3679,7 +3714,8 @@
       "custodian named in an order or SOP"
      ],
      "dimensions": [
-      "owner"
+      "owner",
+      "authority"
      ]
     },
     "AIQIF-C9.2.A1": {
@@ -3688,7 +3724,8 @@
       "sampled trace from finding to source"
      ],
      "dimensions": [
-      "traceable"
+      "traceable",
+      "independence"
      ]
     },
     "AIQIF-C9.2.A2": {
@@ -3697,7 +3734,8 @@
       "correction log keeping prior versions"
      ],
      "dimensions": [
-      "proof"
+      "versions",
+      "continuity"
      ]
     },
     "AIQIF-C9.2.O1": {
@@ -3706,7 +3744,8 @@
       "traceability audit"
      ],
      "dimensions": [
-      "independence"
+      "independence",
+      "traceable"
      ]
     },
     "AIQIF-C9.2.O2": {
@@ -3715,7 +3754,8 @@
       "follow-up after a process improvement"
      ],
      "dimensions": [
-      "continuity"
+      "continuity",
+      "independence"
      ]
     }
    }
@@ -3723,21 +3763,17 @@
   "AIQIF-C9.3": {
    "name": "Benchmark Evolution & AI Readiness Drift",
    "openness": "moderate",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): IQAC",
    "dimensions": [
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "continuity",
      "name": "Continuity",
      "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
     },
     {
      "id": "measurement",
@@ -3748,6 +3784,16 @@
      "id": "action",
      "name": "Action taken",
      "ask": "What changed as a result, and was the change checked afterwards?"
+    },
+    {
+     "id": "recency",
+     "name": "Recency",
+     "ask": "When did it happen, and is it still in force or running?"
+    },
+    {
+     "id": "versions",
+     "name": "Earlier versions",
+     "ask": "Are earlier versions kept, with the date of and reason for each correction or reassessment?"
     }
    ],
    "levels": {
@@ -3763,7 +3809,8 @@
       "IQAC agenda item on regulatory updates"
      ],
      "dimensions": [
-      "owner"
+      "owner",
+      "continuity"
      ]
     },
     "AIQIF-C9.3.F2": {
@@ -3772,7 +3819,8 @@
       "review schedule"
      ],
      "dimensions": [
-      "continuity"
+      "continuity",
+      "recency"
      ]
     },
     "AIQIF-C9.3.A1": {
@@ -3781,7 +3829,8 @@
       "change review naming an affected requirement"
      ],
      "dimensions": [
-      "proof"
+      "recency",
+      "action"
      ]
     },
     "AIQIF-C9.3.A2": {
@@ -3790,7 +3839,8 @@
       "versioned reassessment record"
      ],
      "dimensions": [
-      "proof"
+      "versions",
+      "continuity"
      ]
     },
     "AIQIF-C9.3.O1": {
@@ -3799,7 +3849,8 @@
       "timeliness review"
      ],
      "dimensions": [
-      "measurement"
+      "measurement",
+      "recency"
      ]
     },
     "AIQIF-C9.3.O2": {
@@ -3808,7 +3859,8 @@
       "follow-up after a process revision"
      ],
      "dimensions": [
-      "action"
+      "action",
+      "measurement"
      ]
     }
    }
@@ -3816,21 +3868,17 @@
   "AIQIF-C9.4": {
    "name": "Outcome Learning, UAT & Continuous Improvement",
    "openness": "moderate",
+   "where": "NAAC Criterion 6 (Governance, Leadership and Management): IQAC; NAAC Criterion 1 (Curricular Aspects): feedback system; ABET Criterion 4 (Continuous Improvement)",
    "dimensions": [
     {
      "id": "owner",
      "name": "Ownership",
-     "ask": "Who is responsible, by name or role, and do they have the authority and time to act?"
+     "ask": "Who is responsible, by name or role, and which order, circular or minutes assigns that responsibility?"
     },
     {
      "id": "coverage",
      "name": "Coverage",
-     "ask": "How many people in the relevant group took part or are covered, out of how many in total?"
-    },
-    {
-     "id": "proof",
-     "name": "Proof",
-     "ask": "What records show it happened: certificates, attendance, minutes, logs, signed reports?"
+     "ask": "How many people in the relevant group took part or are covered, out of how many in total, and how was that group counted?"
     },
     {
      "id": "measurement",
@@ -3851,6 +3899,11 @@
      "id": "continuity",
      "name": "Continuity",
      "ask": "Is this a one-off or does it recur? How many cycles or years has it run?"
+    },
+    {
+     "id": "scope",
+     "name": "Scope",
+     "ask": "Which departments, programmes or functions does it cover, out of the institution's total?"
     }
    ],
    "levels": {
@@ -3865,7 +3918,8 @@
       "feedback survey or user acceptance procedure"
      ],
      "dimensions": [
-      "coverage"
+      "coverage",
+      "scope"
      ]
     },
     "AIQIF-C9.4.F2": {
@@ -3874,7 +3928,8 @@
       "action register with owners"
      ],
      "dimensions": [
-      "owner"
+      "owner",
+      "action"
      ]
     },
     "AIQIF-C9.4.A1": {
@@ -3893,7 +3948,8 @@
       "corrective action closure record"
      ],
      "dimensions": [
-      "proof"
+      "action",
+      "owner"
      ]
     },
     "AIQIF-C9.4.O1": {
@@ -3902,7 +3958,8 @@
       "review of a feedback-driven change"
      ],
      "dimensions": [
-      "result"
+      "result",
+      "measurement"
      ]
     },
     "AIQIF-C9.4.O2": {
