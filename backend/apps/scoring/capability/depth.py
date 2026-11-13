@@ -406,11 +406,15 @@ def adjusted_credits(levels, records, *, mode='', share=None):
 def default_model():
     """The configured extraction client as a depth model. Unmetered, for the commands, which cap the
     number of calls; background jobs use second_layer_jobs.metered_model instead."""
+    from django.conf import settings
     from apps.extraction.services.ai_service import get_ai_service
-    service = get_ai_service()
+    service = []   # made on the first call: checks that need no model call (nothing found) run without a key
 
     def call(system_prompt, user_content, response_schema, schema_name):
-        return service.extract_structured_data(system_prompt=system_prompt, user_content=user_content,
-                                               response_schema=response_schema, schema_name=schema_name)
-    call.model_name = getattr(service, 'model', '')
+        if not service:
+            service.append(get_ai_service())
+            call.model_name = getattr(service[0], 'model', '') or call.model_name
+        return service[0].extract_structured_data(system_prompt=system_prompt, user_content=user_content,
+                                                  response_schema=response_schema, schema_name=schema_name)
+    call.model_name = getattr(settings, 'AI_MODEL', '') or ''
     return call
