@@ -10,8 +10,9 @@ The institution's flow, one item at a time:
     result = rejudge_credit(export_for_run(run_ref), service)   # credit path on the provisional packets plus new passages
     final_run = publish_final(result, service=service)            # the final result, as a run refining the provisional one
 
-Checks wait while an attached document is still being extracted (check_pending runs them later). Model calls here are
-NOT metered against a run budget yet; commands cap them.
+Checks wait while an attached document is still being extracted (check_pending runs them later). In production these
+steps run as background jobs (second_layer_jobs.py), whose model calls are metered against the run's second-layer
+budget; the management commands call them directly, unmetered, with a cap on calls.
 
 The final result is a new run (refines_run_id = the provisional run, inputs.second_layer says how it was made) whose
 frozen sources are the provisional run's plus the new documents' pages, published through storage.publish. Reports,
@@ -130,8 +131,8 @@ def document_sources(document_ids, sprint_id):
     ids = check_documents(document_ids, sprint_id)
     sources, ready, failed = [], True, []
     for document in Document.objects.filter(pk__in=ids, sprint_id=sprint_id).order_by('id'):
-        if document.status == Document.Status.FAILED:
-            failed.append(str(document.pk))
+        if document.status in (Document.Status.FAILED, Document.Status.REJECTED):
+            failed.append(str(document.pk))   # never extracted: waiting for it would hold the answer for ever
             continue
         pages = list(DocumentPage.objects.filter(document=document).order_by('page_number'))
         if not pages or document.status == Document.Status.PROCESSING:
@@ -355,26 +356,35 @@ def check_response(response, model, *, attached=None, corpus=None, ranker=RUN_RA
     return response
 
 
-def check_pending(run_ref, model, *, ranker=RUN_RANKER, max_calls=None):
-    """Check every waiting response of a run whose documents are ready. Returns counts."""
+def check_pending(run_ref, model, *, ranker=RUN_RANKER, max_calls=None, skip_error=None):
+    """Check every waiting response of a run whose documents are ready. Returns counts.
+
+    skip_error: a test for exceptions that leave one response waiting (counted in 'failed') instead of stopping the
+    rest, such as a malformed model reply; anything else (a spent budget, a cancelled job) stops the loop."""
     corpus = run_sources(run_ref)
     if ranker is RUN_RANKER:
         ranker = _resolve_ranker(ranker, run_ref)[0]
     context = provisional(run_ref)
     spec = depth.spec()
-    checked = waiting = calls = 0
+    checked = waiting = calls = failed = 0
     for response in (DepthResponse.objects.filter(question__run_ref=run_ref, status=DepthResponse.Status.PENDING)
                      .select_related('question', 'parent').order_by('created_at')):
         if max_calls is not None and calls >= max_calls:
             waiting += 1
             continue
-        check_response(response, model, corpus=corpus, ranker=ranker, depth_spec=spec, context=context)
+        try:
+            check_response(response, model, corpus=corpus, ranker=ranker, depth_spec=spec, context=context)
+        except Exception as exc:
+            if skip_error is None or not skip_error(exc):
+                raise
+            failed += 1
+            continue
         if response.status == DepthResponse.Status.CHECKED:
             checked += 1
             calls += int(bool(response.support_check.get('model_called')))
         else:
             waiting += 1
-    return {'checked': checked, 'waiting': waiting, 'model_calls': calls}
+    return {'checked': checked, 'waiting': waiting, 'model_calls': calls, 'failed': failed}
 
 
 # ------------------------------------------------------------------ optional additional evidence
@@ -454,15 +464,17 @@ def credit_routes(run_ref):
     return routes
 
 
-def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=None, max_calls=36):
+def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=None, max_calls=36,
+                   evaluate_options=None):
     """Re-judge the requirements new evidence was submitted for, on each one's provisional packet plus the new
     passages, with the main judge (part judgment, two passes, tie-break). Merge with layer2.merge_new_evidence.
 
     export: the provisional run's assessment export (run_id, rubric, population, reference_period, scope,
     retrieval_policy, assessment.records and assessment.traces). It must be scored under this worker's part rule
     (layer2.check_export_rule) and, when the run is in this database, be that run's export. service: the model service
-    for evaluate. Returns the merged records, the provisional and final scores, and an audit. Nothing is published
-    (skeleton)."""
+    for evaluate. evaluate_options: further evaluate() arguments (a background job passes strict_errors so a spent
+    budget stops the re-judgment instead of becoming a failed requirement, and the run's concurrency). Returns the
+    merged records, the provisional and final scores, and an audit. Nothing is published (publish_final does)."""
     try:
         run_ref, rubric, records = export['run_id'], export['rubric'], export['assessment']['records']
     except (KeyError, TypeError):
@@ -512,7 +524,7 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
                           reference_period=export.get('reference_period') or 'Not recorded', rubric=subset,
                           scope=export.get('scope'), reviewed_evidence=export.get('reviewed_evidence'),
                           retrieval_policy=policy, judgment='parts', agreement_passes=2, tie_break=True,
-                          max_calls=len(subset['indicators']), fixed_contexts=contexts)
+                          max_calls=len(subset['indicators']), fixed_contexts=contexts, **(evaluate_options or {}))
     packets = {t['indicator']: t.get('source_excerpts') or [] for t in traces}
     merged, merge_audit = layer2.merge_new_evidence(records, outcome['records'], packets, rubric=rubric)
     return {**result, 'targets': {code: t['conditions'] for code, t in targets.items()},
@@ -523,8 +535,11 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
 
 
 def _inference(service, provisional_event):
-    """publish() needs inference identity. Second-layer calls are not metered yet, so per-call usage is not
-    available; the provisional run's inference is kept beside it."""
+    """publish() needs inference identity. A metered service (a background job's) gives its per-call ledger; the
+    command's unmetered client gives none. The provisional run's inference is kept beside it."""
+    if hasattr(service, 'metadata'):
+        return {**service.metadata(), 'second_layer_metered': True,
+                'provisional': provisional_event.payload.get('inference')}
     return {'provider': getattr(service, 'provider', None) or (type(service).__name__ if service is not None else 'none'),
             'model': getattr(service, 'model', None) or 'unknown', 'settings': {}, 'calls': [],
             'second_layer_metered': False, 'provisional': provisional_event.payload.get('inference')}

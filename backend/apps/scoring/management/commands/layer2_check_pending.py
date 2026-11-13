@@ -4,8 +4,8 @@
     python manage.py layer2_check_pending RUN_ID --max-calls 10
 
 Each depth answer is searched for in its documents and the run's corpus, then checked in one model call (none when
-nothing was found). Additional evidence is routed and searched (no model call). These calls are not metered against a
-run budget yet.
+nothing was found). Additional evidence is routed and searched (no model call). These calls are unmetered: the API's
+checks job is the metered path (second_layer_jobs.py).
 """
 from django.core.management.base import BaseCommand
 

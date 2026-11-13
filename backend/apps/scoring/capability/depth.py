@@ -404,8 +404,8 @@ def adjusted_credits(levels, records, *, mode='', share=None):
 
 
 def default_model():
-    """The configured extraction client as a depth model. NOT metered: unlike assessment runs, these calls do not
-    reserve against a CapabilityExecution budget yet (see the handoff note); commands cap the number of calls."""
+    """The configured extraction client as a depth model. Unmetered, for the commands, which cap the
+    number of calls; background jobs use second_layer_jobs.metered_model instead."""
     from apps.extraction.services.ai_service import get_ai_service
     service = get_ai_service()
 

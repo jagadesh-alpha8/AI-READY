@@ -872,6 +872,23 @@ CAPABILITY_PROVISIONAL_TIERS = os.getenv('CAPABILITY_PROVISIONAL_TIERS', 'Silver
 # in documents the institution had already submitted (or in the credited evidence itself), without a new attachment?
 # true (default): yes, a record already submitted is evidence. false: only documents attached to the reply count.
 SECOND_LAYER_CORPUS_SUPPORT = os.getenv('SECOND_LAYER_CORPUS_SUPPORT', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+# Second-layer background jobs (apps/scoring/capability/second_layer_jobs.py): questions, checks, depth and the credit
+# re-judgment run in Celery, every model call metered. Off by default, like recommendations. The budget is per
+# provisional run, shared by all its jobs, frozen when the first job starts: SECOND_LAYER_MAX_HTTP_CALLS and
+# SECOND_LAYER_MAX_COST_USD, or, when unset, the limits of the run's own assessment (a full re-judgment of every key
+# indicator costs about what the assessment did). Raise one run's budget with `manage.py layer2_budget`.
+# With jobs on, a submitted answer is checked by a job (SECOND_LAYER_CHECK_ON_SUBMIT is ignored), and the beat process
+# starts checks for answers whose documents finished extraction (every SECOND_LAYER_SWEEP_SECONDS).
+SECOND_LAYER_JOBS_ENABLED = os.getenv('SECOND_LAYER_JOBS_ENABLED', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+SECOND_LAYER_MAX_HTTP_CALLS = int(os.environ['SECOND_LAYER_MAX_HTTP_CALLS']) if os.getenv('SECOND_LAYER_MAX_HTTP_CALLS') else None
+SECOND_LAYER_MAX_COST_USD = os.getenv('SECOND_LAYER_MAX_COST_USD', '').strip() or None
+SECOND_LAYER_MAX_DURATION_SECONDS = int(os.environ['SECOND_LAYER_MAX_DURATION_SECONDS']) if os.getenv('SECOND_LAYER_MAX_DURATION_SECONDS') else None
+SECOND_LAYER_SWEEP_SECONDS = int(os.getenv('SECOND_LAYER_SWEEP_SECONDS', '300'))
+if SECOND_LAYER_JOBS_ENABLED:
+    CELERY_BEAT_SCHEDULE['second-layer-check-sweep'] = {
+        'task': 'apps.scoring.capability.second_layer_jobs.sweep_second_layer_checks',
+        'schedule': float(SECOND_LAYER_SWEEP_SECONDS),
+    }
 # Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
 # every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.
 CAPABILITY_EMBEDDING_CACHE_DIR = os.getenv('CAPABILITY_EMBEDDING_CACHE_DIR', '')

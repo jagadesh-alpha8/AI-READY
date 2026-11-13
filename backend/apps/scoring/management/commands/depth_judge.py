@@ -4,7 +4,8 @@
     python manage.py depth_judge export.json --commit    # save judgments and propose them as past cases
 
 Saved judgments are proposed as past cases; a person approves them in the admin before they guide later judgments.
-One model call per judged condition (--max-calls bounds it); not metered against a run budget yet.
+One model call per judged condition (--max-calls bounds it); unmetered (the API's depth job is metered:
+second_layer_jobs.py).
 """
 import json
 

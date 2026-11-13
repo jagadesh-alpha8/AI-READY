@@ -43,6 +43,16 @@ class MeteredService:
     def events(self):
         return CapabilityRunEvent.objects.filter(run_id=self.run_id)
 
+    def budget(self, execution):
+        """The row whose counters the limits apply to: the execution itself, unless a subclass shares one budget
+        between several executions (the second layer's jobs share their run's). Called with the execution locked;
+        a shared row must be locked here too."""
+        return execution
+
+    def limits(self, budget):
+        """(max requests, max USD) for the budget row: the frozen policy's, unless the row carries its own."""
+        return self.policy['max_http_calls'], Decimal(self.policy['max_cost_usd'])
+
     def __init__(self, service, execution, *, execution_policy=None, ledger_id=None):
         from apps.extraction.services.openai_client import OpenAIExtractionService
         from apps.extraction.services.anthropic_client import AnthropicExtractionService
@@ -115,13 +125,16 @@ class MeteredService:
         if execution.status != 'running' or not self.enabled():
             raise ExecutionStopped()
         bound, amount = self.envelope(kwargs)
-        if (execution.requests_reserved >= self.policy['max_http_calls']
-                or execution.usd_reserved + amount > Decimal(self.policy['max_cost_usd'])):
+        budget = self.budget(execution)
+        max_calls, max_cost = self.limits(budget)
+        if budget.requests_reserved >= max_calls or budget.usd_reserved + amount > max_cost:
             raise BudgetExceeded()
-        execution.requests_reserved += 1
-        execution.usd_reserved += amount
-        execution.heartbeat_at = timezone.now()
-        execution.save(update_fields=['requests_reserved', 'usd_reserved', 'heartbeat_at'])
+        rows = [execution] if budget is execution else [execution, budget]
+        for row in rows:
+            row.requests_reserved += 1
+            row.usd_reserved += amount
+            row.heartbeat_at = timezone.now()
+            row.save(update_fields=['requests_reserved', 'usd_reserved', 'heartbeat_at'])
         event = self.event('partial', {
             'kind': 'request_reserved', 'stage': self.policy['stage'], 'request_number': execution.requests_reserved,
             'provider': self.provider, 'configured_model': self.model, 'input_token_bound': bound,
