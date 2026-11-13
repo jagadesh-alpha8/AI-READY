@@ -44,8 +44,10 @@ def policy():
 # ------------------------------------------------------------------ questions
 
 
-def create_questions(export, model, *, commit=False, replace=False, max_calls=None):
-    """Plan the run's questions (model calls for depth questions) and, with commit, save them."""
+def create_questions(export, model, *, commit=False, replace=False, max_calls=None, guard=None):
+    """Plan the run's questions (model calls for depth questions) and, with commit, save them. guard, when given, is
+    called inside the saving transaction before anything is written (a background job uses it to save nothing once it
+    has been cancelled); the refusals are checked again there, since the planning calls take time."""
     run_ref, rubric, records = _records(export)
     existing = DepthQuestion.objects.filter(run_ref=run_ref)
     if existing.exists() and not replace:
@@ -62,7 +64,13 @@ def create_questions(export, model, *, commit=False, replace=False, max_calls=No
                                          depth_spec=spec)
     if commit:
         with transaction.atomic():
-            existing.delete()
+            if guard is not None:
+                guard()
+            if replace and DepthResponse.objects.filter(question__run_ref=run_ref).exists():
+                raise DepthError(f'Run {run_ref} has responses; its questions cannot be replaced.')
+            if not replace and DepthQuestion.objects.filter(run_ref=run_ref).exists():
+                raise DepthError(f'Run {run_ref} already has questions; pass replace to plan them again.')
+            DepthQuestion.objects.filter(run_ref=run_ref).delete()
             DepthQuestion.objects.bulk_create([
                 DepthQuestion(run_ref=run_ref, kind=q['kind'], indicator_code=q['indicator'],
                               condition_ids=q['condition_ids'], dimension_ids=q['dimension_ids'], text=q['text'],
@@ -155,7 +163,7 @@ def approved_past_cases(condition_id, spec_version, limit=PAST_CASES):
             for c in cases]
 
 
-def judge_run(export, model, *, commit=False, max_calls=None):
+def judge_run(export, model, *, commit=False, max_calls=None, guard=None):
     """Judge every credited condition of the run that has answered depth questions.
 
     Conditions whose questions got no response stay evidenced (listed in 'unanswered'). A condition with any response
@@ -163,7 +171,8 @@ def judge_run(export, model, *, commit=False, max_calls=None):
     answers would save a judgment and a past case that the rest could change. Under decision 3 ('ignore'), typed
     answers without a supporting document are not sent to the judge; a condition with nothing else stays evidenced
     without a model call (listed in 'answers_without_documents'). Missing-evidence questions answered with documents
-    are listed in 'awaiting_reassessment': they go to the credit path (layer2_rejudge), not to a depth judgment."""
+    are listed in 'awaiting_reassessment': they go to the credit path (layer2_rejudge), not to a depth judgment.
+    guard: as for create_questions."""
     run_ref, rubric, records = _records(export)
     rules = policy()
     spec = depth.spec()
@@ -206,6 +215,8 @@ def judge_run(export, model, *, commit=False, max_calls=None):
                        'final_credit': float(credit), 'past_case_ids': [c['id'] for c in cases]})
     if commit:
         with transaction.atomic():
+            if guard is not None:
+                guard()
             for row in judged:
                 judgment = DepthJudgment.objects.create(
                     run_ref=run_ref, condition_id=row['condition_id'],

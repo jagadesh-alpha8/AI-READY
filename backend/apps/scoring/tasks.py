@@ -90,3 +90,4 @@ def run_capability_assessment(run_id, task_id):
 # Import registers the independent advice task during Celery app discovery.
 from .capability.recommendation_execution import generate_recommendations  # noqa: F401,E402
 from .capability.plan_execution import evaluate_institutional_plan  # noqa: F401,E402
+from .capability.second_layer_jobs import run_second_layer_job, sweep_second_layer_checks  # noqa: F401,E402

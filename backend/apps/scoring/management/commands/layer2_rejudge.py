@@ -6,7 +6,8 @@ submitted for, on their provisional packets plus the new passages, and merge.
     python manage.py layer2_rejudge --run-id <provisional run> --run --publish
 
 export.json is the provisional run's assessment export; --run-id builds it from this database instead. --run spends
-model calls (two passes and the tie-break per key indicator re-judged; not metered against a run budget yet).
+model calls (two passes and the tie-break per key indicator re-judged; unmetered; the API's rejudge
+job is the metered path, second_layer_jobs.py).
 --publish (needs the run in this database) publishes the final result as a new run refining the provisional one, which
 reports, recommendations and plan evaluations then use.
 """

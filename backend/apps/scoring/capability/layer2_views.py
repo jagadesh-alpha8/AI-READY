@@ -9,21 +9,30 @@ additional evidence. Under /api/v1/sprints/{sprint}/capability-runs/{run}/:
     POST additional-evidence                     {document_ids, note, picked}: picked = areas, key indicators or
                                                  requirements the documents are for (at least one)
 
+    GET  second-layer/jobs                       the run's background jobs and its second-layer budget
+    POST second-layer/jobs                       {operation, options} + Idempotency-Key: questions | checks | depth |
+                                                 rejudge (options: questions.replace, rejudge.publish)
+    GET  second-layer/jobs/{job}                 one job: status, result, the final run it published
+    POST second-layer/jobs/{job}/cancel          no further model calls; nothing more is saved
+
 Documents are uploaded first through the existing document API and referenced by id; they must belong to the sprint.
-An answer is checked when its documents have been extracted: in the request when SECOND_LAYER_CHECK_ON_SUBMIT is on,
-otherwise by the layer2_check_pending command. Questions are created by the depth_questions command for now.
+An answer is checked when its documents have been extracted. With SECOND_LAYER_JOBS_ENABLED (production) a submission
+requests a checks job, metered against the run's second-layer budget (second_layer_jobs.py). Without it, the answer is
+checked in the request when SECOND_LAYER_CHECK_ON_SUBMIT is on (unmetered; development), otherwise by the
+layer2_check_pending command.
 """
 from django.conf import settings
 from django.shortcuts import get_object_or_404
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import CanManageSprint
-from apps.scoring.models import AdditionalEvidence, CapabilityExecution, DepthQuestion, DepthResponse
+from apps.scoring.models import AdditionalEvidence, CapabilityExecution, DepthQuestion, DepthResponse, SecondLayerJob
 from apps.sprints.access import get_authorized_sprint
 
 from . import layer2_service as service
+from . import second_layer_jobs as jobs
 from .layer2 import Layer2Error
 
 
@@ -93,7 +102,11 @@ class _RunScoped(APIView):
                                       skip=flag(request.data.get('skip')), parent=parent, user=request.user)
         except Layer2Error as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        if settings.SECOND_LAYER_CHECK_ON_SUBMIT and response.status == DepthResponse.Status.PENDING:
+        if response.status != DepthResponse.Status.PENDING:
+            pass
+        elif jobs.enabled():
+            jobs.request_checks(execution.run, request.user, f'response-{response.pk}')
+        elif settings.SECOND_LAYER_CHECK_ON_SUBMIT:
             from .depth import default_model
             try:
                 service.check_response(response, default_model())
@@ -158,4 +171,47 @@ class AdditionalEvidenceView(_RunScoped):
                                         note=request.data.get('note') or '', picked=picked, user=request.user)
         except Layer2Error as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if jobs.enabled():
+            jobs.request_checks(execution.run, request.user, f'additional-{item.pk}')
         return Response(serialize_additional(item), status=status.HTTP_201_CREATED)
+
+
+class JobsView(_RunScoped):
+    def get(self, request, sprint_id, run_id):
+        execution = self.execution(request, sprint_id, run_id)
+        rows = SecondLayerJob.objects.filter(run=execution.run)[:100]
+        return Response({'enabled': jobs.enabled(), 'budget': jobs.budget_summary(execution.run),
+                         'results': [jobs.summary(job) for job in rows]})
+
+    def post(self, request, sprint_id, run_id):
+        execution = self.execution(request, sprint_id, run_id)
+        key = request.headers.get('Idempotency-Key', '')
+        if not key or len(key) > 100 or not all(c.isalnum() or c in '-_.' for c in key):
+            raise serializers.ValidationError({'Idempotency-Key': 'Supply a unique key of 1–100 letters, digits, '
+                                                                  'dots, dashes or underscores.'})
+        if not isinstance(request.data, dict):
+            raise serializers.ValidationError('Send an object: {"operation": ..., "options": {...}}.')
+        unknown = set(request.data) - {'operation', 'options'}
+        if unknown:
+            raise serializers.ValidationError(f'Unknown fields: {", ".join(sorted(unknown))}.')
+        job, created = jobs.start(run=execution.run, operation=request.data.get('operation'), user=request.user,
+                                  key=key, options=request.data.get('options'))
+        job.refresh_from_db()
+        return Response({**jobs.summary(job), 'reused': not created}, status=202 if created else 200)
+
+
+class JobView(_RunScoped):
+    def get(self, request, sprint_id, run_id, job_id):
+        execution = self.execution(request, sprint_id, run_id)
+        return Response(jobs.summary(get_object_or_404(SecondLayerJob, pk=job_id, run=execution.run)))
+
+
+class JobCancelView(_RunScoped):
+    def post(self, request, sprint_id, run_id, job_id):
+        execution = self.execution(request, sprint_id, run_id)
+        job = get_object_or_404(SecondLayerJob, pk=job_id, run=execution.run)
+        changed = jobs.finish(job.pk, 'cancelled', 'cancelled_by_user')
+        job.refresh_from_db()
+        return Response({**jobs.summary(job), 'changed': changed,
+                         'note': 'A call already in flight may finish and be billed; no further calls start and '
+                                 'nothing more is saved.'})
