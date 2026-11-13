@@ -24,6 +24,7 @@ one when a waiting item's documents have finished extraction since the last chec
 The management commands (depth_questions, layer2_check_pending, depth_judge, layer2_rejudge) still call the same
 functions directly and unmetered, with a cap on calls, for consultants working on a frozen export.
 """
+import logging
 import uuid
 
 from celery import shared_task
@@ -48,6 +49,7 @@ from .provider import MeteredService, UnpricedModel, UsageUnavailable
 from .request_recovery import recoverable_failure
 from .storage import digest
 
+logger = logging.getLogger(__name__)
 ACTIVE = ('queued', 'running')
 OPERATIONS = tuple(SecondLayerJob.Operation.values)
 STALE_GRACE_SECONDS = 900   # beyond a job's own deadline, before a queued or running job is taken to have lost its worker
@@ -61,11 +63,13 @@ def enabled():
 
 
 def budget_limits(run):
-    """(max requests, max USD) for the run's second layer: the settings, else the run's own assessment limits."""
+    """(max requests, max USD) for the run's second layer: the settings, else the run's own assessment limits, else
+    (a run created outside the API, or before limits were frozen with runs) the deployment's assessment limits now."""
     from decimal import Decimal, InvalidOperation
     frozen = (run.inputs or {}).get('execution_policy') or {}
-    calls = settings.SECOND_LAYER_MAX_HTTP_CALLS or frozen.get('max_http_calls')
-    cost = settings.SECOND_LAYER_MAX_COST_USD or frozen.get('max_cost_usd')
+    calls = (settings.SECOND_LAYER_MAX_HTTP_CALLS or frozen.get('max_http_calls')
+             or settings.CAPABILITY_MAX_HTTP_CALLS)
+    cost = settings.SECOND_LAYER_MAX_COST_USD or frozen.get('max_cost_usd') or settings.CAPABILITY_MAX_COST_USD
     try:
         calls, cost = int(calls), Decimal(str(cost))
     except (TypeError, ValueError, InvalidOperation):
@@ -190,7 +194,11 @@ def request_checks(run, user, key):
     active, jobs are off): the running job's follow-on or the sweep picks the item up."""
     try:
         return start(run=run, operation='checks', user=user, key=key)[0]
-    except (AssessmentConflict, AssessmentDisabled, ValidationError):
+    except AssessmentConflict:
+        return None   # another job is active: its follow-on or the sweep covers this item
+    except (AssessmentDisabled, ValidationError) as exc:
+        if enabled():   # with jobs on, a refusal leaves answers unchecked: say so in the logs
+            logger.warning('Second-layer checks could not start for run %s: %s', run.pk, getattr(exc, 'detail', exc))
         return None
 
 

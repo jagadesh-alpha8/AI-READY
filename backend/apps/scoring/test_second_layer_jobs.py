@@ -394,3 +394,35 @@ class SecondLayerJobTests(APITestCase):
 
     def test_export_still_reads_the_provisional_run(self):
         self.assertEqual(export_for_run(self.run.pk)['run_id'], str(self.run.pk))
+
+
+@override_settings(SECOND_LAYER_JOBS_ENABLED=True, SECOND_LAYER_MAX_HTTP_CALLS=None, SECOND_LAYER_MAX_COST_USD=None,
+                   CAPABILITY_MAX_HTTP_CALLS=72, CAPABILITY_MAX_COST_USD='2')
+class PostReleaseAuditTests(APITestCase):
+    """Found by the 13 Nov post-release audit on a database upgraded from the pre-release main."""
+
+    def test_a_run_without_frozen_limits_takes_the_deployments_assessment_limits(self):
+        from decimal import Decimal
+        run = SimpleNamespace(inputs={'execution_policy': {}})
+        self.assertEqual(jobs.budget_limits(run), (72, Decimal('2')))
+        with override_settings(SECOND_LAYER_MAX_HTTP_CALLS=10, SECOND_LAYER_MAX_COST_USD='1.5'):
+            self.assertEqual(jobs.budget_limits(run), (10, Decimal('1.5')))
+        frozen = SimpleNamespace(inputs={'execution_policy': {'max_http_calls': 146, 'max_cost_usd': '20'}})
+        self.assertEqual(jobs.budget_limits(frozen), (146, Decimal('20')))
+
+    def test_a_refused_automatic_check_is_logged(self):
+        run = SimpleNamespace(pk='run-1')
+        with patch(f'{JOBS}.start', side_effect=jobs.AssessmentDisabled('budget not configured')), \
+                self.assertLogs(JOBS, level='WARNING') as logs:
+            self.assertIsNone(jobs.request_checks(run, None, 'k'))
+        self.assertIn('could not start', logs.output[0])
+        with patch(f'{JOBS}.start', side_effect=jobs.AssessmentConflict()), self.assertNoLogs(JOBS, level='WARNING'):
+            self.assertIsNone(jobs.request_checks(run, None, 'k'))
+
+    def test_the_commands_model_needs_no_key_until_it_is_called(self):
+        from .capability import depth
+        with patch('apps.extraction.services.ai_service.get_ai_service', side_effect=AssertionError('no key')) as made:
+            model = depth.default_model()
+            made.assert_not_called()
+            with self.assertRaises(AssertionError):
+                model('s', '{}', {}, 'x')
