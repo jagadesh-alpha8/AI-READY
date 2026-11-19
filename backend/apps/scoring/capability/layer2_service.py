@@ -56,6 +56,21 @@ def _refuse_final(run):
                           f"{run.inputs['second_layer']['provisional_run_id']}.")
 
 
+OLD_RULE = ('This assessment was scored under an earlier credit rule, so follow-up answers and additional evidence '
+            'could never be re-judged into a final result. Run a new assessment first.')
+
+
+def refuse_old_rule(export):
+    """Refuse a whole export scored under a different part rule than this worker's (layer2.check_export_rule with no
+    targets). Re-judging (rejudge_credit) refuses such a run, so question planning and additional evidence refuse it
+    first, before the institution answers or uploads anything."""
+    assessment = (export or {}).get('assessment') or {}
+    try:
+        layer2.check_export_rule(assessment.get('records') or [], assessment.get('traces') or [])
+    except Layer2Error as exc:
+        raise Layer2Error(f'{OLD_RULE} ({exc})')
+
+
 def export_for_run(run_ref):
     """The provisional run's assessment export, built from this database (the shape rejudge_credit reads)."""
     run = _run(run_ref)
@@ -399,6 +414,9 @@ def add_evidence(run_ref, rubric, *, document_ids, note='', picked=(), user=None
     sprint_id = run_sprint_id(run_ref)
     if sprint_id is not None:
         documents = check_documents(documents, sprint_id)
+    run = _run(run_ref)
+    if run is not None and run.events.filter(state='completed', payload__result__isnull=False).exists():
+        refuse_old_rule(export_for_run(run_ref))   # re-judging would refuse it once the documents are in
     routing = layer2.route_additional(rubric, picked)
     if not routing['indicators']:
         raise Layer2Error('Pick at least one readiness area, key indicator or requirement this evidence is for.')

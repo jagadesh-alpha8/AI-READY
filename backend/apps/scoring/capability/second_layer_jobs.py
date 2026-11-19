@@ -132,6 +132,12 @@ def preflight(run, operation, options):
                                   'again.')
         if options['replace'] and DepthResponse.objects.filter(question__run_ref=run_ref).exists():
             raise ValidationError('The institution has answered some questions; they can no longer be replaced.')
+        from .layer2 import Layer2Error
+        from .layer2_service import export_for_run, refuse_old_rule
+        try:
+            refuse_old_rule(export_for_run(run_ref))
+        except Layer2Error as exc:
+            raise ValidationError(str(exc))
     elif operation == 'depth' and not questions.exists():
         raise ValidationError('This assessment has no follow-up questions yet.')
     elif operation == 'checks' and not waiting(run_ref):

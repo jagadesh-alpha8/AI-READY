@@ -622,6 +622,24 @@ class AuditFixTests(SimpleTestCase):
         layer2.check_export_rule([{**shared, 'credit': 0.0}],
                                  [{'indicator': self.code, 'judgment': part_judgment.metadata()}], targets)
 
+    def test_the_whole_export_check_covers_every_indicator_and_requirement(self):
+        # Question planning and additional evidence check the whole run (targets None), not only what is re-judged.
+        old_rule = {**part_judgment.metadata(), 'related_credit': 0.5}
+        current = part_judgment.metadata()
+        with self.assertRaises(Layer2Error):
+            layer2.check_export_rule([], [{'indicator': 'any-other-indicator', 'judgment': old_rule}])
+        with self.assertRaises(Layer2Error):
+            layer2.check_export_rule([], [{'judgment': old_rule}])   # a trace without an indicator code
+        shared = {'condition_id': self.cid, 'credit': 0.5,
+                  'parts': [two_pass(self.parts[0], 'full')] + [two_pass(p, 'not_found') for p in self.parts[1:]]}
+        with self.assertRaises(Layer2Error):
+            layer2.check_export_rule([shared], [{'indicator': self.code, 'judgment': current}])
+        # Today's credit passes; a withheld requirement and one without parts are not recomputed.
+        layer2.check_export_rule([{**shared, 'credit': 0.0}, {**shared, 'condition_id': 'withheld',
+                                                               'validation_issue': 'x'},
+                                  {'condition_id': 'strict', 'credit': 1.0}],
+                                 [{'indicator': self.code, 'judgment': current}])
+
     def test_credited_evidence_and_anchored_query(self):
         record = {'citations': [self.old]}
         windows = layer2.credited_windows(record, self.packet + [{**CANTEEN, 'text_offset': 0}])
