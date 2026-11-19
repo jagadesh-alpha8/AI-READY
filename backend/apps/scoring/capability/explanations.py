@@ -15,8 +15,10 @@ The warmth is in the framing only. validate() rejects an explanation that:
 - cites a quotation id it was not given, or credits a requirement with no quotation, or says something was found
   where nothing was credited;
 - puts words in quotation marks that are not in that requirement's quotations;
-- contains a number that is not in the area's input (no invented hours, counts or years);
-- says "fully", "completely" or "entirely" about a requirement not credited in full;
+- says "fully", "completely" or "entirely" about anything not credited in full;
+- writes a number (in digits or words) or a percentage that is not in that requirement's own input;
+- widens scope ("every department", "the whole college") beyond what its quotations say;
+- credits a requirement without naming the document or quoting it;
 - names the assessment's machinery (rubric codes, requirement ids, packets);
 - leaves out "where we looked" or the next step for something not shown, or adds them where all is shown.
 A rejected area is asked once more with the problems listed; whatever still fails gets a plain factual explanation
@@ -26,7 +28,7 @@ Explanations never change a score: they are stored beside the run (CapabilityExp
 import json
 import re
 
-VERSION = 'explanations-0.1'
+VERSION = 'explanations-0.2'
 MAX_QUOTES = 4
 QUOTE_CHARS = 400
 MAX_FIELD_CHARS = 700
@@ -52,7 +54,10 @@ Rules:
 4. Do not give scores, credit or percentages; the report shows them.
 5. Do not mention how the assessment works inside (models, passes, packets, rubric or requirement codes). Write plain English for a principal or vice-chancellor.
 6. Be warm in framing, not in substance: begin with what the college has done, and describe gaps as next steps, never as failures.
-7. For a requirement that could not be judged because of a processing problem, say only that it will be checked again."""
+7. For a requirement that could not be judged because of a processing problem, say only that it will be checked again.
+8. Keep to the scope the quotations show. If a quotation names one programme, department or group, say that one; never widen it to "every department", "all students" or "the whole college".
+9. In found, name the document a quotation comes from. Use digits only for numbers that appear in the input, and do not write numbers out in words unless the quotation does.
+10. "Where we looked": every document the college uploaded was searched (documents_searched); documents_read are the ones that held the passages read for this key indicator. Name only documents listed there."""
 
 
 def _entry(extra=None):
@@ -103,18 +108,21 @@ def _part_result(part):
         return 'shown'
     if 'full' in (first, second) or 'related' in (first, second):
         return 'partly shown'
+    if 'digital_only' in (first, second):
+        return 'shown only in a digital form that is not AI, which this part does not count'
     return 'not shown'
 
 
-def _result(record, merge_row):
+NOT_JUDGED = 'not judged yet (a processing problem; it will be checked again)'
+
+
+def _result(record):
+    """The result follows the credit the report shows, always: anything else (sources disagreeing, a change after
+    follow-up) is a separate note, so an explanation can never contradict the number beside it."""
     from .action_plan import credit_of
     from .decision_causes import is_processing
     if is_processing(record):
-        return 'not judged yet (a processing problem; it will be checked again)'
-    if (merge_row or {}).get('decision') == 'lowered':
-        return 'lowered: the college\'s own document contradicts it'
-    if record.get('state') == 'conflicting':
-        return 'the college\'s documents disagree with each other'
+        return NOT_JUDGED
     credit = credit_of(record)
     return 'shown in full' if credit >= 1 else 'partly shown' if credit > 0 else 'not yet shown'
 
@@ -170,52 +178,131 @@ def area_input(area, target):
             entry = {'condition_id': cid, 'requirement': condition['text'],
                      'stage': {'F': 'starting capability', 'A': 'repeated use', 'O': 'results and review'}.get(
                          condition.get('level'), condition.get('level')),
-                     'result': _result(record, row), 'parts': parts, 'quotations': quotes,
+                     'result': _result(record), 'parts': parts, 'quotations': quotes,
                      'still_missing': missing, 'in_priority_plan': cid in planned}
+            if record.get('state') == 'conflicting':
+                entry['note'] = 'some of the college\'s documents disagree with each other on this'
             if row and row.get('decision') == 'replaced':
                 entry['changed_after_follow_up'] = 'raised by evidence the college sent after the first assessment'
             if row and row.get('decision') == 'lowered':
-                entry['changed_after_follow_up'] = 'lowered by a document the college sent after the first assessment'
+                entry['changed_after_follow_up'] = ('lowered: a document the college sent after the first assessment '
+                                                    'contradicts it')
             requirements.append(entry)
+        results = [r['result'] for r in requirements]
         indicators.append({'code': indicator['code'], 'name': titles.get(indicator['code'], indicator.get('name')),
-                           'documents_read': looked, 'requirements': requirements})
-    return {'area': area, 'name': pillars.get(area, area), 'indicators': indicators}
+                           'documents_read': looked, 'requirements': requirements,
+                           'counts': {'requirements': len(results), 'shown_in_full': results.count('shown in full'),
+                                      'partly_shown': results.count('partly shown'),
+                                      'not_yet_shown': results.count('not yet shown')}})
+    searched = sorted(set(names.values()))
+    return {'area': area, 'name': pillars.get(area, area), 'indicators': indicators,
+            'documents_searched': {'count': len(searched), 'names': searched[:20]}}
 
 
 # ------------------------------------------------------------------ checks
 
-QUOTED = re.compile(r'[“"]([^”"]{3,})[”"]')
+QUOTED = re.compile(r'[\u201c"]([^\u201d"]{3,})[\u201d"]|\u2018([^\u2019]{3,})\u2019')
 NUMBER = re.compile(r'\d+(?:[.,]\d+)*')
+NUMBER_WORDS = re.compile(r'\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|'
+                          r'forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|dozen|lakh|crore)s?\b', re.I)
+PERCENT = re.compile(r'%|\bper ?cent\b', re.I)
 OVERCLAIM = re.compile(r'\b(fully|completely|entirely)\b', re.I)
+WIDENING = re.compile(r'\b(?:every|all|each)\s+(?:of\s+(?:the|its|your)\s+)?(?:department|student|faculty|teacher|staff|'
+                      r'programme|program|course|classroom|school|campus|discipline)s?\b|\b(?:institution|college|'
+                      r'university|campus)-wide\b|\b(?:whole|entire)\s+(?:college|institution|university|campus)\b|'
+                      r'\bacross\s+the\s+(?:college|institution|university|campus)\b', re.I)
 MACHINERY = re.compile(r'AIQIF|\bC\d\.\d|\bpacket|\brubric|\bcondition[_ ]id|\b[FAO]\d\b')
 
 
 def _norm(text):
-    return re.sub(r'\s+', ' ', (text or '').replace('’', "'")).strip().lower()
+    return re.sub(r'\s+', ' ', (text or '').replace('\u2019', "'").replace('\u2018', "'")).strip().lower()
 
 
 def _clean(entry):
     return {f: re.sub(r'\s+', ' ', str((entry or {}).get(f) or '')).strip() for f in FIELDS}
 
 
-def _common(where, entry, numbers, errors):
+def _spans(value):
+    return [a or b for a, b in QUOTED.findall(value)]
+
+
+def _scope(requirements, *, extra=''):
+    """What a field may draw on: the numbers, words and quotations of these requirements only (their text, parts,
+    quotations and document labels), never ids or codes."""
+    texts, labels, quotes = [], [extra], []
+    for r in requirements:
+        texts += [r['requirement']] + [p['asks'] for p in r['parts']] + list(r['still_missing'])
+        for q in r['quotations']:
+            texts.append(q['text'])
+            labels.append(q['document'])
+            quotes.append(_norm(q['text']))
+    text = ' '.join(texts)
+    # A number in a document's name or page counts only where it is written as that name or page ("SSR 2024",
+    # "page 3"), so a page number cannot license an invented "3 workshops".
+    names = {_norm(re.sub(r', page \d+$', '', label)) for label in labels if label}
+    pages = {m for label in labels for m in re.findall(r', page (\d+)$', label or '')}
+    return {'numbers': {n.replace(',', '') for n in NUMBER.findall(text)}, 'text': _norm(' '.join([text] + labels)),
+            'quotes': quotes, 'names': sorted((n for n in names if n), key=len, reverse=True), 'pages': pages,
+            'full': bool(requirements) and all(r['result'] == 'shown in full' for r in requirements)}
+
+
+def _numbers_outside_names(value, scope):
+    text = _norm(value)
+    for name in scope.get('names', []):
+        text = text.replace(name, ' ')
+    text = re.sub(r'\bpages? (\d+)', lambda m: ' ' if m.group(1) in scope.get('pages', ()) else m.group(0), text)
+    return NUMBER.findall(text)
+
+
+def _check(where, entry, scope, errors):
     for field in FIELDS:
         value = entry[field]
         if len(value) > MAX_FIELD_CHARS:
             errors.append(f'{where}: {field} is too long.')
         if MACHINERY.search(value):
             errors.append(f'{where}: {field} mentions codes or internal terms; write plain English.')
-        for number in NUMBER.findall(value):
-            if number.replace(',', '') not in numbers:
-                errors.append(f'{where}: {field} has the number {number}, which is not in the input.')
+        if PERCENT.search(value):
+            errors.append(f'{where}: {field} gives a percentage; the report shows the score.')
+        for number in _numbers_outside_names(value, scope):
+            if number.replace(',', '') not in scope['numbers']:
+                errors.append(f'{where}: {field} has the number {number}, which is not in its input.')
+        for word in NUMBER_WORDS.findall(value):
+            if not re.search(rf'\b{word}s?\b', scope['text']):
+                errors.append(f'{where}: {field} writes the number "{word}", which is not in its input.')
+        for phrase in WIDENING.findall(value):
+            if _norm(phrase) not in scope['text']:
+                errors.append(f'{where}: {field} says "{phrase}", wider than its quotations show.')
+        for span in _spans(value):
+            if not any(_norm(span) in q for q in scope['quotes']):
+                errors.append(f'{where}: {field} quotes words that are not in its quotations.')
+        if not scope['full'] and OVERCLAIM.search(value):
+            errors.append(f'{where}: {field} says fully, completely or entirely, but not everything is shown in full.')
     if not entry['text']:
         errors.append(f'{where}: text is empty.')
+
+
+def _summary_scope(requirements, counts, extra=''):
+    scope = _scope(requirements, extra=extra)
+    scope['numbers'] |= {str(v) for v in counts.values()}
+    return scope
+
+
+def _with_documents(scope, area, title=''):
+    """Let a field name any document searched or read for the area (by name, with its pages), and use its title."""
+    names = list(area['documents_searched']['names'])
+    pages = set()
+    for indicator in area['indicators']:
+        for document in indicator['documents_read']:
+            names.append(document['document'])
+            pages |= {str(p) for p in document['pages']}
+    scope['names'] = sorted({_norm(n) for n in names if n} | set(scope['names']), key=len, reverse=True)
+    scope['pages'] = set(scope['pages']) | pages
+    scope['text'] += ' ' + _norm(' '.join(names + [title]))
 
 
 def validate(area, output):
     """(explanations, errors). explanations: {'area', 'indicators': {code: ...}, 'requirements': {cid: ...}} with
     only the entries that passed; errors: one line per problem, phrased for the retry."""
-    numbers = {n.replace(',', '') for n in NUMBER.findall(json.dumps(area, ensure_ascii=False))}
     errors, passed = [], {'area': None, 'indicators': {}, 'requirements': {}}
     given = {r['condition_id']: r for i in area['indicators'] for r in i['requirements']}
     seen = {}
@@ -234,27 +321,28 @@ def validate(area, output):
             problems.append(f'{cid}: quote_ids {sorted(set(cited) - ids)} were not given for it.')
         full = requirement['result'] == 'shown in full'
         credited = requirement['result'] in ('shown in full', 'partly shown')
+        lowered = 'contradicts' in requirement.get('changed_after_follow_up', '')
         if credited and requirement['quotations'] and not (set(cited) & ids):
             problems.append(f'{cid}: it is credited, so found must rest on at least one of its quotations.')
         if credited and not entry['found']:
             problems.append(f'{cid}: found is empty, but something was credited.')
-        if not credited and entry['found'] and 'contradicts' not in requirement['result']:
+        if credited and entry['found'] and requirement['quotations']:
+            named = [_norm(re.sub(r', page \d+$', '', q['document'])) for q in requirement['quotations']
+                     if q['id'] in cited]
+            if not _spans(entry['found']) and not any(n and n in _norm(entry['found']) for n in named):
+                problems.append(f'{cid}: found must name the document it rests on, or quote it.')
+        if not credited and entry['found'] and not lowered:
             problems.append(f'{cid}: nothing was credited, so found must be empty.')
-        quotes = [_norm(q['text']) for q in requirement['quotations']]
-        for field in FIELDS:
-            for span in QUOTED.findall(entry[field]):
-                if not any(_norm(span) in q for q in quotes):
-                    problems.append(f'{cid}: {field} quotes words that are not in its quotations.')
-            if not full and OVERCLAIM.search(entry[field]):
-                problems.append(f'{cid}: {field} says fully, completely or entirely, but it is not shown in full.')
-        processing = requirement['result'].startswith('not judged')
+        processing = requirement['result'] == NOT_JUDGED
         if full and (entry['looked'] or entry['next_step']):
             problems.append(f'{cid}: it is shown in full, so looked and next_step must be empty.')
         if not full and not processing and not entry['next_step']:
             problems.append(f'{cid}: next_step is empty, but something is not shown.')
-        if not full and not processing and not entry['looked'] and 'contradicts' not in requirement['result']:
+        if not full and not processing and not entry['looked'] and not lowered:
             problems.append(f'{cid}: looked is empty, but something is not shown.')
-        _common(cid, entry, numbers, problems)
+        scope = _scope([requirement])
+        _with_documents(scope, area)
+        _check(cid, entry, scope, problems)
         errors += problems
         if not problems:
             passed['requirements'][cid] = {**entry, 'quote_ids': cited}
@@ -263,17 +351,24 @@ def validate(area, output):
     for item in (output or {}).get('indicators') or []:
         if item.get('code') in codes:
             summaries.setdefault(item['code'], item)
-    for code in codes:
+    for code, indicator in codes.items():
         if code not in summaries:
             errors.append(f'{code}: missing.')
             continue
         entry, problems = _clean(summaries[code]), []
-        _common(code, entry, numbers, problems)
+        scope = _summary_scope(indicator['requirements'], indicator['counts'])
+        _with_documents(scope, area, indicator['name'])
+        _check(code, entry, scope, problems)
         errors += problems
         if not problems:
             passed['indicators'][code] = entry
+    everything = [r for i in area['indicators'] for r in i['requirements']]
+    totals = {k: sum(i['counts'][k] for i in area['indicators']) for k in area['indicators'][0]['counts']} \
+        if area['indicators'] else {}
+    scope = _summary_scope(everything, totals)
+    _with_documents(scope, area, area['name'])
     entry, problems = _clean((output or {}).get('area')), []
-    _common('area', entry, numbers, problems)
+    _check('area', entry, scope, problems)
     errors += problems
     if not problems:
         passed['area'] = entry
@@ -302,15 +397,13 @@ def fallback_requirement(requirement, indicator):
         text = 'This is shown in your documents.'
     elif result == 'partly shown':
         text = ('This is partly shown' + (f': {_lower_first(_list(shown))} is shown' if shown else '') + '.')
-    elif result.startswith('lowered'):
-        text = 'A document you sent after the first assessment shows otherwise, so this is not counted for now.'
-        if quotes:
-            found = f"Your {quotes[0]['document']} records: \"{quotes[0]['text'][:200].strip()}\"."
-    elif result.startswith('not judged'):
+    elif result == NOT_JUDGED:
         return {'found': '', 'text': 'This could not be checked this time; it will be checked again.', 'looked': '',
                 'next_step': '', 'quote_ids': [], 'fallback': True}
     else:
         text = 'This is not yet shown in the documents we read.'
+    if 'contradicts' in requirement.get('changed_after_follow_up', ''):
+        text += ' A document you sent after the first assessment shows otherwise for part of it.'
     full = result == 'shown in full'
     documents = [d['document'] for d in indicator['documents_read'][:4]]
     looked = '' if full else (f'We read {_list(documents)} for this.' if documents else

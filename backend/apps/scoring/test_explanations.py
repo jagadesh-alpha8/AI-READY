@@ -108,6 +108,15 @@ class ExplanationTests(SimpleTestCase):
             'no "where we looked" for a gap': (self.partial, lambda e: e.update(looked='')),
             'a next step where all is shown': (self.full, lambda e: e.update(next_step='Do more.')),
             'machinery': (self.partial, lambda e: e.update(text='AIQIF-C1.1.F2 is partly met.')),
+            # Found in the audit (19 Nov): each of these passed the first version of the checks.
+            'a small number licensed only by a page number': (
+                self.full, lambda e: e.update(found='Your Strategic Plan records 3 AI workshops.')),
+            'a number in words': (self.full, lambda e: e.update(found='Your Strategic Plan covers forty programmes.')),
+            'scope widened beyond the quotation': (
+                self.partial, lambda e: e.update(text='This is partly shown, and AI is used in every department.')),
+            'single curly quotes': (self.full, lambda e: e.update(found='Your plan says \u2018AI in every classroom\u2019.')),
+            'a percentage': (self.partial, lambda e: e.update(text='This is about half shown, around 50%.')),
+            'credit that names nothing': (self.full, lambda e: e.update(found='Good work here.')),
         }
         nothing = next(r['condition_id'] for r in self.area['indicators'][0]['requirements']
                        if r['result'] == 'not yet shown')
@@ -117,6 +126,38 @@ class ExplanationTests(SimpleTestCase):
                 passed, errors = explanations.validate(self.area, answer)
                 self.assertTrue(errors, name)
                 self.assertNotIn(cid or nothing, passed['requirements'])
+
+    def test_summaries_are_checked_too(self):
+        code = self.area['indicators'][0]['code']
+        for name, change in {'an overclaim': {'text': 'You fully meet this.'},
+                             'an invented quotation': {'found': 'Your plan promises "AI for all students".'},
+                             'a number not in its counts': {'text': '3 of these are in place.'},
+                             'widened scope': {'text': 'AI runs across the college.'}}.items():
+            with self.subTest(name):
+                answer = writer(self.area)
+                answer['indicators'][0].update(change)
+                passed, errors = explanations.validate(self.area, answer)
+                self.assertNotIn(code, passed['indicators'])
+        answer = writer(self.area)
+        answer['indicators'][0]['text'] = '1 of the 6 requirements is shown in full, and 1 is partly shown.'
+        passed, errors = explanations.validate(self.area, answer)
+        self.assertIn(code, passed['indicators'], errors)   # true counts are allowed
+        answer = writer(self.area, spoil=lambda e, r: e.update(found='Your Strategic Plan, page 3, shows this.')
+                        if e['condition_id'] == self.full else None)
+        self.assertIn(self.full, explanations.validate(self.area, answer)[0]['requirements'])   # a real page is fine
+
+    def test_the_result_follows_the_credit_whatever_else_happened(self):
+        target = copy.deepcopy(self.target)
+        record = next(r for r in target['records'] if r['condition_id'] == self.partial)
+        record['state'] = 'conflicting'   # sources disagree, but part of it is credited
+        target['merge'] = [{'condition_id': self.partial, 'decision': 'lowered'}]
+        requirement = explanations.area_input('AIQIF-C1', target)['indicators'][0]['requirements'][1]
+        self.assertEqual(requirement['result'], 'partly shown')
+        self.assertIn('disagree', requirement['note'])
+        self.assertIn('contradicts', requirement['changed_after_follow_up'])
+        fallback = explanations.fallback_requirement(requirement, explanations.area_input('AIQIF-C1', target)['indicators'][0])
+        self.assertIn('shows otherwise', fallback['text'])
+        self.assertTrue(fallback['found'])   # what is still credited is still said
 
     def test_quoting_exact_words_from_a_quotation_passes(self):
         answer = writer(self.area, spoil=lambda e, r: e.update(found='Your plan sets "an AI-enabled campus" as a goal.')

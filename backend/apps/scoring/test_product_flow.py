@@ -18,6 +18,7 @@ from apps.extraction.models import AIUsage
 from apps.extraction.services.openai_client import OpenAIExtractionService
 
 from .capability import second_layer_jobs as jobs
+from .capability import explanations
 from .capability.engine import release
 from .models import (CapabilityExecution, CapabilityRun, DepthJudgment, DepthQuestion, DepthResponse,
                      RecommendationExecution, SecondLayerBudget, SecondLayerJob)
@@ -329,7 +330,7 @@ class ProductFlowTests(APITestCase):
         html = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'leadership', 'file': 'html'})
         self.assertIn('Good foundations. A solid start.', html.content.decode())   # the area explanation
         self.assertIn('You have made a start here.', html.content.decode())   # a key indicator's
-        self.assertEqual(report['explanations_version'], 'explanations-0.1')
+        self.assertEqual(report['explanations_version'], explanations.VERSION)
         # Stored beside the run: the completed event, and so every integrity hash, is unchanged.
         event = provisional.events.get(state='completed')
         self.assertNotIn('explanation', json.dumps(event.payload['records'][0]))
