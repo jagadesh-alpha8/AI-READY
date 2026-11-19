@@ -246,8 +246,101 @@ class CreditPathTests(SimpleTestCase):
         self.assertEqual([p['credited_as'] for p in merged[0]['parts']], ['full', 'full', 'not_found'])
 
     def test_contradictions_are_listed_for_review(self):
-        audit = [{'condition_id': 'X', 'contradicted_parts': ['a']}, {'condition_id': 'Y', 'contradicted_parts': []}]
-        self.assertEqual(layer2.contradictions(audit), [{'condition_id': 'X', 'parts': ['a']}])
+        audit = [{'condition_id': 'X', 'contradicted_parts': ['a']}, {'condition_id': 'Y', 'contradicted_parts': []},
+                 {'condition_id': 'Z', 'contradicted_parts': ['a'], 'lowered_parts': ['a']}]
+        self.assertEqual(layer2.contradictions(audit), [{'condition_id': 'X', 'parts': ['a'], 'held': False}])
+        self.assertEqual(layer2.lowerings([{**audit[2], 'previous_credit': 1, 'final_credit': 0.5}]),
+                         [{'condition_id': 'Z', 'parts': ['a'], 'previous_credit': 1, 'final_credit': 0.5}])
+
+    # ---------------------------------------------------------------- depth decision 1: answers can lower a score
+
+    OLD = {'source_id': 'page-7', 'quote': 'completed the Certificate Programme'}
+    NEW = {'source_id': 'att-1', 'quote': NEW_QUOTE}
+
+    @staticmethod
+    def two_pass(pid, first, second, cites=(), second_cites=None, credit=None):
+        value = {'full': 1.0, 'related': 0.25}
+        return {'id': pid, 'finding': first, 'credited_as': first, 'second_finding': second,
+                'second_credited_as': second, 'citations': list(cites),
+                'second_citations': list(cites if second_cites is None else second_cites),
+                'part_credit': credit if credit is not None else (value.get(first, 0) + value.get(second, 0)) / 2}
+
+    def credited(self, cid):
+        return {'condition_id': cid, 'credit': 1.0, 'state': 'met',
+                'parts': [self.two_pass('s', 'full', 'full', [self.OLD]), self.two_pass('a', 'full', 'full', [self.OLD])]}
+
+    def contradicted(self, cid, part='a', first='contradicted', second='contradicted', cites=None):
+        cites = [self.NEW] if cites is None else cites
+        parts = [self.two_pass('s', 'full', 'full', [self.OLD]), self.two_pass('a', 'full', 'full', [self.OLD])]
+        index = 0 if part == 's' else 1
+        parts[index] = self.two_pass(part, first, second, cites)
+        return {'condition_id': cid, 'credit': 0.0, 'state': 'not_met', 'parts': parts}
+
+    def test_a_contradiction_both_passes_cite_from_new_evidence_lowers_the_credit(self):
+        cid = 'X-1.1.A3'
+        packets = {'X-1.1': self.packet}
+        merged, audit = layer2.merge_new_evidence([self.credited(cid)], [self.contradicted(cid)], packets,
+                                                  lowering='apply')
+        self.assertEqual((audit[0]['decision'], audit[0]['lowered_parts']), ('lowered', ['a']))
+        self.assertLess(merged[0]['credit'], 1.0)
+        self.assertEqual(merged[0]['state'], 'not_met')
+        self.assertIn(self.NEW, merged[0]['citations'])   # kept for the not-met record, as the part judge does
+        self.assertEqual(audit[0]['contradicting_quotes'], [{'part': 'a', 'source_id': 'att-1', 'quote': NEW_QUOTE}])
+        self.assertEqual(layer2.lowerings(audit)[0]['condition_id'], cid)
+        self.assertEqual(layer2.contradictions(audit), [])
+        # The subject contradicted: the gate takes the whole requirement to 0.
+        merged, audit = layer2.merge_new_evidence([self.credited(cid)], [self.contradicted(cid, part='s')], packets,
+                                                  lowering='apply')
+        self.assertEqual((audit[0]['decision'], merged[0]['credit']), ('lowered', 0))
+
+    def test_nothing_is_lowered_without_every_guard(self):
+        cid = 'X-1.1.A4'
+        packets = {'X-1.1': self.packet}
+        provisional = [self.credited(cid)]
+        cases = {
+            'lowering off (flag)': ([self.contradicted(cid)], 'flag'),
+            'one pass only': ([self.contradicted(cid, second='full')], 'apply'),
+            'contradiction cites the packet': ([self.contradicted(cid, cites=[self.OLD])], 'apply'),
+        }
+        tie_broken = self.contradicted(cid)
+        for p in tie_broken['parts']:   # a median-of-three record: single-pass parts, no second finding
+            for k in ('second_finding', 'second_credited_as', 'second_citations', 'part_credit'):
+                p.pop(k)
+        cases['a tie-broken record'] = ([tie_broken], 'apply')
+        less = self.contradicted(cid, first='related', second='related', cites=[self.NEW])
+        cases['a re-judgment that only finds less'] = ([less], 'apply')
+        for name, (rejudged, lowering) in cases.items():
+            with self.subTest(name):
+                merged, audit = layer2.merge_new_evidence(provisional, rejudged, packets, lowering=lowering)
+                self.assertEqual((merged[0]['credit'], audit[0]['lowered_parts']), (1.0, []))
+        # A part with no credit to lose is not lowered (nothing to take away).
+        uncredited = {**self.credited(cid), 'credit': 0.5,
+                      'parts': [self.two_pass('s', 'full', 'full', [self.OLD]), self.two_pass('a', 'not_found', 'not_found')]}
+        self.assertEqual(layer2.lowering_candidates([uncredited], [self.contradicted(cid)], packets), {})
+        with self.assertRaises(ValueError):
+            layer2.merge_new_evidence(provisional, [], packets, lowering='always')
+
+    def test_one_document_lowering_many_requirements_is_held_for_review(self):
+        cids = [f'X-1.1.B{n}' for n in range(1, 5)]
+        packets = {'X-1.1': self.packet}
+        provisional = [self.credited(c) for c in cids]
+        rejudged = [self.contradicted(c) for c in cids]
+        documents = {'att-1': 'doc-1'}
+        merged, audit = layer2.merge_new_evidence(provisional, rejudged, packets, lowering='apply', max_per_document=3,
+                                                  source_documents=documents)
+        self.assertEqual({r['decision'] for r in audit}, {'contradicted, lowering held for review'})
+        self.assertEqual([r['credit'] for r in merged], [1.0] * 4)
+        self.assertEqual({r['held'] for r in layer2.contradictions(audit)}, {True})
+        merged, audit = layer2.merge_new_evidence(provisional, rejudged, packets, lowering='apply', max_per_document=4,
+                                                  source_documents=documents)
+        self.assertEqual({r['decision'] for r in audit}, {'lowered'})
+
+    def test_targets_include_fully_credited_requirements_when_lowering_is_on(self):
+        records = [record(self.ids[0], 1), record(self.ids[1], 0.25)]
+        route = [{'indicator': self.code, 'conditions': None, 'windows': [self.window]}]
+        self.assertNotIn(self.ids[0], layer2.credit_targets(records, self.rubric, route)[self.code]['conditions'])
+        self.assertIn(self.ids[0], layer2.credit_targets(records, self.rubric, route,
+                                                         include_full=True)[self.code]['conditions'])
 
     def test_skip_flag_from_forms(self):
         self.assertEqual([flag(v) for v in (True, 'true', '1', 'on', False, 'false', '0', '', None)],
@@ -621,6 +714,24 @@ class AuditFixTests(SimpleTestCase):
                                      targets)
         layer2.check_export_rule([{**shared, 'credit': 0.0}],
                                  [{'indicator': self.code, 'judgment': part_judgment.metadata()}], targets)
+
+    def test_the_whole_export_check_covers_every_indicator_and_requirement(self):
+        # Question planning and additional evidence check the whole run (targets None), not only what is re-judged.
+        old_rule = {**part_judgment.metadata(), 'related_credit': 0.5}
+        current = part_judgment.metadata()
+        with self.assertRaises(Layer2Error):
+            layer2.check_export_rule([], [{'indicator': 'any-other-indicator', 'judgment': old_rule}])
+        with self.assertRaises(Layer2Error):
+            layer2.check_export_rule([], [{'judgment': old_rule}])   # a trace without an indicator code
+        shared = {'condition_id': self.cid, 'credit': 0.5,
+                  'parts': [two_pass(self.parts[0], 'full')] + [two_pass(p, 'not_found') for p in self.parts[1:]]}
+        with self.assertRaises(Layer2Error):
+            layer2.check_export_rule([shared], [{'indicator': self.code, 'judgment': current}])
+        # Today's credit passes; a withheld requirement and one without parts are not recomputed.
+        layer2.check_export_rule([{**shared, 'credit': 0.0}, {**shared, 'condition_id': 'withheld',
+                                                               'validation_issue': 'x'},
+                                  {'condition_id': 'strict', 'credit': 1.0}],
+                                 [{'indicator': self.code, 'judgment': current}])
 
     def test_credited_evidence_and_anchored_query(self):
         record = {'citations': [self.old]}

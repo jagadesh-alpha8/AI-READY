@@ -184,6 +184,33 @@ class SecondLayerJobTests(APITestCase):
         with self.assertRaises(Exception):
             jobs.start(run=final, operation='questions', user=None, key='final')
 
+    def test_a_run_scored_under_an_earlier_credit_rule_is_refused_before_anyone_answers(self):
+        # f5919156's case: related evidence at 0.5. Re-judging refuses such a run, so planning questions and sending
+        # additional evidence refuse it first: no job is queued, no model call made, nothing saved.
+        from .capability import part_judgment
+        from .capability.depth_service import DepthError, create_questions
+        from .capability.layer2_service import OLD_RULE
+        old_rule = {**part_judgment.metadata(), 'related_credit': 0.5}
+        code = self.rubric['indicators'][0]['code']
+        payload = self.run.events.get(state='completed').payload
+        CapabilityRunEvent.objects.create(run=self.run, state='completed',   # events are immutable: export reads the last
+                                          payload={**payload, 'traces': [{'indicator': code, 'judgment': old_rule}]})
+        refused = self.post_job('questions', expect=400)
+        self.assertIn(OLD_RULE, json.dumps(refused.data))
+        self.assertFalse(SecondLayerJob.objects.exists())
+        with self.assertRaisesMessage(DepthError, OLD_RULE):    # the depth_questions command's path
+            create_questions(export_for_run(str(self.run.pk)), MagicMock(), commit=True)
+        additional = self.client.post(f'{self.url}/additional-evidence',
+                                      {'document_ids': [str(self.doc.pk)], 'note': 'Our AI lab register',
+                                       'picked': [code]}, format='json')
+        self.assertEqual(additional.status_code, 400, additional.data)
+        self.assertIn(OLD_RULE, additional.data['detail'])
+        self.assertEqual((self.calls(), DepthQuestion.objects.count(), AdditionalEvidence.objects.count()), (0, 0, 0))
+        # Scored under today's rule, the same run plans its questions.
+        CapabilityRunEvent.objects.create(run=self.run, state='completed', payload={
+            **payload, 'traces': [{'indicator': code, 'judgment': part_judgment.metadata()}]})
+        self.assertEqual(self.execute(self.post_job('questions')).status, 'completed')
+
     def test_a_job_whose_worker_was_lost_is_expired_when_the_next_starts(self):
         job = self.post_job('questions')
         SecondLayerJob.objects.filter(pk=job.pk).update(status='running', created_at=timezone.now() - timedelta(days=2),

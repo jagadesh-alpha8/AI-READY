@@ -66,8 +66,13 @@ class Command(BaseCommand):
             if row.get('issue'):
                 detail += f"; {row['issue']}"
             self.stdout.write(f"  {row['condition_id']}: {row['decision']} ({detail})")
+        for row in result.get('lowerings') or []:
+            self.stdout.write(f"  Lowered: new evidence contradicts {row['condition_id']} (parts {', '.join(row['parts'])}; "
+                              f"credit {row['previous_credit']} -> {row['final_credit']}).")
         for row in result['contradictions']:
-            self.stdout.write(f"  For review, not applied: new evidence contradicts {row['condition_id']} "
+            why = ('held: one document would lower too many requirements' if row.get('held')
+                   else 'not applied')
+            self.stdout.write(f"  For review, {why}: new evidence contradicts {row['condition_id']} "
                               f"(parts {', '.join(row['parts'])}).")
         self.stdout.write(f"Score: {result['provisional_score']} provisional, {result['final_score']} after re-judging.")
         if final_run is not None:

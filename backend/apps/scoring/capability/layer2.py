@@ -435,14 +435,16 @@ def add_windows(target, windows, kind):
     target['windows'] = [w for _, w in target['ranked']]
 
 
-def credit_targets(records, rubric, routes):
+def credit_targets(records, rubric, routes, *, include_full=False):
     """{indicator code: {'conditions', 'windows', 'documents'}} to re-judge.
 
     routes: [{'indicator', 'conditions' (list, or None for every requirement of the indicator), 'windows', 'kind'
     ('missing', 'additional' or 'depth'), 'documents' (ids sent with it)}] from answers to "nothing found" questions,
-    supported depth answers and routed additional evidence. Only requirements below full credit are re-judged (credit
-    can only rise). A route with no windows still counts when it brought documents: their extraction-tagged pages may
-    join the packet (rejudge_credit); a target left with no windows at all is dropped there."""
+    supported depth answers and routed additional evidence. Only requirements below full credit are re-judged, unless
+    include_full (lowering on, depth decision 1): then a fully credited requirement the route names is re-judged too,
+    since only a contradiction can change it (merge_new_evidence). A route with no windows still counts when it
+    brought documents: their extraction-tagged pages may join the packet (rejudge_credit); a target left with no
+    windows at all is dropped there."""
     credit = {r['condition_id']: r.get('credit') or 0 for r in records}
     by_code = {i['code']: i for i in rubric['indicators']}
     targets = {}
@@ -454,7 +456,7 @@ def credit_targets(records, rubric, routes):
             continue
         allowed = route.get('conditions')
         ids = [c['id'] for c in by_code[code]['conditions']
-               if (allowed is None or c['id'] in allowed) and credit.get(c['id'], 0) < 1]
+               if (allowed is None or c['id'] in allowed) and (include_full or credit.get(c['id'], 0) < 1)]
         if not ids:
             continue
         entry = targets.setdefault(code, {'conditions': [], 'windows': [], 'documents': []})
@@ -579,7 +581,61 @@ def indicator_of(rubric):
     return {c['id']: i['code'] for i in rubric['indicators'] for c in i['conditions']}
 
 
-def merge_new_evidence(provisional, rejudged, packets, *, rubric=None):
+#: Depth decision 1 (Harsha, 12 Nov 2026): answers can lower a score. merge_new_evidence's `lowering`.
+LOWERING = ('apply', 'flag')
+
+
+def _contradicting(part, packet):
+    """True when both judging passes found the part contradicted, each citing a passage new to the provisional packet:
+    what the institution sent, not text the provisional judge already read. A tie-broken record has no second
+    finding on its parts (the passes disagreed), so it never qualifies."""
+    return (part.get('finding') == 'contradicted' and part.get('second_finding') == 'contradicted'
+            and any(is_new(c, packet) for c in part.get('citations') or [])
+            and any(is_new(c, packet) for c in part.get('second_citations') or []))
+
+
+def lowering_candidates(provisional, rejudged, packets, *, rubric=None, source_documents=None):
+    """{condition id: {'parts', 'documents', 'quotes'}}: credited parts a re-judgment contradicts on new evidence
+    (_contradicting), with the documents the contradicting quotes come from. source_documents: {source id: document
+    id} for the new pages; a quote from a source not in it counts under its source id."""
+    by_id = {r['condition_id']: r for r in provisional}
+    codes = indicator_of(rubric) if rubric is not None else {}
+    source_documents = source_documents or {}
+    found = {}
+    for twin in rejudged:
+        cid = twin['condition_id']
+        record = by_id.get(cid)
+        if record is None or _failed(twin):
+            continue
+        packet = packets.get(codes.get(cid) or cid.rsplit('.', 1)[0], [])
+        old_parts = {p['id']: p for p in record.get('parts') or []}
+        parts, documents, quotes = [], set(), []
+        for part in twin.get('parts') or []:
+            if _part_credit(old_parts.get(part['id'])) > 0 and _contradicting(part, packet):
+                parts.append(part['id'])
+                for c in _part_citations(part):
+                    if is_new(c, packet):
+                        documents.add(source_documents.get(c.get('source_id'), c.get('source_id')))
+                        entry = {'part': part['id'], 'source_id': c.get('source_id'), 'quote': c.get('quote')}
+                        if entry not in quotes:
+                            quotes.append(entry)
+        if parts:
+            found[cid] = {'parts': parts, 'documents': sorted(d for d in documents if d), 'quotes': quotes}
+    return found
+
+
+def held_lowerings(candidates, max_per_document):
+    """Requirements whose lowering is held for review: one document would lower more than max_per_document
+    requirements, which is more likely a misreading (or a document about something else) than a real contradiction."""
+    counts = {}
+    for found in candidates.values():
+        for document in found['documents']:
+            counts[document] = counts.get(document, 0) + 1
+    return {cid for cid, found in candidates.items() if any(counts[d] > max_per_document for d in found['documents'])}
+
+
+def merge_new_evidence(provisional, rejudged, packets, *, rubric=None, lowering='flag', max_per_document=3,
+                       source_documents=None):
     """(records, audit). packets: {indicator code: provisional packet}.
 
     Works part by part. A part takes its re-judged result only when its credit rose AND it cites a passage that was
@@ -588,11 +644,22 @@ def merge_new_evidence(provisional, rejudged, packets, *, rubric=None):
     other parts that rose may take their re-judged result even when they cite the packet: old text the judge could
     not credit without the subject becomes evidence once the subject is shown ('unlocked_parts'). Every other part
     keeps its provisional result. The condition's credit is then recomputed from those parts (gates within each
-    pass), and the record is replaced only when that credit is higher. A part the second judgment found contradicted
-    is flagged for review and changes nothing (whether new evidence may withdraw credit is depth decision 1, still
-    open). A requirement whose re-judgment failed keeps its provisional record and is reported as not re-judged."""
+    pass), and the record is replaced only when that credit is higher.
+
+    Lowering (depth decision 1: answers can lower a score). With lowering='apply', a credited part that both passes
+    found contradicted, each citing a passage the institution sent (lowering_candidates), takes its contradicted
+    result, and the record is replaced when that lowers its credit ('lowered'). If one document would lower more than
+    max_per_document requirements, none of its lowerings are applied: they are held for review (held_lowerings).
+    Every other contradiction, and every contradiction with lowering='flag', is flagged for review and changes
+    nothing. Noise cannot lower a score: a re-judgment that merely finds less than before keeps the provisional result.
+    A requirement whose re-judgment failed keeps its provisional record and is reported as not re-judged."""
+    if lowering not in LOWERING:
+        raise ValueError(f'lowering must be one of {", ".join(LOWERING)}.')
     second = {r['condition_id']: r for r in rejudged}
     codes = indicator_of(rubric) if rubric is not None else {}
+    candidates = (lowering_candidates(provisional, rejudged, packets, rubric=rubric, source_documents=source_documents)
+                  if lowering == 'apply' else {})
+    held = held_lowerings(candidates, max_per_document)
     records, audit = [], []
     for record in provisional:
         cid = record['condition_id']
@@ -605,6 +672,7 @@ def merge_new_evidence(provisional, rejudged, packets, *, rubric=None):
             row = {'condition_id': cid, 'decision': 'not re-judged (the re-judgment failed)',
                    'previous_credit': old_credit, 'second_credit': None, 'final_credit': old_credit,
                    'new_evidence_parts': [], 'unlocked_parts': [], 'reverted_parts': [], 'contradicted_parts': [],
+                   'lowered_parts': [], 'lowering_held': False,
                    'issue': twin.get('validation_issue') or twin.get('reason') or ''}
             audit.append(row)
             records.append({**record, 'second_layer': {'version': VERSION, **{k: v for k, v in row.items()
@@ -634,10 +702,20 @@ def merge_new_evidence(provisional, rejudged, packets, *, rubric=None):
                               {'id': pid, 'finding': 'not_found', 'credited_as': 'not_found', 'citations': []})
         contradicted = [p['id'] for p in twin_parts if p.get('finding') == 'contradicted'
                         and (old_parts.get(p['id']) or {}).get('finding') != 'contradicted']
-        new_credit = _recredit(chosen, cid) if taken else old_credit
-        take = bool(taken) and new_credit > old_credit
-        if take:
+        lowered = [] if cid in held else (candidates.get(cid) or {}).get('parts', [])
+        if lowered:
+            by_part = {p['id']: p for p in twin_parts}
+            chosen = [by_part[p['id']] if p['id'] in lowered else p for p in chosen]
+        new_credit = _recredit(chosen, cid) if (taken or lowered) else old_credit
+        take = (bool(taken) and new_credit > old_credit) or (bool(lowered) and new_credit < old_credit)
+        if take and new_credit < old_credit:
+            decision = 'lowered'
+        elif take:
             decision = 'replaced'
+        elif cid in held:
+            decision = 'contradicted, lowering held for review'
+        elif lowered:
+            decision = 'contradicted, no change in credit'
         elif taken:
             decision = 'new evidence, no rise in credit'
         elif (twin.get('credit') or 0) > old_credit:
@@ -647,14 +725,19 @@ def merge_new_evidence(provisional, rejudged, packets, *, rubric=None):
         row = {'condition_id': cid, 'decision': decision, 'previous_credit': old_credit,
                'second_credit': twin.get('credit') or 0, 'final_credit': new_credit if take else old_credit,
                'new_evidence_parts': taken, 'unlocked_parts': unlocked if take else [],
-               'reverted_parts': reverted, 'contradicted_parts': contradicted}
+               'reverted_parts': reverted, 'contradicted_parts': contradicted,
+               'lowered_parts': lowered if take else [], 'lowering_held': cid in held}
+        if cid in candidates:
+            # What the institution sent that contradicts the credit: for the report's explanation and for review. The
+            # merge audit travels with the final run (inputs.second_layer.merge).
+            row['contradicting_quotes'] = candidates[cid]['quotes']
         audit.append(row)
         marker = {'version': VERSION, **{k: v for k, v in row.items() if k != 'condition_id'}}
         if take:
             marker['rejudge_pass_credits'] = twin.get('pass_credits')
             full = all(p.get('credited_as') == 'full' and p.get('second_credited_as', 'full') == 'full' for p in chosen)
             citations = []
-            for p in chosen:
+            for p in chosen:   # a contradicted part's quotes stay, as the part judge keeps them for a not-met record
                 citations.extend(c for c in p.get('citations') or [] if c not in citations)
             # The re-judge's per-pass credits and agreement note describe its own passes, not this merged credit
             # (reverted parts keep their provisional result), so they are kept in the marker, not on the record,
@@ -669,26 +752,29 @@ def merge_new_evidence(provisional, rejudged, packets, *, rubric=None):
     return records, audit
 
 
-def check_export_rule(records, traces, targets):
+def check_export_rule(records, traces, targets=None):
     """Refuse an export scored under a different part rule than this worker's. Re-judged requirements are scored
     under today's rule while copied ones keep the export's, so mixing rules (f5919156 was scored with related evidence
     at 0.5 and the subject as a share) would put two scales in one score. Checks the traces' part metadata and that
-    each target requirement's recorded credit is what today's rule gives its parts."""
+    each target requirement's recorded credit is what today's rule gives its parts. With targets None, checks every
+    trace and requirement: question planning and additional evidence use that, so an institution is not asked for
+    answers or documents on a run that could never be re-judged."""
     from .part_judgment import metadata
     current = metadata()
-    wanted = {code for code in targets}
+    wanted = None if targets is None else {code for code in targets}
     for trace in traces:
-        if trace.get('indicator') not in wanted:
+        if wanted is not None and trace.get('indicator') not in wanted:
             continue
         recorded = trace.get('judgment') or {}
         different = [k for k in ('parts_version', 'parts_hash', 'related_credit') if recorded.get(k) != current[k]]
         if different:
-            raise Layer2Error(f"The export for {trace['indicator']} was scored with a different part rule "
-                              f"({', '.join(different)} differ from this worker). Use an export from a run on the "
-                              'current rule.')
-    ids = {cid for t in targets.values() for cid in t['conditions']}
+            raise Layer2Error(f"The export for {trace.get('indicator', 'a key indicator')} was scored with a different "
+                              f"part rule ({', '.join(different)} differ from this worker). Use an export from a run "
+                              'on the current rule.')
+    ids = None if targets is None else {cid for t in targets.values() for cid in t['conditions']}
     for record in records:
-        if record['condition_id'] not in ids or record.get('validation_issue') or not record.get('parts'):
+        if ((ids is not None and record.get('condition_id') not in ids) or record.get('validation_issue')
+                or not record.get('parts')):
             continue
         if abs(_recredit(record['parts'], record['condition_id']) - (record.get('credit') or 0)) > 1e-3:
             raise Layer2Error(f"{record['condition_id']}: its recorded credit is not what the current part rule gives "
@@ -696,9 +782,20 @@ def check_export_rule(records, traces, targets):
 
 
 def contradictions(audit):
-    """The re-judged requirements where new evidence contradicted a part: for review, never applied."""
-    return [{'condition_id': row['condition_id'], 'parts': row['contradicted_parts']}
-            for row in audit if row['contradicted_parts']]
+    """The re-judged requirements where new evidence contradicted a part and nothing was lowered for it: for review.
+    held: a lowering held back by the per-document cap."""
+    rows = []
+    for row in audit:
+        parts = [p for p in row['contradicted_parts'] if p not in row.get('lowered_parts', [])]
+        if parts:
+            rows.append({'condition_id': row['condition_id'], 'parts': parts, 'held': bool(row.get('lowering_held'))})
+    return rows
+
+
+def lowerings(audit):
+    """The requirements whose credit fell because what the institution sent contradicts it."""
+    return [{'condition_id': row['condition_id'], 'parts': row['lowered_parts'], 'previous_credit': row['previous_credit'],
+             'final_credit': row['final_credit']} for row in audit if row.get('lowered_parts')]
 
 
 def final_score(records, rubric):

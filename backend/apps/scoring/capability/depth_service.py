@@ -48,7 +48,13 @@ def create_questions(export, model, *, commit=False, replace=False, max_calls=No
     """Plan the run's questions (model calls for depth questions) and, with commit, save them. guard, when given, is
     called inside the saving transaction before anything is written (a background job uses it to save nothing once it
     has been cancelled); the refusals are checked again there, since the planning calls take time."""
+    from .layer2 import Layer2Error
+    from .layer2_service import refuse_old_rule
     run_ref, rubric, records = _records(export)
+    try:
+        refuse_old_rule(export)   # its answers could never be re-judged into a final result
+    except Layer2Error as exc:
+        raise DepthError(str(exc))
     existing = DepthQuestion.objects.filter(run_ref=run_ref)
     if existing.exists() and not replace:
         raise DepthError(f'Run {run_ref} already has questions; pass replace to plan them again.')

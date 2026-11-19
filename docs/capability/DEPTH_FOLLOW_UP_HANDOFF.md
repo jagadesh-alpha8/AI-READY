@@ -64,7 +64,7 @@ real spread. Faculty AI literacy (AIQIF-C4.1) is the worked example from the mee
 
 | Decision | Setting | Default | Choices |
 | --- | --- | --- | --- |
-| 1. Can an answer lower a score? | `DEPTH_ANSWERS_CAN_LOWER` | `on_contradiction` (recommended) | `on_contradiction`: only an answer that contradicts the credited evidence, and then the credit is withdrawn · `never` |
+| 1. Can an answer lower a score? **Decided (Harsha, 12 Nov): yes.** | `DEPTH_ANSWERS_CAN_LOWER` (the depth level only) · `SECOND_LAYER_LOWERING` (the score) | `on_contradiction` · `apply` | Depth: `on_contradiction` (the level becomes withdrawn) · `never`. Score: `apply` (a document the institution sent that contradicts a credited part lowers it, with guards; see SECOND_LAYER_HANDOFF.md) · `flag`. How far "don't know" lowers is still Harsha's call. |
 | 2. How much credit does depth carry? | `DEPTH_CREDIT_MODE`, `DEPTH_CREDIT_SHARE` | unset: depth changes no credit | `separate`: depth index only · `reserve` + share s: evidenced keeps 1 − s of a condition's credit, substantiated 1 − s/2, strong all of it, so provisional scores fall until colleges answer |
 | 3. What is an answer without a document worth? **Decided (Harsha, 12 Nov): nothing.** | `DEPTH_UNSUPPORTED_ANSWERS` | `ignore`: typed answers without a document never reach the judge; a condition with nothing else stays evidenced without a model call | `ignore` · `cap_one_level` · `same` (comparison runs only) |
 | 4. Who approves past cases? | admin permission | anyone with admin access to the model | to be decided by Harsha and Vijay |

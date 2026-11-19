@@ -1,6 +1,6 @@
 """Background jobs for the second assessment layer, metered against the provisional run's second-layer budget.
 
-Four operations, one active job per provisional run at a time (they read and write the same questions, responses
+Five operations, one active job per provisional run at a time (they read and write the same questions, responses
 and credit):
 
     questions  plan the follow-up questions (depth_service.create_questions); one model call per credited condition tried
@@ -10,6 +10,9 @@ and credit):
     rejudge    re-judge credit on the provisional packets plus the new passages and publish the final result as a run
                refining the provisional one (layer2_service.rejudge_credit, publish_final); options.publish=false
                only reports what would change
+    explain    write the score explanations for the provisional run, or with options.final for its final result
+               (explanations.explain; one call per area, at most two); started on its own after a final result is
+               published when SECOND_LAYER_EXPLAIN_AFTER_PUBLISH is on
 
 Every model call goes through SecondLayerMeter: it is reserved against the job (which must still be running) and
 against the run's SecondLayerBudget, whose limits are frozen when the first job starts (SECOND_LAYER_MAX_HTTP_CALLS
@@ -106,7 +109,7 @@ def clean_options(operation, options):
     options = options or {}
     if not isinstance(options, dict):
         raise ValidationError({'options': 'Must be an object.'})
-    allowed = {'questions': {'replace'}, 'rejudge': {'publish'}}.get(operation, set())
+    allowed = {'questions': {'replace'}, 'rejudge': {'publish'}, 'explain': {'final'}}.get(operation, set())
     unknown = set(options) - allowed
     if unknown:
         raise ValidationError({'options': f'Unknown for {operation}: {", ".join(sorted(unknown))}.'})
@@ -119,7 +122,20 @@ def clean_options(operation, options):
         out.setdefault('publish', True)
     if operation == 'questions':
         out.setdefault('replace', False)
+    if operation == 'explain':
+        out.setdefault('final', False)
     return out
+
+
+def explain_target(run, options):
+    """The run an explain job writes for: the provisional run, or its published final result."""
+    if not options.get('final'):
+        return run
+    from .layer2_service import final_run_id
+    final = final_run_id(str(run.pk))
+    if final is None:
+        raise ValidationError('This assessment has no published final result yet.')
+    return CapabilityRun.objects.get(pk=final)
 
 
 def preflight(run, operation, options):
@@ -132,10 +148,20 @@ def preflight(run, operation, options):
                                   'again.')
         if options['replace'] and DepthResponse.objects.filter(question__run_ref=run_ref).exists():
             raise ValidationError('The institution has answered some questions; they can no longer be replaced.')
+        from .layer2 import Layer2Error
+        from .layer2_service import export_for_run, refuse_old_rule
+        try:
+            refuse_old_rule(export_for_run(run_ref))
+        except Layer2Error as exc:
+            raise ValidationError(str(exc))
     elif operation == 'depth' and not questions.exists():
         raise ValidationError('This assessment has no follow-up questions yet.')
     elif operation == 'checks' and not waiting(run_ref):
         raise ValidationError('Nothing is waiting for a check.')
+    elif operation == 'explain':
+        target = explain_target(run, options)
+        if not target.events.filter(state='completed', payload__result__isnull=False).exists():
+            raise ValidationError('This assessment has not completed.')
 
 
 def waiting(run_ref):
@@ -357,22 +383,50 @@ def run_rejudge(job, meter):
         'strict_errors': True, 'recover_provider_errors': True,
         'concurrency': job.policy.get('indicator_concurrency', 1)})
     summary = {k: result.get(k) for k in ('provisional_score', 'final_score', 'targets', 'merge', 'contradictions',
-                                          'routes', 'note')}
+                                          'lowerings', 'routes', 'note')}
     final = None
     with transaction.atomic():
         commit_point(job.pk, lock_run=True)
+        explain_next = None
         if job.options.get('publish', True) and result.get('targets'):
             try:
                 final = publish_final(result, service=meter, user=job.requested_by)
             except ValueError as exc:   # storage.publish's own refusals (a citation or excerpt that does not match)
                 raise Layer2Error(f'The final result could not be published: {exc}')
             summary['note'] = 'Published as the final result.'
+            if enabled() and settings.SECOND_LAYER_EXPLAIN_AFTER_PUBLISH:
+                options = {'final': True}
+                explain_next = SecondLayerJob.objects.create(
+                    run=job.run, operation='explain', options=options, idempotency_key=f'explain-final-{job.pk}',
+                    request_hash=digest({'run': str(job.run_id), 'operation': 'explain', 'options': options}),
+                    policy={**job.policy, 'stage': 'second_layer_explain'}, requested_by=job.requested_by)
+                summary['explain_job_id'] = str(explain_next.pk)
+                transaction.on_commit(lambda: dispatch(str(explain_next.pk), str(explain_next.task_id)))
         elif result.get('targets'):
             summary['note'] = 'Not published (options.publish was false).'
         record_result(job.pk, {**summary, 'final_run_id': str(final.pk) if final else None}, final_run=final)
 
 
-RUNNERS = {'questions': run_questions, 'checks': run_checks, 'depth': run_depth, 'rejudge': run_rejudge}
+def run_explain(job, meter):
+    from apps.scoring.models import CapabilityExplanation
+    from .explanations import build_target, explain
+    target_run = explain_target(job.run, job.options)
+    try:
+        target = build_target(target_run)
+    except ValueError as exc:
+        raise Layer2Error(str(exc))
+    written = explain(target, metered_model(meter))
+    with transaction.atomic():
+        commit_point(job.pk, lock_run=True)
+        CapabilityExplanation.objects.create(run=target_run, event_id=target['event_id'], version=written['version'],
+                                             model=meter.model, payload=written, job=job)
+        record_result(job.pk, {'run_id': str(target_run.pk), 'calls': written['calls'],
+                               'explained': len(written['requirements']), 'fallbacks': len(written['fallbacks']),
+                               'areas_with_problems': {a: len(e) for a, e in written['errors'].items()}})
+
+
+RUNNERS = {'questions': run_questions, 'checks': run_checks, 'depth': run_depth, 'rejudge': run_rejudge,
+           'explain': run_explain}
 
 
 @shared_task(acks_late=True, max_retries=0, reject_on_worker_lost=False)

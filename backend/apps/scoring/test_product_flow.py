@@ -18,6 +18,7 @@ from apps.extraction.models import AIUsage
 from apps.extraction.services.openai_client import OpenAIExtractionService
 
 from .capability import second_layer_jobs as jobs
+from .capability import explanations
 from .capability.engine import release
 from .models import (CapabilityExecution, CapabilityRun, DepthJudgment, DepthQuestion, DepthResponse,
                      RecommendationExecution, SecondLayerBudget, SecondLayerJob)
@@ -37,6 +38,9 @@ ATTACHMENT = (f'{NEW} Certificate register 2024-25: 85 of 120 faculty completed 
               'programme run with the state university; hours, provider accreditation and completion are recorded.')
 ADDITIONAL = (f'{NEW} Board minutes 2024-25: the college adopted an AI research ethics review procedure, with a named '
               'committee, approval records and an annual review of every AI research project.')
+CONTRA = 'CONTRADICTS'
+WITHDRAWN = (f'{CONTRA} Council resolution, June 2025: the AI policy and the programmes under it were withdrawn for the '
+             '2024-25 year; no AI teaching, research or administration ran under them after that date.')
 SETTINGS = dict(SECURE_SSL_REDIRECT=False, CAPABILITY_ASSESSMENT_ENABLED=True, CAPABILITY_JUDGMENT='parts',
                 CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_TIE_BREAK=True, CAPABILITY_MAX_HTTP_CALLS=108,
                 CAPABILITY_MAX_COST_USD='20', CAPABILITY_OUTPUT_TOKENS=3000, CAPABILITY_REQUEST_TIMEOUT_SECONDS=60,
@@ -70,6 +74,7 @@ class ProductFlowTests(APITestCase):
         self.sdk.chat.completions.create.side_effect = self.model
         self.schemas = []
         self.queued = []
+        self.contradict = set()   # requirements the stand-in finds contradicted by a CONTRA passage
 
     # ---------------------------------------------------------------- the stand-in model
 
@@ -87,10 +92,18 @@ class ProductFlowTests(APITestCase):
     def reply_capability_parts(self, payload):
         windows = [s for s in payload['sources'] if len(s['text']) > 60]
         new = [s for s in windows if NEW in s['text']]
+        against = [s for s in windows if CONTRA in s['text']]
         credited = payload['indicator']['code'] in self.credited
         rows = {}
         for condition in payload['indicator']['conditions']:
             findings = []
+            if against and condition['id'] in self.contradict:
+                findings = [{'part_id': part['id'], 'finding': 'contradicted',
+                             'citations': [{'source_id': against[0]['id'], 'quote': against[0]['text'][:80]}]}
+                            for part in condition['parts']]
+                rows[condition['id']] = {'reason': 'Stand-in: contradicted.', 'scope_supported': True,
+                                         'period_supported': True, 'findings': findings}
+                continue
             for part in condition['parts']:
                 cite = new[0] if new else (windows[0] if credited and windows else None)
                 findings.append({'part_id': part['id'], 'finding': 'full' if cite else 'not_found',
@@ -98,6 +111,26 @@ class ProductFlowTests(APITestCase):
             rows[condition['id']] = {'reason': 'Stand-in.', 'scope_supported': True, 'period_supported': True,
                                      'findings': findings}
         return {'conditions': rows}
+
+    def reply_score_explanations(self, payload):
+        # A careful writer: credit from the first quotation, gaps from what is missing, nothing else.
+        requirements, indicators = [], []
+        for indicator in payload['indicators']:
+            indicators.append({'code': indicator['code'], 'found': 'You have made a start here.',
+                               'text': 'Some requirements are shown; the rest are next steps.', 'looked': '',
+                               'next_step': 'See the next step under each requirement.'})
+            for r in indicator['requirements']:
+                credited = r['result'] in ('shown in full', 'partly shown') and r['quotations']
+                full = r['result'] == 'shown in full'
+                gap = not full and not r['result'].startswith('not judged')
+                requirements.append({
+                    'condition_id': r['condition_id'], 'quote_ids': ['Q1'] if credited else [],
+                    'found': f"Your {r['quotations'][0]['document']} records this." if credited else '',
+                    'text': 'This is shown.' if full else 'This is partly shown.' if credited else 'Not yet shown.',
+                    'looked': 'We read the documents listed for this area.' if gap else '',
+                    'next_step': 'Add a record that shows what is missing.' if gap else ''})
+        return {'area': {'found': 'Good foundations.', 'text': 'A solid start.', 'looked': '', 'next_step': ''},
+                'indicators': indicators, 'requirements': requirements}
 
     def reply_capability_advice(self, payload):
         return {'advice': [{'condition_id': a['id'], 'operation': a['operation'],
@@ -263,6 +296,7 @@ class ProductFlowTests(APITestCase):
         self.assertTrue(rose)
         self.assertTrue({c['id'] for i in release()['indicators'] if i['code'] == uncredited
                          for c in i['conditions']} & set(rose))
+        # Nothing here contradicts a credit, so nothing falls (lowering: test_a_document_that_contradicts_...).
         self.assertFalse([cid for cid, r in final_records.items()
                           if (r.get('credit') or 0) < (records[cid].get('credit') or 0)])
         stage = self.reports(final)['assessment_stage']
@@ -289,6 +323,103 @@ class ProductFlowTests(APITestCase):
         self.assertEqual({'capability_parts', 'capability_advice', 'depth_questions', 'answer_check',
                           'depth_judgment'} - set(self.schemas), set())
 
+    # ---------------------------------------------------------------- score explanations
+
+    def test_explanations_for_the_provisional_and_the_final_result(self):
+        from .models import CapabilityExplanation
+        provisional = self.assess()
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'explain'}, key='explain',
+                  expect=202)
+        explained = self.run_queued()[0]
+        self.assertEqual((explained.operation, explained.result['explained'], explained.result['fallbacks']),
+                         ('explain', 216, 0))
+        self.assertEqual(explained.result['calls'], 9)   # one per area
+        detail = self.client.get(f'{self.base}/{provisional.pk}').data['assessment']
+        credited = next(r for r in detail['records'] if (r.get('credit') or 0) > 0)
+        self.assertIn('records this', credited['explanation']['found'])
+        self.assertTrue(all(r['explanation']['text'] for r in detail['records']))
+        self.assertEqual(detail['result']['documented']['pillars'][0]['explanation']['text'], 'A solid start.')
+        report = self.reports(provisional)   # all four formats render with them
+        html = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'leadership', 'file': 'html'})
+        self.assertIn('Good foundations. A solid start.', html.content.decode())   # the area explanation
+        self.assertIn('You have made a start here.', html.content.decode())   # a key indicator's
+        self.assertEqual(report['explanations_version'], explanations.VERSION)
+        # Stored beside the run: the completed event, and so every integrity hash, is unchanged.
+        event = provisional.events.get(state='completed')
+        self.assertNotIn('explanation', json.dumps(event.payload['records'][0]))
+        # Explaining a final result that does not exist yet is refused up front.
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'explain', 'options': {'final': True}},
+                  key='explain-missing-final', expect=400)
+        # The final result gets its own, started by itself once it is published.
+        self.post(f'{self.base}/{provisional.pk}/additional-evidence',
+                  {'document_ids': [self.document(ADDITIONAL)], 'note': 'Our AI lab register',
+                   'picked': [sorted(set(i['code'] for i in release()['indicators']) - self.credited)[0]]},
+                  expect=201)
+        self.run_queued()
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge'}, key='publish-final',
+                  expect=202)
+        rejudge, explain_final = self.run_queued()
+        self.assertEqual((explain_final.operation, explain_final.options), ('explain', {'final': True}))
+        self.assertEqual(rejudge.result['explain_job_id'], str(explain_final.pk))
+        final = CapabilityRun.objects.get(pk=rejudge.final_run_id)
+        self.assertEqual(CapabilityExplanation.objects.get(job=explain_final).run, final)
+        final_detail = self.client.get(f'{self.base}/{final.pk}').data['assessment']
+        self.assertTrue(all(r['explanation']['text'] for r in final_detail['records']))
+        self.reports(final)
+
+
+    # ---------------------------------------------------------------- depth decision 1: answers can lower a score
+
+    def contradict_and_publish(self, picked, contradict):
+        provisional = self.assess()
+        detail = self.client.get(f'{self.base}/{provisional.pk}').data
+        records = {r['condition_id']: r for r in detail['assessment']['records']}
+        self.contradict = set(contradict)
+        self.assertTrue(all((records[c].get('credit') or 0) > 0 for c in contradict))
+        self.post(f'{self.base}/{provisional.pk}/additional-evidence',
+                  {'document_ids': [self.document(WITHDRAWN)], 'note': 'The council withdrew the policy',
+                   'picked': picked}, expect=201)
+        self.run_queued()
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge'}, key='publish-final',
+                  expect=202)
+        rejudge = self.run_queued()[0]
+        final = CapabilityRun.objects.get(pk=rejudge.final_run_id)
+        final_detail = self.client.get(f'{self.base}/{final.pk}').data
+        return records, detail['assessment']['result']['score'], rejudge, final, final_detail
+
+    def test_a_document_that_contradicts_the_credit_lowers_the_final_result(self):
+        indicator = next(i for i in release()['indicators'] if i['code'] in self.credited)
+        cid = indicator['conditions'][0]['id']
+        records, provisional_score, rejudge, final, final_detail = self.contradict_and_publish([cid], [cid])
+        final_records = {r['condition_id']: r for r in final_detail['assessment']['records']}
+        self.assertLess(final_records[cid]['credit'], records[cid]['credit'])
+        self.assertEqual(final_records[cid]['state'], 'not_met')
+        # The final run keeps why: the merge row, with the quotes from the document the college sent.
+        second_layer = final.inputs['second_layer']
+        row = next(r for r in second_layer['merge'] if r['condition_id'] == cid)
+        self.assertEqual(row['decision'], 'lowered')
+        self.assertIn(CONTRA, row['contradicting_quotes'][0]['quote'])
+        self.assertEqual([r['condition_id'] for r in second_layer['lowerings']], [cid])
+        self.assertEqual([r['condition_id'] for r in rejudge.result['lowerings']], [cid])
+        self.assertLess(final_detail['assessment']['result']['score'], provisional_score)
+        # Nothing else fell, and the final result renders in every report.
+        self.assertFalse([c for c, r in final_records.items() if c != cid
+                          and (r.get('credit') or 0) < (records[c].get('credit') or 0)])
+        stage = self.reports(final)['assessment_stage']
+        self.assertEqual((stage['stage'], stage['lowered']), ('final', [cid]))
+        self.assertIn('1 requirement went down', stage['note'])
+
+    def test_one_document_contradicting_many_requirements_is_held_for_review(self):
+        indicator = next(i for i in release()['indicators'] if i['code'] in self.credited
+                         and len(i['conditions']) > 3)
+        ids = [c['id'] for c in indicator['conditions']]
+        records, provisional_score, rejudge, final, final_detail = self.contradict_and_publish([indicator['code']], ids)
+        final_records = {r['condition_id']: r for r in final_detail['assessment']['records']}
+        self.assertEqual(rejudge.result['lowerings'], [])
+        self.assertEqual({r['condition_id'] for r in rejudge.result['contradictions'] if r['held']}, set(ids))
+        self.assertEqual([final_records[c]['credit'] for c in ids], [records[c]['credit'] for c in ids])
+        self.assertEqual(final_detail['assessment']['result']['score'], provisional_score)
+
 
 @override_settings(**SETTINGS, CAPABILITY_INDICATOR_CONCURRENCY=4)
 class ProductFlowConcurrentTests(APITransactionTestCase):
@@ -304,5 +435,5 @@ class ProductFlowConcurrentTests(APITransactionTestCase):
 
 for _name, _value in vars(ProductFlowTests).items():
     if _name.startswith(('reply_', 'model', 'service', 'assess', 'post', 'run_queued', 'document', 'reports',
-                         'recommend')) and callable(_value):
+                         'recommend', 'contradict_and_publish')) and callable(_value):
         setattr(ProductFlowConcurrentTests, _name, _value)

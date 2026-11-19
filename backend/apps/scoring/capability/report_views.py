@@ -46,10 +46,15 @@ def assessment_stage(run, event):
     second = (run.inputs or {}).get('second_layer')
     score = event.payload.get('result', {}).get('score')
     if second:
+        lowered = [row['condition_id'] for row in second.get('lowerings') or []]
+        note = (f"Final result: includes the evidence the institution sent after the provisional score "
+                f"({second.get('provisional_score')} provisional, {score} final).")
+        if lowered:
+            note += (f" {len(lowered)} requirement{'s' if len(lowered) != 1 else ''} went down because documents the "
+                     'institution sent show otherwise.')
         return {'stage': 'final', 'provisional_run_id': second['provisional_run_id'],
-                'provisional_score': second.get('provisional_score'), 'score': score,
-                'note': (f"Final result: includes the evidence the institution sent after the provisional score "
-                         f"({second.get('provisional_score')} provisional, {score} final).")}
+                'provisional_score': second.get('provisional_score'), 'score': score, 'lowered': lowered,
+                'note': note}
     from .layer2_service import final_run_id
     final = final_run_id(str(run.pk))
     return {'stage': 'provisional', 'final_run_id': final, 'score': score,
@@ -85,6 +90,8 @@ class CapabilityReportView(RunView):
                 'workflow_at_export': list(snapshot.action_states.order_by('condition_id').values(
                     'condition_id', 'owner', 'feasibility', 'status'))}
         validate_report_identity(run, event, snapshot, completed)
+        from .explanations import attach, latest
+        explanations = latest(run)   # beside the run, never in it: the integrity hashes above read event.payload
         payload = {'format_version': 'AIQIF-REPORT-0.2', 'exported_at': timezone.now(),
             'run_id': str(run.pk), 'assessment_event_id': event.pk, 'inputs_hash': run.inputs_hash,
             'profile': run.inputs['profile'], 'population': run.inputs['population'], 'rubric': run.inputs['rubric'],
@@ -93,7 +100,8 @@ class CapabilityReportView(RunView):
             'refines_run_id': run.inputs.get('refines_run_id'), 'source_manifest': run.inputs['manifest'],
             'assessment_protocol': run.inputs.get('assessment_protocol'),
             'retrieval_policy': run.inputs.get('retrieval_policy'),
-            'assessment': event.payload, 'assessment_stage': assessment_stage(run, event), 'recommendation': recommendation,
+            'assessment': attach(event.payload, explanations), 'explanations_version': (explanations or {}).get('version'),
+            'assessment_stage': assessment_stage(run, event), 'recommendation': recommendation,
             'deterministic_plan': snapshot.inputs if recommendation else build_inputs(run, event, {}),
             'notice': 'Experimental internal methodology, not an external accreditation standard. Unknown evidence is not failure. '
                       'Tier pathways are conditional sufficient scenarios, not optimal or guaranteed. Workflow completion does not change scores; reassessment is required.'}
