@@ -651,6 +651,7 @@ class SecondLayerJob(models.Model):
         CHECKS = 'checks', 'Check waiting answers and additional evidence'
         DEPTH = 'depth', 'Judge the depth of credited evidence'
         REJUDGE = 'rejudge', 'Re-judge credit and publish the final result'
+        EXPLAIN = 'explain', 'Write the score explanations'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='second_layer_jobs')
@@ -690,3 +691,20 @@ class SecondLayerEvent(models.Model):
 
     class Meta:
         ordering = ['id']
+
+
+class CapabilityExplanation(models.Model):
+    """Score explanations for one completed assessment of a run (capability/explanations.py), written for the
+    institution. Stored beside the run, never in it, so they cannot change a score or a report's integrity hashes."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='explanations')
+    event_id = models.BigIntegerField(help_text='The completed CapabilityRunEvent explained.')
+    version = models.CharField(max_length=32)
+    model = models.CharField(max_length=100, blank=True)
+    payload = models.JSONField(default=dict)
+    job = models.ForeignKey(SecondLayerJob, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+        indexes = [models.Index(fields=['run', 'event_id'])]

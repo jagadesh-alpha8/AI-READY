@@ -887,6 +887,11 @@ SECOND_LAYER_CORPUS_SUPPORT = os.getenv('SECOND_LAYER_CORPUS_SUPPORT', 'true').s
 SECOND_LAYER_LOWERING = os.getenv('SECOND_LAYER_LOWERING', 'apply').strip().lower()
 SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT = int(os.getenv('SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT', '3'))
 SECOND_LAYER_JOBS_ENABLED = os.getenv('SECOND_LAYER_JOBS_ENABLED', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Score explanations (capability/explanations.py, Harsha's requirement of 12 Nov 2026): model-written, checked against
+# the run's record. An explain job runs on its own after a final result is published when this is on; for a
+# provisional run it is started from the API (operation 'explain').
+SECOND_LAYER_EXPLAIN_AFTER_PUBLISH = os.getenv('SECOND_LAYER_EXPLAIN_AFTER_PUBLISH', 'true').strip().lower() in (
+    '1', 'true', 'yes', 'on')
 SECOND_LAYER_MAX_HTTP_CALLS = int(os.environ['SECOND_LAYER_MAX_HTTP_CALLS']) if os.getenv('SECOND_LAYER_MAX_HTTP_CALLS') else None
 SECOND_LAYER_MAX_COST_USD = os.getenv('SECOND_LAYER_MAX_COST_USD', '').strip() or None
 SECOND_LAYER_MAX_DURATION_SECONDS = int(os.environ['SECOND_LAYER_MAX_DURATION_SECONDS']) if os.getenv('SECOND_LAYER_MAX_DURATION_SECONDS') else None

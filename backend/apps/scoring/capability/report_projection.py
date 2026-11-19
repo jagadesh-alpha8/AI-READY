@@ -144,12 +144,22 @@ def documented_label(value):
     return f'Documented readiness {value:g} / 100'
 
 
+def explanation_text(explanation):
+    """One paragraph from a score explanation (explanations.py) for the HTML and PDF reports: what was found, how
+    the score was reached, and the next step."""
+    if not explanation:
+        return ''
+    return ' '.join(explanation[k] for k in ('found', 'text', 'next_step') if explanation.get(k))
+
+
 def build_report_view(report, actions):
     result = report['assessment']['result']
     documented = result.get('documented')
     documented_areas = {i['code']: i['score'] for i in documented['indicators']} if documented else {}
     documented_pillars = {p['code']: p['score'] for p in documented['pillars']} if documented else {}
     decisions = {r['condition_id']: r for r in report['assessment']['records']}
+    explained = {i['code']: i.get('explanation') for i in documented['indicators']} if documented else {}
+    explained_pillars = {p['code']: p.get('explanation') for p in documented['pillars']} if documented else {}
     # Part-credit runs report one score; earlier runs keep their recorded range.
     single = result.get('score') is not None and documented is not None
     action_by_id = {a['id']: a for a in actions}
@@ -183,7 +193,9 @@ def build_report_view(report, actions):
         title = AREA_TITLES.get(indicator['code'], readable(indicator['name']))
         if single:
             area = {'key': indicator['code'], 'pillar_key': indicator['pillar'], 'title': title,
-                    'score': f"{documented_areas[indicator['code']]:g} / 100", 'score_explanation': '',
+                    'score': f"{documented_areas[indicator['code']]:g} / 100",
+                    'score_explanation': explanation_text(explained.get(indicator['code'])),
+                    'explanation': explanation_text(explained.get(indicator['code'])),
                     'finding': credit_finding([credit_status(r) for r in rows]), 'stages': stage_results,
                     'strengths': [readable(c['text']) for c in indicator['conditions']
                                   if credit_status(decisions[c['id']]) == 'demonstrated'],
@@ -229,7 +241,8 @@ def build_report_view(report, actions):
         followup = next((a for a in followups if any(c['key'] == a['area_key'] for c in children)), None)
         pillars.append({'title': PILLARS.get(pillar['code'], 'Assessment area'),
                         **({'score': f"{documented_pillars[pillar['code']]:g} / 100", 'score_value': documented_pillars[pillar['code']],
-                            'score_explanation': ''} if single else
+                            'score_explanation': explanation_text(explained_pillars.get(pillar['code'])),
+                            'explanation': explanation_text(explained_pillars.get(pillar['code']))} if single else
                            {'score': score_label(pillar['lower'], pillar['upper']),
                             'score_explanation': bounds_note(pillar['lower'], pillar['upper']),
                             **({'documented_score': documented_label(documented_pillars[pillar['code']])} if documented else {})}),

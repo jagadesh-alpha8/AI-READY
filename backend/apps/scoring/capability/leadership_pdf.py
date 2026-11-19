@@ -167,6 +167,8 @@ def render_leadership_pdf(view):
     for pillar in view['pillars']:
         pdf.paragraph(pillar['title'], heading=True)
         pdf.paragraph(pillar['score'] + (f" ({pillar['documented_score'].lower()})" if pillar.get('documented_score') else ''))
+        if pillar.get('explanation'):
+            pdf.paragraph(brief(pillar['explanation'], 420), small=True)   # the area's explanation (explanations.py)
         candidates = [a for a in view['priorities'] if any(c['key'] == a['area_key'] for c in pillar['areas'])]
         if candidates:
             pdf.paragraph('Start with: ' + candidates[0]['title'])

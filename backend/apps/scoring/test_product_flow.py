@@ -18,6 +18,7 @@ from apps.extraction.models import AIUsage
 from apps.extraction.services.openai_client import OpenAIExtractionService
 
 from .capability import second_layer_jobs as jobs
+from .capability import explanations
 from .capability.engine import release
 from .models import (CapabilityExecution, CapabilityRun, DepthJudgment, DepthQuestion, DepthResponse,
                      RecommendationExecution, SecondLayerBudget, SecondLayerJob)
@@ -110,6 +111,26 @@ class ProductFlowTests(APITestCase):
             rows[condition['id']] = {'reason': 'Stand-in.', 'scope_supported': True, 'period_supported': True,
                                      'findings': findings}
         return {'conditions': rows}
+
+    def reply_score_explanations(self, payload):
+        # A careful writer: credit from the first quotation, gaps from what is missing, nothing else.
+        requirements, indicators = [], []
+        for indicator in payload['indicators']:
+            indicators.append({'code': indicator['code'], 'found': 'You have made a start here.',
+                               'text': 'Some requirements are shown; the rest are next steps.', 'looked': '',
+                               'next_step': 'See the next step under each requirement.'})
+            for r in indicator['requirements']:
+                credited = r['result'] in ('shown in full', 'partly shown') and r['quotations']
+                full = r['result'] == 'shown in full'
+                gap = not full and not r['result'].startswith('not judged')
+                requirements.append({
+                    'condition_id': r['condition_id'], 'quote_ids': ['Q1'] if credited else [],
+                    'found': f"Your {r['quotations'][0]['document']} records this." if credited else '',
+                    'text': 'This is shown.' if full else 'This is partly shown.' if credited else 'Not yet shown.',
+                    'looked': 'We read the documents listed for this area.' if gap else '',
+                    'next_step': 'Add a record that shows what is missing.' if gap else ''})
+        return {'area': {'found': 'Good foundations.', 'text': 'A solid start.', 'looked': '', 'next_step': ''},
+                'indicators': indicators, 'requirements': requirements}
 
     def reply_capability_advice(self, payload):
         return {'advice': [{'condition_id': a['id'], 'operation': a['operation'],
@@ -301,6 +322,50 @@ class ProductFlowTests(APITestCase):
                          rejudge.requests_reserved)
         self.assertEqual({'capability_parts', 'capability_advice', 'depth_questions', 'answer_check',
                           'depth_judgment'} - set(self.schemas), set())
+
+    # ---------------------------------------------------------------- score explanations
+
+    def test_explanations_for_the_provisional_and_the_final_result(self):
+        from .models import CapabilityExplanation
+        provisional = self.assess()
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'explain'}, key='explain',
+                  expect=202)
+        explained = self.run_queued()[0]
+        self.assertEqual((explained.operation, explained.result['explained'], explained.result['fallbacks']),
+                         ('explain', 216, 0))
+        self.assertEqual(explained.result['calls'], 9)   # one per area
+        detail = self.client.get(f'{self.base}/{provisional.pk}').data['assessment']
+        credited = next(r for r in detail['records'] if (r.get('credit') or 0) > 0)
+        self.assertIn('records this', credited['explanation']['found'])
+        self.assertTrue(all(r['explanation']['text'] for r in detail['records']))
+        self.assertEqual(detail['result']['documented']['pillars'][0]['explanation']['text'], 'A solid start.')
+        report = self.reports(provisional)   # all four formats render with them
+        html = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'leadership', 'file': 'html'})
+        self.assertIn('Good foundations. A solid start.', html.content.decode())   # the area explanation
+        self.assertIn('You have made a start here.', html.content.decode())   # a key indicator's
+        self.assertEqual(report['explanations_version'], explanations.VERSION)
+        # Stored beside the run: the completed event, and so every integrity hash, is unchanged.
+        event = provisional.events.get(state='completed')
+        self.assertNotIn('explanation', json.dumps(event.payload['records'][0]))
+        # Explaining a final result that does not exist yet is refused up front.
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'explain', 'options': {'final': True}},
+                  key='explain-missing-final', expect=400)
+        # The final result gets its own, started by itself once it is published.
+        self.post(f'{self.base}/{provisional.pk}/additional-evidence',
+                  {'document_ids': [self.document(ADDITIONAL)], 'note': 'Our AI lab register',
+                   'picked': [sorted(set(i['code'] for i in release()['indicators']) - self.credited)[0]]},
+                  expect=201)
+        self.run_queued()
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge'}, key='publish-final',
+                  expect=202)
+        rejudge, explain_final = self.run_queued()
+        self.assertEqual((explain_final.operation, explain_final.options), ('explain', {'final': True}))
+        self.assertEqual(rejudge.result['explain_job_id'], str(explain_final.pk))
+        final = CapabilityRun.objects.get(pk=rejudge.final_run_id)
+        self.assertEqual(CapabilityExplanation.objects.get(job=explain_final).run, final)
+        final_detail = self.client.get(f'{self.base}/{final.pk}').data['assessment']
+        self.assertTrue(all(r['explanation']['text'] for r in final_detail['records']))
+        self.reports(final)
 
 
     # ---------------------------------------------------------------- depth decision 1: answers can lower a score
