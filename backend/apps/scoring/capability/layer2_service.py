@@ -503,7 +503,8 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
     if run is not None and export.get('inputs_hash') and export['inputs_hash'] != run.inputs_hash:
         raise Layer2Error("The export's inputs do not match run %s in this database." % run_ref)
     routes = credit_routes(run_ref) if routes is None else routes
-    targets = layer2.credit_targets(records, rubric, routes)
+    lowering = settings.SECOND_LAYER_LOWERING
+    targets = layer2.credit_targets(records, rubric, routes, include_full=lowering == 'apply')
     provisional_score = layer2.final_score(records, rubric)
     result = {'version': layer2.VERSION, 'run_ref': run_ref, 'routes': len(routes),
               'provisional_score': provisional_score, 'saved': False}
@@ -525,6 +526,7 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
     targets = {code: t for code, t in targets.items() if t['windows']}
     if not targets:
         return {**result, 'targets': {}, 'context_audit': {}, 'merge': [], 'records': records, 'contradictions': [],
+                'lowerings': [],
                 'final_score': provisional_score, 'traces': [], 'new_sources': [], 'note': 'No new evidence to re-judge.'}
     layer2.check_export_rule(records, traces, targets)
     contexts, context_audit = layer2.fixed_contexts(traces, targets)
@@ -544,10 +546,13 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
                           retrieval_policy=policy, judgment='parts', agreement_passes=2, tie_break=True,
                           max_calls=len(subset['indicators']), fixed_contexts=contexts, **(evaluate_options or {}))
     packets = {t['indicator']: t.get('source_excerpts') or [] for t in traces}
-    merged, merge_audit = layer2.merge_new_evidence(records, outcome['records'], packets, rubric=rubric)
+    merged, merge_audit = layer2.merge_new_evidence(
+        records, outcome['records'], packets, rubric=rubric, lowering=lowering,
+        max_per_document=settings.SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT,
+        source_documents={s['id']: s.get('document_id') for s in new_pages if s.get('id')})
     return {**result, 'targets': {code: t['conditions'] for code, t in targets.items()},
             'context_audit': context_audit, 'merge': merge_audit, 'records': merged,
-            'contradictions': layer2.contradictions(merge_audit),
+            'contradictions': layer2.contradictions(merge_audit), 'lowerings': layer2.lowerings(merge_audit),
             'final_score': layer2.final_score(merged, rubric), 'traces': outcome.get('traces', []),
             'new_sources': new_pages, 'note': 'Publish with publish_final to make this the result reports use.'}
 
@@ -608,6 +613,7 @@ def publish_final(result, *, service=None, user=None, inference=None):
                                     'provisional_event_id': event.pk, 'provisional_score': result.get('provisional_score'),
                                     'final_score': result.get('final_score'), 'targets': result.get('targets') or {},
                                     'merge': result.get('merge') or [], 'contradictions': result.get('contradictions') or [],
+                                    'lowerings': result.get('lowerings') or [],
                                     'context_audit': result.get('context_audit') or {}, 'routes': result.get('routes'),
                                     'result_hash': signature, 'added_sources': [s['id'] for s in added]})
         run = CapabilityRun.objects.create(sprint=sprint, inputs=inputs, inputs_hash=digest(inputs))

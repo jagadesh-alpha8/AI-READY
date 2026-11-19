@@ -46,10 +46,15 @@ def assessment_stage(run, event):
     second = (run.inputs or {}).get('second_layer')
     score = event.payload.get('result', {}).get('score')
     if second:
+        lowered = [row['condition_id'] for row in second.get('lowerings') or []]
+        note = (f"Final result: includes the evidence the institution sent after the provisional score "
+                f"({second.get('provisional_score')} provisional, {score} final).")
+        if lowered:
+            note += (f" {len(lowered)} requirement{'s' if len(lowered) != 1 else ''} went down because documents the "
+                     'institution sent show otherwise.')
         return {'stage': 'final', 'provisional_run_id': second['provisional_run_id'],
-                'provisional_score': second.get('provisional_score'), 'score': score,
-                'note': (f"Final result: includes the evidence the institution sent after the provisional score "
-                         f"({second.get('provisional_score')} provisional, {score} final).")}
+                'provisional_score': second.get('provisional_score'), 'score': score, 'lowered': lowered,
+                'note': note}
     from .layer2_service import final_run_id
     final = final_run_id(str(run.pk))
     return {'stage': 'provisional', 'final_run_id': final, 'score': score,

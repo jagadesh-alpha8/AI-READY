@@ -39,8 +39,16 @@ layer — architecture for follow-ups and new evidence". Code: `apps/scoring/cap
   related evidence at 0.5 and the subject as a share): re-judge on an export from a run on the current rule.
 - **Depth answers can raise credit too.** A depth answer the check found support for also goes to the credit path, so a
   partly credited requirement can rise on it (decided 12 Nov).
-- **Contradictions are flagged, not applied** (depth decision 1 is still open): `rejudge_credit` lists them and the
-  command prints them; feeding them to the review queue waits for the refining run.
+- **Answers can lower a score** (depth decision 1, Harsha 12 Nov; `SECOND_LAYER_LOWERING`, default `apply`). A
+  credited part goes down only when both re-judging passes find it contradicted, each citing a passage the institution
+  sent (not text the provisional judge already read); a tie-broken record never qualifies, and a re-judgment that just
+  finds less than before changes nothing. If one document would lower more than
+  `SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT` (3) requirements, none of its lowerings apply: they are listed for review
+  (`held`). To find contradictions, fully credited requirements an answer or document is routed to are re-judged too.
+  The final run keeps `inputs.second_layer.lowerings` and, per merge row, `contradicting_quotes`; the report's stage
+  note says how many requirements went down. Typed admissions without a document, "don't know" and depth levels do
+  not lower anything yet (open with Harsha). `flag` restores the earlier behaviour: contradictions listed, nothing
+  applied.
 
 ## Flow
 
@@ -95,6 +103,6 @@ instead of retrieval.
 
 - Who may answer, and who may start jobs: the views use `CanManageSprint`, like the run views.
 - Front-end screens for the jobs (start, progress, cancel, budget).
-- Contradictions into the review queue and the report.
+- Held and unapplied contradictions into a review screen (they are in the job result and the final run's inputs).
 - Depth judging for requirements newly credited in the credit path; a second round of questions.
 - Not run against a real model or the VISTAS export yet.

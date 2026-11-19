@@ -363,7 +363,7 @@ def run_rejudge(job, meter):
         'strict_errors': True, 'recover_provider_errors': True,
         'concurrency': job.policy.get('indicator_concurrency', 1)})
     summary = {k: result.get(k) for k in ('provisional_score', 'final_score', 'targets', 'merge', 'contradictions',
-                                          'routes', 'note')}
+                                          'lowerings', 'routes', 'note')}
     final = None
     with transaction.atomic():
         commit_point(job.pk, lock_run=True)
