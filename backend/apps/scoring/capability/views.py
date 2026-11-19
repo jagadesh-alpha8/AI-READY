@@ -101,6 +101,7 @@ class RunView(APIView):
         from .recommendations import build_inputs
         plan = build_inputs(execution.run, completed, {}) if completed else None
         from .diagnostics import explain
+        from .explanations import attach, latest
         from .reviewed_evidence import snapshot
         from .storage import digest
         saved_review = execution.run.inputs.get('reviewed_evidence')
@@ -112,7 +113,7 @@ class RunView(APIView):
             'inputs_hash': execution.run.inputs_hash,
             'population': execution.run.inputs['population'], 'profile': execution.run.inputs['profile'],
             'source_manifest': execution.run.inputs['manifest'],
-            'assessment': completed.payload if completed else None,
+            'assessment': attach(completed.payload, latest(execution.run)) if completed else None,
             'partial_decisions': [] if completed else [r for event in indicators for r in event.payload['records']],
             'error': terminal.payload if terminal else None})
 
