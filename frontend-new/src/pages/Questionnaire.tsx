@@ -309,6 +309,7 @@ const OPERATION_LABEL: Record<SecondLayerOperation, string> = {
   checks: 'Checking answers and additional evidence',
   depth: 'Judging how deep the credited evidence goes',
   rejudge: 'Publishing the final result',
+  explain: 'Writing score explanations',
 };
 
 /** Siddharth's job error codes, in plain words. */
@@ -325,7 +326,21 @@ const JOB_ERROR: Record<string, string> = {
 
 const isActiveJob = (j: SecondLayerJob) => j.status === 'queued' || j.status === 'running';
 
+/** "Writing score explanations", plus "(final result)" for the job that starts by itself after publishing. */
+const jobLabel = (j: SecondLayerJob) => `${OPERATION_LABEL[j.operation]}${j.operation === 'explain' && j.options?.final ? ' (final result)' : ''}`;
+
+/** An explain job's result: { calls, explained, fallbacks, areas_with_problems: { area: count } }. */
+function explainOutcome(r: Record<string, unknown> | null): string {
+  if (!r) return 'Done';
+  const num = (k: string) => (typeof r[k] === 'number' ? (r[k] as number) : 0);
+  const problems = Object.keys((r.areas_with_problems as Record<string, number> | undefined) || {}).length;
+  return [`${num('explained')} requirements explained in ${num('calls')} calls`,
+    num('fallbacks') ? `${num('fallbacks')} plain factual versions` : '',
+    problems ? `${problems} area${problems === 1 ? '' : 's'} with problems` : ''].filter(Boolean).join(' · ');
+}
+
 function jobOutcome(j: SecondLayerJob): string {
+  if (j.status === 'completed' && j.operation === 'explain') return explainOutcome(j.result);
   if (j.status === 'completed') return j.operation === 'rejudge' && j.final_run_id ? `Final run ${j.final_run_id.slice(0, 8)}` : 'Done';
   if (!j.error_code) return j.detail || '';
   const words = JOB_ERROR[j.error_code] || j.error_code;
@@ -359,8 +374,8 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
           onChange();
           if (j.operation === 'rejudge' && j.status === 'completed' && j.final_run_id) onFinal();
           setMsg(j.status === 'completed'
-            ? { tone: 'success', text: `${OPERATION_LABEL[j.operation]}: done.${j.final_run_id ? ' The final result is published.' : ''}` }
-            : { tone: 'error', text: `${OPERATION_LABEL[j.operation]}: ${jobOutcome(j)}` });
+            ? { tone: 'success', text: `${jobLabel(j)}: ${j.operation === 'explain' ? explainOutcome(j.result) : 'done'}.${j.final_run_id ? ' The final result is published; its explanations start by themselves.' : ''}` }
+            : { tone: 'error', text: `${jobLabel(j)}: ${jobOutcome(j)}` });
         }
       }
       jobs.setData(data);
@@ -393,6 +408,8 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
   const finished = !!p && hasQuestions && !p.open && !p.checks_waiting && !p.follow_ups_open;
   const budget = jobs.data?.budget;
   const disabled = !jobs.data?.enabled || !!active || !!busy;
+  // Final results are explained automatically; the provisional run's explanations are written on request.
+  const explained = list.some((j) => j.operation === 'explain' && !j.options?.final && j.status === 'completed');
 
   return (
     <Panel title="Follow-up questions and final result" sub="Background jobs on the provisional run; each uses model credits from this assessment's budget"
@@ -401,6 +418,8 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
           {!hasQuestions && <button className="primary-action" disabled={disabled} onClick={() => void start('questions')}>{busy === 'questions' ? 'Starting…' : 'Plan follow-up questions'}</button>}
           {hasQuestions && !p?.answered && <button className="secondary-button" disabled={disabled} onClick={() => setConfirmReplace(true)}>Plan again</button>}
           {hasQuestions && <button className="secondary-button" disabled={disabled} onClick={() => void start('depth')}>{busy === 'depth' ? 'Starting…' : 'Judge evidence depth'}</button>}
+          <button className="secondary-button" disabled={disabled} title="One model call per area (about 9), checked against this run's record"
+            onClick={() => void start('explain')}>{busy === 'explain' ? 'Starting…' : explained ? 'Write explanations again' : 'Write explanations'}</button>
           {finished && !p?.final_run_id && <button className="primary-action" disabled={disabled} onClick={() => void start('rejudge', { publish: true })}>{busy === 'rejudge' ? 'Starting…' : 'Publish final result'}</button>}
         </div>
       )}>
@@ -415,7 +434,7 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
       )}
       {active ? (
         <div className="condition">
-          <div><Pill status="pending" label={active.status === 'queued' ? 'Queued' : 'Running'} /> <b>{OPERATION_LABEL[active.operation]}</b> · started {dateTime(active.started_at || active.created_at)}</div>
+          <div><Pill status="pending" label={active.status === 'queued' ? 'Queued' : 'Running'} /> <b>{jobLabel(active)}</b> · started {dateTime(active.started_at || active.created_at)}</div>
           <p className="muted">{active.requests_reserved} model request(s) reserved so far (${active.usd_reserved}).</p>
           {manage && <div className="button-row"><button className="secondary-button" disabled={busy === 'cancel'} onClick={() => void cancel(active)}>Cancel this job</button></div>}
         </div>
@@ -428,7 +447,7 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
           <Table columns={['Job', 'Started', 'Status', 'Outcome', 'Reserved']}>
             {list.map((j) => (
               <tr key={j.id}>
-                <td><b>{OPERATION_LABEL[j.operation]}</b><small className="cell-sub">{j.id.slice(0, 8)}</small></td>
+                <td><b>{jobLabel(j)}</b><small className="cell-sub">{j.id.slice(0, 8)}</small></td>
                 <td>{dateTime(j.created_at)}</td>
                 <td><Pill status={isActiveJob(j) ? 'pending' : j.status === 'completed' ? 'completed' : j.status === 'cancelled' ? 'neutral' : 'failed'} label={j.status} /></td>
                 <td>{jobOutcome(j)}</td>
