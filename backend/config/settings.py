@@ -879,6 +879,13 @@ SECOND_LAYER_CORPUS_SUPPORT = os.getenv('SECOND_LAYER_CORPUS_SUPPORT', 'true').s
 # indicator costs about what the assessment did). Raise one run's budget with `manage.py layer2_budget`.
 # With jobs on, a submitted answer is checked by a job (SECOND_LAYER_CHECK_ON_SUBMIT is ignored), and the beat process
 # starts checks for answers whose documents finished extraction (every SECOND_LAYER_SWEEP_SECONDS).
+# Depth decision 1 (Harsha, 12 Nov 2026): answers can lower a score. 'apply' (default): a credited part that both
+# re-judging passes find contradicted, each citing a passage the institution sent, loses its credit in the final
+# result (layer2.merge_new_evidence); fully credited requirements an answer or document is routed to are re-judged
+# for that. If one document would lower more than SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT requirements, none of its
+# lowerings are applied: they are held for review. 'flag': contradictions are listed for review and change nothing.
+SECOND_LAYER_LOWERING = os.getenv('SECOND_LAYER_LOWERING', 'apply').strip().lower()
+SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT = int(os.getenv('SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT', '3'))
 SECOND_LAYER_JOBS_ENABLED = os.getenv('SECOND_LAYER_JOBS_ENABLED', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 SECOND_LAYER_MAX_HTTP_CALLS = int(os.environ['SECOND_LAYER_MAX_HTTP_CALLS']) if os.getenv('SECOND_LAYER_MAX_HTTP_CALLS') else None
 SECOND_LAYER_MAX_COST_USD = os.getenv('SECOND_LAYER_MAX_COST_USD', '').strip() or None
