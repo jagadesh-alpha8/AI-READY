@@ -669,26 +669,29 @@ def merge_new_evidence(provisional, rejudged, packets, *, rubric=None):
     return records, audit
 
 
-def check_export_rule(records, traces, targets):
+def check_export_rule(records, traces, targets=None):
     """Refuse an export scored under a different part rule than this worker's. Re-judged requirements are scored
     under today's rule while copied ones keep the export's, so mixing rules (f5919156 was scored with related evidence
     at 0.5 and the subject as a share) would put two scales in one score. Checks the traces' part metadata and that
-    each target requirement's recorded credit is what today's rule gives its parts."""
+    each target requirement's recorded credit is what today's rule gives its parts. With targets None, checks every
+    trace and requirement: question planning and additional evidence use that, so an institution is not asked for
+    answers or documents on a run that could never be re-judged."""
     from .part_judgment import metadata
     current = metadata()
-    wanted = {code for code in targets}
+    wanted = None if targets is None else {code for code in targets}
     for trace in traces:
-        if trace.get('indicator') not in wanted:
+        if wanted is not None and trace.get('indicator') not in wanted:
             continue
         recorded = trace.get('judgment') or {}
         different = [k for k in ('parts_version', 'parts_hash', 'related_credit') if recorded.get(k) != current[k]]
         if different:
-            raise Layer2Error(f"The export for {trace['indicator']} was scored with a different part rule "
-                              f"({', '.join(different)} differ from this worker). Use an export from a run on the "
-                              'current rule.')
-    ids = {cid for t in targets.values() for cid in t['conditions']}
+            raise Layer2Error(f"The export for {trace.get('indicator', 'a key indicator')} was scored with a different "
+                              f"part rule ({', '.join(different)} differ from this worker). Use an export from a run "
+                              'on the current rule.')
+    ids = None if targets is None else {cid for t in targets.values() for cid in t['conditions']}
     for record in records:
-        if record['condition_id'] not in ids or record.get('validation_issue') or not record.get('parts'):
+        if ((ids is not None and record.get('condition_id') not in ids) or record.get('validation_issue')
+                or not record.get('parts')):
             continue
         if abs(_recredit(record['parts'], record['condition_id']) - (record.get('credit') or 0)) > 1e-3:
             raise Layer2Error(f"{record['condition_id']}: its recorded credit is not what the current part rule gives "
