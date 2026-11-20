@@ -196,6 +196,7 @@ def build_report_view(report, actions):
                     'score': f"{documented_areas[indicator['code']]:g} / 100",
                     'score_explanation': explanation_text(explained.get(indicator['code'])),
                     'explanation': explanation_text(explained.get(indicator['code'])),
+                    'explanation_detail': explained.get(indicator['code']) or None,
                     'finding': credit_finding([credit_status(r) for r in rows]), 'stages': stage_results,
                     'strengths': [readable(c['text']) for c in indicator['conditions']
                                   if credit_status(decisions[c['id']]) == 'demonstrated'],
@@ -242,7 +243,8 @@ def build_report_view(report, actions):
         pillars.append({'title': PILLARS.get(pillar['code'], 'Assessment area'),
                         **({'score': f"{documented_pillars[pillar['code']]:g} / 100", 'score_value': documented_pillars[pillar['code']],
                             'score_explanation': explanation_text(explained_pillars.get(pillar['code'])),
-                            'explanation': explanation_text(explained_pillars.get(pillar['code']))} if single else
+                            'explanation': explanation_text(explained_pillars.get(pillar['code'])),
+                            'explanation_detail': explained_pillars.get(pillar['code']) or None} if single else
                            {'score': score_label(pillar['lower'], pillar['upper']),
                             'score_explanation': bounds_note(pillar['lower'], pillar['upper']),
                             **({'documented_score': documented_label(documented_pillars[pillar['code']])} if documented else {})}),

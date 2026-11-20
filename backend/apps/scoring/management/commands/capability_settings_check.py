@@ -84,11 +84,22 @@ def _kind(section, key):
     return 'scoring'
 
 
+def _same_file(key, recorded):
+    """A specification hash recorded from a checkout with other line endings is the same file."""
+    if key == 'parts_hash':
+        from apps.scoring.capability.part_judgment import parts_hash_matches
+        return parts_hash_matches(recorded)
+    if key == 'query_profiles_hash':
+        from apps.scoring.capability.query_profiles import profiles_hash_matches
+        return profiles_hash_matches(recorded)
+    return False
+
+
 def _compare(section, frozen, current):
     rows = []
     for key in sorted(set(frozen) | set(current)):
         before, after = frozen.get(key, MISSING), current.get(key, MISSING)
-        if before != after:
+        if before != after and not _same_file(key, before):
             rows.append({'section': section, 'setting': key, 'run': before, 'now': after, 'kind': _kind(section, key),
                          'set_with': SETTING.get((section, key), 'code version (not a setting)')})
     return rows

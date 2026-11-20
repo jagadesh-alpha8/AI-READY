@@ -715,6 +715,20 @@ class AuditFixTests(SimpleTestCase):
         layer2.check_export_rule([{**shared, 'credit': 0.0}],
                                  [{'indicator': self.code, 'judgment': part_judgment.metadata()}], targets)
 
+    def test_a_windows_checkout_of_the_same_part_rule_is_the_same_rule(self):
+        # Test 13 (20 Nov) ran on Windows, where core.autocrlf gives the specification CRLF endings: its recorded
+        # parts_hash was the CRLF file's, and the whole-run check refused it on Linux as "a different part rule".
+        import hashlib
+        from pathlib import Path
+        raw = (Path(part_judgment.__file__).with_name('rubric_parts_v1.json')).read_bytes().replace(b'\r\n', b'\n')
+        windows = hashlib.sha256(raw.replace(b'\n', b'\r\n')).hexdigest()
+        self.assertEqual(part_judgment.metadata()['parts_hash'], hashlib.sha256(raw).hexdigest())   # LF, everywhere
+        recorded = {**part_judgment.metadata(), 'parts_hash': windows}
+        layer2.check_export_rule([], [{'indicator': self.code, 'judgment': recorded}])   # accepted
+        self.assertEqual(part_judgment.file_hashes(raw.replace(b'\n', b'\r\n'))[0], hashlib.sha256(raw).hexdigest())
+        with self.assertRaises(Layer2Error):   # a genuinely different file is still a different rule
+            layer2.check_export_rule([], [{'indicator': self.code, 'judgment': {**recorded, 'parts_hash': 'f' * 64}}])
+
     def test_the_whole_export_check_covers_every_indicator_and_requirement(self):
         # Question planning and additional evidence check the whole run (targets None), not only what is re-judged.
         old_rule = {**part_judgment.metadata(), 'related_credit': 0.5}

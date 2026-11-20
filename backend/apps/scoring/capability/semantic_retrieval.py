@@ -280,13 +280,14 @@ def ranker_for(policy):
         return None
     from django.conf import settings
     from importlib.metadata import version
-    from .query_profiles import profile_metadata
+    from .query_profiles import profile_metadata, profiles_hash_matches
     profiles = profile_metadata()
     budgets = (policy.get('baseline_chars'), policy.get('expansion_chars'))
     if (policy.get('mode') != 'hybrid' or policy.get('fusion') != FUSION
             or policy.get('representation') != 'token-source-spans-v1' or policy.get('target_tokens') != 240
             or policy.get('query_policy') != 'evidence-record-profiles-1'
-            or any(policy.get(key) != value for key, value in profiles.items())
+            or any(policy.get(key) != value for key, value in profiles.items() if key != 'query_profiles_hash')
+            or not profiles_hash_matches(policy.get('query_profiles_hash'))
             or policy.get('query_instruction') != query_instruction(settings.CAPABILITY_EMBEDDING_MODEL)
             or policy.get('lexical_weight') != 2
             or policy.get('semantic_weight') != 1
