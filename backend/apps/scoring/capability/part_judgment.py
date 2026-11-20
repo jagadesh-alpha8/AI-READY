@@ -158,12 +158,29 @@ def prompt():
 
 
 @lru_cache(maxsize=1)
+def file_hashes(raw):
+    """(hash, equivalents) of a specification file, independent of the checkout's line endings: a Windows checkout
+    (core.autocrlf) gives the same file CRLF endings, which used to give it a different hash, so a run made on one
+    machine was refused on the other as "a different part rule" (found 20 Nov 2026: test 13, made on Windows, against
+    the repository's LF file). The hash is of the LF form; equivalents also holds the CRLF form's hash, which runs
+    recorded before this fix may carry."""
+    lf = raw.replace(b'\r\n', b'\n')
+    crlf = lf.replace(b'\n', b'\r\n')
+    return hashlib.sha256(lf).hexdigest(), {hashlib.sha256(lf).hexdigest(), hashlib.sha256(crlf).hexdigest()}
+
+
 def _load():
     raw = Path(__file__).with_name('rubric_parts_v1.json').read_bytes()
     pack = json.loads(raw)
     if pack.get('version') != VERSION:
         raise ValueError('Part specification version does not match this worker.')
-    return pack, hashlib.sha256(raw).hexdigest()
+    return pack, file_hashes(raw)[0]
+
+
+def parts_hash_matches(recorded):
+    """True when a run's recorded parts_hash is this worker's specification, in either line-ending form."""
+    raw = Path(__file__).with_name('rubric_parts_v1.json').read_bytes()
+    return recorded in file_hashes(raw)[1]
 
 
 def specification(rubric):

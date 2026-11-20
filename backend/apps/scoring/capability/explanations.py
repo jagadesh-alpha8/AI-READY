@@ -28,36 +28,38 @@ Explanations never change a score: they are stored beside the run (CapabilityExp
 import json
 import re
 
-VERSION = 'explanations-0.2'
+VERSION = 'explanations-0.3'
 MAX_QUOTES = 4
 QUOTE_CHARS = 400
 MAX_FIELD_CHARS = 700
 MAX_DOCUMENTS = 8
+MAX_LOOKED = 3
 FIELDS = ('found', 'text', 'looked', 'next_step')
 
-SYSTEM_PROMPT = """You write the explanations in an AI-readiness report for a college's leadership. They are our customers. Write warmly and encouragingly, and give them real, specific credit for what they have done. But every statement must be true to the assessment you are given.
+SYSTEM_PROMPT = """You write the explanations in an AI-readiness report for a college's leadership. They are our customers. Write to them directly, as "you" and "your", warmly and encouragingly, and give them real, specific credit for what they have done. Every statement must still be true to the assessment you are given.
 
 You receive one area of the assessment: its key indicators and their requirements. For each requirement you get its result, the parts it asks for and how each part was judged, quotations from the college's own documents that the judgment rests on (each with an id), the documents that were read for it, and what is still missing.
 
 For each requirement write four fields:
-- found: what was found and credited, in one or two sentences, naming the document. List the quotations you rely on in quote_ids. You may quote a few words from a quotation in double quotes, exactly as given. Empty when nothing was credited.
-- text: how that led to the result: shown in full, partly shown (say which parts are shown and which are not yet), or not yet shown.
-- looked: only when something is not shown: which of the listed documents were read and that they did not show it. Empty when shown in full.
-- next_step: only when something is not shown: the missing part, phrased as a concrete next step the college can take. Empty when shown in full.
+- found: when something was credited, begin with what the college has done, in its favour, and name the document: "Your Annual Quality Assurance Report shows you run AI workshops for faculty." List the quotations you rely on in quote_ids. You may quote a few words from a quotation in double quotes, exactly as given. Empty when nothing was credited.
+- text: how that led to the result, in one or two sentences: shown in full, partly shown (what is shown and what is not yet), or not yet shown.
+- looked: only when something is not shown: that every document was searched, naming at most three of the documents read for it, and that they did not show it. Empty when shown in full.
+- next_step: only when something is not shown: one concrete thing the college could do or record next, in plain words. Empty when shown in full.
 
-For each key indicator, and for the area as a whole, write the same four fields as a short summary of at most three sentences each, leading with strengths.
+For each key indicator, and for the area as a whole, write the same four fields as a short summary of at most three sentences each. Lead with what the college is doing well.
 
 Rules:
 1. Use only what is in the input. Never mention evidence, documents, numbers, dates or activities that are not in it.
 2. Never say or imply more credit than was given. A partly credited requirement is partly shown; one not credited is not yet shown. Use "fully", "completely" or "entirely" only for a requirement shown in full.
 3. If a requirement went down because the college's own document contradicts it, say so plainly and kindly, citing the quotation.
 4. Do not give scores, credit or percentages; the report shows them.
-5. Do not mention how the assessment works inside (models, passes, packets, rubric or requirement codes). Write plain English for a principal or vice-chancellor.
-6. Be warm in framing, not in substance: begin with what the college has done, and describe gaps as next steps, never as failures.
-7. For a requirement that could not be judged because of a processing problem, say only that it will be checked again.
-8. Keep to the scope the quotations show. If a quotation names one programme, department or group, say that one; never widen it to "every department", "all students" or "the whole college".
-9. In found, name the document a quotation comes from. Use digits only for numbers that appear in the input, and do not write numbers out in words unless the quotation does.
-10. "Where we looked": every document the college uploaded was searched (documents_searched); documents_read are the ones that held the passages read for this key indicator. Name only documents listed there."""
+5. Do not mention how the assessment works inside (models, passes, packets, rubric or requirement codes).
+6. Plain words for a principal or vice-chancellor. The parts and still_missing are written for assessors: never copy their wording; say what they mean in everyday terms. For example, not "reproducible multi-cycle calculation records" but "keep the working behind each year's figures so they can be checked again".
+7. Be warm in framing, not in substance: begin with what the college has done, and describe gaps as next steps, never as failures. Write "you" and "your", never "the institution" or "the college".
+8. For a requirement that could not be judged because of a processing problem, say only that it will be checked again.
+9. Keep to the scope the quotations show. If a quotation names one programme, department or group, say that one; never widen it to "every department", "all students" or "the whole college".
+10. In found, name the document a quotation comes from. Use digits only for numbers that appear in the input, and do not write numbers out in words unless the quotation does.
+11. Name documents only as they appear in the input (documents_read, documents_searched, quotations)."""
 
 
 def _entry(extra=None):
@@ -85,13 +87,29 @@ def _names():
     return PILLARS, AREA_TITLES
 
 
+def _readable(filename):
+    """(name, group) for an uploaded file. Colleges upload files under a group ("criteria 3 - 3.2.1.pdf", "AICTE
+    Approval - AICTE-Engineering-Approvals.pdf"): the name keeps both ("Criteria 3 (3.2.1)"), the group lets several
+    files be named together ("the Criteria 3 files")."""
+    stem = re.sub(r'\.[A-Za-z0-9]{2,5}$', '', filename or '').replace('_', ' ')
+    stem = re.sub(r'\s*\(\d+\)$', '', re.sub(r'\s+', ' ', stem)).strip()
+    if not stem:
+        return 'an uploaded document', None
+    group, _, item = stem.partition(' - ')
+    group = group[:1].upper() + group[1:]
+    if item:
+        return f'{group} ({item.strip()})', group
+    return group, None
+
+
 def document_names(manifest):
-    """{document id: readable name} from the run's manifest (the file name without its extension)."""
-    names = {}
-    for entry in manifest or []:
-        name = re.sub(r'\.[A-Za-z0-9]{2,5}$', '', entry.get('filename') or '').replace('_', ' ').strip()
-        names[str(entry['document_id'])] = name or 'an uploaded document'
-    return names
+    """{document id: readable name} from the run's manifest (_readable)."""
+    return {str(entry['document_id']): _readable(entry.get('filename'))[0] for entry in manifest or []}
+
+
+def document_groups(manifest):
+    """{document id: group} for files uploaded under a group (_readable)."""
+    return {str(entry['document_id']): _readable(entry.get('filename'))[1] for entry in manifest or []}
 
 
 def _where(source_id, sources, names):
@@ -127,17 +145,27 @@ def _result(record):
     return 'shown in full' if credit >= 1 else 'partly shown' if credit > 0 else 'not yet shown'
 
 
-def _looked(trace, sources, names):
-    """The documents (and pages) the key indicator's judge read: from its trace's source ids."""
-    pages = {}
+def _looked(trace, sources, names, groups=None):
+    """The (at most MAX_LOOKED) documents that held the most passages the key indicator's judge read, from its trace's
+    source ids. Several files from one upload group count as one source, named "the <group> files"."""
+    groups = groups or {}
+    passages, members = {}, {}
     for source_id in (trace or {}).get('source_ids') or []:
         source = sources.get(source_id)
         if not source:
             continue
-        name = names.get(str(source.get('document_id')), 'an uploaded document')
-        pages.setdefault(name, set()).add(source.get('page_number'))
-    ranked = sorted(pages.items(), key=lambda item: -len(item[1]))[:MAX_DOCUMENTS]
-    return [{'document': name, 'pages': sorted(p for p in found if p is not None)} for name, found in ranked]
+        document = str(source.get('document_id'))
+        key = groups.get(document) or names.get(document, 'an uploaded document')
+        passages[key] = passages.get(key, 0) + 1
+        members.setdefault(key, set()).add(document)
+    ranked = sorted(passages, key=lambda key: -passages[key])[:MAX_LOOKED]
+    out = []
+    for key in ranked:
+        if key in set(groups.values()) and len(members[key]) > 1:
+            out.append({'document': f'the {key} files'})
+        else:
+            out.append({'document': names.get(next(iter(members[key])), key)})
+    return out
 
 
 def area_input(area, target):
@@ -147,6 +175,7 @@ def area_input(area, target):
     pillars, titles = _names()
     spec = _load()[0]['conditions']
     rubric, sources, names = target['rubric'], target['sources'], target['names']
+    groups = target.get('groups') or {}
     by_id = {r['condition_id']: r for r in target['records']}
     traces = {t.get('indicator'): t for t in target['traces']}
     merge = {row['condition_id']: row for row in target.get('merge') or []}
@@ -155,7 +184,7 @@ def area_input(area, target):
     for indicator in rubric['indicators']:
         if indicator.get('pillar') != area:
             continue
-        looked = _looked(traces.get(indicator['code']), sources, names)
+        looked = _looked(traces.get(indicator['code']), sources, names, groups)
         requirements = []
         for condition in indicator['conditions']:
             cid = condition['id']
@@ -194,9 +223,10 @@ def area_input(area, target):
                            'counts': {'requirements': len(results), 'shown_in_full': results.count('shown in full'),
                                       'partly_shown': results.count('partly shown'),
                                       'not_yet_shown': results.count('not yet shown')}})
-    searched = sorted(set(names.values()))
+    labels = sorted({f'the {g} files' for g in groups.values() if g} |
+                    {n for d, n in names.items() if not groups.get(d)})
     return {'area': area, 'name': pillars.get(area, area), 'indicators': indicators,
-            'documents_searched': {'count': len(searched), 'names': searched[:20]}}
+            'documents_searched': {'count': len(names), 'names': labels[:20]}}
 
 
 # ------------------------------------------------------------------ checks
@@ -211,6 +241,8 @@ WIDENING = re.compile(r'\b(?:every|all|each)\s+(?:of\s+(?:the|its|your)\s+)?(?:d
                       r'programme|program|course|classroom|school|campus|discipline)s?\b|\b(?:institution|college|'
                       r'university|campus)-wide\b|\b(?:whole|entire)\s+(?:college|institution|university|campus)\b|'
                       r'\bacross\s+the\s+(?:college|institution|university|campus)\b', re.I)
+THIRD_PERSON = re.compile(r'\bthe (?:institution|college|university)(?:\'s)?\b', re.I)
+SECOND_PERSON = re.compile(r'\b(?:you|your|yours)\b', re.I)
 MACHINERY = re.compile(r'AIQIF|\bC\d\.\d|\bpacket|\brubric|\bcondition[_ ]id|\b[FAO]\d\b')
 
 
@@ -246,12 +278,19 @@ def _scope(requirements, *, extra=''):
             'full': bool(requirements) and all(r['result'] == 'shown in full' for r in requirements)}
 
 
+def _loose(text):
+    """Lower case, punctuation as spaces: "criteria 6 - h" and "Criteria 6 (h)" match."""
+    return ' '.join(re.sub(r'[^0-9a-z]+', ' ', _norm(text)).split())
+
+
 def _numbers_outside_names(value, scope):
-    text = _norm(value)
-    for name in scope.get('names', []):
-        text = text.replace(name, ' ')
+    text = _loose(value)
+    for name in sorted({_loose(n) for n in scope.get('names', []) if _loose(n)}, key=len, reverse=True):
+        text = re.sub(rf'(?<![0-9a-z]){re.escape(name)}(?![0-9a-z])', ' ', text)
     text = re.sub(r'\bpages? (\d+)', lambda m: ' ' if m.group(1) in scope.get('pages', ()) else m.group(0), text)
-    return NUMBER.findall(text)
+    # _loose turned "2.5" into "2 5": read numbers back from the original where they survive outside names
+    kept = set(text.split())
+    return [n for n in NUMBER.findall(value) if all(part in kept for part in re.split(r'[.,]', n))]
 
 
 def _check(where, entry, scope, errors):
@@ -277,6 +316,8 @@ def _check(where, entry, scope, errors):
                 errors.append(f'{where}: {field} quotes words that are not in its quotations.')
         if not scope['full'] and OVERCLAIM.search(value):
             errors.append(f'{where}: {field} says fully, completely or entirely, but not everything is shown in full.')
+        if THIRD_PERSON.search(value):
+            errors.append(f'{where}: {field} says "the institution" or "the college"; write "you" and "your".')
     if not entry['text']:
         errors.append(f'{where}: text is empty.')
 
@@ -287,6 +328,21 @@ def _summary_scope(requirements, counts, extra=''):
     return scope
 
 
+def _documents_named(value, area):
+    """The documents of the area's input that a field names (longest names first, each counted once)."""
+    text = ' ' + _loose(value) + ' '
+    names = {d['document'] for i in area['indicators'] for d in i['documents_read']}
+    names |= set(area['documents_searched']['names'])
+    found = []
+    for name in sorted(names, key=lambda n: len(_loose(n)), reverse=True):
+        bare = _loose(re.sub(r'^the ', '', name, flags=re.I))
+        bare = re.sub(r' files$', '', bare)   # "the Criteria 3 files" is named by "Criteria 3"
+        if bare and f' {bare} ' in text:
+            found.append(name)
+            text = text.replace(f' {bare} ', ' ')
+    return found
+
+
 def _with_documents(scope, area, title=''):
     """Let a field name any document searched or read for the area (by name, with its pages), and use its title."""
     names = list(area['documents_searched']['names'])
@@ -294,9 +350,10 @@ def _with_documents(scope, area, title=''):
     for indicator in area['indicators']:
         for document in indicator['documents_read']:
             names.append(document['document'])
-            pages |= {str(p) for p in document['pages']}
+            pages |= {str(p) for p in document.get('pages') or []}
     scope['names'] = sorted({_norm(n) for n in names if n} | set(scope['names']), key=len, reverse=True)
     scope['pages'] = set(scope['pages']) | pages
+    scope['numbers'] = set(scope['numbers']) | {str(area['documents_searched']['count'])}
     scope['text'] += ' ' + _norm(' '.join(names + [title]))
 
 
@@ -331,6 +388,10 @@ def validate(area, output):
                      if q['id'] in cited]
             if not _spans(entry['found']) and not any(n and n in _norm(entry['found']) for n in named):
                 problems.append(f'{cid}: found must name the document it rests on, or quote it.')
+        if credited and entry['found'] and not SECOND_PERSON.search(entry['found']):
+            problems.append(f'{cid}: found must speak to the college as "you" or "your".')
+        if entry['looked'] and len(_documents_named(entry['looked'], area)) > MAX_LOOKED:
+            problems.append(f'{cid}: looked names more than {MAX_LOOKED} documents; name the most relevant.')
         if not credited and entry['found'] and not lowered:
             problems.append(f'{cid}: nothing was credited, so found must be empty.')
         processing = requirement['result'] == NOT_JUDGED
@@ -359,6 +420,8 @@ def validate(area, output):
         scope = _summary_scope(indicator['requirements'], indicator['counts'])
         _with_documents(scope, area, indicator['name'])
         _check(code, entry, scope, problems)
+        if not any(SECOND_PERSON.search(entry[f]) for f in FIELDS):
+            problems.append(f'{code}: speak to the college as "you" or "your".')
         errors += problems
         if not problems:
             passed['indicators'][code] = entry
@@ -369,6 +432,8 @@ def validate(area, output):
     _with_documents(scope, area, area['name'])
     entry, problems = _clean((output or {}).get('area')), []
     _check('area', entry, scope, problems)
+    if not any(SECOND_PERSON.search(entry[f]) for f in FIELDS):
+        problems.append('area: speak to the college as "you" or "your".')
     errors += problems
     if not problems:
         passed['area'] = entry
@@ -405,9 +470,9 @@ def fallback_requirement(requirement, indicator):
     if 'contradicts' in requirement.get('changed_after_follow_up', ''):
         text += ' A document you sent after the first assessment shows otherwise for part of it.'
     full = result == 'shown in full'
-    documents = [d['document'] for d in indicator['documents_read'][:4]]
-    looked = '' if full else (f'We read {_list(documents)} for this.' if documents else
-                              'We read every document you uploaded for this.')
+    documents = [d['document'] for d in indicator['documents_read'][:MAX_LOOKED]]
+    looked = '' if full else (f'We searched every document you uploaded; the closest passages were in '
+                              f'{_list(documents)}.' if documents else 'We searched every document you uploaded.')
     missing = requirement['still_missing']
     next_step = '' if full else (f'Next step: show {_lower_first(missing[0]).rstrip(".")}.' if missing else '')
     return {'found': found, 'text': text, 'looked': looked, 'next_step': next_step,
@@ -425,7 +490,8 @@ def fallback_summary(requirements, name):
         pieces.append(f"{part} {'is' if part == 1 else 'are'} partly shown")
     if rest:
         pieces.append(f"{rest} {'is' if rest == 1 else 'are'} not yet shown")
-    return {'found': '', 'text': f"Of the {len(results)} requirements under {name}, {_list(pieces)}.", 'looked': '',
+    return {'found': '', 'text': f"Of the {len(results)} requirements under {name} in your assessment, {_list(pieces)}.",
+            'looked': '',
             'next_step': 'The next steps under each requirement show what would add most.' if rest or part else '',
             'fallback': True}
 
@@ -444,63 +510,102 @@ def build_target(run):
     return {'run_id': str(run.pk), 'event_id': event.pk, 'rubric': inputs['rubric'], 'records': records,
             'traces': event.payload.get('traces') or [],
             'sources': {s['id']: s for s in inputs.get('sources') or []},
-            'names': document_names(inputs.get('manifest')),
+            'names': document_names(inputs.get('manifest')), 'groups': document_groups(inputs.get('manifest')),
             'merge': (inputs.get('second_layer') or {}).get('merge') or [],
             'plan': build_plan(inputs['rubric'], records)}
 
 
-def explain(target, model, *, max_calls=None):
+def _explain_area(area, target, model, take_call):
+    """One area: up to two calls, the checks, and fallbacks for whatever still fails. take_call() reserves one call
+    under the explanation's own cap (False when the cap is spent)."""
+    payload = area_input(area, target)
+    ids = [r['condition_id'] for i in payload['indicators'] for r in i['requirements']]
+    codes = [i['code'] for i in payload['indicators']]
+    passed, errors, calls, fallbacks = {'area': None, 'indicators': {}, 'requirements': {}}, [], 0, []
+    content = json.dumps(payload, ensure_ascii=False)
+    for attempt in range(2):
+        if not take_call():
+            break
+        if attempt and errors:
+            content = json.dumps({**payload, 'your_previous_answer_had_these_problems': errors[:40],
+                                  'instruction': 'Write the whole answer again, fixing every problem.'},
+                                 ensure_ascii=False)
+        calls += 1
+        response = model(SYSTEM_PROMPT, content, schema(ids, codes), 'score_explanations')
+        checked, errors = validate(payload, response)
+        # Keep the best of each entry across attempts: an entry that passed once stays.
+        passed['requirements'].update({k: v for k, v in checked['requirements'].items()
+                                       if k not in passed['requirements']})
+        passed['indicators'].update({k: v for k, v in checked['indicators'].items() if k not in passed['indicators']})
+        passed['area'] = passed['area'] or checked['area']
+        if len(passed['requirements']) == len(ids) and len(passed['indicators']) == len(codes) and passed['area']:
+            errors = []
+            break
+    for indicator in payload['indicators']:
+        for requirement in indicator['requirements']:
+            cid = requirement['condition_id']
+            if cid not in passed['requirements']:
+                passed['requirements'][cid] = fallback_requirement(requirement, indicator)
+                fallbacks.append(cid)
+        if indicator['code'] not in passed['indicators']:
+            passed['indicators'][indicator['code']] = fallback_summary(indicator['requirements'], indicator['name'])
+            fallbacks.append(indicator['code'])
+    if not passed['area']:
+        passed['area'] = fallback_summary([r for i in payload['indicators'] for r in i['requirements']],
+                                          payload['name'])
+        fallbacks.append(area)
+    return {'passed': passed, 'errors': errors[:40], 'calls': calls, 'fallbacks': fallbacks}
+
+
+def explain(target, model, *, max_calls=None, concurrency=1):
     """{'version', 'run_id', 'event_id', 'areas': {code: ...}, 'indicators': {code: ...}, 'requirements': {cid: ...},
-    'fallbacks': [ids], 'calls': n}. model: the depth code's interface (system, content, schema, name) -> dict."""
+    'fallbacks': [ids], 'calls': n}. model: the depth code's interface (system, content, schema, name) -> dict.
+    concurrency: areas written side by side (the assessment's indicator concurrency in the job); the meter's
+    reservations are already serialised, and each worker thread gets its own database connection."""
+    import threading
     out = {'version': VERSION, 'run_id': target['run_id'], 'event_id': target['event_id'], 'areas': {},
            'indicators': {}, 'requirements': {}, 'fallbacks': [], 'calls': 0, 'errors': {}}
     areas = []
     for indicator in target['rubric']['indicators']:
         if indicator.get('pillar') not in areas:
             areas.append(indicator.get('pillar'))
-    for area in areas:
-        payload = area_input(area, target)
-        ids = [r['condition_id'] for i in payload['indicators'] for r in i['requirements']]
-        codes = [i['code'] for i in payload['indicators']]
-        passed, errors, content = {'area': None, 'indicators': {}, 'requirements': {}}, [], json.dumps(
-            payload, ensure_ascii=False)
-        for attempt in range(2):
-            if max_calls is not None and out['calls'] >= max_calls:
-                break
-            if attempt and errors:
-                content = json.dumps({**payload, 'your_previous_answer_had_these_problems': errors[:40],
-                                      'instruction': 'Write the whole answer again, fixing every problem.'},
-                                     ensure_ascii=False)
-            out['calls'] += 1
-            response = model(SYSTEM_PROMPT, content, schema(ids, codes), 'score_explanations')
-            checked, errors = validate(payload, response)
-            # Keep the best of each entry across attempts: an entry that passed once stays.
-            passed['requirements'].update({k: v for k, v in checked['requirements'].items()
-                                           if k not in passed['requirements']})
-            passed['indicators'].update({k: v for k, v in checked['indicators'].items()
-                                         if k not in passed['indicators']})
-            passed['area'] = passed['area'] or checked['area']
-            if len(passed['requirements']) == len(ids) and len(passed['indicators']) == len(codes) and passed['area']:
-                errors = []
-                break
-        if errors:
-            out['errors'][area] = errors[:40]
-        for indicator in payload['indicators']:
-            for requirement in indicator['requirements']:
-                cid = requirement['condition_id']
-                if cid not in passed['requirements']:
-                    passed['requirements'][cid] = fallback_requirement(requirement, indicator)
-                    out['fallbacks'].append(cid)
-            if indicator['code'] not in passed['indicators']:
-                passed['indicators'][indicator['code']] = fallback_summary(indicator['requirements'], indicator['name'])
-                out['fallbacks'].append(indicator['code'])
-        if not passed['area']:
-            passed['area'] = fallback_summary([r for i in payload['indicators'] for r in i['requirements']],
-                                              payload['name'])
-            out['fallbacks'].append(area)
-        out['areas'][area] = passed['area']
-        out['indicators'].update(passed['indicators'])
-        out['requirements'].update(passed['requirements'])
+    lock, taken = threading.Lock(), [0]
+
+    def take_call():
+        with lock:
+            if max_calls is not None and taken[0] >= max_calls:
+                return False
+            taken[0] += 1
+            return True
+
+    if concurrency <= 1:
+        results = [_explain_area(area, target, model, take_call) for area in areas]
+    else:
+        import contextvars
+        from concurrent.futures import ThreadPoolExecutor
+        from django.db import connections
+
+        def run_in_thread(area):
+            try:
+                return _explain_area(area, target, model, take_call)
+            finally:
+                connections.close_all()
+        executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix='capability-explain')
+        try:
+            futures = [executor.submit(contextvars.copy_context().run, run_in_thread, area) for area in areas]
+            results = [future.result() for future in futures]
+        except BaseException:
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise
+        executor.shutdown(wait=True)
+    for area, result in zip(areas, results):   # assembled in area order, whatever finished first
+        if result['errors']:
+            out['errors'][area] = result['errors']
+        out['calls'] += result['calls']
+        out['fallbacks'] += result['fallbacks']
+        out['areas'][area] = result['passed']['area']
+        out['indicators'].update(result['passed']['indicators'])
+        out['requirements'].update(result['passed']['requirements'])
     return out
 
 

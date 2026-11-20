@@ -28,14 +28,20 @@ def validate_profiles(pack, rubric):
 @lru_cache(maxsize=1)
 def _load():
     from .engine import release
+    from .part_judgment import file_hashes
     raw = Path(__file__).with_name('retrieval_profiles_v1.json').read_bytes()
     pack = json.loads(raw)
     profiles = validate_profiles(pack, release())
-    return profiles, hashlib.sha256(raw).hexdigest()
+    return profiles, file_hashes(raw)   # independent of the checkout's line endings (part_judgment.file_hashes)
 
 
 def profile_metadata():
-    return {'query_profiles_version': VERSION, 'query_profiles_hash': _load()[1]}
+    return {'query_profiles_version': VERSION, 'query_profiles_hash': _load()[1][0]}
+
+
+def profiles_hash_matches(recorded):
+    """True when a run's recorded query_profiles_hash is this worker's profiles, in either line-ending form."""
+    return recorded in _load()[1][1]
 
 
 def evidence_query(condition):

@@ -415,7 +415,7 @@ def run_explain(job, meter):
         target = build_target(target_run)
     except ValueError as exc:
         raise Layer2Error(str(exc))
-    written = explain(target, metered_model(meter))
+    written = explain(target, metered_model(meter), concurrency=max(1, int(job.policy.get('indicator_concurrency') or 1)))
     with transaction.atomic():
         commit_point(job.pk, lock_run=True)
         CapabilityExplanation.objects.create(run=target_run, event_id=target['event_id'], version=written['version'],
