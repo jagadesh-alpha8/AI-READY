@@ -89,5 +89,10 @@ class PartJudgmentRunTests(APITransactionTestCase):
         self.assertEqual(assessment['result']['score'], assessment['result']['documented']['overall'])
         result = assessment['result']
         self.assertEqual(result['documented_with_digital'], result['documented'])  # no digital-only findings
-        self.assertGreaterEqual(result['documented']['overall'], result['lower'])
-        self.assertLessEqual(result['documented']['overall'], result['upper'])
+        # The evidence score (nothing held for follow-up answers) sits inside the strict bounds; the headline holds
+        # DEPTH_CREDIT_SHARE of every credit back until follow-up answers show depth (reserve.py).
+        held = result['depth_reserve']
+        self.assertGreaterEqual(held['evidence_score'], result['lower'])
+        self.assertLessEqual(held['evidence_score'], result['upper'])
+        self.assertAlmostEqual(result['documented']['overall'], held['evidence_score'] * (1 - held['share']), delta=0.011)
+        self.assertAlmostEqual(held['held_points'], held['evidence_score'] - result['documented']['overall'], delta=0.011)

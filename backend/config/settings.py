@@ -854,14 +854,17 @@ CAPABILITY_FOLLOW_UP_SEARCH = os.getenv('CAPABILITY_FOLLOW_UP_SEARCH', 'false').
 # are printed by the depth_* commands and stored in their own tables; they do not change the headline score in reports.
 # The settings below hold the open decisions (see docs/capability/DEPTH_FOLLOW_UP_HANDOFF.md): decisions 1 and 2 are
 # still open (1 defaults to the proposal's recommendation, 2 is left undecided); decision 3 is settled.
-DEPTH_MAX_QUESTIONS = int(os.getenv('DEPTH_MAX_QUESTIONS', '25'))
-DEPTH_MISSING_QUESTION_SLOTS = int(os.getenv('DEPTH_MISSING_QUESTION_SLOTS', '10'))
+# Every key indicator is asked about (depth.plan_all, questions-0.2, 21 Nov 2026). The old default of 25 was a
+# placeholder from the 11 Nov skeleton, not a rule; 0 now means no total cap (set a number only to cut the list).
+DEPTH_MAX_QUESTIONS = int(os.getenv('DEPTH_MAX_QUESTIONS', '0'))
+DEPTH_MISSING_QUESTION_SLOTS = int(os.getenv('DEPTH_MISSING_QUESTION_SLOTS', '10'))   # unused since questions-0.2
 # Decision 1: 'on_contradiction' (an answer that contradicts the credited evidence withdraws the credit) or 'never'.
 DEPTH_ANSWERS_CAN_LOWER = os.getenv('DEPTH_ANSWERS_CAN_LOWER', 'on_contradiction').strip().lower()
-# Decision 2: '' (undecided: depth changes no credit, a depth index is reported), 'separate' (the same, decided), or
-# 'reserve' with DEPTH_CREDIT_SHARE between 0 and 1 (that share of each credited condition depends on depth).
-DEPTH_CREDIT_MODE = os.getenv('DEPTH_CREDIT_MODE', '').strip().lower()
-DEPTH_CREDIT_SHARE = os.getenv('DEPTH_CREDIT_SHARE', '')
+# Decision 2, taken 20 Nov 2026 (Siddharth deferred it to us): 'reserve'. DEPTH_CREDIT_SHARE of each credited
+# requirement's credit is held until follow-up answers show depth (evidenced earns none of it back, substantiated half,
+# strong all); frozen into each new run (capability/reserve.py). '' or 'separate': nothing held (runs for comparison).
+DEPTH_CREDIT_MODE = os.getenv('DEPTH_CREDIT_MODE', 'reserve').strip().lower()
+DEPTH_CREDIT_SHARE = os.getenv('DEPTH_CREDIT_SHARE', '0.25')
 # Decision 3, decided by Harsha (12 Nov 2026): a typed answer without a supporting document counts for nothing. 'ignore'
 # (default): such answers never reach the judge, and a level that still rests on one falls back to evidenced.
 # 'cap_one_level' and 'same' are kept only for comparison runs.

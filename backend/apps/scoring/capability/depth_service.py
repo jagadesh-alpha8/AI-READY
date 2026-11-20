@@ -12,7 +12,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import transaction
 
-from apps.scoring.models import DepthJudgment, DepthPastCase, DepthQuestion, DepthResponse
+from apps.scoring.models import DepthJudgment, DepthPastCase, DepthPlan, DepthQuestion, DepthResponse
 
 from . import depth
 from .engine import documented
@@ -44,7 +44,7 @@ def policy():
 # ------------------------------------------------------------------ questions
 
 
-def create_questions(export, model, *, commit=False, replace=False, max_calls=None, guard=None):
+def create_questions(export, model, *, commit=False, replace=False, max_calls=None, guard=None, concurrency=1):
     """Plan the run's questions (model calls for depth questions) and, with commit, save them. guard, when given, is
     called inside the saving transaction before anything is written (a background job uses it to save nothing once it
     has been cancelled); the refusals are checked again there, since the planning calls take time."""
@@ -61,13 +61,10 @@ def create_questions(export, model, *, commit=False, replace=False, max_calls=No
     if replace and DepthResponse.objects.filter(question__run_ref=run_ref).exists():
         raise DepthError(f'Run {run_ref} has responses; its questions cannot be replaced.')
     spec = depth.spec()
-    depth_targets, missing_targets = depth.select_targets(
-        records, rubric, max_questions=settings.DEPTH_MAX_QUESTIONS,
-        missing_slots=settings.DEPTH_MISSING_QUESTION_SLOTS, depth_spec=spec)
-    by_id = {r['condition_id']: r for r in records}
-    planned, notes = depth.plan_questions(depth_targets, missing_targets, by_id, model,
-                                         max_questions=settings.DEPTH_MAX_QUESTIONS, max_calls=max_calls,
-                                         depth_spec=spec)
+    from fractions import Fraction
+    share = max([Fraction(str(r.get('depth_share') or 0)) for r in records] or [Fraction(0)])
+    planned, notes, shown = depth.plan_all(records, rubric, model, max_questions=settings.DEPTH_MAX_QUESTIONS,
+                                           max_calls=max_calls, concurrency=concurrency, depth_spec=spec, share=share)
     if commit:
         with transaction.atomic():
             if guard is not None:
@@ -77,13 +74,17 @@ def create_questions(export, model, *, commit=False, replace=False, max_calls=No
             if not replace and DepthQuestion.objects.filter(run_ref=run_ref).exists():
                 raise DepthError(f'Run {run_ref} already has questions; pass replace to plan them again.')
             DepthQuestion.objects.filter(run_ref=run_ref).delete()
+            DepthPlan.objects.update_or_create(run_ref=run_ref, defaults={
+                'version': depth.PLAN_VERSION, 'shown_by_evidence': shown, 'notes': notes,
+                'model': getattr(model, 'model_name', '')})
             DepthQuestion.objects.bulk_create([
                 DepthQuestion(run_ref=run_ref, kind=q['kind'], indicator_code=q['indicator'],
                               condition_ids=q['condition_ids'], dimension_ids=q['dimension_ids'], text=q['text'],
                               rank=q['rank'], answered_by_evidence=q.get('answered_by_evidence', []),
+                              points_at_stake=Decimal(str(q.get('points_at_stake') or 0)),
                               spec_version=spec['version'], model=getattr(model, 'model_name', ''))
                 for q in planned])
-    return {'run_ref': run_ref, 'questions': planned, 'notes': notes, 'saved': commit}
+    return {'run_ref': run_ref, 'questions': planned, 'notes': notes, 'shown_by_evidence': shown, 'saved': commit}
 
 
 # ------------------------------------------------------------------ responses
@@ -161,6 +162,11 @@ def _exchanges(questions):
     return out
 
 
+def _shown_by_evidence(run_ref):
+    plan = DepthPlan.objects.filter(run_ref=run_ref).first()
+    return list(plan.shown_by_evidence) if plan else []
+
+
 def approved_past_cases(condition_id, spec_version, limit=PAST_CASES):
     cases = (DepthPastCase.objects.filter(condition_id=condition_id, spec_version=spec_version,
                                           status=DepthPastCase.Status.APPROVED)
@@ -195,21 +201,49 @@ def judge_run(export, model, *, commit=False, max_calls=None, guard=None):
             continue
         cid = question.condition_ids[0]
         per_condition.setdefault(cid, []).append(question)
+    # A fact asked once for two requirements of the same key indicator counts for both (questions-0.2): a requirement
+    # also reads the answers to questions on its indicator's other requirements that asked about its dimensions.
+    depth_questions = [q for q in questions if q.kind == DepthQuestion.Kind.DEPTH]
+    for cid in list(per_condition) + [c for c in _shown_by_evidence(run_ref) if c not in per_condition]:
+        if cid not in by_id:
+            continue
+        # Only for the dimensions it was not asked about itself (the planner left them out because they were asked
+        # under another requirement).
+        mine = set(spec['indicators'][cid.rsplit('.', 1)[0]]['conditions'][cid]['dimensions'])
+        own = [q for q in per_condition.get(cid, []) if q.condition_ids[0] == cid]
+        mine -= {d for q in own for d in (q.dimension_ids or [])}
+        mine -= {a.get('dimension_id') for q in own for a in (q.answered_by_evidence or [])}
+        shared = [q for q in depth_questions if q.condition_ids[0] != cid
+                  and q.indicator_code == cid.rsplit('.', 1)[0] and mine & set(q.dimension_ids or [])]
+        per_condition.setdefault(cid, []).extend(shared)
+    shown = set(_shown_by_evidence(run_ref))
     judged = []
     for cid, condition_questions in per_condition.items():
         if any(r.status == DepthResponse.Status.PENDING for q in condition_questions for r in q.responses.all()):
             awaiting_check.append(cid)
             continue
         exchanges = _exchanges(condition_questions)
-        if not exchanges:
+        if not exchanges and cid not in shown:
             unanswered.append(cid)
             continue
         if rules['unsupported'] == 'ignore':
             exchanges = depth.counted_exchanges(exchanges)
-            if not exchanges:
+            if not exchanges and cid not in shown:
                 without_documents.append(cid)
                 continue
-        if max_calls is not None and len(judged) >= max_calls:
+        if exchanges and all(e['kind'] == 'dont_know' for e in exchanges) and cid not in shown:
+            # "Don't know" leaves the requirement at evidenced (JUDGE_PROMPT says so): no model call is needed, and
+            # the credit held for depth stays held (reserve.py).
+            provisional = by_id[cid].get('credit') or 0
+            judged.append({'condition_id': cid, 'level': 'evidenced', 'contradicts_evidence': False,
+                           'relies_on_unsupported': False, 'dimension_findings': [],
+                           'reason': 'You told us you do not have records for this yet, so it stays as your documents show it.',
+                           'final_level': 'evidenced', 'provisional_credit': provisional,
+                           'final_credit': float(depth.depth_credit(provisional, 'evidenced', mode=rules['credit_mode'],
+                                                                    share=rules['credit_share'])),
+                           'past_case_ids': [], 'model_called': False})
+            continue
+        if max_calls is not None and sum(1 for j in judged if j.get('model_called', True)) >= max_calls:
             unanswered.append(cid)
             continue
         cases = approved_past_cases(cid, spec['version'])
@@ -218,7 +252,8 @@ def judge_run(export, model, *, commit=False, max_calls=None, guard=None):
         provisional = by_id[cid].get('credit') or 0
         credit = depth.depth_credit(provisional, final, mode=rules['credit_mode'], share=rules['credit_share'])
         judged.append({'condition_id': cid, **result, 'final_level': final, 'provisional_credit': provisional,
-                       'final_credit': float(credit), 'past_case_ids': [c['id'] for c in cases]})
+                       'final_credit': float(credit), 'past_case_ids': [c['id'] for c in cases],
+                       'model_called': True, **({'on_own_quotes': True} if not exchanges else {})})
     if commit:
         with transaction.atomic():
             if guard is not None:
@@ -233,6 +268,8 @@ def judge_run(export, model, *, commit=False, max_calls=None, guard=None):
                     dimension_findings=row['dimension_findings'], reason=row['reason'], policy=rules,
                     past_case_ids=row['past_case_ids'], spec_version=spec['version'],
                     model=getattr(model, 'model_name', ''))
+                if not row.get('model_called', True):
+                    continue   # a "don't know" placement is not a past case to learn from
                 DepthPastCase.objects.create(judgment=judgment, condition_id=row['condition_id'],
                                              level=row['final_level'], dimension_findings=row['dimension_findings'],
                                              reasoning=row['reason'], spec_version=spec['version'])
@@ -261,15 +298,18 @@ def depth_report(export):
     for record in records:
         if (record.get('credit') or 0) > 0:
             counts[levels.get(record['condition_id'], 'evidenced')] += 1
-    provisional = documented({r['condition_id']: r.get('credit') or 0 for r in records}, rubric)['overall']
+    from .reserve import scored_credits
+    provisional = documented(scored_credits(records), rubric)['overall']
     report = {'run_ref': run_ref, 'policy': rules, 'credited_conditions_by_level': counts,
               'depth_index': depth.depth_index(levels, records, rubric), 'provisional_score': provisional,
               'questions': DepthQuestion.objects.filter(run_ref=run_ref).count(),
               'answered_questions': DepthQuestion.objects.filter(run_ref=run_ref,
                                                                  status=DepthQuestion.Status.ANSWERED).count()}
     if rules['credit_mode'] == 'reserve':
-        credits = depth.adjusted_credits(levels, records, mode='reserve', share=rules['credit_share'])
-        report['score_with_depth'] = documented(credits, rubric)['overall']
+        from .reserve import stamp
+        shared = [dict(r) for r in records]
+        share = next((r.get('depth_share') for r in records if r.get('depth_share')), rules['credit_share'])
+        report['score_with_depth'] = documented(scored_credits(stamp(shared, share, levels)), rubric)['overall']
     else:
         report['score_with_depth'] = None
         report['note'] = ('Decision 2 (how much credit depth carries) is not set to reserve, so depth changes no '

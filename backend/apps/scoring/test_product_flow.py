@@ -50,6 +50,10 @@ SETTINGS = dict(SECURE_SSL_REDIRECT=False, CAPABILITY_ASSESSMENT_ENABLED=True, C
                 AI_PRICING_JSON='{"test-model":{"input":0.1,"output":0.2}}')
 
 
+def rubric_area(code):
+    return next(i['pillar'] for i in release()['indicators'] if i['code'] == code)
+
+
 @override_settings(**SETTINGS)
 class ProductFlowTests(APITestCase):
     def setUp(self):
@@ -144,6 +148,14 @@ class ProductFlowTests(APITestCase):
         return {'dimensions': [{'dimension_id': i, 'answered_by_evidence': False, 'evidence_quote': ''} for i in ids],
                 'questions': [{'dimension_ids': ids[:2], 'text': 'How many hours did the programme run, and who '
                                                                   'accredited it? Please attach the register.'}]}
+
+    def reply_depth_question_plan(self, payload):
+        questions = [{'condition_id': r['condition_id'], 'dimension_ids': [d['id'] for d in r['dimensions'][:2]],
+                      'text': 'How many hours did the programme run, and who accredited it? Please attach the register.'}
+                     for r in payload['credited_requirements']]
+        items = [{'condition_id': r['condition_id'], 'text': 'A record that shows this happening in your college'}
+                 for r in payload['requirements_not_yet_shown']]
+        return {'answered': [], 'questions': questions, 'missing_items': items}
 
     def reply_answer_check(self, payload):
         attached = [p['id'] for p in payload['passages'] if NEW in p['text']]
@@ -320,7 +332,7 @@ class ProductFlowTests(APITestCase):
         self.assertTrue(inference['second_layer_metered'])
         self.assertEqual(sum(1 for c in inference['calls'] if c.get('kind') == 'request_reserved'),
                          rejudge.requests_reserved)
-        self.assertEqual({'capability_parts', 'capability_advice', 'depth_questions', 'answer_check',
+        self.assertEqual({'capability_parts', 'capability_advice', 'depth_question_plan', 'answer_check',
                           'depth_judgment'} - set(self.schemas), set())
 
         # The second layer exports for offline review of the questions (layer2_export; no model calls).
@@ -333,6 +345,109 @@ class ProductFlowTests(APITestCase):
         self.assertEqual({q['text'] for q in exported['questions']}, set(questions.values_list('text', flat=True)))
         self.assertEqual(len(exported['responses']), 3)
         self.assertTrue(exported['depth_judgments'] and exported['jobs'] and exported['events'])
+
+    # ---------------------------------------------------------------- follow-up outcomes (21 Nov)
+
+    def test_follow_up_answers_have_the_outcomes_they_should(self):
+        """A scripted set of answers with known expected outcomes (the test 13 audit: the suite did not measure the
+        follow-up questions). Credit held for depth (reserve.py) is earned back only by an answer a document backs."""
+        from apps.documents.models import Document
+        from .capability import reserve
+        provisional = self.assess()
+        detail = self.client.get(f'{self.base}/{provisional.pk}').data['assessment']
+        records = {r['condition_id']: r for r in detail['records']}
+        held = detail['result']['depth_reserve']
+        self.assertEqual(held['share'], 0.25)
+        self.assertGreater(held['held_points'], 0)
+        self.assertEqual(held['earned_back_points'], 0)
+        self.assertAlmostEqual(detail['result']['score'], held['evidence_score'] * 0.75, delta=0.011)
+        credited = sorted(c for c, r in records.items() if (r.get('credit') or 0) > 0)
+        html = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'leadership', 'file': 'html'})
+        self.assertIn('is held until your follow-up answers show how far the evidence goes', html.content.decode())
+
+        # Coverage: every key indicator is asked about; no total cap; tied questions spread across areas.
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'questions'}, key='plan', expect=202)
+        self.run_queued()
+        questions = list(DepthQuestion.objects.filter(run_ref=str(provisional.pk)).order_by('rank'))
+        depth_qs = [q for q in questions if q.kind == 'depth']
+        self.assertEqual({q.condition_ids[0] for q in depth_qs}, set(credited))
+        rubric = release()
+        gaps = {i['code'] for i in rubric['indicators'] for c in i['conditions'] if (records[c['id']].get('credit') or 0) < 1}
+        self.assertEqual({q.indicator_code for q in questions if q.kind == 'missing'}, gaps)
+        self.assertEqual(len(questions), len(depth_qs) + len(gaps))   # nothing cut
+        top = [q for q in depth_qs[:4]]
+        self.assertEqual(len({rubric_area(q.indicator_code) for q in top}), 2)   # C1 and C2 take turns
+        self.assertTrue(all(float(q.points_at_stake) > 0 for q in questions))
+        self.assertEqual(sorted((float(q.points_at_stake) for q in questions), reverse=True),
+                         [float(q.points_at_stake) for q in questions])
+        listed = self.client.get(f'{self.base}/{provisional.pk}/questions').data
+        self.assertIn('points_at_stake', listed['next']['question'])
+        # Missing-evidence items: starting capability, then repeated use, then results; no rubric codes.
+        level = {c['id']: c['level'] for i in rubric['indicators'] for c in i['conditions']}
+        for q in questions:
+            if q.kind == 'missing':
+                self.assertEqual([level[c] for c in q.condition_ids],
+                                 sorted((level[c] for c in q.condition_ids), key='FAO'.index))
+                self.assertNotIn('AIQIF', q.text)
+
+        by_condition = {}
+        for q in depth_qs:
+            by_condition.setdefault(q.condition_ids[0], []).append(q)
+        backed, dont_know, typed, already = credited[0], credited[1], credited[2], credited[3]
+        respond = lambda q, body: self.post(f'{self.base}/{provisional.pk}/questions/{q.pk}/responses', body, expect=201)
+        # 1. An answer a new document backs: should earn back held credit.
+        for q in by_condition[backed]:
+            respond(q, {'answer': '85 of 120 faculty completed the 40-hour accredited programme.',
+                        'document_ids': [self.document(ATTACHMENT)]})
+        # 2. "Don't know": stays evidenced, no model call.
+        for q in by_condition[dont_know]:
+            respond(q, {'skip': True})   # "don't know" in the API
+        # 3. A typed answer with no document: counts for nothing.
+        for q in by_condition[typed]:
+            respond(q, {'answer': 'We run a 300-hour accredited programme.'})
+        # 4. A document the first assessment had already read: the college is told it was already counted.
+        ssr = str(Document.objects.get(sprint=self.sprint, document_type='naac_ssr').pk)
+        already_q = by_condition[already][0]
+        made = respond(already_q, {'answer': 'It is in our self-study report.', 'document_ids': [ssr]})
+        # 5. A new document for a missing-evidence question: re-judged, so the final result has new evidence as well
+        # as depth answers, and both must reach it.
+        missing_q = next(q for q in questions if q.kind == 'missing')
+        respond(missing_q, {'answer': 'Our certificate register.', 'document_ids': [self.document(ATTACHMENT)]})
+        self.run_queued()
+        checked = DepthResponse.objects.get(pk=made.data['id'])
+        self.assertEqual([d['document_id'] for d in checked.support_check['search']['already_counted']], [ssr])
+        self.assertTrue(checked.follow_up_text.startswith('We had already read'), checked.follow_up_text)
+
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'depth'}, key='depth', expect=202)
+        judged = self.run_queued()[0].result
+        levels = {j['condition_id']: j['final_level'] for j in judged['judged']}
+        self.assertEqual(levels[backed], 'substantiated')
+        self.assertEqual(levels[dont_know], 'evidenced')
+        self.assertNotIn(typed, levels)
+
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge'}, key='final', expect=202)
+        rejudge = self.run_queued()[0]
+        self.assertIsNotNone(rejudge.final_run_id, rejudge.result)
+        self.assertTrue(rejudge.result['targets'])   # new evidence re-judged, and depth carried through the merge
+        self.assertIn({'condition_id': backed, 'level': 'substantiated'}, rejudge.result['depth_changes'])
+        final = CapabilityRun.objects.get(pk=rejudge.final_run_id)
+        final_detail = self.client.get(f'{self.base}/{final.pk}').data['assessment']
+        final_records = {r['condition_id']: r for r in final_detail['records']}
+        self.assertEqual(final_records[backed]['depth_level'], 'substantiated')
+        self.assertEqual(final_records[dont_know]['depth_level'], 'evidenced')
+        self.assertEqual(float(reserve.record_factor(final_records[backed])), 0.875)
+        final_held = final_detail['result']['depth_reserve']
+        self.assertGreater(final_held['earned_back_points'], 0)
+        self.assertGreater(final_detail['result']['score'], detail['result']['score'])
+        self.assertGreaterEqual(final_held['evidence_score'], held['evidence_score'])   # credit only rose
+        html = self.client.get(f'{self.base}/{final.pk}/report', {'audience': 'leadership', 'file': 'html'})
+        self.assertIn('Your follow-up answers earned back', html.content.decode())
+        self.reports(final)
+        # The priority plan and plan baseline read the same score.
+        self.assertEqual(self.recommend(final, 'advice-final')['plan']['priority_plan']['score'],
+                         round(final_detail['result']['score'], 2))
+        from .capability.plan_execution import validate_baseline
+        validate_baseline(final, final.events.filter(state='completed').last())
 
     # ---------------------------------------------------------------- score explanations
 

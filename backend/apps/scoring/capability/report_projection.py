@@ -370,6 +370,22 @@ def unconfirmed_reliance(report, decisions):
     return unconfirmed, in_conflict
 
 
+def held_note(held):
+    """One or two sentences on the credit held for follow-up answers (reserve.py), or ''."""
+    if not held or not held.get('held_points'):
+        return ''
+    share = f"{held['share'] * 100:g}%"
+    if held.get('earned_back_points'):
+        text = (f" Your follow-up answers earned back {held['earned_back_points']:g} of the {held['held_points']:g} "
+                f"points held for depth of evidence.")
+        if held.get('still_held_points'):
+            text += f" {held['still_held_points']:g} remain held for requirements whose depth is not yet shown."
+        return text
+    return (f" {share} of each credited requirement's credit, {held['held_points']:g} points in all, is held until "
+            f"your follow-up answers show how far the evidence goes. Answering them can raise this score to "
+            f"{held['evidence_score']:g}.")
+
+
 def single_headline(result, decisions, report=None):
     statuses = Counter(credit_status(r) for r in decisions.values())
     total = len(decisions)
@@ -380,7 +396,9 @@ def single_headline(result, decisions, report=None):
                           + (f" ({in_conflict} of them with a disputed value)" if in_conflict else '')
                           + '. They are credited on the source text; confirming or correcting those facts in the review '
                             'queue can change them.') if unconfirmed else '',
-        'score': f"{result['score']:g} / 100", 'score_value': result['score'], 'score_explanation': SCORE_NOTE,
+        'score': f"{result['score']:g} / 100", 'score_value': result['score'],
+        'score_explanation': SCORE_NOTE + held_note(result.get('depth_reserve')),
+        'depth_reserve': result.get('depth_reserve'),
         'condition_summary': (f"{statuses['demonstrated']} of {total} requirements demonstrated, {statuses['partly']} partly "
                               f"demonstrated, {statuses['not_found']} not found in the documents"
                               + (f", {statuses['shortfall']} with a documented shortfall" if statuses['shortfall'] else '')

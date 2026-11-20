@@ -56,10 +56,10 @@ def _explanation(pdf, explanation, labelled=True):
         return
     rows = [('What we found', explanation.get('found')), ('How it scored', explanation.get('text')),
             ('Where we looked', explanation.get('looked') if labelled else None),
-            ('Next step', explanation.get('next_step'))]
+            ('Next step', explanation.get('next_step')), ('Follow-up', explanation.get('follow_up'))]
     for label, value in rows:
         if value:
-            pdf.paragraph(f'{label}: {value}' if labelled or label == 'Next step' else value)
+            pdf.paragraph(f'{label}: {value}' if labelled or label in ('Next step', 'Follow-up') else value)
 
 
 def render_pdf(report, indicators, actions):
@@ -76,8 +76,10 @@ def render_pdf(report, indicators, actions):
     single = result.get('score') is not None
     if single:
         pdf.paragraph(f"{result['score']:g} / 100", heading=True)
+        from .report_projection import held_note
         pdf.paragraph('What the supplied documents show, with partial credit where only some parts of a requirement '
-                      'are evidenced. A requirement the documents do not show earns no credit.')
+                      'are evidenced. A requirement the documents do not show earns no credit.'
+                      + held_note(result.get('depth_reserve')))
     else:
         score = (f"{result['exact_score']:.2f}" if result['exact_score'] is not None else
                  f"{result['lower']:.2f} - {result['upper']:.2f}")

@@ -11,6 +11,7 @@ from rest_framework.exceptions import APIException
 
 from apps.scoring.models import RecommendationExecution
 from .views import RunView
+from .report_projection import held_note
 from .recommendations import build_inputs
 from .storage import digest
 from .report_projection import build_report_view
@@ -131,7 +132,8 @@ class CapabilityReportView(RunView):
             else:
                 template = 'scoring/leadership_report.html' if audience == 'leadership' else 'scoring/capability_report.html'
                 content = render_to_string(template, {'report': payload, 'view': payload['report_view'],
-                    'result': event.payload['result'], 'indicators': indicators, 'actions': actions})
+                    'result': event.payload['result'], 'indicators': indicators, 'actions': actions,
+                    'held_note': held_note(event.payload['result'].get('depth_reserve'))})
         response = HttpResponse(content, content_type={'json': 'application/json; charset=utf-8',
             'html': 'text/html; charset=utf-8', 'pdf': 'application/pdf'}[file_format])
         response['Content-Disposition'] = f'attachment; filename="capability-{run.pk}-{audience}.{file_format}"'
