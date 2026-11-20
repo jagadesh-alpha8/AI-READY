@@ -50,6 +50,18 @@ class Report(FPDF):
         self.paragraph(title, heading=True)
 
 
+def _explanation(pdf, explanation, labelled=True):
+    """A score explanation (explanations.py), when the run has one: found, how it scored, where we looked, next step."""
+    if not explanation:
+        return
+    rows = [('What we found', explanation.get('found')), ('How it scored', explanation.get('text')),
+            ('Where we looked', explanation.get('looked') if labelled else None),
+            ('Next step', explanation.get('next_step'))]
+    for label, value in rows:
+        if value:
+            pdf.paragraph(f'{label}: {value}' if labelled or label == 'Next step' else value)
+
+
 def render_pdf(report, indicators, actions):
     pdf = Report(report['run_id'])
     result = report['assessment']['result']
@@ -106,6 +118,7 @@ def render_pdf(report, indicators, actions):
             units = "Credit units" if result.get("aggregation") == "independent_conditions" else "Level"
             pdf.paragraph(f"{units} {indicator['lower_level']} - {indicator['upper_level']} | "
                           f"{indicator['lower']} - {indicator['upper']} / 100")
+        _explanation(pdf, indicator.get('explanation'), labelled=False)
         for condition in indicator['requirements']:
             decision = condition['decision']
             if single:
@@ -115,6 +128,7 @@ def render_pdf(report, indicators, actions):
                 label = LABELS[decision['state']]
             pdf.paragraph(f"{condition['id']} | {label}", heading=True)
             pdf.paragraph(condition['text'])
+            _explanation(pdf, decision.get('explanation'))
             pdf.paragraph('Decision: ' + decision['reason'])
             pdf.paragraph('Completion evidence: ' + condition['completion_evidence'])
             for cite in decision['citations']:

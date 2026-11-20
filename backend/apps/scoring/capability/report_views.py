@@ -107,9 +107,12 @@ class CapabilityReportView(RunView):
                       'Tier pathways are conditional sufficient scenarios, not optimal or guaranteed. Workflow completion does not change scores; reassessment is required.'}
         from .diagnostics import explain
         payload['diagnostics'] = explain(run.inputs, event.payload)
-        records = {r['condition_id']: r for r in event.payload['records']}
+        # From the copy with the explanations attached (payload['assessment']), so the evidence report can print each
+        # requirement's and key indicator's explanation; the stored event is unchanged.
+        attached = payload['assessment']
+        records = {r['condition_id']: r for r in attached['records']}
         indicators = [{**i, 'requirements': [{**c, 'decision': records[c['id']]} for c in i['conditions']]}
-                      for i in event.payload['result']['indicators']]
+                      for i in attached['result']['indicators']]
         plan_actions = payload['deterministic_plan']['actions']
         enriched = {a['condition_id']: a for a in (completed.payload['advice'] if completed else [])}
         actions = [{**a, 'advice': enriched.get(a['id'])} for a in plan_actions]

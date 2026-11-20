@@ -99,6 +99,21 @@ class SettingsCheckTests(APITestCase):
         self.assertEqual((kinds[('execution_policy', 'agreement_passes')], kinds[('execution_policy', 'tie_break')]),
                          ('scoring', 'scoring'))
 
+    def test_hashes_recorded_from_a_windows_checkout_are_the_same_files(self):
+        import hashlib
+        from pathlib import Path
+        from .capability import part_judgment, query_profiles
+        from .management.commands.capability_settings_check import _compare
+        def windows(name):
+            raw = Path(part_judgment.__file__).with_name(name).read_bytes().replace(b'\r\n', b'\n')
+            return hashlib.sha256(raw.replace(b'\n', b'\r\n')).hexdigest()
+        current_parts = {'parts_hash': part_judgment.metadata()['parts_hash']}
+        self.assertEqual(_compare('execution_policy', {'parts_hash': windows('rubric_parts_v1.json')}, current_parts), [])
+        current_profiles = query_profiles.profile_metadata()
+        self.assertEqual(_compare('retrieval_policy', {**current_profiles,
+                                  'query_profiles_hash': windows('retrieval_profiles_v1.json')}, current_profiles), [])
+        self.assertEqual(len(_compare('execution_policy', {'parts_hash': 'f' * 64}, current_parts)), 1)
+
     def test_fact_verification_in_shadow_is_flagged(self):
         with override_settings(FACT_VERIFICATION_MODE='shadow'):
             code, out = self.command()

@@ -766,7 +766,10 @@ def check_export_rule(records, traces, targets=None):
         if wanted is not None and trace.get('indicator') not in wanted:
             continue
         recorded = trace.get('judgment') or {}
-        different = [k for k in ('parts_version', 'parts_hash', 'related_credit') if recorded.get(k) != current[k]]
+        from .part_judgment import parts_hash_matches
+        different = [k for k in ('parts_version', 'related_credit') if recorded.get(k) != current[k]]
+        if not parts_hash_matches(recorded.get('parts_hash')):   # either line-ending form of the same file
+            different.append('parts_hash')
         if different:
             raise Layer2Error(f"The export for {trace.get('indicator', 'a key indicator')} was scored with a different "
                               f"part rule ({', '.join(different)} differ from this worker). Use an export from a run "

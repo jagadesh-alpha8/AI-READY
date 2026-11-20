@@ -129,7 +129,7 @@ class ProductFlowTests(APITestCase):
                     'text': 'This is shown.' if full else 'This is partly shown.' if credited else 'Not yet shown.',
                     'looked': 'We read the documents listed for this area.' if gap else '',
                     'next_step': 'Add a record that shows what is missing.' if gap else ''})
-        return {'area': {'found': 'Good foundations.', 'text': 'A solid start.', 'looked': '', 'next_step': ''},
+        return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '', 'next_step': ''},
                 'indicators': indicators, 'requirements': requirements}
 
     def reply_capability_advice(self, payload):
@@ -323,6 +323,17 @@ class ProductFlowTests(APITestCase):
         self.assertEqual({'capability_parts', 'capability_advice', 'depth_questions', 'answer_check',
                           'depth_judgment'} - set(self.schemas), set())
 
+        # The second layer exports for offline review of the questions (layer2_export; no model calls).
+        import json, tempfile, os
+        from django.core.management import call_command
+        out = os.path.join(tempfile.mkdtemp(), 'layer2.json')
+        call_command('layer2_export', str(provisional.pk), out=out, stdout=open(os.devnull, 'w'))
+        exported = json.load(open(out, encoding='utf-8'))
+        self.assertEqual(len(exported['questions']), questions.count())
+        self.assertEqual({q['text'] for q in exported['questions']}, set(questions.values_list('text', flat=True)))
+        self.assertEqual(len(exported['responses']), 3)
+        self.assertTrue(exported['depth_judgments'] and exported['jobs'] and exported['events'])
+
     # ---------------------------------------------------------------- score explanations
 
     def test_explanations_for_the_provisional_and_the_final_result(self):
@@ -338,10 +349,31 @@ class ProductFlowTests(APITestCase):
         credited = next(r for r in detail['records'] if (r.get('credit') or 0) > 0)
         self.assertIn('records this', credited['explanation']['found'])
         self.assertTrue(all(r['explanation']['text'] for r in detail['records']))
-        self.assertEqual(detail['result']['documented']['pillars'][0]['explanation']['text'], 'A solid start.')
+        self.assertEqual(detail['result']['documented']['pillars'][0]['explanation']['text'], 'You have made a solid start.')
         report = self.reports(provisional)   # all four formats render with them
         html = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'leadership', 'file': 'html'})
-        self.assertIn('Good foundations. A solid start.', html.content.decode())   # the area explanation
+        self.assertIn('Your foundations are good. You have made a solid start.', html.content.decode())   # the area explanation
+        # Test 13 (20 Nov) found the leadership PDF and both evidence reports without them; all three carry them now.
+        import fpdf
+        printed = []
+        real = fpdf.FPDF.multi_cell
+
+        def capture(pdf, w, h=None, text='', *args, **kwargs):
+            printed.append(str(text))
+            return real(pdf, w, h, text, *args, **kwargs)
+        with patch.object(fpdf.FPDF, 'multi_cell', capture):
+            for audience in ('leadership', 'evidence'):
+                response = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': audience, 'file': 'pdf'})
+                self.assertEqual(response.status_code, 200, audience)
+                text = ' '.join(printed)
+                self.assertIn('You have made a start here.', text, audience)   # a key indicator's explanation
+                printed.clear()
+        with patch.object(fpdf.FPDF, 'multi_cell', capture):
+            self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'evidence', 'file': 'pdf'})
+        self.assertIn('Next step: Add a record that shows what is missing.', ' '.join(printed))   # per requirement
+        evidence = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'evidence', 'file': 'html'})
+        self.assertIn('records this.', evidence.content.decode())   # a requirement's "what we found"
+        self.assertIn('<strong>Where we looked:</strong>', evidence.content.decode())
         self.assertIn('You have made a start here.', html.content.decode())   # a key indicator's
         self.assertEqual(report['explanations_version'], explanations.VERSION)
         # Stored beside the run: the completed event, and so every integrity hash, is unchanged.
@@ -427,6 +459,9 @@ class ProductFlowConcurrentTests(APITransactionTestCase):
     connections): the assessment and the second layer's re-judgment both run concurrently, as in production."""
     setUp = ProductFlowTests.setUp
     test_the_whole_flow = ProductFlowTests.test_the_whole_flow
+    # Explanations write four areas at once here (the job takes the assessment's indicator concurrency).
+    test_explanations_for_the_provisional_and_the_final_result = \
+        ProductFlowTests.test_explanations_for_the_provisional_and_the_final_result
 
     @contextlib.contextmanager
     def captureOnCommitCallbacks(self, execute=False):
