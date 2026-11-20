@@ -316,7 +316,8 @@ def run_pipeline(inputs, service, on_stage=lambda stage, value: None):
          'conditions': [{k: c[k] for k in ('id', 'level', 'text', 'completion_evidence')} for c in i['conditions']]}
         for i in rubric['indicators']]}
     def evaluated(mappings):
-        evaluation = evaluate_plan(baseline, mappings, rubric, engine_version=inputs['engine_version'], credits=credits)
+        evaluation = evaluate_plan(baseline, mappings, rubric, engine_version=inputs['engine_version'], credits=credits,
+                                   factors=inputs.get('baseline_factors'))
         evaluation['priority_coverage'] = priority_coverage(priority, evaluation['accepted'])
         return evaluation
     def assess_text(text, label, original_constraints=None):

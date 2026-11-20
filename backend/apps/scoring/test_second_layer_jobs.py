@@ -70,7 +70,12 @@ class SecondLayerJobTests(APITestCase):
         payload = json.loads(kwargs['messages'][1]['content'])
         if self.on_call:
             self.on_call()
-        if 'max_questions' in payload:
+        if 'credited_requirements' in payload:   # depth.plan_indicator: one call per key indicator
+            content = {'answered': [], 'missing_items': [],
+                       'questions': [{'condition_id': r['condition_id'], 'dimension_ids': [r['dimensions'][0]['id']],
+                                      'text': 'How many hours did the programme run?'}
+                                     for r in payload['credited_requirements']]}
+        elif 'max_questions' in payload:
             ids = [d['id'] for d in payload['dimensions']]
             content = {'dimensions': [{'dimension_id': i, 'answered_by_evidence': False, 'evidence_quote': ''}
                                       for i in ids],
@@ -112,20 +117,23 @@ class SecondLayerJobTests(APITestCase):
         from apps.extraction.models import AIUsage
         job = self.execute(self.post_job('questions'))
         self.assertEqual(job.status, 'completed', job.detail)
-        self.assertEqual(self.calls(), 2)   # one per credited condition
+        self.assertEqual(self.calls(), 36)   # one per key indicator (questions-0.2), each has something to ask
         budget = SecondLayerBudget.objects.get(run=self.run)
-        self.assertEqual((job.requests_reserved, budget.requests_reserved), (2, 2))
+        self.assertEqual((job.requests_reserved, budget.requests_reserved), (36, 36))
         self.assertEqual(budget.max_http_calls, 72)   # the run's own assessment limit, settings unset
         self.assertGreater(budget.usd_reserved, 0)
         depth_questions = DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='depth')
-        self.assertEqual(depth_questions.count(), 2)
+        # Both credited requirements are asked about; dimensions the model left out get fixed wording, and a fact
+        # asked once counts for both requirements, so there is no fixed count.
+        self.assertEqual({q.condition_ids[0] for q in depth_questions}, set(self.credited))
+        self.assertEqual(DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='missing').count(), 36)
         self.assertEqual(job.result['questions'], DepthQuestion.objects.filter(run_ref=str(self.run.pk)).count())
         kinds = list(job.events.values_list('payload__kind', flat=True))
-        self.assertEqual(kinds.count('request_reserved'), 2)
+        self.assertEqual(kinds.count('request_reserved'), 36)
         self.assertEqual(kinds[-1], 'terminal')
         self.assertTrue(AIUsage.objects.filter(capability_run=self.run, stage='capability_second_layer').exists())
         shown = self.client.get(f'{self.url}/second-layer/jobs')
-        self.assertEqual(shown.data['budget']['requests_reserved'], 2)
+        self.assertEqual(shown.data['budget']['requests_reserved'], 36)
         self.assertEqual(shown.data['results'][0]['status'], 'completed')
         # Planning again is refused unless replace is asked for.
         self.post_job('questions', key='job-2', expect=400)
@@ -137,11 +145,11 @@ class SecondLayerJobTests(APITestCase):
         self.assertFalse(DepthQuestion.objects.filter(run_ref=str(self.run.pk)).exists())
         self.assertEqual(self.calls(), 1)
         out = StringIO()
-        call_command('layer2_budget', str(self.run.pk), '--max-calls', '5', stdout=out)
-        self.assertIn('Requests: 1 of 5', out.getvalue())
+        call_command('layer2_budget', str(self.run.pk), '--max-calls', '40', stdout=out)
+        self.assertIn('Requests: 1 of 40', out.getvalue())
         second = self.execute(self.post_job('questions', key='job-2'))
         self.assertEqual(second.status, 'completed', second.detail)
-        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).requests_reserved, 3)
+        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).requests_reserved, 37)
         with self.assertRaises(Exception):
             call_command('layer2_budget', str(self.run.pk), '--max-calls', '2', stdout=StringIO())
 

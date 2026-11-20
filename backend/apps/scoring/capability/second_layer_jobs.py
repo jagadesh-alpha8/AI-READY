@@ -333,8 +333,11 @@ def run_questions(job, meter):
     from .depth_service import create_questions
     from .layer2_service import export_for_run
     plan = create_questions(export_for_run(job.run_id), metered_model(meter), commit=True,
-                            replace=job.options.get('replace', False), guard=lambda: commit_point(job.pk))
-    record_result(job.pk, {'questions': len(plan['questions']), 'notes': plan['notes']})
+                            replace=job.options.get('replace', False), guard=lambda: commit_point(job.pk),
+                            concurrency=max(1, int(job.policy.get('indicator_concurrency') or 1)))
+    record_result(job.pk, {'questions': len(plan['questions']), 'notes': plan['notes'][:40],
+                           'points_at_stake': round(sum(q['points_at_stake'] for q in plan['questions']), 2),
+                           'shown_by_evidence': len(plan['shown_by_evidence'])})
 
 
 def run_checks(job, meter):
@@ -383,12 +386,13 @@ def run_rejudge(job, meter):
         'strict_errors': True, 'recover_provider_errors': True,
         'concurrency': job.policy.get('indicator_concurrency', 1)})
     summary = {k: result.get(k) for k in ('provisional_score', 'final_score', 'targets', 'merge', 'contradictions',
-                                          'lowerings', 'routes', 'note')}
+                                          'lowerings', 'depth_changes', 'routes', 'note')}
+    publishable = result.get('targets') or result.get('depth_changes')   # new evidence, or depth answers that count
     final = None
     with transaction.atomic():
         commit_point(job.pk, lock_run=True)
         explain_next = None
-        if job.options.get('publish', True) and result.get('targets'):
+        if job.options.get('publish', True) and publishable:
             try:
                 final = publish_final(result, service=meter, user=job.requested_by)
             except ValueError as exc:   # storage.publish's own refusals (a citation or excerpt that does not match)
@@ -402,7 +406,7 @@ def run_rejudge(job, meter):
                     policy={**job.policy, 'stage': 'second_layer_explain'}, requested_by=job.requested_by)
                 summary['explain_job_id'] = str(explain_next.pk)
                 transaction.on_commit(lambda: dispatch(str(explain_next.pk), str(explain_next.task_id)))
-        elif result.get('targets'):
+        elif publishable:
             summary['note'] = 'Not published (options.publish was false).'
         record_result(job.pk, {**summary, 'final_run_id': str(final.pk) if final else None}, final_run=final)
 

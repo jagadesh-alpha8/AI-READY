@@ -7,6 +7,38 @@ before handing the project over. The proposal behind it, with the decisions stil
 **Nothing in this branch changes an assessment, its score or its reports.** The stage runs only through the four
 `depth_*` commands below and writes only to its own four tables.
 
+## 21 Nov 2026: depth counts, every indicator is asked about (questions-0.2, depth-reserve-v1)
+
+From the test 13 audit (project doc "AI-READY: follow-up questions audit"). Decisions taken by us on Siddharth's
+instruction; all are settings and can be changed back.
+
+- **Depth decision 2 = reserve, share 0.25** (`DEPTH_CREDIT_MODE=reserve`, `DEPTH_CREDIT_SHARE=0.25`,
+  `capability/reserve.py`). The headline counts each credited requirement at credit x (0.75 + 0.25 x depth): evidenced
+  (also "don't know" and no answer) 0.75, substantiated 0.875, strong 1. The judge's credit on the record is unchanged.
+  The share is frozen into each new run (`inputs.depth_policy`) and stamped on each record (`depth_share`,
+  `depth_level`); runs from before keep their scores. `result.depth_reserve` gives the evidence score, what is held,
+  what was earned back. Reports say so in one sentence; each requirement's explanation gets a `follow_up` line.
+- **A depth answer that contradicts the evidence no longer withdraws credit** (it did under `reserve` before, on one
+  judge call): it is held at evidenced and listed (`depth_review`). Lowering credit stays with the re-judging path
+  (two passes, each quoting the new document; #58).
+- **Every key indicator is asked about** (`depth.plan_all`): one model call per key indicator; one or more depth
+  questions per credited requirement (a fact two requirements need is asked once and counts for both); one
+  missing-evidence question per key indicator with plain items for requirements with no or part credit, in the order
+  starting capability, repeated use, results. Whatever the model leaves out or gets wrong gets fixed wording.
+  `DEPTH_MAX_QUESTIONS` is 0 (no cap): the old 25 was a placeholder from the 11 Nov skeleton.
+- **Ranked by points at stake** (`DepthQuestion.points_at_stake`, in the API): highest first; among equal ones,
+  areas take turns (test 13 put all 15 depth questions in one area).
+- **Judging:** "don't know" needs no model call; requirements whose own quotes show every dimension are judged on them
+  (`DepthPlan.shown_by_evidence`, migration 0017). The re-judge job publishes a final result when depth answers
+  earned anything back, even with no new evidence.
+- **Answers:** a document the first assessment had already read for that key indicator is reported
+  (`search.already_counted`) and the college is told, kindly; a follow-up that mostly repeats its question is replaced
+  by one naming what is still not shown.
+
+Test 13 replayed offline under these rules (no model calls): provisional 26.14 becomes 19.60 with 6.54 points held;
+131 questions (95 depth, 36 missing-evidence) worth 61.9 points in all; the first 15 depth questions span 8 areas.
+All substantiated would give 22.87, all strong 26.14.
+
 ## What problem it solves
 
 The part judge decides whether evidence for a condition exists. It cannot tell a three-session workshop at a local

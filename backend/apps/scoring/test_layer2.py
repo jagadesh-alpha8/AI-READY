@@ -891,8 +891,13 @@ class FinalResultTests(TestCase):
         self.assertIn(self.new_sources[0]['id'], {s['id'] for s in final.inputs['sources']})
         self.assertEqual(final.inputs['manifest'][-1]['added_by'], 'second_layer')
         completed = final.events.filter(state='completed').last()
-        credits = {r['condition_id']: r.get('credit', 0) for r in result['records']}
-        self.assertEqual(completed.payload['result']['score'], documented(credits, final.inputs['rubric'])['overall'])
+        from .capability.reserve import scored_credits
+        # The headline counts each credit less the share held for follow-up answers (reserve.py).
+        self.assertEqual(completed.payload['result']['score'],
+                         documented(scored_credits(completed.payload['records']), final.inputs['rubric'])['overall'])
+        self.assertEqual(completed.payload['result']['depth_reserve']['evidence_score'],
+                         documented({r['condition_id']: r.get('credit', 0) for r in result['records']},
+                                    final.inputs['rubric'])['overall'])
         self.assertGreater(completed.payload['result']['score'], 0)
         self.assertIn(self.new_sources[0]['id'], {sid for t in completed.payload['traces'] for sid in t['source_ids']})
         self.assertEqual(final.execution.status, 'completed')

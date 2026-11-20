@@ -503,6 +503,8 @@ class DepthQuestion(models.Model):
     rank = models.PositiveIntegerField()
     answered_by_evidence = models.JSONField(default=list, blank=True,
                                             help_text='Dimensions the credited evidence already answered (no question).')
+    points_at_stake = models.DecimalField(max_digits=7, decimal_places=2, default=0,
+                                          help_text='Headline points a full answer can earn (questions-0.2).')
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
     spec_version = models.CharField(max_length=30)
     model = models.CharField(max_length=150, blank=True)
@@ -514,6 +516,21 @@ class DepthQuestion(models.Model):
 
     def __str__(self):
         return f'{self.run_ref[:8]} #{self.rank} {self.kind}'
+
+
+class DepthPlan(models.Model):
+    """How a run's follow-up questions were planned (depth.plan_all): the planner version, its notes, and the credited
+    requirements whose own quotes already show every quality dimension. Those get no question; the depth judge places
+    them on their quotes, so the credit held for depth (reserve.py) can be earned back without asking."""
+    run_ref = models.CharField(max_length=64, unique=True)
+    version = models.CharField(max_length=30)
+    shown_by_evidence = models.JSONField(default=list, blank=True)
+    notes = models.JSONField(default=list, blank=True)
+    model = models.CharField(max_length=150, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.run_ref} {self.version}'
 
 
 class DepthResponse(models.Model):

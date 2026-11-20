@@ -36,6 +36,7 @@ MISSING = '(not set)'
 #: The setting that decides each frozen value, so a difference says what to change. Output tokens and the timeout are
 #: raised automatically at high reasoning effort when their stage-specific settings are unset (execution.policy).
 SETTING = {
+    ('depth_policy', 'mode'): 'DEPTH_CREDIT_MODE', ('depth_policy', 'share'): 'DEPTH_CREDIT_SHARE',
     ('execution_policy', 'agreement_passes'): 'CAPABILITY_AGREEMENT_PASSES',
     ('execution_policy', 'gemini_reasoning_effort'): 'CAPABILITY_GEMINI_REASONING_EFFORT (else AI_GEMINI_REASONING_EFFORT)',
     ('execution_policy', 'tie_break'): 'CAPABILITY_TIE_BREAK',
@@ -76,7 +77,14 @@ def _current_protocol():
             'schema_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest()}
 
 
+def _current_depth():
+    from apps.scoring.capability.reserve import frozen_policy
+    return frozen_policy()
+
+
 def _kind(section, key):
+    if section == 'depth_policy':
+        return 'credit rule'   # how much credit is held for follow-up answers; the judging is unchanged
     if section == 'execution_policy' and key in LIMIT_KEYS:
         return 'limits only'
     if section == 'execution_policy' and key in RULE_KEYS:
@@ -126,7 +134,7 @@ def check(run):
         errors.append('The run records no model (no completed assessment, or an export from before models were '
                       'recorded): check AI_MODEL by hand.')
     for section, build in (('execution_policy', _current_execution), ('retrieval_policy', _current_retrieval),
-                           ('assessment_protocol', _current_protocol)):
+                           ('assessment_protocol', _current_protocol), ('depth_policy', _current_depth)):
         try:
             current = build()
         except Exception as exc:   # an invalid budget, or hybrid retrieval with its model missing

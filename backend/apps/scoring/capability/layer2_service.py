@@ -362,13 +362,78 @@ def check_response(response, model, *, attached=None, corpus=None, ranker=RUN_RA
     cited = {p.get('evidence_role') for p in result.get('passages') or []}
     result['search'] = {'ranking': ranking, 'note': note, 'documents_failed': failed,
                         'packet_windows_left_out': len(packet), 'support_from': sorted(r for r in cited if r)}
+    already = already_counted(attached, windows, packet)
+    if already:
+        result['search']['already_counted'] = already
+    result['follow_up'] = better_follow_up(result.get('follow_up'), asked, result, already,
+                                           dimensions_for(question, depth_spec) if question.kind == DepthQuestion.Kind.DEPTH
+                                           else [], first=first)
     response.windows = windows
     response.support_check = result
     response.supported = result['supported']
-    response.follow_up_text = result['follow_up'] or ''
+    response.follow_up_text = result.get('follow_up') or ''
     response.status = DepthResponse.Status.CHECKED
     response.save(update_fields=['windows', 'support_check', 'supported', 'follow_up_text', 'status'])
     return response
+
+
+def already_counted(attached, windows, packet):
+    """Attached documents that added nothing new because the first assessment had already read them for this key
+    indicator (every readable page is in its provisional evidence). [{'document_id', 'name'}]."""
+    in_packet = {w.get('id') for w in packet or []} | {w.get('source_id') for w in packet or []}
+    added = {w.get('document_id') for w in windows or [] if w.get('evidence_role') == 'answer_attachment'}
+    pages = {}
+    for source in attached or []:
+        if (source.get('text') or '').strip():
+            pages.setdefault(source['document_id'], set()).add(source['id'])
+    out = []
+    for document_id, ids in pages.items():
+        if document_id not in added and ids <= in_packet:
+            out.append({'document_id': document_id, 'name': _document_name(document_id)})
+    return out
+
+
+def _document_name(document_id):
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    from apps.documents.models import Document
+    from .explanations import _readable
+    try:
+        document = Document.objects.filter(pk=document_id).only('original_filename', 'title').first()
+    except (ValueError, TypeError, DjangoValidationError):
+        document = None
+    name = (document.original_filename or document.title) if document else ''
+    return _readable(name)[0] if name else 'the document you attached'
+
+
+def _same_words(a, b):
+    import re
+    words = lambda t: set(re.findall(r'[a-z0-9]+', (t or '').lower())) - {'the', 'a', 'an', 'and', 'of', 'to', 'or', 'your', 'you', 'please', 'this', 'is', 'that', 'it', 'for', 'in', 'on', 'which', 'what', 'was', 'were'}
+    x, y = words(a), words(b)
+    return len(x & y) / max(1, len(x | y))
+
+
+def better_follow_up(follow_up, asked, result, already, dimensions, *, first=True):
+    """The follow-up the college sees. A follow-up that mostly repeats the question it follows is replaced by one
+    naming what is still not shown (test 13: the follow-up repeated the question nearly word for word). When an attached
+    document had already been read for this, the college is told so, kindly, before the follow-up."""
+    if not follow_up:
+        if not (first and already and not result.get('supported')):
+            return follow_up
+        follow_up = ('If another document shows this, please upload it; if not, just tell us and we will keep what '
+                     'your documents already show.')
+    text = follow_up
+    if asked and _same_words(text, asked) >= 0.6:
+        names = {d['id']: d.get('name', d['id']).lower() for d in dimensions}
+        open_dims = [names.get(f['dimension_id'], f['dimension_id']) for f in result.get('dimensions') or []
+                     if f.get('support') != 'supported']
+        what = ', '.join(open_dims) if open_dims else 'this'
+        text = (f'Thank you. What you sent does not yet show the {what}. If another document shows it, please upload '
+                'it; if not, just tell us and we will keep what your documents already show.')
+    if already:
+        names = ' and '.join(d['name'] for d in already[:2])
+        text = (f'We had already read {names} when we scored this, so it is counted already and did not add anything '
+                f'new. ' + text)
+    return text
 
 
 def check_pending(run_ref, model, *, ranker=RUN_RANKER, max_calls=None, skip_error=None):
@@ -525,9 +590,12 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
                 layer2.add_windows(target, layer2.page_windows(new_pages, pages), 'extraction_tag')
     targets = {code: t for code, t in targets.items() if t['windows']}
     if not targets:
-        return {**result, 'targets': {}, 'context_audit': {}, 'merge': [], 'records': records, 'contradictions': [],
-                'lowerings': [],
-                'final_score': provisional_score, 'traces': [], 'new_sources': [], 'note': 'No new evidence to re-judge.'}
+        deepened, changes = with_depth(records, run_ref)
+        return {**result, 'targets': {}, 'context_audit': {}, 'merge': [], 'records': deepened, 'contradictions': [],
+                'lowerings': [], 'depth_changes': changes,
+                'final_score': layer2.final_score(deepened, rubric), 'traces': [], 'new_sources': [],
+                'note': ('No new evidence to re-judge; follow-up answers earn back held credit.' if changes
+                         else 'No new evidence to re-judge.')}
     layer2.check_export_rule(records, traces, targets)
     contexts, context_audit = layer2.fixed_contexts(traces, targets)
     subset = layer2.subset_rubric(rubric, targets)
@@ -550,11 +618,33 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
         records, outcome['records'], packets, rubric=rubric, lowering=lowering,
         max_per_document=settings.SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT,
         source_documents={s['id']: s.get('document_id') for s in new_pages if s.get('id')})
+    merged, changes = with_depth(merged, run_ref)
     return {**result, 'targets': {code: t['conditions'] for code, t in targets.items()},
-            'context_audit': context_audit, 'merge': merge_audit, 'records': merged,
+            'context_audit': context_audit, 'merge': merge_audit, 'records': merged, 'depth_changes': changes,
             'contradictions': layer2.contradictions(merge_audit), 'lowerings': layer2.lowerings(merge_audit),
             'final_score': layer2.final_score(merged, rubric), 'traces': outcome.get('traces', []),
             'new_sources': new_pages, 'note': 'Publish with publish_final to make this the result reports use.'}
+
+
+def with_depth(records, run_ref, share=None):
+    """The records with the provisional run's depth judgments applied (reserve.py): a requirement whose follow-up
+    answers showed depth earns back the credit held for it. Returns (records, changes). Records of a run that holds
+    nothing come back unchanged."""
+    from .depth_service import latest_levels
+    from .reserve import stamp
+    if share is None:   # the run's frozen share; else what the records carry
+        run = _run(run_ref)
+        from .reserve import run_share
+        share = run_share(run.inputs) if run is not None else next(
+            (r.get('depth_share') for r in records if r.get('depth_share')), None)
+    if not share:
+        return records, []
+    levels = latest_levels(run_ref)
+    out = stamp([dict(r) for r in records], share, levels)
+    changes = [{'condition_id': r['condition_id'], 'level': r['depth_level'], **({'review': r['depth_review']}
+                if r.get('depth_review') else {})}
+               for r in out if (r.get('credit') or 0) > 0 and (levels.get(r['condition_id']) or 'evidenced') != 'evidenced']
+    return out, changes
 
 
 def _inference(service, provisional_event):

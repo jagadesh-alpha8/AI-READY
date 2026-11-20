@@ -624,10 +624,15 @@ def attach(assessment, explanations):
     records[].explanation, result.indicators[].explanation, result.documented.indicators[] and .pillars[]."""
     if not explanations:
         return assessment
+    from .reserve import follow_up_note
     public = lambda e: {k: e.get(k) or None for k in FIELDS} if e else None
+
+    def for_record(r):
+        e = public(explanations['requirements'].get(r.get('condition_id')))
+        note = follow_up_note(r)   # the credit held for follow-up answers (reserve.py); written here, not by the model
+        return {**e, 'follow_up': note} if e and note else e
     out = dict(assessment)
-    out['records'] = [{**r, 'explanation': public(explanations['requirements'].get(r.get('condition_id')))}
-                      for r in assessment.get('records') or []]
+    out['records'] = [{**r, 'explanation': for_record(r)} for r in assessment.get('records') or []]
     result = dict(assessment.get('result') or {})
     if result.get('indicators'):
         result['indicators'] = [{**i, 'explanation': public(explanations['indicators'].get(i.get('code')))}

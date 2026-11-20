@@ -803,4 +803,5 @@ def lowerings(audit):
 
 def final_score(records, rubric):
     from .engine import documented
-    return documented({r['condition_id']: r.get('credit') or 0 for r in records}, rubric)['overall']
+    from .reserve import scored_credits
+    return documented(scored_credits(records), rubric)['overall']
