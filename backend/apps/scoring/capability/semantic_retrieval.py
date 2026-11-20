@@ -128,6 +128,25 @@ class EmbeddingCache:
         self.connection.execute('CREATE TABLE IF NOT EXISTS vectors (text_hash TEXT PRIMARY KEY, vector BLOB NOT NULL)')
         self.connection.commit()
 
+    def close(self):
+        """Release the file. Windows will not delete or replace an SQLite file that is still open (test 13's
+        Windows suite, 20 Nov: the cache test's temporary folder could not be removed)."""
+        connection, self.connection = getattr(self, 'connection', None), None
+        if connection is not None:
+            connection.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
     @staticmethod
     def key(text):
         return hashlib.sha256(text.encode()).hexdigest()
