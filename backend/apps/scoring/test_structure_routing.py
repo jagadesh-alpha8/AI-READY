@@ -206,19 +206,27 @@ class EmbeddingCacheTests(SimpleTestCase):
                 self.embedding_text, self.text = text, text
 
         with tempfile.TemporaryDirectory() as tmp:
-            cache = EmbeddingCache(tmp, 'a' * 64)
-            cache.put_many([('alpha passage text', [1.0, 2.0, 3.0])])
-            self.assertEqual(cache.get_many(['alpha passage text', 'missing'])['alpha passage text'].tolist(), [1.0, 2.0, 3.0])
-            passages = [Passage('Students use the ERP portal for admission records.'),
-                        Passage('The library has twenty thousand titles on open shelves.')]
-            first_model, second_model = Model(), Model()
-            first = SemanticRanker(first_model, cache=EmbeddingCache(tmp, 'a' * 64)).similarities(passages, ['erp'])
-            second = SemanticRanker(second_model, cache=EmbeddingCache(tmp, 'a' * 64)).similarities(passages, ['erp'])
-            self.assertEqual(len(first_model.embedded), 2)
-            self.assertEqual(second_model.embedded, [])  # every passage came from the cache
-            self.assertTrue(np.array_equal(first[0], second[0]))
-            # A different model artifact never reads these vectors.
-            self.assertEqual(EmbeddingCache(tmp, 'b' * 64).get_many(['alpha passage text']), {})
+            caches = [EmbeddingCache(tmp, 'a' * 64), EmbeddingCache(tmp, 'a' * 64), EmbeddingCache(tmp, 'a' * 64),
+                      EmbeddingCache(tmp, 'b' * 64)]
+            try:
+                cache = caches[0]
+                cache.put_many([('alpha passage text', [1.0, 2.0, 3.0])])
+                self.assertEqual(cache.get_many(['alpha passage text', 'missing'])['alpha passage text'].tolist(),
+                                 [1.0, 2.0, 3.0])
+                passages = [Passage('Students use the ERP portal for admission records.'),
+                            Passage('The library has twenty thousand titles on open shelves.')]
+                first_model, second_model = Model(), Model()
+                first = SemanticRanker(first_model, cache=caches[1]).similarities(passages, ['erp'])
+                second = SemanticRanker(second_model, cache=caches[2]).similarities(passages, ['erp'])
+                self.assertEqual(len(first_model.embedded), 2)
+                self.assertEqual(second_model.embedded, [])  # every passage came from the cache
+                self.assertTrue(np.array_equal(first[0], second[0]))
+                # A different model artifact never reads these vectors.
+                self.assertEqual(caches[3].get_many(['alpha passage text']), {})
+            finally:   # Windows cannot remove the folder while the files are open
+                for c in caches:
+                    c.close()
+            caches[0].close()   # closing twice is harmless
 
 
 class RepeatSkipTests(SimpleTestCase):

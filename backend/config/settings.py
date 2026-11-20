@@ -4,7 +4,12 @@ from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
 
-load_dotenv()
+# `manage.py test` ignores backend/.env: the suite checks the code's own defaults, and a local .env holding a run's
+# settings (budget caps, retrieval and time limits) failed 104 tests on Jagadesh's machine on 20 Nov. Variables set in
+# the process environment still apply.
+TESTING = len(sys.argv) > 1 and sys.argv[1] == 'test'
+if not TESTING:
+    load_dotenv()
 
 # Local encoder dependencies can initialize ONNX Runtime during import. Its
 # pre-initialization switch disables the uploader as well as telemetry events.
@@ -18,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-change-me')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
+DEBUG = os.getenv('DEBUG', 'True' if TESTING else 'False') == 'True'   # the suite runs as CI does, DEBUG=True
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
