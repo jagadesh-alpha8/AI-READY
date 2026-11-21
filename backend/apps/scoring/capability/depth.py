@@ -23,6 +23,7 @@ The model is any callable model(system_prompt, user_content, response_schema, sc
 wraps the configured extraction client; tests pass a fake.
 """
 import json
+import re
 from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
@@ -285,7 +286,8 @@ only in part.
    it, and may say where colleges usually keep that document (supplied). One or two plain sentences. Several
    dimensions of one requirement may share a question.
    - Ask each fact once. If two requirements need the same fact about the same thing (for example who approved the
-     same budget), ask it in one question, under the first of them; the answer counts for both.
+     same budget), ask it in one question, under the first of them, and list the others in also_for; the answer
+     counts for them too. Otherwise leave also_for empty.
    - Never assume what the quotes do not show. If no quote says a system uses AI, do not ask for its AI features: ask
      whether and how it uses AI. Never quote a bare number without saying what it counts.
    - Do not ask whether the activity happened: that is already established.
@@ -309,10 +311,12 @@ def plan_schema(credited, missing, dimension_ids):
                                'dimension_id': {'type': 'string', 'enum': list(dimension_ids) or ['-']},
                                'evidence_quote': {'type': 'string'}}}},
             'questions': {'type': 'array', 'items': {
-                'type': 'object', 'additionalProperties': False, 'required': ['condition_id', 'dimension_ids', 'text'],
+                'type': 'object', 'additionalProperties': False,
+                'required': ['condition_id', 'dimension_ids', 'also_for', 'text'],
                 'properties': {'condition_id': {'type': 'string', 'enum': cids},
                                'dimension_ids': {'type': 'array', 'items': {'type': 'string',
                                                                              'enum': list(dimension_ids) or ['-']}},
+                               'also_for': {'type': 'array', 'items': {'type': 'string', 'enum': cids}},
                                'text': {'type': 'string'}}}},
             'missing_items': {'type': 'array', 'items': {
                 'type': 'object', 'additionalProperties': False, 'required': ['condition_id', 'text'],
@@ -357,9 +361,14 @@ def _loose(text):
     return re.sub(r'[^a-z0-9]+', ' ', (text or '').lower()).strip()
 
 
+SCORE_TALK = re.compile(r'\bAIQIF\b|\brubric\b|\b(?:your|the|this|our) score\b|\b\d+(?:\.\d+)? points?\b|'
+                        r'\bpoints? (?:at stake|held)\b', re.I)
+
+
 def _plain_enough(text):
-    return 20 <= len(text) <= 700 and 'AIQIF' not in text and not any(
-        w in text.lower() for w in ('rubric', ' points', 'score'))
+    """Long enough to be a question, short enough to read, and no rubric codes or talk of scores and points (a
+    college's own test scores are fine)."""
+    return 20 <= len(text) <= 700 and 'AIQIF' not in text and not SCORE_TALK.search(text)
 
 
 def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=None, credited=(), missing=(),
@@ -411,29 +420,33 @@ def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=N
     answered = {cid: {} for cid in credited}
     for row in response.get('answered') or []:
         cid, did, quote = row.get('condition_id'), row.get('dimension_id'), (row.get('evidence_quote') or '').strip()
-        if cid in answered and did in dims_of[cid] and quote and any(
+        if cid in answered and did in dims_of[cid] and len(_loose(quote)) >= 15 and any(
                 _loose(quote)[:60] in _loose(q['quote']) for q in quotes_of[cid]):
             answered[cid][did] = quote
-    # 2. depth questions, checked; a fact asked once counts for every requirement that needs it
-    depth_qs, asked = [], {}
+    # 2. depth questions, checked. A question may also count for other requirements of this key indicator that need
+    # the same fact (also_for, declared by the model): condition_ids = [its own, *also_for], and only for the
+    # dimensions both share. Nothing is shared that was not declared (audit, 21 Nov).
+    depth_qs, asked = [], set()
     per_condition = {cid: 0 for cid in credited}
     for row in response.get('questions') or []:
         cid, text = row.get('condition_id'), ' '.join((row.get('text') or '').split())
         if cid not in per_condition or per_condition[cid] >= cap or not _plain_enough(text):
             continue
-        dims = [d for d in row.get('dimension_ids') or [] if d in dims_of[cid] and d not in answered[cid]]
+        dims = list(dict.fromkeys(d for d in row.get('dimension_ids') or []
+                                  if d in dims_of[cid] and d not in answered[cid]))
         if not dims:
             continue
+        also = [c for c in dict.fromkeys(row.get('also_for') or []) if c in dims_of and c != cid
+                and any(d in dims_of[c] and d not in answered[c] for d in dims)]
         per_condition[cid] += 1
-        depth_qs.append({'condition_ids': [cid], 'dimension_ids': dims, 'text': text,
+        depth_qs.append({'condition_ids': [cid, *also], 'dimension_ids': dims, 'text': text,
                          'answered_by_evidence': [{'dimension_id': d, 'answered_by_evidence': True, 'evidence_quote': q}
                                                   for d, q in answered[cid].items()]})
-        for d in dims:
-            asked.setdefault(d, []).append(cid)
+        asked |= {(cid, d) for d in dims} | {(c, d) for c in also for d in dims if d in dims_of[c]}
     shown = []
     where = indicator.get('where', '')
     for cid in credited:
-        open_dims = [d for d in dims_of[cid] if d not in answered[cid] and d not in asked]
+        open_dims = [d for d in dims_of[cid] if d not in answered[cid] and (cid, d) not in asked]
         if not open_dims:
             if not any(cid in q['condition_ids'] for q in depth_qs) and all(d in answered[cid] for d in dims_of[cid]):
                 shown.append(cid)   # judged on its own quotes (judge_run)
@@ -451,10 +464,10 @@ def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=N
         per_condition[cid] += 1
         notes.append(f'{cid}: fixed wording for {", ".join(open_dims)}.')
     held = share * worth
-    counts = {cid: sum(1 for q in depth_qs if q['condition_ids'] == [cid]) for cid in credited}
-    for q in depth_qs:
-        cid = q['condition_ids'][0]
-        q['points_at_stake'] = float(round(Fraction(str(records_by_id[cid].get('credit') or 0)) * held / counts[cid], 2))
+    counts = {cid: sum(1 for q in depth_qs if cid in q['condition_ids']) for cid in credited}
+    for q in depth_qs:   # each requirement's held credit, split across the questions that ask about it
+        q['points_at_stake'] = float(round(sum(Fraction(str(records_by_id[c].get('credit') or 0)) * held / counts[c]
+                                               for c in q['condition_ids']), 2))
     # 3. the missing-evidence question, items in stage order, one plain sentence each
     missing_q = None
     if missing:

@@ -202,19 +202,55 @@ class PlanTests(SimpleTestCase):
             spec['indicators'][indicator['code']]['conditions'][f2]['dimensions'])
         self.assertTrue(shared)
 
-        def once(payload):
-            asked, qs = set(), []
-            for r in payload['credited_requirements']:
-                dims = [d['id'] for d in r['dimensions'] if d['id'] not in asked]
-                asked |= set(dims)
-                if dims:
-                    qs.append({'condition_id': r['condition_id'], 'dimension_ids': dims,
-                               'text': 'How much was spent on the AI lab, and who approved it? Please share the minutes.'})
-            return {'answered': [], 'questions': qs, 'missing_items': []}
-        questions, notes, _ = depth.plan_all(rows, self.rubric, Model(once), share=Fraction(1, 4))
-        f2_dims = {d for q in questions if q['condition_ids'] == [f2] for d in q['dimension_ids']}
+        def once(declare):
+            def reply(payload):
+                asked, qs = {}, []
+                for r in payload['credited_requirements']:
+                    dims = [d['id'] for d in r['dimensions']]
+                    for d in [d for d in dims if d in asked]:
+                        if declare:
+                            asked[d]['also_for'].append(r['condition_id'])
+                    new = [d for d in dims if d not in asked]
+                    if new:
+                        q = {'condition_id': r['condition_id'], 'dimension_ids': new, 'also_for': [],
+                             'text': 'How much was spent on the AI lab, and who approved it? Please share the minutes.'}
+                        qs.append(q)
+                        asked.update({d: q for d in new})
+                return {'answered': [], 'questions': qs, 'missing_items': []}
+            return reply
+        questions, notes, _ = depth.plan_all(rows, self.rubric, Model(once(True)), share=Fraction(1, 4))
+        f1_q = next(q for q in questions if q['kind'] == 'depth' and q['condition_ids'][0] == f1)
+        self.assertEqual(f1_q['condition_ids'], [f1, f2])   # declared: counts for F2 too
+        f2_dims = {d for q in questions if q['condition_ids'][0] == f2 for d in q['dimension_ids']}
         self.assertFalse(f2_dims & shared)   # not asked again for F2, and no fixed-wording repeat
         self.assertFalse([n for n in notes if f2 in n and 'fixed wording' in n and not n.endswith('item.')])
+        # Points: each requirement's held credit split over the questions that ask about it.
+        worth = Fraction(1, 4) * Fraction(str(indicator['weight_units'])) / 60
+        total = sum(Fraction(str(q['points_at_stake'])) for q in questions if q['kind'] == 'depth'
+                    and q['indicator'] == indicator['code'])
+        self.assertAlmostEqual(float(total), float(2 * worth), delta=0.02)
+        # Not declared: the overlap is not assumed; F2 gets its own (fixed-wording) question for the shared fact.
+        questions, notes, _ = depth.plan_all(rows, self.rubric, Model(once(False)), share=Fraction(1, 4))
+        self.assertEqual(next(q for q in questions if q['kind'] == 'depth' and q['condition_ids'][0] == f1)
+                         ['condition_ids'], [f1])
+        f2_dims = {d for q in questions if q['condition_ids'][0] == f2 for d in q['dimension_ids']}
+        self.assertTrue(shared <= f2_dims)
+
+    def test_what_counts_as_plain(self):
+        self.assertTrue(depth._plain_enough('How did student test scores change after the AI tutoring pilot?'))
+        self.assertTrue(depth._plain_enough('Which data points does the dashboard track for each department?'))
+        for text in ('This would raise your score: please share the minutes.', 'Worth 2.5 points: share the minutes.',
+                     'Under the rubric, which body approved the plan?', 'For AIQIF-C1.1, who approved the plan?',
+                     'Too short?'):
+            self.assertFalse(depth._plain_enough(text), text)
+
+    def test_a_quote_must_say_something(self):
+        def dash(payload):
+            return {'answered': [{'condition_id': r['condition_id'], 'dimension_id': d['id'], 'evidence_quote': '...'}
+                                 for r in payload['credited_requirements'] for d in r['dimensions']],
+                    'questions': [], 'missing_items': []}
+        _, _, shown = self.plan(Model(dash))
+        self.assertEqual(shown, [])
 
     def test_max_questions_cuts_only_when_set(self):
         questions, notes, _ = self.plan(max_questions=10)
@@ -243,3 +279,16 @@ class AnswerHandlingTests(TestCase):
         already = [{'document_id': 'd', 'name': 'Criteria 6 (a)'}]
         self.assertTrue(better_follow_up(None, asked, result, already, []).startswith('We had already read Criteria 6 (a)'))
         self.assertIsNone(better_follow_up(None, asked, result, already, [], first=False))
+
+
+class RescoreTests(SimpleTestCase):
+    def test_rescore_keeps_the_held_credit_summary_consistent(self):
+        from .management.commands.capability_rescore import rescore
+        rubric = release()
+        rows = reserve.stamp(records({'AIQIF-C1.1.F1': 1}, rubric), Fraction(1, 4))
+        report = {'rubric': rubric, 'assessment': {'records': rows, 'result': {'score': 99, 'documented': {}}}}
+        out, _ = rescore(report)
+        result = out['assessment']['result']
+        self.assertEqual(result['score'], result['depth_reserve']['score'])
+        self.assertEqual(result['documented']['overall'], result['score'])
+        self.assertGreater(result['depth_reserve']['held_points'], 0)

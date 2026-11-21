@@ -329,12 +329,23 @@ def metered_model(meter):
 # ------------------------------------------------------------------ operations
 
 
+def remaining_calls(run_id):
+    """Requests left in the run's second-layer budget, or None when it has no request cap."""
+    budget = SecondLayerBudget.objects.filter(run_id=run_id).first()
+    if budget is None or budget.max_http_calls is None:
+        return None
+    return max(0, budget.max_http_calls - budget.requests_reserved)
+
+
 def run_questions(job, meter):
     from .depth_service import create_questions
     from .layer2_service import export_for_run
+    # One model call per key indicator: a budget with fewer requests left gives the rest fixed wording instead of
+    # failing the whole job at the cap and saving nothing (audit, 21 Nov).
     plan = create_questions(export_for_run(job.run_id), metered_model(meter), commit=True,
                             replace=job.options.get('replace', False), guard=lambda: commit_point(job.pk),
-                            concurrency=max(1, int(job.policy.get('indicator_concurrency') or 1)))
+                            concurrency=max(1, int(job.policy.get('indicator_concurrency') or 1)),
+                            max_calls=remaining_calls(job.run_id))
     record_result(job.pk, {'questions': len(plan['questions']), 'notes': plan['notes'][:40],
                            'points_at_stake': round(sum(q['points_at_stake'] for q in plan['questions']), 2),
                            'shown_by_evidence': len(plan['shown_by_evidence'])})
