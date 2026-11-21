@@ -162,6 +162,16 @@ def _exchanges(questions):
     return out
 
 
+def _run_rules(records):
+    """The depth policy with the credit share this run froze (reserve.py), not the deployment's: a run made before
+    the reserve holds nothing, so its judgments' final_credit must not show a held share either."""
+    from fractions import Fraction
+    rules = dict(policy())
+    share = max([Fraction(str(r.get('depth_share') or 0)) for r in records] or [Fraction(0)])
+    rules['credit_mode'], rules['credit_share'] = ('reserve', str(share)) if share else ('', '0')
+    return rules
+
+
 def _shown_by_evidence(run_ref):
     plan = DepthPlan.objects.filter(run_ref=run_ref).first()
     return list(plan.shown_by_evidence) if plan else []
@@ -186,7 +196,7 @@ def judge_run(export, model, *, commit=False, max_calls=None, guard=None):
     are listed in 'awaiting_reassessment': they go to the credit path (layer2_rejudge), not to a depth judgment.
     guard: as for create_questions."""
     run_ref, rubric, records = _records(export)
-    rules = policy()
+    rules = _run_rules(records)
     spec = depth.spec()
     by_id = {r['condition_id']: r for r in records}
     questions = list(DepthQuestion.objects.filter(run_ref=run_ref).prefetch_related('responses', 'responses__parent'))
@@ -201,21 +211,13 @@ def judge_run(export, model, *, commit=False, max_calls=None, guard=None):
             continue
         cid = question.condition_ids[0]
         per_condition.setdefault(cid, []).append(question)
-    # A fact asked once for two requirements of the same key indicator counts for both (questions-0.2): a requirement
-    # also reads the answers to questions on its indicator's other requirements that asked about its dimensions.
-    depth_questions = [q for q in questions if q.kind == DepthQuestion.Kind.DEPTH]
-    for cid in list(per_condition) + [c for c in _shown_by_evidence(run_ref) if c not in per_condition]:
-        if cid not in by_id:
-            continue
-        # Only for the dimensions it was not asked about itself (the planner left them out because they were asked
-        # under another requirement).
-        mine = set(spec['indicators'][cid.rsplit('.', 1)[0]]['conditions'][cid]['dimensions'])
-        own = [q for q in per_condition.get(cid, []) if q.condition_ids[0] == cid]
-        mine -= {d for q in own for d in (q.dimension_ids or [])}
-        mine -= {a.get('dimension_id') for q in own for a in (q.answered_by_evidence or [])}
-        shared = [q for q in depth_questions if q.condition_ids[0] != cid
-                  and q.indicator_code == cid.rsplit('.', 1)[0] and mine & set(q.dimension_ids or [])]
-        per_condition.setdefault(cid, []).extend(shared)
+    # A fact asked once for two requirements of the same key indicator counts for both (questions-0.2): the planner
+    # records the others after the question's own requirement (condition_ids[1:]), only when the model declared it.
+    for question in questions:
+        if question.kind == DepthQuestion.Kind.DEPTH:
+            for other in question.condition_ids[1:]:
+                if other in by_id:
+                    per_condition.setdefault(other, []).append(question)
     shown = set(_shown_by_evidence(run_ref))
     judged = []
     for cid, condition_questions in per_condition.items():
@@ -292,7 +294,7 @@ def depth_report(export):
     """Depth results for a run: level counts, the depth index, and -- only when decision 2 is set to 'reserve' --
     the headline score with depth applied beside the provisional one. Never written into the assessment reports."""
     run_ref, rubric, records = _records(export)
-    rules = policy()
+    rules = _run_rules(records)
     levels = latest_levels(run_ref)
     counts = {level: 0 for level in depth.LEVELS}
     for record in records:

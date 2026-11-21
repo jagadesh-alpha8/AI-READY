@@ -36,6 +36,12 @@ def rescore(report):
     result = out['assessment'].setdefault('result', {})
     before = result.get('score')
     result['score'] = round(scores['overall'], 2)
+    if 'documented' in result:   # keep the result consistent with its score (areas, held credit)
+        result['documented'] = scores
+    from apps.scoring.capability.reserve import summary
+    held = summary(out['assessment']['records'], out['rubric'])
+    if held:
+        result['depth_reserve'] = held
     out['rescored'] = {'rule': metadata(), 'score_before': before, 'score_after': result['score'],
                        'changed_requirements': len(changes)}
     return out, changes

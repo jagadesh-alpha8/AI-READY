@@ -48,8 +48,8 @@ def assessment_stage(run, event):
     score = event.payload.get('result', {}).get('score')
     if second:
         lowered = [row['condition_id'] for row in second.get('lowerings') or []]
-        note = (f"Final result: includes the evidence the institution sent after the provisional score "
-                f"({second.get('provisional_score')} provisional, {score} final).")
+        note = (f"Final result: includes the follow-up answers and evidence the institution sent after the "
+                f"provisional score ({second.get('provisional_score')} provisional, {score} final).")
         if lowered:
             note += (f" {len(lowered)} requirement{'s' if len(lowered) != 1 else ''} went down because documents the "
                      'institution sent show otherwise.')

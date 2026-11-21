@@ -139,19 +139,26 @@ class SecondLayerJobTests(APITestCase):
         self.post_job('questions', key='job-2', expect=400)
 
     @override_settings(SECOND_LAYER_MAX_HTTP_CALLS=1)
+    def test_questions_past_the_request_cap_get_fixed_wording_instead_of_failing(self):
+        # One model call per key indicator: with fewer requests left than key indicators, the rest are asked in fixed
+        # wording and the job completes (audit, 21 Nov), instead of failing at the cap and saving nothing.
+        job = self.execute(self.post_job('questions'))
+        self.assertEqual(job.status, 'completed', job.detail)
+        self.assertEqual(self.calls(), 1)
+        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).requests_reserved, 1)
+        self.assertEqual(DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='missing').count(), 36)
+        self.assertTrue(any('past the limit of 1 model calls' in n for n in job.result['notes']))
+
+    @override_settings(SECOND_LAYER_MAX_COST_USD='0.000001')
     def test_a_spent_budget_saves_nothing_and_a_raised_budget_is_shared_across_jobs(self):
         job = self.execute(self.post_job('questions'))
         self.assertEqual((job.status, job.error_code), ('failed', 'budget_exhausted'))
         self.assertFalse(DepthQuestion.objects.filter(run_ref=str(self.run.pk)).exists())
-        self.assertEqual(self.calls(), 1)
         out = StringIO()
-        call_command('layer2_budget', str(self.run.pk), '--max-calls', '40', stdout=out)
-        self.assertIn('Requests: 1 of 40', out.getvalue())
+        call_command('layer2_budget', str(self.run.pk), '--max-cost', '50', stdout=out)
         second = self.execute(self.post_job('questions', key='job-2'))
         self.assertEqual(second.status, 'completed', second.detail)
-        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).requests_reserved, 37)
-        with self.assertRaises(Exception):
-            call_command('layer2_budget', str(self.run.pk), '--max-calls', '2', stdout=StringIO())
+        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).requests_reserved, 36)
 
     def test_cancelling_during_the_calls_saves_nothing(self):
         job = self.post_job('questions')

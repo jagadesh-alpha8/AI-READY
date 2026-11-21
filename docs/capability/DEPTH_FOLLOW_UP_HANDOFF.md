@@ -28,6 +28,11 @@ instruction; all are settings and can be changed back.
   `DEPTH_MAX_QUESTIONS` is 0 (no cap): the old 25 was a placeholder from the 11 Nov skeleton.
 - **Ranked by points at stake** (`DepthQuestion.points_at_stake`, in the API): highest first; among equal ones,
   areas take turns (test 13 put all 15 depth questions in one area).
+- **Audit, 21 Nov:** sharing is explicit: a question counts for another requirement only when the model declares it
+  (`also_for`; stored as `condition_ids[1:]`), never by dimension overlap alone. Judgments use the run's own frozen
+  share, not the deployment's. The questions job plans within the requests left in the budget (key indicators past
+  it get fixed wording) instead of failing at the cap. The plain-wording check is word-level ("test scores" is fine;
+  "your score", "2 points", rubric codes are not); an "answered" quote must say something (15+ characters).
 - **Judging:** "don't know" needs no model call; requirements whose own quotes show every dimension are judged on them
   (`DepthPlan.shown_by_evidence`, migration 0017). The re-judge job publishes a final result when depth answers
   earned anything back, even with no new evidence.
