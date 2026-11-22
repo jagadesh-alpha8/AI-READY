@@ -733,6 +733,10 @@ class AuditFixTests(SimpleTestCase):
         # Question planning and additional evidence check the whole run (targets None), not only what is re-judged.
         old_rule = {**part_judgment.metadata(), 'related_credit': 0.5}
         current = part_judgment.metadata()
+        # A run from before subject-cap-v1 records no credit_rule: a different rule, refused.
+        before_cap = {k: v for k, v in current.items() if k != 'credit_rule'}
+        with self.assertRaises(Layer2Error):
+            layer2.check_export_rule([], [{'indicator': self.code, 'judgment': before_cap}])
         with self.assertRaises(Layer2Error):
             layer2.check_export_rule([], [{'indicator': 'any-other-indicator', 'judgment': old_rule}])
         with self.assertRaises(Layer2Error):

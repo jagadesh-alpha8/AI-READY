@@ -31,7 +31,7 @@ from apps.scoring.models import CapabilityRun
 
 LIMIT_KEYS = {'max_http_calls', 'max_cost_usd', 'max_duration_seconds', 'timeout_seconds', 'indicator_concurrency',
               'cost_policy'}
-RULE_KEYS = {'parts_version', 'parts_hash', 'parts_prompt_hash', 'related_credit'}
+RULE_KEYS = {'parts_version', 'parts_hash', 'parts_prompt_hash', 'related_credit', 'credit_rule'}
 MISSING = '(not set)'
 #: The setting that decides each frozen value, so a difference says what to change. Output tokens and the timeout are
 #: raised automatically at high reasoning effort when their stage-specific settings are unset (execution.policy).
