@@ -791,6 +791,17 @@ CAPABILITY_AGREEMENT_PASSES = int(os.getenv('CAPABILITY_AGREEMENT_PASSES', '1'))
 CAPABILITY_JUDGMENT = os.getenv('CAPABILITY_JUDGMENT', 'parts').strip().lower()
 # Gemini thinking level for the assessor only; empty = AI_GEMINI_REASONING_EFFORT (which extraction keeps using).
 CAPABILITY_GEMINI_REASONING_EFFORT = os.getenv('CAPABILITY_GEMINI_REASONING_EFFORT', '').strip() or None
+
+# A different model for scoring only (assessment, follow-up questions and judgments, explanations, recommendations,
+# plan evaluation); extraction keeps AI_API_KEY / AI_MODEL. Off while CAPABILITY_AI_API_KEY is empty. The key's
+# format picks the provider (Anthropic "sk-ant-...", OpenAI "sk-..."); CAPABILITY_AI_BASE_URL sends it to any
+# OpenAI-compatible host instead (DeepInfra, Ollama, Together...). CAPABILITY_AI_EFFORT is the reasoning effort for
+# Claude and OpenAI models (none, low, medium, high, xhigh, max; empty = the model's default); Gemini keeps
+# CAPABILITY_GEMINI_REASONING_EFFORT. Model and effort are frozen with each run, so the settings check shows a switch.
+CAPABILITY_AI_API_KEY = os.getenv('CAPABILITY_AI_API_KEY', '').strip()
+CAPABILITY_AI_MODEL = os.getenv('CAPABILITY_AI_MODEL', '').strip()
+CAPABILITY_AI_BASE_URL = os.getenv('CAPABILITY_AI_BASE_URL', '').strip()
+CAPABILITY_AI_EFFORT = os.getenv('CAPABILITY_AI_EFFORT', '').strip().lower() or None
 CAPABILITY_REQUEST_TIMEOUT_SECONDS = int(os.getenv('CAPABILITY_REQUEST_TIMEOUT_SECONDS', str(AI_REQUEST_TIMEOUT_SECONDS)))
 # Optional stage overrides; selected values are frozen when an execution starts.
 CAPABILITY_ASSESSMENT_OUTPUT_TOKENS = int(os.environ['CAPABILITY_ASSESSMENT_OUTPUT_TOKENS']) if os.getenv('CAPABILITY_ASSESSMENT_OUTPUT_TOKENS') else None

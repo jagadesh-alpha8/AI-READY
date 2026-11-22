@@ -133,7 +133,8 @@ class CapabilityAPITests(APITestCase):
         self.assertEqual(len(calls), 72)
         self.assertEqual(calls[1]['actual_model'], 'actual-test-model')
         self.sdk.with_options.assert_called_once_with(max_retries=0, timeout=60)
-        self.assertEqual(self.sdk.chat.completions.create.call_args.kwargs['max_tokens'], 3000)
+        # Direct OpenAI: max_completion_tokens (what its reasoning models accept), not max_tokens.
+        self.assertEqual(self.sdk.chat.completions.create.call_args.kwargs['max_completion_tokens'], 3000)
         self.execute(execution)
         self.assertEqual(self.sdk.chat.completions.create.call_count, 36)
         evidence = self.client.get(f'{self.url}/{execution.run_id}/evidence')

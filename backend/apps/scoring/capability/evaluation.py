@@ -1010,7 +1010,7 @@ def _judge(job, attempted, issue, *, service, sources, reviewed_evidence, strict
             'unavailable': unavailable}
 
 
-def _trace(job, outcome, *, gemini, retrieval_policy, sources):
+def _trace(job, outcome, *, gemini, retrieval_policy, sources, compact=False):
     indicator, payload, review_context = job['indicator'], job['payload'], job['review_context']
     # Everything sent to the model, including passages added by the targeted extra search.
     context = outcome.get('context') or job['context']
@@ -1021,6 +1021,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources):
             'schema_hash': hashlib.sha256(json.dumps(job['schema'], sort_keys=True).encode()).hexdigest(),
             'schema_template_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest(),
             'schema_binding_version': ('required-condition-properties-gemini-0.3' if gemini
+                                       else 'required-condition-properties-compact-0.3' if compact
                                        else 'required-condition-properties-0.2'),
             'response_recovery': recovery_audit, 'processing_errors': outcome['processing_errors'],
             'initial_response_audit': outcome['initial_audit'], 'correction_response_audit': correction_audit,
@@ -1078,6 +1079,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     gemini = getattr(service, 'provider', None) == 'gemini' or (
         isinstance(base_url, str) and direct_gemini(base_url)
     )
+    # Claude's JSON output has a grammar-size limit too: same compact binding (packet IDs not repeated per condition).
+    compact = gemini or getattr(service, 'provider', None) == 'anthropic'
     if judgment not in ('conditions', 'parts'):
         raise ValueError('judgment must be conditions or parts.')
     if judgment == 'parts':
@@ -1114,7 +1117,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                                              routing=frozen_policy.get('structure') is not None,
                                              repeat_skip=frozen_policy.get('repeat_skip') is not None)
     # The run's frozen lane version (runs from before lane-2 record none and keep lane-1).
-    prepare = dict(sources=sources, semantic_ranker=semantic_ranker, gemini=gemini, reviewed_evidence=reviewed_evidence,
+    prepare = dict(sources=sources, semantic_ranker=semantic_ranker, gemini=compact, reviewed_evidence=reviewed_evidence,
                    population=population, reference_period=reference_period, scope=scope, structure=structure,
                    lane_version=frozen_policy.get('evidence_lane'))
     records, traces = [], []
@@ -1142,7 +1145,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
 
     def emit(job, outcome):
         records.extend(outcome['validated'])
-        trace = _trace(job, outcome, gemini=gemini, retrieval_policy=retrieval_policy, sources=sources)
+        trace = _trace(job, outcome, gemini=gemini, compact=compact, retrieval_policy=retrieval_policy, sources=sources)
         if judgment == 'parts':
             from . import part_judgment
             trace['judgment'] = part_judgment.metadata()

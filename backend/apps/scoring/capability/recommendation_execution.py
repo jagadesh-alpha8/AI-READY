@@ -9,7 +9,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.extraction.exceptions import ProviderQuotaExhausted, AIResponseError, RecoverableExtractionError
-from apps.extraction.services.ai_service import get_ai_service
+from apps.scoring.capability.model_choice import scoring_service as get_ai_service
 from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
 from apps.scoring.models import CapabilityRun, RecommendationSnapshot, RecommendationExecution, RecommendationEvent

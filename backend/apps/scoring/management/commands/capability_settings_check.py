@@ -59,6 +59,7 @@ SETTING = {
     ('retrieval_policy', 'repeat_skip'): 'CAPABILITY_REPEAT_SKIP',
     ('retrieval_policy', 'follow_up'): 'CAPABILITY_FOLLOW_UP_SEARCH',
     ('model', 'AI_MODEL'): 'AI_MODEL',
+    ('execution_policy', 'model_effort'): 'CAPABILITY_AI_EFFORT',
 }
 
 
@@ -129,12 +130,14 @@ def check(run):
     inputs = run.inputs or {}
     differences, errors = [], []
     _, model = run_model(run)
-    if model and model != settings.AI_MODEL:
-        differences.append({'section': 'model', 'setting': 'AI_MODEL', 'run': model, 'now': settings.AI_MODEL or MISSING,
-                            'kind': 'scoring', 'set_with': 'AI_MODEL'})
+    from apps.scoring.capability.model_choice import scoring_model, switched_on
+    current, model_setting = scoring_model(), ('CAPABILITY_AI_MODEL' if switched_on() else 'AI_MODEL')
+    if model and model != current:
+        differences.append({'section': 'model', 'setting': model_setting, 'run': model, 'now': current or MISSING,
+                            'kind': 'scoring', 'set_with': model_setting})
     elif not model:
         errors.append('The run records no model (no completed assessment, or an export from before models were '
-                      'recorded): check AI_MODEL by hand.')
+                      'recorded): check the scoring model (AI_MODEL, or CAPABILITY_AI_MODEL when switched on) by hand.')
     for section, build in (('execution_policy', _current_execution), ('retrieval_policy', _current_retrieval),
                            ('assessment_protocol', _current_protocol), ('depth_policy', _current_depth)):
         try:
