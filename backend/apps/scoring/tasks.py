@@ -4,7 +4,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.extraction.exceptions import ProviderQuotaExhausted
-from apps.extraction.services.ai_service import get_ai_service
+from apps.scoring.capability.model_choice import scoring_service as get_ai_service
 from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
 from .capability.evaluation import evaluate, SYSTEM_PROMPT, DECISION_SCHEMA, RETRIEVAL_VERSION

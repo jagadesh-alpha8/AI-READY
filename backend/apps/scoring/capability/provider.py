@@ -74,10 +74,19 @@ class MeteredService:
             raise UnpricedModel()
         if self.provider == 'gemini' and not positive_token_prices(self.model):
             raise UnpricedModel()
-        self.rates = {key: Decimal(str(value)) for key, value in self.prices.items()}
-        if any(not v.is_finite() or v < 0 for v in self.rates.values()):
+        self.rates = {key: Decimal(str(value)) for key, value in self.prices.items() if key != 'long_context'}
+        long = self.prices.get('long_context') or {}
+        # Prompts over the threshold pay higher rates for the whole request (Claude Haiku 5.5 over 100,000 tokens,
+        # GPT-6 models over 272,000): reserved at those rates whenever the request could be that long.
+        self.long_threshold = long.get('threshold')
+        self.long_rates = {key: Decimal(str(value)) for key, value in long.items() if key != 'threshold'}
+        if any(not v.is_finite() or v < 0 for v in [*self.rates.values(), *self.long_rates.values()]):
             raise UnpricedModel()
         if self.provider == 'anthropic':
+            # Claude 5.5 models think by default, which a forced tool call can't be combined with: ask for JSON
+            # output instead, at the run's frozen effort (None = the model's default).
+            service.json_output = True
+            service.effort = self.policy.get('model_effort')
             sender = client.messages.create
             service._client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: self.send(sender, kw)))
         else:
@@ -106,10 +115,13 @@ class MeteredService:
         # UTF-8 bytes bound ordinary byte-level tokenizer content; explicit allowance
         # covers protocol/tool framing. Exotic router transforms/fees are outside this estimate.
         input_bound = len(json.dumps(kwargs, ensure_ascii=False, default=str).encode()) + 4096
-        rate_in = self.rates['input']
-        max_in = max(rate_in, self.rates.get('cache_read', rate_in * Decimal('.1')),
-                     self.rates.get('cache_write', rate_in * Decimal('1.25')))
-        amount = (input_bound * max_in + self.policy['output_tokens'] * self.rates['output']) / Decimal(1000000)
+        rates = self.rates
+        if self.long_threshold and input_bound > self.long_threshold:
+            rates = {**self.rates, **self.long_rates}
+        rate_in = rates['input']
+        max_in = max(rate_in, rates.get('cache_read', rate_in * Decimal('.1')),
+                     rates.get('cache_write', rate_in * Decimal('1.25')))
+        amount = (input_bound * max_in + self.policy['output_tokens'] * rates['output']) / Decimal(1000000)
         return input_bound, amount.quantize(Decimal('.000001'), rounding=ROUND_UP)
 
     def reserve(self, kwargs):
@@ -139,11 +151,14 @@ class MeteredService:
             'kind': 'request_reserved', 'stage': self.policy['stage'], 'request_number': execution.requests_reserved,
             'provider': self.provider, 'configured_model': self.model, 'input_token_bound': bound,
             'request_utf8_bytes': len(json.dumps(kwargs, ensure_ascii=False, default=str).encode()),
-            'schema_utf8_bytes': len(json.dumps(kwargs.get('response_format', kwargs.get('tools', [])), ensure_ascii=False).encode()),
+            'schema_utf8_bytes': len(json.dumps(kwargs.get('response_format', kwargs.get('tools', (kwargs.get('output_config') or {}).get('format', []))),
+                                                ensure_ascii=False).encode()),
             'reserved_usd': str(amount), 'request_hash': digest(kwargs),
-            'configured_prices': {k: str(v) for k, v in self.rates.items()},
-            'settings': {k: kwargs[k] for k in ('temperature', 'seed', 'max_tokens', 'max_completion_tokens', 'timeout', 'reasoning_effort')
-                         if k in kwargs}, 'schema_hash': digest(kwargs.get('response_format', kwargs.get('tools', [])))})
+            'configured_prices': self.configured_prices(),
+            'settings': {**{k: kwargs[k] for k in ('temperature', 'seed', 'max_tokens', 'max_completion_tokens', 'timeout', 'reasoning_effort')
+                         if k in kwargs}, **({'effort': kwargs['output_config']['effort']}
+                                            if 'effort' in (kwargs.get('output_config') or {}) else {})},
+            'schema_hash': digest(kwargs.get('response_format', kwargs.get('tools', (kwargs.get('output_config') or {}).get('format', []))))})
         return event.pk
 
     def remaining_time(self):
@@ -152,9 +167,19 @@ class MeteredService:
             raise ExecutionDeadlineExceeded()
         return remaining
 
-    def send(self, sender, kwargs):
-        kwargs['max_tokens'] = self.policy['output_tokens']
-        kwargs['timeout'] = min(self.policy['timeout_seconds'], self.remaining_time())
+    def shape(self, kwargs, timeout):
+        """The provider-specific request settings, applied to `kwargs` in place (send() and the probe preflight)."""
+        if self.provider == 'openai':
+            # OpenAI's reasoning models take max_completion_tokens (reasoning included) and no sampling settings.
+            kwargs.pop('max_tokens', None)
+            kwargs['max_completion_tokens'] = self.policy['output_tokens']
+            if self.policy.get('model_effort'):
+                kwargs['reasoning_effort'] = self.policy['model_effort']
+                kwargs.pop('temperature', None)
+                kwargs.pop('seed', None)
+        else:
+            kwargs['max_tokens'] = self.policy['output_tokens']
+        kwargs['timeout'] = timeout
         if self.provider == 'gemini':
             from apps.extraction.services.provider_features import gemini_thinking
             effort = self.policy['gemini_reasoning_effort']
@@ -162,6 +187,10 @@ class MeteredService:
                 kwargs['reasoning_effort'] = effort
             else:
                 kwargs.pop('reasoning_effort', None)
+        return kwargs
+
+    def send(self, sender, kwargs):
+        self.shape(kwargs, min(self.policy['timeout_seconds'], self.remaining_time()))
         bound, _ = self.envelope(kwargs)
         if bound > self.policy['input_token_bound_limit']:
             self.record(None, {'kind': 'request_rejected', 'reason': 'input_budget_exceeded',
@@ -213,8 +242,14 @@ class MeteredService:
         execution = self.execution_model.objects.select_for_update().get(**{self.execution_key: self.run_id})
         self.event(execution.status, {'kind': 'request_outcome', 'reservation_event_id': reservation_id, **data})
 
+    def configured_prices(self):
+        prices = {k: str(v) for k, v in self.rates.items()}
+        if self.long_threshold:
+            prices['long_context'] = {'threshold': self.long_threshold, **{k: str(v) for k, v in self.long_rates.items()}}
+        return prices
+
     def metadata(self):
         events = self.events()
         return {'provider': self.provider, 'model': self.model, 'settings': self.policy,
-                'configured_prices': {k: str(v) for k, v in self.rates.items()},
+                'configured_prices': self.configured_prices(),
                 'calls': [e.payload for e in events if e.payload.get('kind') in {'request_reserved', 'request_outcome', 'request_rejected'}]}

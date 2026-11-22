@@ -8,7 +8,7 @@ from apps.scoring.capability.engine import release, indicator_bounds, number, EN
 from apps.scoring.capability.evaluation import evaluate, PROMPT_VERSION, RETRIEVAL_VERSION
 from apps.scoring.capability.execution import policy, BudgetExceeded
 from apps.scoring.capability.provider import MeteredService
-from apps.extraction.services.ai_service import get_ai_service
+from apps.scoring.capability.model_choice import scoring_service as get_ai_service
 from apps.extraction.services.router_pool import get_router_pool, use_lease
 
 

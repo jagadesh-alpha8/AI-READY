@@ -51,7 +51,7 @@ class Command(BaseCommand):
             if not options['run']:
                 self.stdout.write('Dry run: no model calls (use --run).')
                 return
-            from apps.extraction.services.ai_service import get_ai_service
+            from apps.scoring.capability.model_choice import scoring_service as get_ai_service
             service = get_ai_service()
             result = rejudge_credit(export, service, routes=routes, max_calls=options['max_calls'])
             final_run = publish_final(result, service=service) if options['publish'] else None

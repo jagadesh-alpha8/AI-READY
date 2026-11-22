@@ -37,7 +37,7 @@ class Command(BaseCommand):
             raise CommandError('Configured assessment/advice execution is disabled.')
         if not (settings.AI_API_KEY or settings.OPENAI_API_KEY):
             raise CommandError('No provider key is configured; no request was made.')
-        from apps.extraction.services.ai_service import get_ai_service
+        from apps.scoring.capability.model_choice import scoring_service as get_ai_service
         from apps.extraction.pricing import positive_token_prices
         from apps.scoring.capability.provider import MeteredService
         from apps.scoring.models import CapabilityRun,CapabilityExecution,CapabilityRunEvent

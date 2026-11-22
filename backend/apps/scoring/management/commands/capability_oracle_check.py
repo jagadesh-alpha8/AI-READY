@@ -61,7 +61,7 @@ class Command(BaseCommand):
                          'pre_request_limit': gate(request)[0], 'message_bytes': message,
                          'estimated_prompt_tokens': math.ceil(message / BYTES_PER_TOKEN)})
         host = settings.AI_BASE_URL.split('/')[2] if settings.AI_BASE_URL else 'default provider'
-        summary = {'provider_host': host, 'model': settings.AI_MODEL, 'requests': len(plan),
+        summary = {'provider_host': host, 'model': __import__('apps.scoring.capability.model_choice', fromlist=['x']).scoring_model(), 'requests': len(plan),
                    'estimated_prompt_tokens': sum(p['estimated_prompt_tokens'] for p in plan),
                    'output_token_allowance': settings.CAPABILITY_OUTPUT_TOKENS * len(plan),
                    'note': f'Estimate at {BYTES_PER_TOKEN} bytes per token; at most one correction request per batch may be added.'}
@@ -78,7 +78,7 @@ class Command(BaseCommand):
 
     @staticmethod
     def evaluate(export, rendered, contexts, indicators, items):
-        from apps.extraction.services.ai_service import get_ai_service
+        from apps.scoring.capability.model_choice import scoring_service as get_ai_service
         from apps.scoring.capability import evaluation
         records = {r['condition_id']: r for r in export['assessment']['records']}
         # Production evaluate(), unchanged except that each batch receives its oracle context.

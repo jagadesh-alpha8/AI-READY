@@ -84,6 +84,8 @@ def policy(stage='assessment'):
     if duration is None and type(calls) is int and type(timeout) is int and type(concurrency) is int and concurrency >= 1:
         # A safety stop, not a pace target: every request could use its full timeout, plus packet building.
         duration = min(21600, max(1800, -(-calls // concurrency) * timeout + 600))
+    from .model_choice import effort as model_effort
+    model_effort = model_effort()
     if (type(calls) is not int or not call_floor <= calls <= call_limit or not cost.is_finite() or not 0 < cost <= 100
             or type(output) is not int or not 256 <= output <= 65536
             or type(timeout) is not int or not 1 <= timeout <= 600
@@ -95,7 +97,8 @@ def policy(stage='assessment'):
             or judgment not in ('conditions', 'parts')):
         raise AssessmentDisabled('Assessment budget configuration is invalid.')
     return {'request_policy_version': 'bounded-stage-1', 'stage': stage, 'input_token_bound_limit': input_limit, 'max_duration_seconds': duration,
-            'gemini_reasoning_effort': effort, 'response_recovery_requests': 2, 'agreement_passes': passes, 'indicator_concurrency': concurrency,
+            'gemini_reasoning_effort': effort, **({'model_effort': model_effort} if model_effort else {}),
+            'response_recovery_requests': 2, 'agreement_passes': passes, 'indicator_concurrency': concurrency,
             **({'tie_break': 'median-credit-of-three-v1' if judgment == 'parts' else 'majority-of-three-v1'}
                if tie_break and stage == 'assessment' else {}),
             **({'judgment': 'parts', **_parts_metadata()} if judgment == 'parts' else {}),
