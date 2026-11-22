@@ -54,3 +54,42 @@ class EvidenceLaneTests(SimpleTestCase):
         ledger = {'claims': [claim(f'c{n}', f'Approved Intake CSE AI {n}', n) for n in range(1, 30)]}
         _, audit = evidence_lane(indicator('AIQIF-C5.2'), [], sources, ledger)
         self.assertLessEqual(audit['used_chars'], LANE_CHARS)
+
+
+class LaneTwoTests(SimpleTestCase):
+    """extracted-evidence-lane-2 (22 Nov 2026), from test 13's coverage audit."""
+
+    def test_an_item_on_a_page_whose_other_part_is_in_the_packet_is_added(self):
+        from apps.scoring.capability.reviewed_evidence import LANE_VERSION_2
+        text = ('Patent 1: Wall Painting Robot, awarded 2022. ' + 'filler text ' * 300
+                + 'Patent 2: AI Based Chemical Mixing Device for Agriculture, awarded 2023.')
+        page = {'id': 'pat:46', 'document_id': 'pat', 'page_number': 46, 'text': text}
+        shown = [{**page, 'text': text[:60], 'text_offset': 0}]   # the packet holds only the first patent
+        item = claim('c1', 'AI Patent Chemical Mixing Device', 46, quote='Patent 2: AI Based Chemical Mixing Device')
+        item['source']['document_id'] = 'pat'
+        _, old = evidence_lane(indicator('AIQIF-C7.3'), list(shown), [page], {'claims': [item]})
+        self.assertEqual((len(old['added']), old['already_in_packet']), (0, 1))   # lane-1: the page counts
+        out, new = evidence_lane(indicator('AIQIF-C7.3'), list(shown), [page], {'claims': [item]},
+                                 version=LANE_VERSION_2)
+        self.assertEqual(len(new['added']), 1)
+        self.assertIn('Chemical Mixing Device', out[-1]['text'])
+        # An item whose quotation is already in the packet is not added again.
+        first = claim('c2', 'AI Patent Wall Painting Robot', 46, quote='Patent 1: Wall Painting Robot')
+        first['source']['document_id'] = 'pat'
+        _, again = evidence_lane(indicator('AIQIF-C7.3'), list(shown), [page], {'claims': [first]},
+                                 version=LANE_VERSION_2)
+        self.assertEqual((len(again['added']), again['already_in_packet']), (0, 1))
+
+    def test_lane_two_goes_on_past_fourteen_items_while_the_budget_lasts(self):
+        from apps.scoring.capability.reviewed_evidence import LANE_MAX_ITEMS, LANE_VERSION_2
+        sources = [{**PAGE, 'id': f'aicte:{n}', 'page_number': n} for n in range(1, 31)]
+        ledger = {'claims': [claim(f'c{n:02}', f'Approved Intake CSE AI and ML {n}', n) for n in range(1, 31)]}
+        _, old = evidence_lane(indicator('AIQIF-C5.2'), [], sources, ledger)
+        _, new = evidence_lane(indicator('AIQIF-C5.2'), [], sources, ledger, version=LANE_VERSION_2)
+        self.assertEqual(len(old['added']), LANE_MAX_ITEMS)
+        self.assertEqual(len(new['added']), 30)
+        self.assertLessEqual(new['used_chars'], LANE_CHARS)
+
+    def test_an_unknown_version_is_refused(self):
+        with self.assertRaises(ValueError):
+            evidence_lane(indicator('AIQIF-C5.2'), [], [PAGE], {'claims': []}, version='lane-9')

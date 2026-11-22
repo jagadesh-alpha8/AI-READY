@@ -68,6 +68,13 @@ def between_runs(report, other):
     s2, a2 = _scores(theirs, rubric)
     same = sum(_status(mine[c]) == _status(theirs.get(c, 0.0)) for c in mine) / len(mine)
     records = {r['condition_id']: r for r in report['assessment']['records']}
+    others = {r['condition_id']: r for r in other['assessment']['records']}
+
+    def why(record):   # the reason and quotes a run gave, for reading the two side by side
+        record = record or {}
+        quotes = [c['quote'] for c in record.get('citations', [])] or [
+            c['quote'] for p in record.get('parts') or [] for c in p.get('citations') or []]
+        return {'reason': record.get('reason', ''), 'quotes': quotes[:3], 'pass_credits': record.get('pass_credits')}
     gained = sorted(c for c in mine if mine[c] > theirs.get(c, 0.0))
     lost = sorted(c for c in mine if mine[c] < theirs.get(c, 0.0))
     result = {'score': s1, 'other_score': s2, 'run_score_gap': round(abs(s1 - s2), 2),
@@ -75,7 +82,8 @@ def between_runs(report, other):
               'gained': [{'condition_id': c, 'credit': mine[c], 'before': theirs.get(c, 0.0),
                           'reason': records[c].get('reason', ''),
                           'quotes': [q['quote'] for q in records[c].get('citations', [])][:3]} for c in gained],
-              'lost': [{'condition_id': c, 'credit': mine[c], 'before': theirs.get(c, 0.0)} for c in lost]}
+              'lost': [{'condition_id': c, 'credit': mine[c], 'before': theirs.get(c, 0.0),
+                        'this_run': why(records.get(c)), 'other_run': why(others.get(c))} for c in lost]}
     result['checks'] = {k: (result[k] >= TARGETS[k] if k == 'run_same_status' else result[k] <= TARGETS[k])
                         for k in ('run_score_gap', 'run_area_gap', 'run_same_status')}
     return result

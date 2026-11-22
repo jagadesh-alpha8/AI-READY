@@ -846,6 +846,9 @@ CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '
 # indicator). Condition judge: the majority state stands. Part judge: passes also disagree when their credits differ
 # by 0.5 or more, and the median credit of the three passes stands (part_judgment.CREDIT_GAP).
 CAPABILITY_TIE_BREAK = os.getenv('CAPABILITY_TIE_BREAK', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Ask once more, per pass, for requirements whose found parts all failed their quotations (quote-repair-v1, 22 Nov
+# 2026; test 13 lost full credit on two requirements in one pass to quotations alone). Frozen per run.
+CAPABILITY_PART_QUOTE_REPAIR = os.getenv('CAPABILITY_PART_QUOTE_REPAIR', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
 # Extracted-evidence lane (reviewed_evidence.evidence_lane): adds the source page of each relevant extracted AI item
 # to the indicator's packet (up to 18,000 characters), so evidence extraction found reaches the judge.
 CAPABILITY_EVIDENCE_LANE = os.getenv('CAPABILITY_EVIDENCE_LANE', 'true').strip().lower() in ('1', 'true', 'yes', 'on')

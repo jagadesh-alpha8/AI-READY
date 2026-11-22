@@ -33,6 +33,17 @@ class ConsistencyTests(SimpleTestCase):
         self.assertEqual(len(result['gained']), 216)
         self.assertFalse(result['checks']['run_score_gap'])
 
+    def test_lost_conditions_show_both_runs_reasons(self):
+        new, old = export([[0.0], [0.0]]), export([[1.0], [1.0]])
+        old['assessment']['records'][0].update(reason='The workshop register names 40 faculty.',
+                                                citations=[{'quote': 'Two Days Workshop on AI'}])
+        new['assessment']['records'][0]['reason'] = 'No register found.'
+        cid = old['assessment']['records'][0]['condition_id']
+        lost = next(r for r in between_runs(new, old)['lost'] if r['condition_id'] == cid)
+        self.assertEqual(lost['other_run']['reason'], 'The workshop register names 40 faculty.')
+        self.assertEqual(lost['other_run']['quotes'], ['Two Days Workshop on AI'])
+        self.assertEqual(lost['this_run']['reason'], 'No register found.')
+
     def test_strict_export_without_pass_credits(self):
         report = export([[1.0]])
         for r in report['assessment']['records']:

@@ -608,11 +608,14 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
     # The run's own retrieval policy, so page aliases for reviewed evidence and the trace match the first pass; the
     # targeted extra search is not repeated (the packet already holds what it added).
     policy = {k: v for k, v in (export.get('retrieval_policy') or {}).items() if k != 'follow_up'} or None
+    repair = run is not None and ((run.inputs or {}).get('execution_policy') or {}).get(
+        'part_quote_repair') == 'quote-repair-v1'   # the provisional run's own rule
     outcome = evaluate_fn(sources, service=service, population=export.get('population') or 'Not recorded',
                           reference_period=export.get('reference_period') or 'Not recorded', rubric=subset,
                           scope=export.get('scope'), reviewed_evidence=export.get('reviewed_evidence'),
                           retrieval_policy=policy, judgment='parts', agreement_passes=2, tie_break=True,
-                          max_calls=len(subset['indicators']), fixed_contexts=contexts, **(evaluate_options or {}))
+                          max_calls=len(subset['indicators']), fixed_contexts=contexts,
+                          **({'quote_repair': True} if repair else {}), **(evaluate_options or {}))
     packets = {t['indicator']: t.get('source_excerpts') or [] for t in traces}
     merged, merge_audit = layer2.merge_new_evidence(
         records, outcome['records'], packets, rubric=rubric, lowering=lowering,
