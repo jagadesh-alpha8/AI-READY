@@ -386,3 +386,96 @@ class ClaudeShortIdFlowTests(ClaudeProductFlowTests):
         result = check(run, ceiling_tokens=95000, bytes_per_token=2.6)
         self.assertEqual(result['summary']['credited_quotations_lost'], 0)   # keyword retrieval: nothing trimmed
         self.assertEqual(result['summary']['indicators'], 36)
+
+
+class CeilingWithHybridRetrievalTests(SimpleTestCase):
+    """The ceiling trimming a real (synthetic-encoder) hybrid packet, end to end through evaluate()."""
+
+    def setUp(self):
+        from .capability.engine import release
+        from .retrieval_test_fixtures import synthetic_ranker
+
+        class Model:
+            def passage_embed(self, texts, **kwargs):
+                return [[1., 0.] if 'artificial intelligence' in t.lower() else [0., 1.] for t in texts]
+
+            def query_embed(self, text):
+                return [[1., 0.]]
+        self.indicator = next(i for i in release()['indicators'] if i['code'] == 'AIQIF-C1.1')
+        self.rubric = {**release(), 'indicators': [self.indicator]}
+        filler = ' '.join(['The institution maintains its strategic plan and reviews priorities each year.'] * 30)
+        self.sources = [{'id': f'{n:08d}-0000-4000-8000-000000000000', 'document_id': DOC, 'page_number': n,
+                         'text': (f'Page {n}. The strategic plan names artificial intelligence as a priority. '
+                                  if n % 7 == 0 else f'Page {n}. ') + filler, 'text_source': 'text'}
+                        for n in range(1, 61)]
+        self.ranker = synthetic_ranker(Model())
+        self.ranker.baseline_chars, self.ranker.context_chars = 60000, 66000
+
+    def prepare(self, ceiling):
+        from .capability.evaluation import _prepare
+        return _prepare(self.indicator, sources=self.sources, semantic_ranker=self.ranker, gemini=True,
+                        reviewed_evidence=None, population='All faculty', reference_period='2024-25', scope=None,
+                        ceiling=ceiling, judgment='parts')
+
+    def test_the_packet_is_rebuilt_smaller_and_every_dropped_passage_recorded(self):
+        whole = self.prepare(None)
+        policy = {'version': prompt_ceiling.VERSION, 'tokens': 25000, 'bytes_per_token': 2.6,
+                  'short_ids': prompt_ceiling.SHORT_IDS_VERSION}
+        trimmed = self.prepare(policy)
+        audit = trimmed['prompt_ceiling']
+        self.assertGreater(audit['estimated_tokens_before'], 25000)
+        self.assertLessEqual(audit['estimated_tokens'], 25000)
+        self.assertGreater(audit['keyword_chars'], 24000)   # reached without going down to the floor
+        self.assertFalse(audit['over_ceiling'])
+        # Too tight to reach: the lane stops at its floor (40%) and the request is flagged, not refused.
+        floor = self.prepare({**policy, 'tokens': 15000})['prompt_ceiling']
+        self.assertEqual((floor['keyword_chars'], floor['over_ceiling']), (24000, True))
+        self.assertLess(sum(len(s['text']) for s in trimmed['context']), sum(len(s['text']) for s in whole['context']))
+        # Every passage of the full packet is either still covered or recorded with what it lost.
+        recorded = {(d['id'], d['text_offset']): d['chars_no_longer_in_packet'] for d in audit['dropped']}
+        for passage in whole['context']:
+            lost = prompt_ceiling._uncovered(passage, trimmed['context'])
+            self.assertEqual(recorded.get((passage['id'], passage['text_offset']), 0), lost)
+        self.assertEqual(audit['dropped_chars'], sum(recorded.values()))
+        self.assertTrue(recorded)
+        # The pages the encoder ranks highest (the AI passages) survive the trim.
+        ai_pages = {s['id'] for s in whole['context'] if 'artificial intelligence' in s['text']}
+        self.assertTrue(ai_pages & {s['id'] for s in trimmed['context']})
+        # Under the ceiling nothing is rebuilt.
+        roomy = self.prepare({**policy, 'tokens': 900000})['prompt_ceiling']
+        self.assertEqual(roomy['rebuilds'], 0)
+
+    @override_settings(AI_RATE_LIMIT_ENABLED=False)
+    def test_evaluate_sends_short_ids_and_records_validate_against_the_real_pages(self):
+        from .capability.evaluation import evaluate
+        sent = []
+
+        class Judge:
+            provider, model, base_url = 'anthropic', 'claude-haiku-5-5', None
+
+            def extract_structured_data(self, **kwargs):
+                payload = json.loads(kwargs['user_content'])
+                sent.append(payload)
+                cite = next(s for s in payload['sources'] if 'artificial intelligence' in s['text'])
+                quote = cite['text'][:70]
+                return {'conditions': {c['id']: {
+                    'reason': 'Stand-in.', 'scope_supported': True, 'period_supported': True,
+                    'findings': [{'part_id': p['id'], 'finding': 'full',
+                                  'citations': [{'source_id': cite['id'], 'quote': quote}]} for p in c['parts']]}
+                    for c in payload['indicator']['conditions']}}
+        policy = {'mode': 'hybrid', 'prompt_ceiling': {'version': prompt_ceiling.VERSION, 'tokens': 15000,
+                                                       'bytes_per_token': 2.6,
+                                                       'short_ids': prompt_ceiling.SHORT_IDS_VERSION}}
+        with patch('apps.scoring.capability.semantic_retrieval.ranker_for', return_value=self.ranker):
+            result = evaluate(self.sources, service=Judge(), population='All faculty', reference_period='2024-25',
+                              rubric=self.rubric, max_calls=1, judgment='parts', retrieval_policy=policy,
+                              strict_errors=True)
+        self.assertTrue(sent and all(s['id'].startswith('S') for s in sent[0]['sources']))
+        records = result['records']
+        self.assertTrue(records and all(r['credit'] > 0 for r in records))
+        real = {s['id'] for s in self.sources}
+        for record in records:
+            for part in record['parts']:
+                for citation in part['citations']:
+                    self.assertIn(citation['source_id'], real)
+        self.assertIn('prompt_ceiling', result['traces'][0])

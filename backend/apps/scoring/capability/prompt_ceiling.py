@@ -165,11 +165,26 @@ def fit(policy, ranker, build, measure):
         context, extras = build(smaller(ranker, keyword))
         tokens = measure(context, extras)
         audit['rebuilds'] += 1
-    kept = {(e['id'], e.get('text_offset'), len(e.get('text') or '')) for e in context}
-    dropped = [e for e in original if (e['id'], e.get('text_offset'), len(e.get('text') or '')) not in kept]
+    dropped = [(e, lost) for e in original if (lost := _uncovered(e, context))]
     audit.update(estimated_tokens_before=before, estimated_tokens=tokens, keyword_chars=keyword,
                  keyword_chars_before=ranker.baseline_chars, over_ceiling=tokens > policy['tokens'],
-                 dropped_chars=sum(len(e.get('text') or '') for e in dropped),
+                 dropped_chars=sum(lost for _, lost in dropped),
                  dropped=[{'id': e['id'], 'document_id': e.get('document_id'), 'page_number': e.get('page_number'),
-                           'text_offset': e.get('text_offset'), 'chars': len(e.get('text') or '')} for e in dropped])
+                           'text_offset': e.get('text_offset'), 'chars': len(e.get('text') or ''),
+                           'chars_no_longer_in_packet': lost} for e, lost in dropped])
     return context, extras, audit
+
+
+def _uncovered(passage, context):
+    """How many of `passage`'s characters no passage of the same page in `context` still covers."""
+    start = passage.get('text_offset') or 0
+    end = start + len(passage.get('text') or '')
+    spans = sorted((max(start, (e.get('text_offset') or 0)), min(end, (e.get('text_offset') or 0) + len(e.get('text') or '')))
+                   for e in context if e['id'] == passage['id'])
+    covered, reach = 0, start
+    for lo, hi in spans:
+        lo = max(lo, reach)
+        if hi > lo:
+            covered += hi - lo
+            reach = hi
+    return (end - start) - covered
