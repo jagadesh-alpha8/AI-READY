@@ -27,12 +27,15 @@ def records(credited, rubric=None):
 class Model:
     """Answers the per-indicator plan; behaviour per test."""
 
-    def __init__(self, reply=None):
-        self.calls, self.reply = [], reply
+    def __init__(self, reply=None, link_reply=None):
+        self.calls, self.reply, self.links, self.link_reply = [], reply, [], link_reply
 
     def __call__(self, system, content, schema, name):
         import json
         payload = json.loads(content)
+        if name == 'depth_question_links':
+            self.links.append(payload)
+            return self.link_reply(payload) if self.link_reply else {'groups': []}
         self.calls.append(payload)
         if self.reply:
             return self.reply(payload)
@@ -112,7 +115,7 @@ class PlanTests(SimpleTestCase):
         self.assertEqual(sum(q['kind'] == 'missing' for q in questions), 36)
         self.assertEqual(len(questions), 72)
         self.assertEqual([q['rank'] for q in questions], list(range(1, 73)))
-        self.assertIn('36 model calls', notes[0])
+        self.assertIn('37 model calls', notes[0])   # 36 key indicators and one linking pass
 
     def test_tied_questions_take_turns_across_areas(self):
         questions, _, _ = self.plan()
@@ -333,3 +336,76 @@ class PageRankTests(SimpleTestCase):
         self.assertEqual((first['best_rank'], first['deepest_rank_taken'], first['target_attempt_outcomes']),
                          (4, 2, ['budget_excluded']))
         self.assertEqual((second['best_rank'], second['deepest_rank_taken']), (None, 1))
+
+
+class LinkTests(SimpleTestCase):
+    """questions-0.3: repeated questions linked so one answer resolves them."""
+
+    def setUp(self):
+        self.rubric = release()
+        self.firsts = [i['conditions'][0]['id'] for i in self.rubric['indicators']]
+        self.rows = reserve.stamp(records({cid: 1 for cid in self.firsts}, self.rubric), Fraction(1, 4),
+                                  min_credit=reserve.MIN_CREDIT)
+
+    def plan(self, groups):
+        def link(payload):
+            ids = [q['id'] for q in payload['questions']]
+            return {'groups': [{'question_ids': [ids[a], ids[b]] if isinstance(b, int) else [ids[a]] + [ids[x] for x in b],
+                                'text': text} for a, b, text in groups(ids)]}
+        return depth.plan_all(self.rows, self.rubric, Model(link_reply=link), share=Fraction(1, 4),
+                              min_credit=reserve.MIN_CREDIT)
+
+    def test_a_group_is_asked_once_and_its_members_wait(self):
+        text = 'Which body approved your AI strategy and your AI policy, and when? Please share the minutes.'
+        questions, notes, _ = self.plan(lambda ids: [(0, 1, text)])
+        lead = next(q for q in questions if q.get('linked_ranks'))
+        member = next(q for q in questions if q.get('linked_to_rank'))
+        self.assertEqual(lead['text'], text)
+        self.assertEqual(member['linked_to_rank'], lead['rank'])
+        self.assertEqual(lead['linked_ranks'], [member['rank']])
+        self.assertEqual(member['rank'], len(questions))   # ranked after everything the college sees
+        self.assertTrue(lead['own_text'])
+        self.assertTrue(any('1 repeated questions linked into 1' in n for n in notes))
+        self.assertIn('71 questions for the college', notes[0])
+        import json
+        json.dumps(questions)   # plain data, no references between questions
+
+    def test_bad_groups_are_not_used(self):
+        good = 'Which body approved your AI strategy, and when? Please share the minutes.'
+        questions, notes, _ = self.plan(lambda ids: [(0, 0, good),                       # one question is no group
+                                                     (1, list(range(2, 9)), good),       # more than six
+                                                     (10, 11, 'See the rubric, AIQIF-C1.1.'),   # not plain
+                                                     (12, 13, good), (13, 14, good)])    # a question in two groups
+        linked = [q for q in questions if q.get('linked_to_rank')]
+        self.assertEqual(len(linked), 1)   # only 12 + 13
+        self.assertEqual(sum('was not used' in n for n in notes), 4)
+
+    def test_without_linking_nothing_changes(self):
+        questions, _, _ = depth.plan_all(self.rows, self.rubric, Model(), share=Fraction(1, 4), link=False)
+        self.assertFalse([q for q in questions if q.get('linked_to_rank') or q.get('linked_ranks')])
+
+
+class MinimumCreditTests(SimpleTestCase):
+    def test_weak_credit_is_not_asked_about_depth_and_holds_nothing(self):
+        from .capability import action_plan
+        rubric = release()
+        ind = rubric['indicators'][0]
+        strong_id, weak_id = ind['conditions'][0]['id'], ind['conditions'][1]['id']
+        rows = reserve.stamp(records({strong_id: 1, weak_id: Fraction(1, 4)}, rubric), Fraction(1, 4),
+                             min_credit=reserve.MIN_CREDIT)
+        by_id = {r['condition_id']: r for r in rows}
+        self.assertEqual(reserve.record_factor(by_id[weak_id]), 1)
+        self.assertEqual(reserve.record_factor(by_id[strong_id]), Fraction(3, 4))
+        self.assertIsNone(reserve.follow_up_note(by_id[weak_id]))
+        questions, _, _ = depth.plan_all(rows, rubric, Model(), share=Fraction(1, 4), min_credit=reserve.MIN_CREDIT,
+                                         link=False)
+        depth_ids = {c for q in questions if q['kind'] == 'depth' for c in q['condition_ids']}
+        self.assertEqual(depth_ids, {strong_id})
+        missing = next(q for q in questions if q['kind'] == 'missing' and q['indicator'] == ind['code'])
+        self.assertIn(weak_id, missing['condition_ids'])   # asked to complete it instead
+        held = reserve.summary(rows, rubric)
+        self.assertEqual(held['credited_requirements_by_level']['evidenced'], 1)
+        self.assertAlmostEqual(action_plan.build(rubric, rows)['follow_up']['points'], held['held_points'], delta=0.011)
+        # v1 records (no minimum) keep v1's rule: the weak one holds too.
+        v1 = reserve.stamp(records({weak_id: Fraction(1, 4)}, rubric), Fraction(1, 4))
+        self.assertEqual(reserve.record_factor(next(r for r in v1 if r['condition_id'] == weak_id)), Fraction(3, 4))

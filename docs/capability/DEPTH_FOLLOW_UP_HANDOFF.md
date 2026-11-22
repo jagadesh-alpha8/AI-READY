@@ -44,6 +44,18 @@ Test 13 replayed offline under these rules (no model calls): provisional 26.14 b
 131 questions (95 depth, 36 missing-evidence) worth 61.9 points in all; the first 15 depth questions span 8 areas.
 All substantiated would give 22.87, all strong 26.14.
 
+## 22 Nov 2026: fewer, linked questions (questions-0.3, depth-reserve-v2)
+
+- **Depth questions only from half credit.** Requirements credited on related evidence alone (0.125 or 0.25; 51 of
+  95 in test 13) are not asked how deep their evidence goes; they are asked to complete it in the key indicator's
+  missing-evidence question, and hold no credit (`reserve.MIN_CREDIT`, frozen as `depth_policy.min_credit`, stamped
+  as `depth_min_credit`). Test 13: 80 questions instead of 131; provisional 20.98, up to 26.14.
+- **Repeated questions linked.** After planning, one model call groups depth questions that one honest answer, with
+  one document, would answer (2 to 6 each; checked). The college sees the group's lead, with one wording and the
+  group's points; members wait (`status='linked'`, `linked_to`). An answer to the lead is recorded for every member
+  (`submitted_via='linked'`) and checked against each member's own requirement; a member it does not resolve gets
+  its own follow-up, shown next. Members can't be answered separately. `progress.linked` counts them.
+
 ## What problem it solves
 
 The part judge decides whether evidence for a condition exists. It cannot tell a three-session workshop at a local

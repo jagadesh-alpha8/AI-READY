@@ -331,10 +331,11 @@ def points_per_credit(indicator):
     return Fraction(str(indicator['weight_units'])) / 60
 
 
-def indicator_targets(records, rubric):
-    """{indicator code: {'credited': [ids], 'missing': [ids]}} in rubric order. credited: credit > 0 (asked about
-    depth). missing: credit below 1 (no credit, or part credit), in stage order. Requirements a processing failure
-    left unjudged are skipped: they need a rerun, not a question."""
+def indicator_targets(records, rubric, min_credit=Fraction(0)):
+    """{indicator code: {'credited': [ids], 'missing': [ids]}} in rubric order. credited: credit > 0 and at least
+    min_credit (asked about depth; depth-reserve-v2 asks only from half credit). missing: credit below 1 (no credit,
+    or part credit), in stage order. Requirements a processing failure left unjudged are skipped: they need a rerun,
+    not a question."""
     from .decision_causes import NOT_EVALUATED
     by_id = {r['condition_id']: r for r in records}
     out = {}
@@ -345,7 +346,7 @@ def indicator_targets(records, rubric):
             if record is None or record.get('cause') == NOT_EVALUATED:
                 continue
             credit = Fraction(str(record.get('credit') or 0))
-            if credit > 0:
+            if credit > 0 and credit >= min_credit:
                 credited.append(condition['id'])
             if credit < 1:
                 missing.append(condition['id'])
@@ -494,7 +495,7 @@ def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=N
 
 
 def plan_all(records, rubric, model, *, max_questions=0, max_calls=None, concurrency=1, depth_spec=None,
-             share=Fraction(0)):
+             share=Fraction(0), min_credit=Fraction(0), link=True):
     """Every key indicator's questions, ranked. Returns (questions, notes, shown_by_evidence).
 
     Ranked by the points a question can earn (points_at_stake); among equal ones, areas take turns, so no area's
@@ -503,7 +504,7 @@ def plan_all(records, rubric, model, *, max_questions=0, max_calls=None, concurr
     import threading
     depth_spec = depth_spec or spec()
     by_id = {r['condition_id']: r for r in records}
-    targets = indicator_targets(records, rubric)
+    targets = indicator_targets(records, rubric, min_credit)
     indicators = {i['code']: i for i in rubric['indicators']}
     lock, taken = threading.Lock(), [0]
 
@@ -556,22 +557,111 @@ def plan_all(records, rubric, model, *, max_questions=0, max_calls=None, concurr
         notes += result['notes']
         shown += result['shown_by_evidence']
         calls += int(result['called'])
-    ordered = spread(questions)
+    members = []
+    if link:
+        groups, link_notes, called = link_repeats(questions, limited_model,
+                                                  {i['code']: i['name'] for i in rubric['indicators']})
+        notes += link_notes
+        calls += int(called)
+        for lead, linked, text in groups:
+            head = questions[lead]
+            head['own_text'], head['text'] = head['text'], text
+            head['points_at_stake'] = round(head['points_at_stake'] + sum(questions[n]['points_at_stake']
+                                                                         for n in linked), 2)
+            head['linked'] = [questions[n] for n in linked]
+            for n in linked:
+                questions[n]['linked_to'] = head
+                members.append(questions[n])
+    shown_questions = [q for q in questions if 'linked_to' not in q]
+    ordered = spread(shown_questions)
     if max_questions and len(ordered) > max_questions:
         notes.append(f'{len(ordered) - max_questions} questions left out by DEPTH_MAX_QUESTIONS={max_questions}.')
+        cut = ordered[max_questions:]
         ordered = ordered[:max_questions]
+        members = [m for m in members if m['linked_to'] not in cut]
+    ordered += members   # asked through their group's question; ranked after the questions the college sees
     for rank, question in enumerate(ordered, 1):
         question['rank'] = rank
         question['impact'] = question['points_at_stake']
-    depth_n = sum(q['kind'] == 'depth' for q in ordered)
-    notes.insert(0, f'{calls} model calls; {depth_n} depth and {len(ordered) - depth_n} missing-evidence questions '
-                    f'across {len({q["indicator"] for q in ordered})} key indicators; {len(shown)} requirements '
+    for question in ordered:   # plain data from here on: links by rank
+        if 'linked_to' in question:
+            question['linked_to_rank'] = question.pop('linked_to')['rank']
+        if 'linked' in question:
+            question['linked_ranks'] = [m['rank'] for m in question.pop('linked')]
+    seen = [q for q in ordered if 'linked_to_rank' not in q]
+    depth_n = sum(q['kind'] == 'depth' for q in seen)
+    notes.insert(0, f'{calls} model calls; {len(seen)} questions for the college ({depth_n} depth, '
+                    f'{len(seen) - depth_n} missing-evidence) across {len({q["indicator"] for q in ordered})} key '
+                    f'indicators, {len(members)} more answered through linked questions; {len(shown)} requirements '
                     f'already shown in depth by their own quotes.')
     return ordered, notes, shown
 
 
 class CallLimit(Exception):
     pass
+
+
+LINK_PROMPT = """You review the follow-up questions planned for one college. Some ask for the same fact about the same
+thing from different angles, for example who approved the same strategic plan, or how many hours the same workshop
+ran. Group questions only when one honest answer, with one document, would answer every question in the group. Do
+not group questions that are merely similar: questions about different programmes, plans, bodies or years stay
+separate. For each group, write one plain question that asks for everything the grouped questions ask, naming the
+specific programme, policy or activity, warmly and in second person ("you", "your"). No rubric codes, scores or
+points. Most questions belong to no group; return only the groups."""
+
+
+def link_schema(ids):
+    return {'type': 'object', 'additionalProperties': False, 'required': ['groups'],
+            'properties': {'groups': {'type': 'array', 'items': {
+                'type': 'object', 'additionalProperties': False, 'required': ['question_ids', 'text'],
+                'properties': {'question_ids': {'type': 'array', 'items': {'type': 'string', 'enum': ids or ['-']}},
+                               'text': {'type': 'string'}}}}}}
+
+
+MAX_LINKED = 6
+
+
+def link_repeats(questions, model, rubric_names):
+    """Groups of depth questions one answer can resolve (questions-0.3). One model call; its groups are checked:
+    two to MAX_LINKED depth questions each, no question in two groups, plain wording. Returns ([(lead, members,
+    text)], notes), indices into questions. The college sees the lead with the group's wording; its answer is
+    recorded for every member and checked against each member's own requirement, and a member it does not resolve
+    gets its own follow-up (layer2_service.submit)."""
+    depth_idx = [n for n, q in enumerate(questions) if q['kind'] == 'depth']
+    if len(depth_idx) < 2:
+        return [], [], False
+    payload = {'questions': [{'id': str(n), 'key_indicator': rubric_names.get(questions[n]['indicator'], ''),
+                              'question': questions[n]['text']} for n in depth_idx]}
+    try:
+        reply = model(LINK_PROMPT, json.dumps(payload, ensure_ascii=False), link_schema([str(n) for n in depth_idx]),
+                      'depth_question_links') or {}
+    except CallLimit:
+        return [], ['Repeated questions not linked: no model calls left.'], False
+    except Exception as exc:
+        from .request_recovery import recoverable_failure
+        if not recoverable_failure(exc):
+            raise
+        return [], [f'Repeated questions not linked: the model failed ({type(exc).__name__}).'], True
+    groups, used, notes = [], set(), []
+    for row in (reply.get('groups') if isinstance(reply, dict) else None) or []:
+        if not isinstance(row, dict):
+            continue
+        ids = []
+        for value in row.get('question_ids') or []:
+            if isinstance(value, str) and value.isdigit() and int(value) in depth_idx and int(value) not in ids:
+                ids.append(int(value))
+        text = ' '.join((row.get('text') or '').split())
+        if not 2 <= len(ids) <= MAX_LINKED or used & set(ids) or not _plain_enough(text):
+            if ids:
+                notes.append(f'A proposed group of {len(ids)} questions was not used.')
+            continue
+        used |= set(ids)
+        lead = max(ids, key=lambda n: (questions[n]['points_at_stake'], -n))
+        groups.append((lead, [n for n in ids if n != lead], text))
+    if groups:
+        notes.append(f'{sum(len(m) for _, m, _ in groups)} repeated questions linked into {len(groups)} '
+                     f'(one answer for each group).')
+    return groups, notes, True
 
 
 def _no_model(*args):

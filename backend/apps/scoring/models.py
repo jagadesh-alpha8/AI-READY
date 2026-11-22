@@ -492,9 +492,13 @@ class DepthQuestion(models.Model):
         OPEN = 'open', 'Open'
         ANSWERED = 'answered', 'Answered'
         CLOSED = 'closed', 'Closed'
+        LINKED = 'linked', 'Asked through a linked question'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run_ref = models.CharField(max_length=64, db_index=True, help_text='The assessment run id the questions are about.')
+    linked_to = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, related_name='linked',
+                                  help_text='The question that asks this one for the college (questions-0.3).')
+    own_text = models.TextField(blank=True, help_text="A group's lead: its own wording before the group's.")
     kind = models.CharField(max_length=10, choices=Kind.choices)
     indicator_code = models.CharField(max_length=30)
     condition_ids = models.JSONField(default=list)
