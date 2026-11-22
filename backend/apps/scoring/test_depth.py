@@ -56,6 +56,8 @@ class FakeModel:
     def __call__(self, system_prompt, user_content, response_schema, schema_name):
         payload = json.loads(user_content)
         self.calls.append((schema_name, payload))
+        if schema_name == 'depth_question_links':
+            return {'groups': []}
         if schema_name == 'depth_question_plan':
             # Per key indicator: the first dimension of each credited requirement is answered by its quote; every
             # other dimension gets a question, asked once across the indicator; plus a question about an unknown

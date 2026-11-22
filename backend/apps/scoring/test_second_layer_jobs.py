@@ -70,7 +70,9 @@ class SecondLayerJobTests(APITestCase):
         payload = json.loads(kwargs['messages'][1]['content'])
         if self.on_call:
             self.on_call()
-        if 'credited_requirements' in payload:   # depth.plan_indicator: one call per key indicator
+        if 'questions' in payload and 'credited_requirements' not in payload:   # depth.link_repeats
+            content = {'groups': []}
+        elif 'credited_requirements' in payload:   # depth.plan_indicator: one call per key indicator
             content = {'answered': [], 'missing_items': [],
                        'questions': [{'condition_id': r['condition_id'], 'dimension_ids': [r['dimensions'][0]['id']],
                                       'text': 'How many hours did the programme run?'}
@@ -117,9 +119,9 @@ class SecondLayerJobTests(APITestCase):
         from apps.extraction.models import AIUsage
         job = self.execute(self.post_job('questions'))
         self.assertEqual(job.status, 'completed', job.detail)
-        self.assertEqual(self.calls(), 36)   # one per key indicator (questions-0.2), each has something to ask
+        self.assertEqual(self.calls(), 37)   # one per key indicator (questions-0.2), and one linking repeats (0.3)
         budget = SecondLayerBudget.objects.get(run=self.run)
-        self.assertEqual((job.requests_reserved, budget.requests_reserved), (36, 36))
+        self.assertEqual((job.requests_reserved, budget.requests_reserved), (37, 37))
         self.assertEqual(budget.max_http_calls, 72)   # the run's own assessment limit, settings unset
         self.assertGreater(budget.usd_reserved, 0)
         depth_questions = DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='depth')
@@ -129,11 +131,11 @@ class SecondLayerJobTests(APITestCase):
         self.assertEqual(DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='missing').count(), 36)
         self.assertEqual(job.result['questions'], DepthQuestion.objects.filter(run_ref=str(self.run.pk)).count())
         kinds = list(job.events.values_list('payload__kind', flat=True))
-        self.assertEqual(kinds.count('request_reserved'), 36)
+        self.assertEqual(kinds.count('request_reserved'), 37)
         self.assertEqual(kinds[-1], 'terminal')
         self.assertTrue(AIUsage.objects.filter(capability_run=self.run, stage='capability_second_layer').exists())
         shown = self.client.get(f'{self.url}/second-layer/jobs')
-        self.assertEqual(shown.data['budget']['requests_reserved'], 36)
+        self.assertEqual(shown.data['budget']['requests_reserved'], 37)
         self.assertEqual(shown.data['results'][0]['status'], 'completed')
         # Planning again is refused unless replace is asked for.
         self.post_job('questions', key='job-2', expect=400)
@@ -158,7 +160,7 @@ class SecondLayerJobTests(APITestCase):
         call_command('layer2_budget', str(self.run.pk), '--max-cost', '50', stdout=out)
         second = self.execute(self.post_job('questions', key='job-2'))
         self.assertEqual(second.status, 'completed', second.detail)
-        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).requests_reserved, 36)
+        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).requests_reserved, 37)
 
     def test_cancelling_during_the_calls_saves_nothing(self):
         job = self.post_job('questions')

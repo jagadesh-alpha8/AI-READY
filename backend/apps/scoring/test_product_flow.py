@@ -149,6 +149,15 @@ class ProductFlowTests(APITestCase):
                 'questions': [{'dimension_ids': ids[:2], 'text': 'How many hours did the programme run, and who '
                                                                   'accredited it? Please attach the register.'}]}
 
+    def reply_depth_question_links(self, payload):
+        # Links the first depth questions of two different key indicators, as the same fact asked twice.
+        firsts = {}
+        for q in payload['questions']:
+            firsts.setdefault(q['key_indicator'], q['id'])
+        ids = list(firsts.values())[:2]
+        return {'groups': [{'question_ids': ids, 'text': 'Which body approved this programme, and on what date? '
+                                                          'Please share the minutes.'}] if len(ids) == 2 else []}
+
     def reply_depth_question_plan(self, payload):
         questions = [{'condition_id': r['condition_id'], 'dimension_ids': [d['id'] for d in r['dimensions'][:2]],
                       'text': 'How many hours did the programme run, and who accredited it? Please attach the register.'}
@@ -269,7 +278,9 @@ class ProductFlowTests(APITestCase):
         skipped = questions.exclude(pk__in=[depth_q.pk, missing_q.pk]).order_by('rank').first()
 
         shown = self.client.get(f'{self.base}/{provisional.pk}/questions').data
-        self.assertEqual(shown['progress']['questions'], questions.count())
+        # A linked question is asked through its group's question, so the college sees one fewer.
+        self.assertEqual(shown['progress']['questions'], questions.filter(linked_to__isnull=True).count())
+        self.assertEqual(shown['progress']['linked'], questions.filter(linked_to__isnull=False).count())
         self.assertEqual(shown['next']['question']['rank'], 1)
         made = self.post(f'{self.base}/{provisional.pk}/questions/{depth_q.pk}/responses',
                          {'answer': 'Yes: 85 faculty completed the 40-hour accredited programme; register attached.',
@@ -343,7 +354,8 @@ class ProductFlowTests(APITestCase):
         exported = json.load(open(out, encoding='utf-8'))
         self.assertEqual(len(exported['questions']), questions.count())
         self.assertEqual({q['text'] for q in exported['questions']}, set(questions.values_list('text', flat=True)))
-        self.assertEqual(len(exported['responses']), 3)
+        linked = questions.filter(linked_to__in=[depth_q, missing_q, skipped]).count()   # answered through a lead
+        self.assertEqual(len(exported['responses']), 3 + linked)
         self.assertTrue(exported['depth_judgments'] and exported['jobs'] and exported['events'])
 
     # ---------------------------------------------------------------- why a page was or wasn't used (#41)
@@ -418,7 +430,14 @@ class ProductFlowTests(APITestCase):
         by_condition = {}
         for q in depth_qs:
             by_condition.setdefault(q.condition_ids[0], []).append(q)
-        backed, dont_know, typed, already = credited[0], credited[1], credited[2], credited[3]
+        # 0. Repeated questions linked (questions-0.3): the college sees the lead with one wording; the member waits.
+        member = next(q for q in depth_qs if q.linked_to_id)
+        lead = member.linked_to
+        self.assertEqual((member.status, lead.status), ('linked', 'open'))
+        self.assertNotEqual(lead.indicator_code, member.indicator_code)
+        involved = set(lead.condition_ids) | set(member.condition_ids)
+        free = [c for c in credited if c not in involved and all(q.status == 'open' for q in by_condition.get(c, []))]
+        backed, dont_know, typed, already = free[0], free[1], free[2], free[3]
         respond = lambda q, body: self.post(f'{self.base}/{provisional.pk}/questions/{q.pk}/responses', body, expect=201)
         # 1. An answer a new document backs: should earn back held credit.
         for q in by_condition[backed]:
@@ -438,7 +457,24 @@ class ProductFlowTests(APITestCase):
         # as depth answers, and both must reach it.
         missing_q = next(q for q in questions if q.kind == 'missing')
         respond(missing_q, {'answer': 'Our certificate register.', 'document_ids': [self.document(ATTACHMENT)]})
+        # 6. One answer to a linked question is recorded for both and checked against each one's requirement.
+        respond(lead, {'answer': 'The Academic Council approved it on 12 June 2024; minutes attached.',
+                       'document_ids': [self.document(ATTACHMENT)]})
+        self.assertEqual(DepthQuestion.objects.get(pk=member.pk).status, 'answered')
+        copy = DepthResponse.objects.get(question=member)
+        self.assertEqual((copy.answer, copy.submitted_via), (DepthResponse.objects.get(question=lead).answer, 'linked'))
+        with self.assertRaises(AssertionError):   # the member itself cannot be answered separately
+            respond(member, {'skip': True})
         self.run_queued()
+        self.assertEqual(DepthResponse.objects.get(pk=copy.pk).status, 'checked')   # checked on its own
+        # A member the shared answer does not resolve gets its own follow-up, shown next.
+        from .capability.layer2_service import progress
+        before = progress(str(provisional.pk))['follow_ups_open']
+        DepthResponse.objects.filter(pk=copy.pk).update(supported=False, follow_up_text='Thank you. For the AI '
+                                                        'policy specifically, which body approved it?')
+        self.assertEqual(progress(str(provisional.pk))['follow_ups_open'], before + 1)
+        follow = self.client.get(f'{self.base}/{provisional.pk}/questions').data
+        self.assertEqual(follow['next']['type'], 'follow_up')
         checked = DepthResponse.objects.get(pk=made.data['id'])
         self.assertEqual([d['document_id'] for d in checked.support_check['search']['already_counted']], [ssr])
         self.assertTrue(checked.follow_up_text.startswith('We had already read'), checked.follow_up_text)

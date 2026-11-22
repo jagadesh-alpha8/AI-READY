@@ -50,7 +50,8 @@ def flag(value):
 def serialize_question(question):
     return {'id': str(question.pk), 'rank': question.rank, 'kind': question.kind, 'text': question.text,
             'indicator_code': question.indicator_code, 'condition_ids': question.condition_ids,
-            'status': question.status, 'points_at_stake': float(question.points_at_stake)}
+            'status': question.status, 'points_at_stake': float(question.points_at_stake),
+            'linked_to': str(question.linked_to_id) if question.linked_to_id else None}
 
 
 def serialize_response(response):

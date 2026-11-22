@@ -63,8 +63,10 @@ def create_questions(export, model, *, commit=False, replace=False, max_calls=No
     spec = depth.spec()
     from fractions import Fraction
     share = max([Fraction(str(r.get('depth_share') or 0)) for r in records] or [Fraction(0)])
+    minimum = max([Fraction(str(r.get('depth_min_credit') or 0)) for r in records] or [Fraction(0)])
     planned, notes, shown = depth.plan_all(records, rubric, model, max_questions=settings.DEPTH_MAX_QUESTIONS,
-                                           max_calls=max_calls, concurrency=concurrency, depth_spec=spec, share=share)
+                                           max_calls=max_calls, concurrency=concurrency, depth_spec=spec, share=share,
+                                           min_credit=minimum)
     if commit:
         with transaction.atomic():
             if guard is not None:
@@ -77,13 +79,17 @@ def create_questions(export, model, *, commit=False, replace=False, max_calls=No
             DepthPlan.objects.update_or_create(run_ref=run_ref, defaults={
                 'version': depth.PLAN_VERSION, 'shown_by_evidence': shown, 'notes': notes,
                 'model': getattr(model, 'model_name', '')})
-            DepthQuestion.objects.bulk_create([
-                DepthQuestion(run_ref=run_ref, kind=q['kind'], indicator_code=q['indicator'],
-                              condition_ids=q['condition_ids'], dimension_ids=q['dimension_ids'], text=q['text'],
-                              rank=q['rank'], answered_by_evidence=q.get('answered_by_evidence', []),
-                              points_at_stake=Decimal(str(q.get('points_at_stake') or 0)),
-                              spec_version=spec['version'], model=getattr(model, 'model_name', ''))
-                for q in planned])
+            rows = {q['rank']: DepthQuestion(
+                run_ref=run_ref, kind=q['kind'], indicator_code=q['indicator'], condition_ids=q['condition_ids'],
+                dimension_ids=q['dimension_ids'], text=q['text'], rank=q['rank'],
+                answered_by_evidence=q.get('answered_by_evidence', []),
+                points_at_stake=Decimal(str(q.get('points_at_stake') or 0)), own_text=q.get('own_text', ''),
+                status=DepthQuestion.Status.LINKED if 'linked_to_rank' in q else DepthQuestion.Status.OPEN,
+                spec_version=spec['version'], model=getattr(model, 'model_name', '')) for q in planned}
+            for q in planned:   # a linked question is asked through its group's question (submit records it for both)
+                if 'linked_to_rank' in q:
+                    rows[q['rank']].linked_to_id = rows[q['linked_to_rank']].pk
+            DepthQuestion.objects.bulk_create(list(rows.values()))
     return {'run_ref': run_ref, 'questions': planned, 'notes': notes, 'shown_by_evidence': shown, 'saved': commit}
 
 

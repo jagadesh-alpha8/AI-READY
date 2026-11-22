@@ -260,9 +260,10 @@ def next_item(run_ref):
 def progress(run_ref):
     questions = DepthQuestion.objects.filter(run_ref=run_ref)
     responses = DepthResponse.objects.filter(question__run_ref=run_ref)
-    return {'questions': questions.count(),
+    return {'questions': questions.exclude(status=DepthQuestion.Status.LINKED).filter(linked_to__isnull=True).count(),
             'open': questions.filter(status=DepthQuestion.Status.OPEN).count(),
-            'answered': questions.exclude(status=DepthQuestion.Status.OPEN).count(),
+            'answered': questions.filter(linked_to__isnull=True).exclude(status=DepthQuestion.Status.OPEN).count(),
+            'linked': questions.filter(linked_to__isnull=False).count(),
             'checks_waiting': responses.filter(status=DepthResponse.Status.PENDING).count(),
             'follow_ups_open': responses.filter(parent__isnull=True, status=DepthResponse.Status.CHECKED)
                                         .exclude(follow_up_text='').filter(follow_ups__isnull=True).count(),
@@ -308,6 +309,16 @@ def submit(question, *, answer='', document_ids=(), skip=False, parent=None, use
             locked.status = DepthQuestion.Status.ANSWERED
             locked.save(update_fields=['status'])
             question.status = locked.status
+            # A linked question's answer is recorded for each question it stands for, and checked against each one's
+            # own requirement; one it does not resolve gets its own follow-up (questions-0.3).
+            for member in DepthQuestion.objects.select_for_update().filter(linked_to=locked,
+                                                                             status=DepthQuestion.Status.LINKED):
+                DepthResponse.objects.create(
+                    question=member, parent=None, kind=response.kind, answer=response.answer,
+                    document_ids=response.document_ids, status=response.status, submitted_via='linked',
+                    submitted_by=user)
+                member.status = DepthQuestion.Status.ANSWERED
+                member.save(update_fields=['status'])
     return response
 
 
@@ -339,7 +350,9 @@ def check_response(response, model, *, attached=None, corpus=None, ranker=RUN_RA
     packet = packets.get(question.indicator_code) or []
     record = records.get(question.condition_ids[0]) if question.condition_ids else None
     ranker, ranking, note = _resolve_ranker(ranker, question.run_ref)
-    asked = response.parent.follow_up_text if response.parent_id else question.text
+    # What the college was asked: the follow-up, else the question as shown (a linked question's group wording).
+    asked = (response.parent.follow_up_text if response.parent_id
+             else question.linked_to.text if question.linked_to_id else question.text)
     first = response.parent_id is None
     if question.kind == DepthQuestion.Kind.DEPTH:
         quotes = layer2.anchored_query('', record)
