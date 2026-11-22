@@ -33,6 +33,9 @@ from pathlib import Path
 
 VERSION = 'AIQIF-PARTS-2'
 JUDGMENT = 'parts-v2'
+#: How part findings become a condition's credit (see credit()). subject-cap-v1: a subject found only as related
+#: caps the condition at related credit. Frozen with the run (metadata) so runs on another rule are not mixed.
+CREDIT_RULE = 'subject-cap-v1'
 #: Related evidence is adjacent, not partial proof. At 0.5, the VISTAS run (f5919156) gave 29 requirements half
 #: credit on generic institutional paperwork alone (14.75 of 81.5 credited conditions); 0.25 keeps it visible
 #: without letting adjacency pass for half of the requirement.
@@ -196,7 +199,8 @@ def specification(rubric):
 
 def metadata():
     return {'judgment': JUDGMENT, 'parts_version': VERSION, 'parts_hash': _load()[1],
-            'parts_prompt_hash': hashlib.sha256(prompt().encode()).hexdigest(), 'related_credit': RELATED_CREDIT}
+            'parts_prompt_hash': hashlib.sha256(prompt().encode()).hexdigest(), 'related_credit': RELATED_CREDIT,
+            'credit_rule': CREDIT_RULE}
 
 
 #: Condition and indicator fields the part judge sees. The rubric's prose rules (pass_rule, unknown_rule,
@@ -389,7 +393,13 @@ def credit(parts, spec_parts=None, digital=False):
 
     The subject only identifies what the condition is about ("an advanced AI pathway") and is credited in the
     condition that establishes it; counting it again as a share of every follow-on condition ("the pathway includes
-    a practical assessment") gave half credit for evidence of the subject alone. It is now a gate, not a share."""
+    a practical assessment") gave half credit for evidence of the subject alone. It is now a gate, not a share.
+
+    A subject found only as related caps the condition at related credit (subject-cap-v1). The subject part often
+    carries the kind of evidence the condition asks for ("an assessment of faculty is recorded", related: "attendance
+    only"; "a verified record of participation", related: "counts without verification"); as a pure gate, attendance
+    plus an AI topic earned full credit for "an assessment demonstrates AI literacy" (f5919156 rescored: 8
+    requirements, 2.44 points; test 13: 2, 0.78)."""
     if not parts:
         return 0.0
     # digital=True is the digital-groundwork measure: a digital system that is not AI counts on an AI part.
@@ -399,7 +409,10 @@ def credit(parts, spec_parts=None, digital=False):
     if any(p['id'] in gates and p['credited_as'] not in evidenced for p in parts):
         return 0.0
     substantive = parts[1:] or parts
-    return round(sum(value.get(p['credited_as'], 0.0) for p in substantive) / len(substantive), 4)
+    mean = sum(value.get(p['credited_as'], 0.0) for p in substantive) / len(substantive)
+    if parts[0]['credited_as'] == 'related':
+        mean = min(mean, RELATED_CREDIT)
+    return round(mean, 4)
 
 
 def combine(first, second):

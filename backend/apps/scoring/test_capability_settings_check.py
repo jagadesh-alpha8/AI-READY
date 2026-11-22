@@ -93,6 +93,10 @@ class SettingsCheckTests(APITestCase):
             self.assertEqual(self.kinds(), {('execution_policy', 'related_credit'): 'credit rule'})
             self.assertEqual(self.command()[0], 0)
 
+    def test_an_earlier_part_credit_rule_is_a_credit_rule_difference(self):
+        with patch('apps.scoring.capability.part_judgment.CREDIT_RULE', 'subject-gate'):
+            self.assertEqual(self.kinds(), {('execution_policy', 'credit_rule'): 'credit rule'})
+
     def test_a_settings_file_on_the_code_defaults_is_not_the_run_that_used_two_passes(self):
         with override_settings(CAPABILITY_AGREEMENT_PASSES=1, CAPABILITY_TIE_BREAK=False, CAPABILITY_MAX_HTTP_CALLS=72):
             kinds = self.kinds()
