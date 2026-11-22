@@ -20,6 +20,7 @@ from apps.extraction.services.openai_client import OpenAIExtractionService
 from . import test_product_flow as flow
 from .capability import execution, model_choice
 from .capability.provider import MeteredService
+from .models import CapabilityRun
 
 ON = dict(CAPABILITY_AI_API_KEY='sk-ant-scoring', CAPABILITY_AI_MODEL='claude-haiku-5-5', CAPABILITY_AI_BASE_URL='',
           CAPABILITY_AI_EFFORT='max')
@@ -235,3 +236,153 @@ class ClaudeProductFlowTests(flow.ProductFlowTests):
 for _name in [n for n in vars(flow.ProductFlowTests) if n.startswith('test_')]:
     if _name != 'test_the_whole_flow':   # one whole flow with Claude is enough here
         setattr(ClaudeProductFlowTests, _name, None)
+
+
+# ---------------------------------------------------------------------------------------------- the prompt ceiling
+
+from .capability import prompt_ceiling  # noqa: E402
+
+PAGE_A, PAGE_B, DOC, CLAIM = ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222',
+                              '33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444')
+
+
+class ShortIdTests(SimpleTestCase):
+    def payload(self):
+        return json.dumps({'sources': [{'id': PAGE_A, 'document_id': DOC, 'text': 'alpha'},
+                                       {'id': PAGE_B, 'document_id': DOC, 'text': 'beta'},
+                                       {'id': PAGE_A, 'document_id': DOC, 'text': 'second window, same page'}],
+                           'reviewed_evidence': {'claims': [{'id': CLAIM, 'source': {
+                               'document_id': DOC, 'passages': [{'source_id': PAGE_B}]}}]}})
+
+    def test_long_ids_go_out_short_and_come_back_long(self):
+        schema = {'type': 'object', 'properties': {'source_id': {'type': 'string', 'enum': [PAGE_A, PAGE_B]}}}
+        content, sent_schema, back = prompt_ceiling.shorten(self.payload(), schema)
+        data = json.loads(content)
+        self.assertEqual([s['id'] for s in data['sources']], ['S1', 'S2', 'S1'])   # packet pages first, in order
+        self.assertEqual(data['sources'][0]['document_id'], 'R1')
+        self.assertEqual(data['reviewed_evidence']['claims'][0]['source']['passages'][0]['source_id'], 'S2')
+        self.assertEqual(sent_schema['properties']['source_id']['enum'], ['S1', 'S2'])
+        self.assertNotIn(PAGE_A, content)
+        self.assertEqual(back['S2'], PAGE_B)
+
+    def test_the_client_wrapper_maps_the_answer_back(self):
+        inner = MagicMock()
+        inner.extract_structured_data.return_value = {'conditions': {'X': {'citations': [
+            {'source_id': 'S2', 'quote': 'beta'}], 'reason': 'S2 shows it'}}}
+        inner.model = 'claude-haiku-5-5'
+        wrapped = prompt_ceiling.ShortIds(inner)
+        result = wrapped.extract_structured_data(system_prompt='p', user_content=self.payload(),
+                                                 response_schema={'type': 'object'}, schema_name='capability_parts')
+        self.assertEqual(result['conditions']['X']['citations'][0]['source_id'], PAGE_B)
+        self.assertEqual(result['conditions']['X']['reason'], 'S2 shows it')   # only whole IDs are mapped
+        self.assertEqual(wrapped.model, 'claude-haiku-5-5')
+        self.assertIn('"S1"', inner.extract_structured_data.call_args.kwargs['user_content'])
+
+    def test_a_request_without_long_ids_passes_through(self):
+        inner = MagicMock()
+        prompt_ceiling.ShortIds(inner).extract_structured_data(user_content='{"a": 1}', response_schema={})
+        self.assertEqual(inner.extract_structured_data.call_args.kwargs['user_content'], '{"a": 1}')
+
+
+class FitTests(SimpleTestCase):
+    POLICY = {'version': prompt_ceiling.VERSION, 'tokens': 1000, 'bytes_per_token': 2.0, 'short_ids': None}
+
+    def ranker(self, keyword=10000):
+        return SimpleNamespace(baseline_chars=keyword, context_chars=keyword + 600)
+
+    def build(self, ranker):
+        # One passage per 1,000 keyword characters, plus a discovery passage that is always kept.
+        n = ranker.baseline_chars // 1000
+        return ([{'id': f'k{i}', 'text_offset': 0, 'text': 'x' * 1000} for i in range(n)]
+                + [{'id': 'discovery', 'text_offset': 0, 'text': 'd' * 600}]), None
+
+    def measure(self, context, _):
+        return sum(len(e['text']) for e in context) // 2 + 100
+
+    def test_under_the_ceiling_nothing_changes(self):
+        context, _, audit = prompt_ceiling.fit({**self.POLICY, 'tokens': 100000}, self.ranker(), self.build,
+                                               self.measure)
+        self.assertEqual((len(context), audit['rebuilds']), (11, 0))
+
+    def test_over_the_ceiling_the_keyword_lane_shrinks_and_discovery_stays(self):
+        context, _, audit = prompt_ceiling.fit({**self.POLICY, 'tokens': 4000}, self.ranker(), self.build,
+                                               self.measure)
+        self.assertLessEqual(audit['estimated_tokens'], 4000)
+        self.assertGreater(audit['estimated_tokens_before'], 4000)
+        self.assertIn('discovery', [e['id'] for e in context])
+        self.assertLess(audit['keyword_chars'], audit['keyword_chars_before'])
+        self.assertEqual(audit['dropped_passages'] if 'dropped_passages' in audit else len(audit['dropped']),
+                         len(audit['dropped']))
+        self.assertFalse(audit['over_ceiling'])
+
+    def test_the_keyword_lane_never_goes_below_its_floor(self):
+        context, _, audit = prompt_ceiling.fit({**self.POLICY, 'tokens': 500}, self.ranker(), self.build,
+                                               self.measure)
+        self.assertEqual(audit['keyword_chars'], 4000)   # 40% of 10,000
+        self.assertTrue(audit['over_ceiling'])
+
+    def test_fixed_packets_are_estimated_not_trimmed(self):
+        context, _, audit = prompt_ceiling.fit({**self.POLICY, 'tokens': 500}, None,
+                                               lambda r: self.build(self.ranker()), self.measure)
+        self.assertEqual((len(context), audit['rebuilds']), (11, 0))
+
+    def test_the_ceiling_is_frozen_only_when_set(self):
+        with override_settings(CAPABILITY_PROMPT_TOKEN_CEILING=None):
+            self.assertIsNone(prompt_ceiling.configured())
+        with override_settings(CAPABILITY_PROMPT_TOKEN_CEILING=95000, CAPABILITY_PROMPT_BYTES_PER_TOKEN=2.6):
+            self.assertEqual(prompt_ceiling.configured()['tokens'], 95000)
+        from .capability.semantic_retrieval import SemanticRetrievalUnavailable
+        with override_settings(CAPABILITY_PROMPT_TOKEN_CEILING=5, CAPABILITY_PROMPT_BYTES_PER_TOKEN=2.6):
+            with self.assertRaises(SemanticRetrievalUnavailable):
+                prompt_ceiling.configured()
+
+
+class EffortTierTests(SimpleTestCase):
+    def test_writing_calls_use_the_writing_effort_and_judging_calls_the_judging_one(self):
+        sdk = MagicMock()
+        sdk.with_options.return_value = sdk
+        sdk.messages.create.return_value = claude_reply({'ok': True})
+        service = AnthropicExtractionService(api_key='sk-ant-x', model='claude-haiku-5-5', client=sdk)
+        policy = MeterTests.policy(None, model_effort='max', writing_effort='medium')
+        meter = MeterTests.meter(None, service, policy)
+        with override_settings(AI_RATE_LIMIT_ENABLED=False):
+            for name, expected in (('capability_parts', 'max'), ('score_explanations', 'medium'),
+                                   ('answer_check', 'medium'), ('depth_judgment', 'max')):
+                meter.extract_structured_data(system_prompt='s', user_content='u', response_schema={'type': 'object'},
+                                              schema_name=name)
+                self.assertEqual(sdk.messages.create.call_args.kwargs['output_config']['effort'], expected, name)
+
+    def test_gemini_writing_calls_get_the_nearest_gemini_level(self):
+        from .capability.model_choice import GEMINI_EFFORT, tier
+        self.assertEqual((GEMINI_EFFORT['max'], GEMINI_EFFORT['none']), ('high', 'minimal'))
+        self.assertEqual((tier('capability_parts'), tier('depth_question_plan'), tier('institution_plan_review')),
+                         ('judging', 'writing', 'judging'))
+
+    def test_the_writing_effort_is_frozen_when_set(self):
+        with override_settings(**ON, CAPABILITY_AI_WRITING_EFFORT='low'):
+            self.assertEqual(execution.policy()['writing_effort'], 'low')
+        with override_settings(**ON, CAPABILITY_AI_WRITING_EFFORT=None):
+            self.assertNotIn('writing_effort', execution.policy())
+
+
+@override_settings(**flow.SETTINGS, **{**ON, 'CAPABILITY_AI_EFFORT': 'high'}, CAPABILITY_PROMPT_TOKEN_CEILING=95000,
+                   CAPABILITY_PROMPT_BYTES_PER_TOKEN=2.6)
+class ClaudeShortIdFlowTests(ClaudeProductFlowTests):
+    """The whole flow again with the prompt ceiling on: the stand-in sees only short IDs and cites them; the citations
+    come back as page IDs and survive publication."""
+
+    def claude(self, **kwargs):
+        content = kwargs['messages'][0]['content']
+        if '"sources"' in content and kwargs['output_config']['format']['schema'].get('properties', {}).get('conditions'):
+            self.assertNotRegex(content, r'"id": "[0-9a-f]{8}-')
+            self.short_id_requests = getattr(self, 'short_id_requests', 0) + 1
+        return super().claude(**kwargs)
+
+    def test_the_whole_flow(self):
+        super().test_the_whole_flow()
+        self.assertGreater(self.short_id_requests, 0)
+        from .management.commands.capability_prompt_ceiling_check import check
+        run = CapabilityRun.objects.order_by('created_at').first()   # the provisional run
+        result = check(run, ceiling_tokens=95000, bytes_per_token=2.6)
+        self.assertEqual(result['summary']['credited_quotations_lost'], 0)   # keyword retrieval: nothing trimmed
+        self.assertEqual(result['summary']['indicators'], 36)

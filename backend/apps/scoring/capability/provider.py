@@ -6,6 +6,7 @@ keep the reservation. No secret URLs, keys or provider exception text enter run 
 The ceiling is an application estimate at configured rates, not a provider billing guarantee.
 """
 import json
+import threading
 import time
 from decimal import Decimal, ROUND_UP
 from types import SimpleNamespace
@@ -32,6 +33,9 @@ class UsageUnavailable(Exception):
 
 class MeteredService:
     execution_model = CapabilityExecution
+    #: The current call's kind (judging or writing), per thread: indicators run concurrently, and each thread sets it
+    #: at the start of its own call (extract_structured_data) before any request it makes.
+    _call = threading.local()
     execution_key = 'run_id'
 
     def enabled(self):
@@ -86,7 +90,7 @@ class MeteredService:
             # Claude 5.5 models think by default, which a forced tool call can't be combined with: ask for JSON
             # output instead, at the run's frozen effort (None = the model's default).
             service.json_output = True
-            service.effort = self.policy.get('model_effort')
+            service.effort = None   # set per call in shape(), from the call's tier
             sender = client.messages.create
             service._client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: self.send(sender, kw)))
         else:
@@ -97,6 +101,9 @@ class MeteredService:
     def extract_structured_data(self, **kwargs):
         # One transient retry per indicator; format/JSON fallbacks inside the existing
         # clients also pass through send(), so every extra request consumes the budget.
+        # The call's kind decides its effort (judging or writing); kept per thread, as indicators run concurrently.
+        from .model_choice import tier
+        self._call.tier = tier(kwargs.get('schema_name'))
         for attempt in range(2):
             self.remaining_time()
             try:
@@ -167,22 +174,35 @@ class MeteredService:
             raise ExecutionDeadlineExceeded()
         return remaining
 
+    def effort(self):
+        """The frozen effort for the current call: the writing effort for writing and routing calls when one is set,
+        else the judging effort (model_effort). None = the model's default."""
+        if getattr(self._call, 'tier', 'judging') == 'writing' and self.policy.get('writing_effort'):
+            return self.policy['writing_effort']
+        return self.policy.get('model_effort')
+
     def shape(self, kwargs, timeout):
         """The provider-specific request settings, applied to `kwargs` in place (send() and the probe preflight)."""
         if self.provider == 'openai':
             # OpenAI's reasoning models take max_completion_tokens (reasoning included) and no sampling settings.
             kwargs.pop('max_tokens', None)
             kwargs['max_completion_tokens'] = self.policy['output_tokens']
-            if self.policy.get('model_effort'):
-                kwargs['reasoning_effort'] = self.policy['model_effort']
+            if self.effort():
+                kwargs['reasoning_effort'] = self.effort()
                 kwargs.pop('temperature', None)
                 kwargs.pop('seed', None)
         else:
             kwargs['max_tokens'] = self.policy['output_tokens']
+        if self.provider == 'anthropic' and 'output_config' in kwargs:
+            config = {k: v for k, v in kwargs['output_config'].items() if k != 'effort'}
+            kwargs['output_config'] = {**config, **({'effort': self.effort()} if self.effort() else {})}
         kwargs['timeout'] = timeout
         if self.provider == 'gemini':
             from apps.extraction.services.provider_features import gemini_thinking
             effort = self.policy['gemini_reasoning_effort']
+            if getattr(self._call, 'tier', 'judging') == 'writing' and self.policy.get('writing_effort'):
+                from .model_choice import GEMINI_EFFORT
+                effort = GEMINI_EFFORT[self.policy['writing_effort']]
             if gemini_thinking(self.service.base_url, self.model) and effort != 'default':
                 kwargs['reasoning_effort'] = effort
             else:

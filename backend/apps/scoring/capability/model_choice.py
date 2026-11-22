@@ -9,6 +9,11 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 EFFORTS = ('none', 'low', 'medium', 'high', 'xhigh', 'max')
+#: Calls that write or route rather than judge: they never decide a requirement's credit themselves.
+WRITING = frozenset({'depth_question_plan', 'depth_question_links', 'depth_questions', 'answer_check',
+                     'score_explanations', 'capability_advice', 'capability_advice_repair', 'institution_plan_parse'})
+#: Gemini's reasoning levels for a Claude/OpenAI-style effort name.
+GEMINI_EFFORT = {'none': 'minimal', 'low': 'low', 'medium': 'medium', 'high': 'high', 'xhigh': 'high', 'max': 'high'}
 
 
 def switched_on():
@@ -28,6 +33,19 @@ def effort():
     if value is not None and value not in EFFORTS:
         raise ImproperlyConfigured(f'CAPABILITY_AI_EFFORT must be one of {", ".join(EFFORTS)} (or empty).')
     return value
+
+
+def writing_effort():
+    """The configured effort for writing and routing calls, or None (they use the judging effort)."""
+    value = getattr(settings, 'CAPABILITY_AI_WRITING_EFFORT', None)
+    if value is not None and value not in EFFORTS:
+        raise ImproperlyConfigured(f'CAPABILITY_AI_WRITING_EFFORT must be one of {", ".join(EFFORTS)} (or empty).')
+    return value
+
+
+def tier(schema_name):
+    return 'writing' if (schema_name or '') in WRITING or (schema_name or '').startswith('institution_plan_parse') \
+        else 'judging'
 
 
 def scoring_service():

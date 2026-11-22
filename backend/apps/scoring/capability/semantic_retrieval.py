@@ -78,6 +78,10 @@ def configured_policy(mode=None):
         if mode != 'hybrid' or getattr(settings, 'CAPABILITY_JUDGMENT', 'conditions') != 'parts':
             raise SemanticRetrievalUnavailable('CAPABILITY_FOLLOW_UP_SEARCH needs hybrid retrieval and CAPABILITY_JUDGMENT=parts.')
         routing['follow_up'] = FOLLOW_UP_VERSION
+    from .prompt_ceiling import configured as prompt_ceiling
+    ceiling = prompt_ceiling()
+    if ceiling:
+        routing['prompt_ceiling'] = ceiling   # frozen per run (prompt_ceiling.py)
     allocation = settings.CAPABILITY_RETRIEVAL_ALLOCATION or ALLOCATION
     if allocation not in (ALLOCATION, WIDE_ALLOCATION, XWIDE_ALLOCATION):
         raise SemanticRetrievalUnavailable(

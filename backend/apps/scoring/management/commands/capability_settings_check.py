@@ -60,6 +60,8 @@ SETTING = {
     ('retrieval_policy', 'follow_up'): 'CAPABILITY_FOLLOW_UP_SEARCH',
     ('model', 'AI_MODEL'): 'AI_MODEL',
     ('execution_policy', 'model_effort'): 'CAPABILITY_AI_EFFORT',
+    ('execution_policy', 'writing_effort'): 'CAPABILITY_AI_WRITING_EFFORT',
+    ('retrieval_policy', 'prompt_ceiling'): 'CAPABILITY_PROMPT_TOKEN_CEILING (and CAPABILITY_PROMPT_BYTES_PER_TOKEN)',
 }
 
 
