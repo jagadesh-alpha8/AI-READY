@@ -767,7 +767,7 @@ def check_export_rule(records, traces, targets=None):
             continue
         recorded = trace.get('judgment') or {}
         from .part_judgment import parts_hash_matches
-        different = [k for k in ('parts_version', 'related_credit') if recorded.get(k) != current[k]]
+        different = [k for k in ('parts_version', 'related_credit', 'credit_rule') if recorded.get(k) != current[k]]
         if not parts_hash_matches(recorded.get('parts_hash')):   # either line-ending form of the same file
             different.append('parts_hash')
         if different:
