@@ -346,6 +346,31 @@ class ProductFlowTests(APITestCase):
         self.assertEqual(len(exported['responses']), 3)
         self.assertTrue(exported['depth_judgments'] and exported['jobs'] and exported['events'])
 
+    # ---------------------------------------------------------------- why a page was or wasn't used (#41)
+
+    def test_page_use_explains_where_a_page_went(self):
+        import json as _json
+        from io import StringIO
+        from django.core.management import call_command
+        from .capability.page_use import page_use
+        run = self.assess()
+        payload = run.events.filter(state='completed').last().payload
+        page = payload['traces'][0]['source_excerpts'][0]['id']
+        result = page_use(run, [page])
+        in_trace = {t['indicator'] for t in payload['traces'] if any(e['id'] == page for e in t['source_excerpts'])}
+        self.assertEqual({r['indicator'] for r in result['indicators'] if r['in_packet']}, in_trace)
+        self.assertTrue(all(r['recompute']['reproduced'] for r in result['indicators'] if 'recompute' in r))
+        cited = {r['condition_id'] for r in payload['records'] if (r.get('credit') or 0) > 0 and any(
+            c.get('source_id') == page for p in r.get('parts') or [] for c in p.get('citations') or [])}
+        self.assertEqual({c for r in result['indicators'] for c in r['credited_requirements_citing_it']}, cited)
+        out = StringIO()
+        call_command('capability_page_use', str(run.pk), '--page', page, '--json', stdout=out)
+        self.assertEqual(_json.loads(out.getvalue())['summary'], result['summary'])
+        out = StringIO()
+        call_command('capability_page_use', str(run.pk), '--document', payload['traces'][0]['source_excerpts'][0]
+                     ['document_id'], '--no-recompute', stdout=out)
+        self.assertIn('In the packet of', out.getvalue())
+
     # ---------------------------------------------------------------- follow-up outcomes (21 Nov)
 
     def test_follow_up_answers_have_the_outcomes_they_should(self):

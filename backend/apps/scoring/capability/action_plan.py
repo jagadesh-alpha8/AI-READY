@@ -16,7 +16,7 @@ promises, and completing an action changes no score until a reassessment finds t
 """
 from .engine import LEVELS, documented
 
-VERSION = 'priority-plan-0.1'
+VERSION = 'priority-plan-0.2'   # 0.2 (22 Nov 2026): credit held for depth; follow_up gains
 MAX_ACTIONS = 8          # key indicators in the plan
 MAX_CONDITIONS = 24      # requirements in the plan
 STEP = 10                # the target is the next multiple of STEP above the current score
@@ -84,6 +84,36 @@ def missing_parts(record):
         if text:
             missing.append(text)
     return missing
+
+
+def follow_up_gains(rubric, records, top=8):
+    """Credit still held for depth (reserve.py) that follow-up answers can earn back, by key indicator. Usually the
+    cheapest points available: the evidence exists already; only its depth is still to be shown. None when nothing is
+    held."""
+    from fractions import Fraction
+    from .reserve import record_factor
+    weight = {c['id']: Fraction(str(i['weight_units'])) / 60 for i in rubric['indicators'] for c in i['conditions']}
+    names = {i['code']: i['name'] for i in rubric['indicators']}
+    by_indicator = {}
+    for r in records:
+        credit = Fraction(str(r.get('credit') or 0))
+        if credit <= 0 or not r.get('depth_share') or r['condition_id'] not in weight:
+            continue
+        gain = credit * (1 - record_factor(r)) * weight[r['condition_id']]
+        if gain > 0:
+            code = r['condition_id'].rsplit('.', 1)[0]
+            entry = by_indicator.setdefault(code, {'indicator': code, 'name': names.get(code, code), 'points': 0,
+                                                   'requirements': 0})
+            entry['points'] += gain
+            entry['requirements'] += 1
+    if not by_indicator:
+        return None
+    total = sum(e['points'] for e in by_indicator.values())
+    ranked = sorted(by_indicator.values(), key=lambda e: (-e['points'], e['indicator']))
+    return {'points': float(round(total, 2)),
+            'indicators': [{**e, 'points': float(round(e['points'], 2))} for e in ranked[:top]],
+            'note': ('Credit held until your follow-up answers show how far the evidence goes. The evidence is already '
+                     'in your documents, so answering these questions is usually the quickest way to raise the score.')}
 
 
 def _score(credits, rubric, factors=None):
@@ -175,6 +205,7 @@ def build(rubric, records):
             'reaches_target': target is not None and projected >= target,
             'actions': actions, 'condition_ids': chosen, 'strengths': strengths,
             'remaining': [remaining[p] for p in sorted(remaining)],
+            'follow_up': follow_up_gains(rubric, records),
             'note': ('A projection, not a promise: completing an action changes no score until a reassessment finds '
                      'the evidence. Effort weights are assumptions (completing partial credit counts as less effort '
                      'than establishing; provision before activity before outcomes).')}

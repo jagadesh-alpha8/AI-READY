@@ -97,6 +97,15 @@ class PartTieBreakTests(SimpleTestCase):
         self.assertEqual(trace['agreement_audit']['passes'], 3)
         self.assertEqual(records[A]['pass_credits'], [1.0, 0.0, 1.0])
         self.assertEqual(trace['agreement_audit']['tie_break']['rule'], 'median-credit-of-three-v1')
+        # Each pass's own proposals are kept, not only the validated records (test 13: why a second pass's
+        # quotations failed could not be seen).
+        audit = trace['agreement_audit']
+        second = audit['second_response_audit']['model_response']['conditions']   # keyed by condition id
+        self.assertIn('findings', second[A])
+        self.assertEqual(audit['second_parts'][A]['credit'], 0.0)
+        third = audit['tie_break']
+        self.assertIn('findings', third['response_audit']['model_response']['conditions'][A])
+        self.assertEqual(sorted(third['parts']), sorted([A, B, C]))
 
     def test_one_outlying_pass_cannot_move_a_condition(self):
         records, trace, service = run({A: ['unknown', 'met', 'unknown']}, parts=True)
