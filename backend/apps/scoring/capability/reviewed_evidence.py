@@ -338,6 +338,13 @@ def _independent_count(citation, claim_quote, guarded_value):
 # VISTAS full corpus 66 of 101 extracted AI items never reached the judge. This lane adds the source page of each
 # relevant extracted AI item to the indicator's packet, within a fixed budget, so the judge can cite it.
 LANE_VERSION = 'extracted-evidence-lane-1'
+#: lane-2 (22 Nov 2026), from test 13's coverage audit: 13 of 101 extracted AI items never reached a judge of their
+#: key indicator. Lane-1 stopped after 14 items whatever budget was left (C4.4: 33 relevant, 14 tried, 9.8k of 18k
+#: characters used) and counted an item as present when any part of its page was, though the packet often held
+#: another part of the page (three patents on one page, one shown). Lane-2 goes on while the budget lasts and counts
+#: an item as present only when its own quotation is in the packet; otherwise it adds the part of the page around it.
+LANE_VERSION_2 = 'extracted-evidence-lane-2'
+LANE_MAX_ITEMS_2 = 40
 LANE_CHARS = 18000
 LANE_WINDOW = 2400
 LANE_MAX_ITEMS = 14
@@ -384,13 +391,26 @@ def lane_relevance(claim, indicator):
     return tagged + (10 if family else 0) + len(_lane_tokens(text + ' ' + quote) & target)
 
 
-def evidence_lane(indicator, context, sources, ledger, *, budget=LANE_CHARS, aliases=None):
+def _locate(text, probe):
+    """Offset of a whitespace-normalised quotation's start in the page text, or -1 (lane-2)."""
+    import re
+    words = probe.split()
+    if not words:
+        return -1
+    match = re.search(r'\s+'.join(re.escape(w) for w in words), text)
+    return match.start() if match else -1
+
+
+def evidence_lane(indicator, context, sources, ledger, *, budget=LANE_CHARS, aliases=None, version=LANE_VERSION):
     """(context with added windows, audit). Never removes or reorders retrieved windows. `aliases` maps a kept
     page to the identical pages deduplication dropped (structure.page_aliases), so an item cited on a dropped copy
     still brings in the kept page."""
     from apps.facts.verification.grounding import parse_pages
     from .evaluation import _normal
-    audit = {'version': LANE_VERSION, 'budget_chars': budget, 'added': [], 'already_in_packet': 0, 'considered': 0}
+    if version not in (LANE_VERSION, LANE_VERSION_2):
+        raise ValueError('Frozen extracted-evidence lane version does not match this worker.')
+    second = version == LANE_VERSION_2
+    audit = {'version': version, 'budget_chars': budget, 'added': [], 'already_in_packet': 0, 'considered': 0}
     if not ledger:
         return context, audit
     by_page = {}
@@ -413,28 +433,36 @@ def evidence_lane(indicator, context, sources, ledger, *, budget=LANE_CHARS, ali
     scored.sort(key=lambda row: row[:2])
     audit['considered'] = len(scored)
     used, added = 0, []
-    for _, _, claim in scored[:LANE_MAX_ITEMS]:
+    shown = {}   # lane-2: the normalised text of each page's windows in the packet
+    if second:
+        for w in context:
+            shown.setdefault((w['document_id'], w['page_number']), []).append(_normal(w.get('text') or ''))
+    for _, _, claim in scored[:LANE_MAX_ITEMS_2 if second else LANE_MAX_ITEMS]:
         src = claim['source']
+        probe = _normal(src.get('quote') or '')[:40]
         for page in parse_pages(src.get('page', ''))[:2]:
             key = kept_for.get((src['document_id'], page), (src['document_id'], page))
             source = by_page.get(key)
             if source is None:
                 continue
-            if key in present:
-                audit['already_in_packet'] += 1
-                continue
             text = source['text']
+            hit = (_locate(text, probe) if second else text.find(probe)) if probe else -1
+            if key in present:
+                # lane-1: any part of the page counts. lane-2: only the item's own quotation (or, when the quotation
+                # cannot be found on the page, the page).
+                if not second or hit < 0 or not probe or any(probe in t for t in shown.get(key, [])):
+                    audit['already_in_packet'] += 1
+                    continue
             start = 0
             if len(text) > LANE_WINDOW:
-                probe = _normal(src.get('quote') or '')[:40]
-                hit = text.find(probe) if probe else -1
                 start = max(0, min(hit - LANE_WINDOW // 3, len(text) - LANE_WINDOW)) if hit >= 0 else 0
             window = text[start:start + LANE_WINDOW]
             if used + len(window) > budget:
-                break
+                break   # this item does not fit; the next may
             context.append({**{k: v for k, v in source.items() if k not in ('text', 'report_timestamp')},
                             'text': window, 'text_offset': start, 'evidence_role': 'extracted_evidence'})
             present.add(key)
+            shown.setdefault(key, []).append(_normal(window))
             used += len(window)
             added.append({'claim_id': claim['id'], 'document_id': key[0], 'page': key[1],
                           'chars': len(window)})

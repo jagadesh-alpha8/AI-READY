@@ -39,6 +39,8 @@ SETTING = {
     ('execution_policy', 'agreement_passes'): 'CAPABILITY_AGREEMENT_PASSES',
     ('execution_policy', 'gemini_reasoning_effort'): 'CAPABILITY_GEMINI_REASONING_EFFORT (else AI_GEMINI_REASONING_EFFORT)',
     ('execution_policy', 'tie_break'): 'CAPABILITY_TIE_BREAK',
+    ('execution_policy', 'part_quote_repair'): 'CAPABILITY_PART_QUOTE_REPAIR',
+    ('retrieval_policy', 'evidence_lane'): 'CAPABILITY_EVIDENCE_LANE',
     ('execution_policy', 'judgment'): 'CAPABILITY_JUDGMENT',
     ('execution_policy', 'input_token_bound_limit'): 'CAPABILITY_MAX_INPUT_TOKEN_BOUND',
     ('execution_policy', 'output_tokens'): 'CAPABILITY_ASSESSMENT_OUTPUT_TOKENS (else CAPABILITY_OUTPUT_TOKENS)',

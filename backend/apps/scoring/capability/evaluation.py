@@ -175,6 +175,9 @@ def response_audit(indicator, response, validated):
             'model_response_hash': hashlib.sha256(serialized.encode()).hexdigest()}
 
 
+QUOTE_REPAIR_VERSION = 'quote-repair-v1'
+
+
 def _normal(text):
     return ' '.join(text.split())
 
@@ -645,7 +648,7 @@ def _agreement_pass(indicator, validated, *, service, payload, schema_sources, c
 
 
 def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope,
-             structure=None, fixed_context=None):
+             structure=None, fixed_context=None, lane_version=None):
     """Build one indicator's frozen packet and request payload (local work, no model call).
 
     fixed_context: a packet given whole (the second assessment layer: a provisional packet plus new windows, see
@@ -667,9 +670,10 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
         if structure is not None and structure.get('dropped'):
             from .structure import page_aliases
             lane_aliases = page_aliases(structure)
+        from .reviewed_evidence import LANE_VERSION
         context, lane_audit = evidence_lane(indicator, list(context),
                                             structure['sources'] if structure is not None else sources,
-                                            reviewed_evidence, aliases=lane_aliases)
+                                            reviewed_evidence, aliases=lane_aliases, version=lane_version or LANE_VERSION)
     # Repeating the packet ID enum in each condition can exceed Gemini's
     # schema complexity limit. validate_decisions still checks exact citations.
     schema_sources = None if gemini else context
@@ -699,10 +703,13 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
 
 
 def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, strict_errors, recover_provider_errors,
-                 agreement_passes, follow_up=None, tie_break=False):
+                 agreement_passes, follow_up=None, tie_break=False, quote_repair=False):
     """Part-level judgment (part_judgment.py): request(s) with split, part validation, part-level agreement.
 
-    No correction call: a part whose quotation fails validation counts as not found."""
+    A part whose quotation fails validation counts as not found. With quote_repair (quote-repair-v1), a pass whose
+    found parts all failed their quotations is asked once more, for those requirements only, to quote exactly or mark
+    the part not found; the repaired answer replaces the requirement only when its quotations validate (test 13: two
+    requirements went from full credit to nothing in one pass on quotations alone)."""
     from . import part_judgment
     from .request_recovery import request_with_split, recoverable_failure
     from .decision_causes import NOT_EVALUATED
@@ -717,7 +724,35 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
             schema_for=lambda group: part_judgment.schema(indicator, group), rows_for=part_judgment.rows,
             prompt=part_judgment.prompt(), name='capability_parts', result_key='conditions')
 
-    response, recovery_audit, processing_errors = {}, {}, {}
+    def repaired(records, label):
+        """(records, audit or None): one repair request for the requirements whose found parts failed quotation."""
+        failing = {r['condition_id']: [i.split(':')[0] for i in r.get('part_issues') or [] if 'without a valid quotation' in i]
+                   for r in records}
+        failing = {cid: parts for cid, parts in failing.items() if parts}
+        if not quote_repair or not failing:
+            return records, None
+        group = [c for c in indicator['conditions'] if c['id'] in failing]
+        note = ('In your previous answer these parts were marked as found, but none of their quotations matched the '
+                'supplied passages exactly. For each, quote the passage text exactly as it appears, or mark the part '
+                'not_found. Judge every part of these conditions again as usual.')
+        audit = {'version': QUOTE_REPAIR_VERSION, 'pass': label, 'parts': failing}
+        try:
+            answer, recovery, errors = one_pass(group, base={**data, 'quotation_repair': {'note': note, 'parts': failing}})
+        except Exception as exc:
+            if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
+                raise
+            audit['error'] = f'Repair request failed ({type(exc).__name__}).'
+            return records, audit
+        fixed = {r['condition_id']: r for r in part_judgment.judge_rows(
+            {**indicator, 'conditions': group}, part_judgment.rows(answer), context,
+            reviewed_evidence=reviewed_evidence, sources=sources) if r['condition_id'] not in errors}
+        use = {cid for cid, r in fixed.items()
+               if not any('without a valid quotation' in i for i in r.get('part_issues') or [])}
+        audit.update(recovery=recovery, repaired=sorted(use), kept=sorted(set(failing) - use),
+                     response_audit=response_audit({**indicator, 'conditions': group}, answer, list(fixed.values())))
+        return [fixed[r['condition_id']] if r['condition_id'] in use else r for r in records], audit
+
+    response, recovery_audit, processing_errors, repairs = {}, {}, {}, []
     if attempted:
         try:
             response, recovery_audit, processing_errors = one_pass()
@@ -727,6 +762,10 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
             issue = f'Model evaluation failed ({type(exc).__name__}). Capability is unknown.'
     validated = part_judgment.judge_rows(indicator, part_judgment.rows(response), context,
                                          reviewed_evidence=reviewed_evidence, sources=sources)
+    if attempted and not issue:
+        validated, audit = repaired(validated, 'first')
+        if audit:
+            repairs.append(audit)
     for record in validated:
         if record['condition_id'] in processing_errors:
             reason = 'Model evaluation failed (' + processing_errors[record['condition_id']] + '). Capability is unknown.'
@@ -747,10 +786,15 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
         else:
             rechecked = part_judgment.judge_rows(indicator, part_judgment.rows(second), context,
                                                  reviewed_evidence=reviewed_evidence, sources=sources)
+            raw_rechecked = rechecked
+            rechecked, audit = repaired(rechecked, 'second')
+            if audit:
+                repairs.append(audit)
             first_pass = validated
             validated, disagreements = part_judgment.combine(first_pass, rechecked)
             agreement_audit = {'passes': 2, 'disagreements': disagreements, 'second_response_recovery': second_recovery,
-                               'second_response_audit': response_audit(indicator, {'conditions': rechecked}, rechecked)}
+                               'second_response_audit': response_audit(indicator, second, raw_rechecked),
+                               'second_parts': _parts_summary(rechecked)}
             if tie_break and disagreements:
                 validated, agreement_audit['tie_break'] = _part_tie_break(
                     indicator, first_pass, rechecked, validated, disagreements, one_pass, context=context,
@@ -772,7 +816,17 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
     return {'validated': validated, 'response': {'conditions': part_judgment.rows(response)},
             'recovery_audit': recovery_audit, 'processing_errors': processing_errors, 'initial_audit': None,
             'correction_audit': None, 'agreement_audit': agreement_audit, 'issue': issue, 'attempted': attempted,
-            'repaired_call': False, 'unavailable': unavailable, 'context': sent, 'follow_up_audit': follow_up_audit}
+            'repaired_call': len(repairs), 'unavailable': unavailable, 'context': sent, 'follow_up_audit': follow_up_audit,
+            'quote_repairs': repairs}
+
+
+def _parts_summary(records):
+    """{condition id: {'credit', 'parts': [[part id, finding, credited as]], 'part_issues'}} of one pass, compactly
+    (from A2 #66: the second pass's own proposals are kept, so failed quotations can be seen)."""
+    return {r['condition_id']: {'credit': r.get('credit'),
+                                'parts': [[p['id'], p.get('finding'), p.get('credited_as')] for p in r.get('parts') or []],
+                                **({'part_issues': r['part_issues']} if r.get('part_issues') else {})}
+            for r in records}
 
 
 def _part_tie_break(indicator, first, second, combined, disagreements, one_pass, *, context, reviewed_evidence, sources,
@@ -874,12 +928,13 @@ def _follow_up(job, validated, one_pass, *, follow_up, sources, reviewed_evidenc
 
 
 def _judge(job, attempted, issue, *, service, sources, reviewed_evidence, strict_errors, recover_provider_errors,
-           agreement_passes, judgment='conditions', follow_up=None, tie_break=False):
+           agreement_passes, judgment='conditions', follow_up=None, tie_break=False, quote_repair=False):
     """Model work for one prepared indicator: request (with split), validation, one correction, agreement pass."""
     if judgment == 'parts':
         return _judge_parts(job, attempted, issue, service=service, sources=sources, reviewed_evidence=reviewed_evidence,
                             strict_errors=strict_errors, recover_provider_errors=recover_provider_errors,
-                            agreement_passes=agreement_passes, follow_up=follow_up, tie_break=tie_break)
+                            agreement_passes=agreement_passes, follow_up=follow_up, tie_break=tie_break,
+                            quote_repair=quote_repair)
     from .request_recovery import request_with_split, recoverable_failure
     from .evidence_parts import APPROVAL_MISSING
     from .decision_causes import NOT_EVALUATED
@@ -968,6 +1023,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources):
             'response_assembly': 'split_responses' if recovery_audit.get('split_attempted') else 'validated_initial_plus_correction' if correction_audit and 'error' not in correction_audit else 'initial_response',
             'response_audit': response_audit(indicator, outcome['response'], outcome['validated']),
             'agreement_audit': outcome['agreement_audit'],
+            **({'quote_repair_audit': outcome['quote_repairs']} if outcome.get('quote_repairs') else {}),
             'input_hash': hashlib.sha256(payload.encode()).hexdigest(),
             'source_ids': [s['id'] for s in context],
             'source_excerpts': context,
@@ -984,7 +1040,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources):
             'error': outcome['issue']}
 
 
-def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions', tie_break=False, fixed_contexts=None):
+def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions', tie_break=False, fixed_contexts=None, quote_repair=False):
     """Assess every indicator. Packets are built in rubric order; with concurrency > 1 the model work for up to
     that many indicators runs at once. Records, traces and on_indicator calls stay in rubric order, so results
     do not depend on concurrency; only request numbering in the billing ledger interleaves.
@@ -1025,7 +1081,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
         part_judgment.specification(rubric)
     judge = dict(service=service, sources=sources, reviewed_evidence=reviewed_evidence, strict_errors=strict_errors,
                  recover_provider_errors=recover_provider_errors, agreement_passes=agreement_passes, judgment=judgment,
-                 tie_break=tie_break)
+                 tie_break=tie_break, quote_repair=quote_repair)
     structure = None
     frozen_policy = retrieval_policy or {}
     state = {'calls': 0, 'repairs': 0, 'streak': 0, 'follow_up_calls': 0}
@@ -1053,8 +1109,10 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
         structure = document_structure.build(sources, deduplicate_pages=frozen_policy.get('deduplicate') is not None,
                                              routing=frozen_policy.get('structure') is not None,
                                              repeat_skip=frozen_policy.get('repeat_skip') is not None)
+    # The run's frozen lane version (runs from before lane-2 record none and keep lane-1).
     prepare = dict(sources=sources, semantic_ranker=semantic_ranker, gemini=gemini, reviewed_evidence=reviewed_evidence,
-                   population=population, reference_period=reference_period, scope=scope, structure=structure)
+                   population=population, reference_period=reference_period, scope=scope, structure=structure,
+                   lane_version=frozen_policy.get('evidence_lane'))
     records, traces = [], []
 
     def admit(job):

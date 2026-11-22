@@ -37,13 +37,14 @@ class ExecutionDeadlineExceeded(BudgetExceeded):
     pass
 
 
+
 def _parts_metadata():
     from .part_judgment import metadata
     return {k: v for k, v in metadata().items() if k != 'judgment'}
 
 
 def policy(stage='assessment'):
-    from .evaluation import PROMPT_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA
+    from .evaluation import PROMPT_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA, QUOTE_REPAIR_VERSION
     calls = settings.CAPABILITY_MAX_HTTP_CALLS
     cost = Decimal(str(settings.CAPABILITY_MAX_COST_USD))
     prefix = 'CAPABILITY_RECOMMENDATION' if stage == 'recommendation' else 'CAPABILITY_ASSESSMENT'
@@ -61,7 +62,10 @@ def policy(stage='assessment'):
     follow_up = bool(getattr(settings, 'CAPABILITY_FOLLOW_UP_SEARCH', False))
     # A tie-break pass adds at most one request per indicator (36), only where the two passes disagree.
     tie_break = bool(getattr(settings, 'CAPABILITY_TIE_BREAK', False))
-    call_limit = 108 + (108 if follow_up else 0) + (36 if tie_break else 0)
+    # A quotation repair asks again, once per pass, only for requirements whose found parts all failed their
+    # quotations (rare: 2 key indicators in test 13); up to 36 more requests at worst.
+    quote_repair = judgment == 'parts' and bool(getattr(settings, 'CAPABILITY_PART_QUOTE_REPAIR', False))
+    call_limit = 108 + (108 if follow_up else 0) + (36 if tie_break else 0) + (36 if quote_repair else 0)
     call_floor = 74 if passes == 2 else 1
     if follow_up and stage == 'assessment':
         call_floor = 146 if passes == 2 else 74
@@ -95,6 +99,7 @@ def policy(stage='assessment'):
             **({'tie_break': 'median-credit-of-three-v1' if judgment == 'parts' else 'majority-of-three-v1'}
                if tie_break and stage == 'assessment' else {}),
             **({'judgment': 'parts', **_parts_metadata()} if judgment == 'parts' else {}),
+            **({'part_quote_repair': QUOTE_REPAIR_VERSION} if quote_repair and stage == 'assessment' else {}),
             'prompt_version': PROMPT_VERSION, 'prompt_hash': digest(SYSTEM_PROMPT),
             'schema_hash': digest(DECISION_SCHEMA), 'max_http_calls': calls, 'max_cost_usd': str(cost), 'output_tokens': output,
             'timeout_seconds': timeout, 'sdk_retries': 0, 'transient_retries_per_indicator': 1,

@@ -70,6 +70,9 @@ def configured_policy(mode=None):
         routing['structure'] = structure.VERSION
     if getattr(settings, 'CAPABILITY_REPEAT_SKIP', False):
         routing['repeat_skip'] = structure.REPEAT_SKIP_VERSION
+    if getattr(settings, 'CAPABILITY_EVIDENCE_LANE', True):
+        from .reviewed_evidence import LANE_VERSION_2
+        routing['evidence_lane'] = LANE_VERSION_2   # frozen per run (reviewed_evidence.evidence_lane)
     if getattr(settings, 'CAPABILITY_FOLLOW_UP_SEARCH', False):
         from .follow_up import VERSION as FOLLOW_UP_VERSION
         if mode != 'hybrid' or getattr(settings, 'CAPABILITY_JUDGMENT', 'conditions') != 'parts':

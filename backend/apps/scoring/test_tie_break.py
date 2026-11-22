@@ -113,12 +113,79 @@ class TieBreakPolicyTests(SimpleTestCase):
                                CAPABILITY_MAX_COST_USD='30', CAPABILITY_JUDGMENT='conditions'):
             self.assertEqual(policy()['tie_break'], 'majority-of-three-v1')
         with override_settings(CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_TIE_BREAK=False, CAPABILITY_MAX_HTTP_CALLS=140,
-                               CAPABILITY_MAX_COST_USD='30'):
+                               CAPABILITY_MAX_COST_USD='30', CAPABILITY_PART_QUOTE_REPAIR=False):
             with self.assertRaises(AssessmentDisabled):
                 policy()
+        # The quotation repair is frozen into the policy and gets room for its requests too.
+        with override_settings(CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_TIE_BREAK=True, CAPABILITY_MAX_HTTP_CALLS=180,
+                               CAPABILITY_MAX_COST_USD='30', CAPABILITY_PART_QUOTE_REPAIR=True):
+            self.assertEqual(policy()['part_quote_repair'], 'quote-repair-v1')
+        with override_settings(CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_TIE_BREAK=True, CAPABILITY_MAX_HTTP_CALLS=140,
+                               CAPABILITY_MAX_COST_USD='30', CAPABILITY_JUDGMENT='conditions',
+                               CAPABILITY_PART_QUOTE_REPAIR=True):
+            self.assertNotIn('part_quote_repair', policy())   # part judgment only
         with override_settings(CAPABILITY_AGREEMENT_PASSES=1, CAPABILITY_TIE_BREAK=True, CAPABILITY_MAX_HTTP_CALLS=40,
                                CAPABILITY_MAX_COST_USD='30'):
             with self.assertRaises(AssessmentDisabled):
                 policy()
         with self.assertRaisesRegex(ValueError, 'two agreement passes'):
             evaluate(SOURCES, service=None, population='S', reference_period='2024', agreement_passes=1, tie_break=True)
+
+
+class QuoteRepairTests(SimpleTestCase):
+    """quote-repair-v1: a pass whose found parts all failed their quotations is asked once more for those requirements
+    (test 13: full credit lost in one pass to quotations alone)."""
+
+    class Service:
+        def __init__(self, bad_quote_calls, repair_fixes=True):
+            self.bad, self.fixes, self.calls, self.payloads = set(bad_quote_calls), repair_fixes, [], []
+
+        def extract_structured_data(self, *, system_prompt, user_content, response_schema, schema_name):
+            payload = json.loads(user_content)
+            self.payloads.append(payload)
+            conditions = payload['indicator']['conditions']
+            self.calls.append([c['id'] for c in conditions])
+            n = len(self.calls) - 1
+            window = next(s for s in payload['sources'] if s.get('evidence_role') != 'report_timestamp')
+            repair = 'quotation_repair' in payload
+            good = not (n in self.bad or (repair and not self.fixes))
+            quote = 'runs an ERP digital service for admissions' if good else 'operates an ERP platform serving admissions'
+            rows = {}
+            for c in conditions:
+                found = c['id'] == A
+                rows[c['id']] = {'reason': 'Scripted.', 'scope_supported': True, 'period_supported': True,
+                                 'findings': [{'part_id': p['id'], 'finding': 'full' if found else 'not_found',
+                                               'citations': [{'source_id': window['id'], 'quote': quote}] if found else []}
+                                              for p in c['parts']]}
+            return {'conditions': rows}
+
+    def judge(self, service, quote_repair=True):
+        result = evaluate(SOURCES, service=service, population='Students', reference_period='2023-24', rubric=rubric(),
+                          retrieval_policy={'mode': 'bm25'}, agreement_passes=2, judgment='parts', tie_break=True,
+                          quote_repair=quote_repair)
+        return {r['condition_id']: r for r in result['records']}, result['traces'][0]
+
+    def test_a_second_pass_with_bad_quotations_is_repaired(self):
+        service = self.Service(bad_quote_calls={1})
+        records, trace = self.judge(service)
+        self.assertEqual(records[A]['credit'], 1.0)          # no disagreement: the repaired pass agrees
+        self.assertEqual(records[A]['pass_credits'], [1.0, 1.0])
+        self.assertEqual(service.calls[2], [A])               # one repair request, for that requirement only
+        self.assertIn(A, service.payloads[2]['quotation_repair']['parts'])
+        repair = trace['quote_repair_audit'][0]
+        self.assertEqual((repair['pass'], repair['repaired'], repair['kept']), ('second', [A], []))
+        self.assertNotIn('tie_break', trace['agreement_audit'])
+
+    def test_without_the_repair_the_pass_disagrees(self):
+        service = self.Service(bad_quote_calls={1})
+        records, trace = self.judge(service, quote_repair=False)
+        self.assertEqual(records[A]['pass_credits'][:2], [1.0, 0.0])
+        self.assertIn('tie_break', trace['agreement_audit'])
+        self.assertNotIn('quote_repair_audit', trace)
+
+    def test_a_repair_that_still_fails_keeps_the_pass_as_it_was(self):
+        service = self.Service(bad_quote_calls={0}, repair_fixes=False)
+        records, trace = self.judge(service)
+        repair = trace['quote_repair_audit'][0]
+        self.assertEqual((repair['pass'], repair['repaired'], repair['kept']), ('first', [], [A]))
+        self.assertEqual(records[A]['pass_credits'][0], 0.0)   # still not found; nothing invented
