@@ -86,7 +86,8 @@ class ProtectedRetrievalTests(SimpleTestCase):
             self.assertTrue(all(s['text'] == next(x['text'] for x in sources if x['id'] == s['id'])[
                 s['text_offset']:s['text_offset'] + len(s['text'])] for s in selected))
 
-    @override_settings(CAPABILITY_RETRIEVAL_MODE='bm25', CAPABILITY_EMBEDDING_PATH='/installed-but-unused')
+    @override_settings(CAPABILITY_RETRIEVAL_MODE='bm25', CAPABILITY_EMBEDDING_PATH='/installed-but-unused',
+                       CAPABILITY_EVIDENCE_LANE=False)
     def test_bm25_needs_no_model_even_with_model_directory_configured(self):
         self.assertEqual(configured_policy(), {'mode': 'bm25'})
 

@@ -160,14 +160,18 @@ class EvaluateTests(SimpleTestCase):
 
 
 class PolicyTests(SimpleTestCase):
-    @override_settings(CAPABILITY_STRUCTURE_ROUTING=False, CAPABILITY_DEDUPLICATE_PAGES=False, CAPABILITY_RETRIEVAL_ALLOCATION='')
+    @override_settings(CAPABILITY_STRUCTURE_ROUTING=False, CAPABILITY_DEDUPLICATE_PAGES=False, CAPABILITY_RETRIEVAL_ALLOCATION='',
+                       CAPABILITY_EVIDENCE_LANE=False)
     def test_off_by_default_policy_has_no_structure(self):
         self.assertEqual(configured_policy('bm25'), {'mode': 'bm25'})
 
     @override_settings(CAPABILITY_STRUCTURE_ROUTING=True, CAPABILITY_DEDUPLICATE_PAGES=True, CAPABILITY_RETRIEVAL_ALLOCATION='')
     def test_on_policy_freezes_the_versions(self):
+        from apps.scoring.capability.reviewed_evidence import LANE_VERSION_2
+        # The extracted-evidence lane version is frozen too (on by default).
         self.assertEqual(configured_policy('bm25'), {'mode': 'bm25', 'structure': st.VERSION,
-                                                     'deduplicate': st.DEDUPLICATE_VERSION})
+                                                     'deduplicate': st.DEDUPLICATE_VERSION,
+                                                     'evidence_lane': LANE_VERSION_2})
 
     @override_settings(CAPABILITY_RETRIEVAL_ALLOCATION='protected-baseline-then-discovery-wide-v1')
     def test_wide_allocation_needs_hybrid(self):
