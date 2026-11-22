@@ -1,5 +1,5 @@
 /** Wording for capability-run results, matching A1's frontend/src/pages/capability/presentation.ts. */
-import type { Job, Result } from '../types/capability';
+import type { ConditionRecord, DepthReserve, Job, Result } from '../types/capability';
 
 export const isActive = (job?: Pick<Job, 'status'> | null) => !!job && (job.status === 'queued' || job.status === 'running');
 
@@ -78,3 +78,44 @@ export function stateCounts(r: Pick<Result, 'indicators'>): Record<string, numbe
 /** A fresh idempotency key for one explicit "start" click. */
 export const newKey = () =>
   (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+/** A fraction the backend sends as "1/4", "0.25" or a number; 0 when absent or unreadable. */
+export function fraction(value: string | number | null | undefined): number {
+  if (value == null || value === '') return 0;
+  if (typeof value === 'number') return value;
+  const [n, d] = value.split('/');
+  const out = d === undefined ? Number(n) : Number(n) / Number(d);
+  return Number.isFinite(out) ? out : 0;
+}
+
+const DEPTH_FRACTION: Record<string, number> = { evidenced: 0, substantiated: 0.5, strong: 1 };
+
+/**
+ * Share of a requirement's credit the headline counts (reserve.record_factor): 1 when nothing is held, otherwise
+ * (1 - share) + share x depth shown. Credit below depth_min_credit is not asked about depth and holds nothing.
+ */
+export function countedShare(r: Pick<ConditionRecord, 'credit' | 'depth_share' | 'depth_level' | 'depth_min_credit'>): number {
+  const share = fraction(r.depth_share);
+  if (!share || !(r.credit && r.credit > 0)) return 1;
+  const minimum = fraction(r.depth_min_credit);
+  if (minimum && r.credit < minimum) return 1;
+  return (1 - share) + share * (DEPTH_FRACTION[r.depth_level || 'evidenced'] ?? 0);
+}
+
+/** "credit 100%", or "credit 100% (75% counted until follow-up answers show depth)" while part of it is held. */
+export function creditLabel(r: ConditionRecord): string {
+  const credit = `credit ${Math.round((r.credit || 0) * 100)}%`;
+  const counted = countedShare(r);
+  return counted < 1 ? `${credit} (${Math.round(counted * 100)}% counted until follow-up answers show depth)` : credit;
+}
+
+const pts = (n: number) => `${Number(n.toFixed(2))} point${n === 1 ? '' : 's'}`;
+
+/** One line for beside the headline score: what is still held and what answers earned back; null when nothing is held. */
+export function heldLine(held?: DepthReserve | null): string | null {
+  if (!held || !held.held_points) return null;
+  const parts: string[] = [];
+  if (held.still_held_points > 0) parts.push(`${pts(held.still_held_points)} held until you answer the follow-up questions`);
+  if (held.earned_back_points > 0) parts.push(`${pts(held.earned_back_points)} earned back by your follow-up answers`);
+  return parts.length ? parts.join(' · ') : null;
+}

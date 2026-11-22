@@ -264,12 +264,17 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
       )}
       <SecondLayerJobs sprint={sprint} runId={runId} progress={p} onChange={() => void next.refetch()} onFinal={onFinal} />
       <div className="stat-grid">
-        <Stat label="Questions" value={p?.questions ?? 0} note={`Provisional run ${runId.slice(0, 8)}${run.id === runId ? ` · ${dateTime(run.created_at)}` : ''}`} />
+        <Stat label="Questions" value={p?.questions ?? 0} note={`${p?.linked ? `${p.linked} more answered through linked questions · ` : ''}Provisional run ${runId.slice(0, 8)}${run.id === runId ? ` · ${dateTime(run.created_at)}` : ''}`} />
         <Stat label="Answered or skipped" value={p?.answered ?? 0} note={`${p?.open ?? 0} open`} />
         <Stat label="Checks waiting" value={p?.checks_waiting ?? 0} note="Answers are checked against the documents" />
         <Stat label="Follow-ups open" value={p?.follow_ups_open ?? 0} note="At most one per answer" />
       </div>
-      {p && p.questions > 0 && <Panel><ProgressLine done={p.answered} total={p.questions} label="Questions answered" /></Panel>}
+      {p && p.questions > 0 && (
+        <Panel>
+          <ProgressLine done={p.answered} total={p.questions} label="Questions answered" />
+          <p className="muted">Questions come in order of the points they can earn, highest first. You can stop whenever you like; unanswered questions earn nothing back.</p>
+        </Panel>
+      )}
       {!p?.questions ? (
         <Empty title="No follow-up questions yet">Questions for this run have not been planned yet. Use “Plan follow-up questions” above (it uses model credits).</Empty>
       ) : !next.data?.next ? (
@@ -293,6 +298,9 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
               {r.answer && <p>{tidyText(r.answer)}</p>}
               {r.document_ids.length > 0 && <p className="muted">{r.document_ids.length} document(s) attached</p>}
               {r.status === 'checked' && <p className="muted">{r.passages_found} passage(s) found{r.dimensions.length ? ` · ${r.dimensions.map((d) => `${humanize(d.dimension_id)}: ${humanize(d.support)}`).join(', ')}` : ''}</p>}
+              {!!r.search?.already_counted?.length && (
+                <p className="muted">Already read in the first assessment, so it added nothing new: {r.search.already_counted.map((d) => d.name).join(', ')}</p>
+              )}
               {r.follow_up && <p><b>Follow-up asked:</b> {r.follow_up}</p>}
             </article>
           ))}
@@ -471,6 +479,8 @@ function QuestionItem({ sprint, runId, item, position, total, onDone }: {
   const [error, setError] = useState('');
   const followUp = item.type === 'follow_up';
   const missing = item.question.kind === 'missing';
+  const points = item.question.points_at_stake;
+  const [own, ...shared] = item.question.condition_ids;
 
   const send = async (skip: boolean) => {
     setError('');
@@ -493,11 +503,20 @@ function QuestionItem({ sprint, runId, item, position, total, onDone }: {
 
   return (
     <Panel title={followUp ? 'One follow-up' : `Question ${position} of ${total}`}
-      sub={`${item.question.indicator_code}${item.question.condition_ids.length ? ` · ${item.question.condition_ids.join(', ')}` : ''}`}
-      actions={<Pill status={followUp ? 'pending' : missing ? 'blocked' : 'active'} label={followUp ? 'Follow-up' : missing ? 'Nothing found yet' : 'About credited evidence'} />}>
+      sub={`${item.question.indicator_code}${own ? ` · ${missing ? item.question.condition_ids.join(', ') : own}` : ''}`}
+      actions={(
+        <>
+          {!followUp && !!points && <Pill tone="good" label={`Up to ${pointsLabel(points)}`} />}
+          {' '}<Pill status={followUp ? 'pending' : missing ? 'blocked' : 'active'} label={followUp ? 'Follow-up' : missing ? 'Nothing found yet' : 'About credited evidence'} />
+        </>
+      )}>
       <form onSubmit={(e) => { e.preventDefault(); void send(false); }} className="questionnaire-item">
         <h3>{item.text}</h3>
         {missing && !followUp && <p className="muted">We found nothing for this in the documents submitted. If you have anything, attach it here.</p>}
+        {!followUp && !!points && (
+          <p className="muted">Answering this with supporting documents can add up to {pointsLabel(points)} to the score.</p>
+        )}
+        {!missing && shared.length > 0 && <p className="muted">Also answers: {shared.join(', ')} (they need the same fact).</p>}
         <UploadBox files={files} onChange={setFiles} required={missing} />
         <label className="field"><span>Your answer</span>
           <textarea rows={3} maxLength={4000} value={answer} onChange={(e) => setAnswer(e.target.value)}
@@ -596,4 +615,10 @@ function AdditionalEvidence({ sprint, run, runId }: { sprint: Sprint; run: Run; 
       </Panel>
     </>
   );
+}
+
+/** "0.42 points", rounded to two decimals the way the backend reports points_at_stake. */
+function pointsLabel(n: number) {
+  const v = Number(n.toFixed(2));
+  return `${v} point${v === 1 ? '' : 's'}`;
 }
