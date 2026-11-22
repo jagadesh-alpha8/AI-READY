@@ -153,6 +153,11 @@ def render_pdf(report, indicators, actions):
         pdf.paragraph(f"Score {priority['score']}; provisional tier: {tier['current'] or 'none yet'}"
                       + (f"; {tier['points_to_next']} points to {tier['next']}." if tier['next'] else '.'))
         pdf.paragraph(f"Projected score after the priority plan: {priority['projected_score']}. {priority['note']}")
+        held = priority.get('follow_up')
+        if held:
+            pdf.paragraph(f"Follow-up answers: up to {held['points']:g} points can be earned back. "
+                          + '; '.join(f"{e['name']} ({e['points']:g})" for e in held['indicators'][:5]) + '. '
+                          + held['note'])
     if report['recommendation']:
         pdf.paragraph(f"Recommendation version: {report['recommendation']['id']} | {report['recommendation']['status']}")
     for action in actions:

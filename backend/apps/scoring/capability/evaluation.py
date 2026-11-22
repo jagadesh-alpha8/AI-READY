@@ -749,8 +749,12 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
                                                  reviewed_evidence=reviewed_evidence, sources=sources)
             first_pass = validated
             validated, disagreements = part_judgment.combine(first_pass, rechecked)
+            # The second pass's own proposals (findings and quotations), as for the first: test 13 (20 Nov) showed
+            # three requirements whose second-pass quotations all failed validation, and only the validated records
+            # had been kept, so why they failed could not be seen.
             agreement_audit = {'passes': 2, 'disagreements': disagreements, 'second_response_recovery': second_recovery,
-                               'second_response_audit': response_audit(indicator, {'conditions': rechecked}, rechecked)}
+                               'second_response_audit': response_audit(indicator, second, rechecked),
+                               'second_parts': _parts_summary(rechecked)}
             if tie_break and disagreements:
                 validated, agreement_audit['tie_break'] = _part_tie_break(
                     indicator, first_pass, rechecked, validated, disagreements, one_pass, context=context,
@@ -775,6 +779,14 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
             'repaired_call': False, 'unavailable': unavailable, 'context': sent, 'follow_up_audit': follow_up_audit}
 
 
+def _parts_summary(records):
+    """{condition id: {'credit', 'parts': [[part id, finding, credited as]], 'part_issues'}} of one pass, compactly."""
+    return {r['condition_id']: {'credit': r.get('credit'),
+                                'parts': [[p['id'], p.get('finding'), p.get('credited_as')] for p in r.get('parts') or []],
+                                **({'part_issues': r['part_issues']} if r.get('part_issues') else {})}
+            for r in records}
+
+
 def _part_tie_break(indicator, first, second, combined, disagreements, one_pass, *, context, reviewed_evidence, sources,
                     strict_errors, recover_provider_errors):
     """Third pass for the conditions the two part passes disagree on (different states, or credits CREDIT_GAP or
@@ -794,9 +806,11 @@ def _part_tie_break(indicator, first, second, combined, disagreements, one_pass,
         audit['error'] = f'Third pass failed ({type(exc).__name__}).'
         return combined, audit
     audit['recovery'] = recovery
-    third = {r['condition_id']: r for r in part_judgment.judge_rows(
-        {**indicator, 'conditions': group}, part_judgment.rows(answer), context,
-        reviewed_evidence=reviewed_evidence, sources=sources) if r['condition_id'] not in errors}
+    judged = part_judgment.judge_rows({**indicator, 'conditions': group}, part_judgment.rows(answer), context,
+                                      reviewed_evidence=reviewed_evidence, sources=sources)
+    audit['response_audit'] = response_audit({**indicator, 'conditions': group}, answer, judged)
+    audit['parts'] = _parts_summary(judged)
+    third = {r['condition_id']: r for r in judged if r['condition_id'] not in errors}
     by_first = {r['condition_id']: r for r in first}
     by_second = {r['condition_id']: r for r in second}
     resolved, out = [], []

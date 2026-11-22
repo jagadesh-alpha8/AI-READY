@@ -292,3 +292,44 @@ class RescoreTests(SimpleTestCase):
         self.assertEqual(result['score'], result['depth_reserve']['score'])
         self.assertEqual(result['documented']['overall'], result['score'])
         self.assertGreater(result['depth_reserve']['held_points'], 0)
+
+
+class FollowUpGainTests(SimpleTestCase):
+    def test_the_priority_plan_shows_what_follow_up_answers_can_earn_back(self):
+        from .capability import action_plan
+        rubric = release()
+        first = rubric['indicators'][0]
+        ids = [c['id'] for c in first['conditions']]
+        rows = reserve.stamp(records({ids[0]: 1, ids[1]: Fraction(1, 2)}, rubric), Fraction(1, 4))
+        plan = action_plan.build(rubric, rows)
+        held = plan['follow_up']
+        worth = Fraction(str(first['weight_units'])) / 60
+        self.assertEqual(held['points'], float(round(Fraction(1, 4) * Fraction(3, 2) * worth, 2)))
+        self.assertEqual(held['indicators'][0]['indicator'], first['code'])
+        self.assertEqual(held['indicators'][0]['requirements'], 2)
+        self.assertAlmostEqual(held['points'], reserve.summary(rows, rubric)['held_points'], delta=0.011)
+        # Earned back: nothing left to show for a requirement at strong; half the share at substantiated.
+        deeper = reserve.stamp([dict(r) for r in rows], Fraction(1, 4), {ids[0]: 'strong', ids[1]: 'substantiated'})
+        self.assertEqual(action_plan.build(rubric, deeper)['follow_up']['points'],
+                         float(round(Fraction(1, 8) * Fraction(1, 2) * worth, 2)))
+        self.assertIsNone(action_plan.build(rubric, records({ids[0]: 1}, rubric))['follow_up'])   # nothing held
+
+
+class PageRankTests(SimpleTestCase):
+    def test_ranks_say_where_a_page_ranked_and_where_the_packet_stopped(self):
+        from types import SimpleNamespace
+        from .capability.page_use import _ranks
+        passages = [SimpleNamespace(source={'id': sid}) for sid in ('a', 'b', 'target', 'c', 'target')]
+        diagnostics = {'passages': passages,
+                       'requirements': [{'condition_id': 'X.F1', 'fused': [0, 1, 3, 2, 4]},
+                                        {'condition_id': 'X.F2', 'fused': [3, 1]}],
+                       'packing_attempts': [
+                           {'passage': 0, 'condition_id': 'X.F1', 'outcome': 'selected'},
+                           {'passage': 1, 'condition_id': 'X.F1', 'outcome': 'selected'},
+                           {'passage': 3, 'condition_id': 'X.F1', 'outcome': 'budget_excluded'},
+                           {'passage': 2, 'condition_id': 'X.F1', 'outcome': 'budget_excluded'},
+                           {'passage': 3, 'condition_id': 'X.F2', 'outcome': 'selected'}]}
+        first, second = _ranks(diagnostics, {'target'})
+        self.assertEqual((first['best_rank'], first['deepest_rank_taken'], first['target_attempt_outcomes']),
+                         (4, 2, ['budget_excluded']))
+        self.assertEqual((second['best_rank'], second['deepest_rank_taken']), (None, 1))
