@@ -647,41 +647,75 @@ def _agreement_pass(indicator, validated, *, service, payload, schema_sources, c
     return validated, audit
 
 
+def _request_shape(indicator, judgment, compact):
+    """(system prompt, indicator as sent, answer format for a packet) of an indicator's full request."""
+    if judgment == 'parts':
+        from . import part_judgment
+        return (part_judgment.prompt(), part_judgment.indicator_with_parts(indicator, indicator['conditions']),
+                lambda context: part_judgment.schema(indicator, indicator['conditions']))
+    return SYSTEM_PROMPT, indicator, lambda context: indicator_schema(indicator, None if compact else context)
+
+
 def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope,
-             structure=None, fixed_context=None, lane_version=None):
+             structure=None, fixed_context=None, lane_version=None, ceiling=None, judgment='conditions'):
     """Build one indicator's frozen packet and request payload (local work, no model call).
 
     fixed_context: a packet given whole (the second assessment layer: a provisional packet plus new windows, see
-    layer2.py). Retrieval and the extracted-evidence lane are skipped; the packet already holds what they added."""
+    layer2.py). Retrieval and the extracted-evidence lane are skipped; the packet already holds what they added.
+    ceiling: the run's frozen prompt ceiling (prompt_ceiling.py): the packet is rebuilt with a smaller keyword lane
+    while the request's estimated prompt tokens are over it."""
     from .scope import context_scope
     from .reviewed_evidence import for_context
-    if fixed_context is not None:
-        context = list(fixed_context)
-    elif structure is None:
-        context = select_context(indicator, sources, semantic_ranker=semantic_ranker)
-    else:
-        # Retrieval reads the duplicate-free pages; validation still accepts any frozen source.
-        context = select_context(indicator, structure['sources'], semantic_ranker=semantic_ranker, structure=structure)
-    lane_audit = None
     from django.conf import settings
-    if fixed_context is None and getattr(settings, 'CAPABILITY_EVIDENCE_LANE', True):
-        from .reviewed_evidence import evidence_lane
-        lane_aliases = None
+
+    def build(ranker):
+        if fixed_context is not None:
+            context = list(fixed_context)
+        elif structure is None:
+            context = select_context(indicator, sources, semantic_ranker=ranker)
+        else:
+            # Retrieval reads the duplicate-free pages; validation still accepts any frozen source.
+            context = select_context(indicator, structure['sources'], semantic_ranker=ranker, structure=structure)
+        lane_audit = None
+        if fixed_context is None and getattr(settings, 'CAPABILITY_EVIDENCE_LANE', True):
+            from .reviewed_evidence import evidence_lane
+            lane_aliases = None
+            if structure is not None and structure.get('dropped'):
+                from .structure import page_aliases
+                lane_aliases = page_aliases(structure)
+            from .reviewed_evidence import LANE_VERSION
+            context, lane_audit = evidence_lane(indicator, list(context),
+                                                structure['sources'] if structure is not None else sources,
+                                                reviewed_evidence, aliases=lane_aliases,
+                                                version=lane_version or LANE_VERSION)
+        return context, lane_audit
+
+    def _aliases():
         if structure is not None and structure.get('dropped'):
             from .structure import page_aliases
-            lane_aliases = page_aliases(structure)
-        from .reviewed_evidence import LANE_VERSION
-        context, lane_audit = evidence_lane(indicator, list(context),
-                                            structure['sources'] if structure is not None else sources,
-                                            reviewed_evidence, aliases=lane_aliases, version=lane_version or LANE_VERSION)
+            return page_aliases(structure)
+        return None
+
+    ceiling_audit = None
+    if ceiling:
+        from . import prompt_ceiling
+        prompt, request_indicator, request_schema = _request_shape(indicator, judgment, gemini)
+
+        def measure(context, _lane):
+            body = json.dumps({'reviewed_evidence': for_context(reviewed_evidence, context, aliases=_aliases()),
+                               'indicator': request_indicator, 'population': population,
+                               'reference_period': reference_period, 'scope': context_scope(scope, context),
+                               'sources': context}, sort_keys=True)
+            return prompt_ceiling.estimate(ceiling, prompt, body, request_schema(context))
+        context, lane_audit, ceiling_audit = prompt_ceiling.fit(
+            ceiling, semantic_ranker if fixed_context is None else None, build, measure)
+    else:
+        context, lane_audit = build(semantic_ranker)
     # Repeating the packet ID enum in each condition can exceed Gemini's
     # schema complexity limit. validate_decisions still checks exact citations.
     schema_sources = None if gemini else context
     attachment_audit = {}
-    aliases = None
-    if structure is not None and structure.get('dropped'):
-        from .structure import page_aliases
-        aliases = page_aliases(structure)
+    aliases = _aliases()
     def payload_for(packet, diagnostics=None):
         """(payload, reviewed-evidence context) for a packet; reused by the targeted extra search."""
         reviewed = for_context(reviewed_evidence, packet, diagnostics=diagnostics, aliases=aliases)
@@ -696,7 +730,7 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
         issue = 'No readable source context. Capability is unknown.'
     return {'indicator': indicator, 'context': context, 'schema_sources': schema_sources,
             'schema': indicator_schema(indicator, schema_sources), 'attachment_audit': attachment_audit,
-            'evidence_lane': lane_audit,
+            'evidence_lane': lane_audit, **({'prompt_ceiling': ceiling_audit} if ceiling_audit else {}),
             'review_context': review_context, 'payload': payload, 'issue': issue, 'payload_for': payload_for,
             # The exact pages the ranker indexed, so the extra search reuses its index instead of rebuilding it.
             'retrieval_sources': ranking_sources(structure['sources'] if structure is not None else sources)}
@@ -1034,6 +1068,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources, compact=False):
             'source_excerpts': context,
             'reviewed_evidence_packet': review_context,
             'reviewed_attachment_audit': job['attachment_audit'], 'evidence_lane': job.get('evidence_lane'),
+            **({'prompt_ceiling': job['prompt_ceiling']} if job.get('prompt_ceiling') else {}),
             'reviewed_context_chars': len(json.dumps(review_context)),
             'reviewed_context_claims': len((review_context or {}).get('claims', [])),
             'user_payload_chars': len(payload),
@@ -1086,6 +1121,14 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     if judgment == 'parts':
         from . import part_judgment
         part_judgment.specification(rubric)
+    ceiling = (retrieval_policy or {}).get('prompt_ceiling')
+    if ceiling:
+        from . import prompt_ceiling
+        if ceiling.get('version') != prompt_ceiling.VERSION or ceiling.get('short_ids') not in (
+                None, prompt_ceiling.SHORT_IDS_VERSION):
+            raise ValueError('Frozen prompt ceiling version does not match this worker.')
+        if ceiling.get('short_ids'):
+            service = prompt_ceiling.ShortIds(service)   # every assessment request, re-judging included
     judge = dict(service=service, sources=sources, reviewed_evidence=reviewed_evidence, strict_errors=strict_errors,
                  recover_provider_errors=recover_provider_errors, agreement_passes=agreement_passes, judgment=judgment,
                  tie_break=tie_break, quote_repair=quote_repair)
@@ -1119,7 +1162,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     # The run's frozen lane version (runs from before lane-2 record none and keep lane-1).
     prepare = dict(sources=sources, semantic_ranker=semantic_ranker, gemini=compact, reviewed_evidence=reviewed_evidence,
                    population=population, reference_period=reference_period, scope=scope, structure=structure,
-                   lane_version=frozen_policy.get('evidence_lane'))
+                   lane_version=frozen_policy.get('evidence_lane'), ceiling=ceiling, judgment=judgment)
     records, traces = [], []
 
     def admit(job):

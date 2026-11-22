@@ -802,6 +802,16 @@ CAPABILITY_AI_API_KEY = os.getenv('CAPABILITY_AI_API_KEY', '').strip()
 CAPABILITY_AI_MODEL = os.getenv('CAPABILITY_AI_MODEL', '').strip()
 CAPABILITY_AI_BASE_URL = os.getenv('CAPABILITY_AI_BASE_URL', '').strip()
 CAPABILITY_AI_EFFORT = os.getenv('CAPABILITY_AI_EFFORT', '').strip().lower() or None
+# Effort for calls that write or route rather than judge (question planning and linking, answer checks, explanations,
+# recommendations, plan parsing); empty = the judging effort. Applies to Gemini too (xhigh and max become high,
+# none becomes minimal). Frozen with each run and second-layer job.
+CAPABILITY_AI_WRITING_EFFORT = os.getenv('CAPABILITY_AI_WRITING_EFFORT', '').strip().lower() or None
+# Prompt ceiling for models priced by prompt length (prompt_ceiling.py): empty = off. Each assessment request is sent
+# with short IDs and, if its estimated prompt is still over the ceiling, rebuilt with a smaller keyword lane. 95000
+# keeps Claude Haiku 5.5 under its 100,000-token price step. Estimated at CAPABILITY_PROMPT_BYTES_PER_TOKEN (2.6 is
+# conservative for Claude; Gemini measured 3.36). Frozen with each run.
+CAPABILITY_PROMPT_TOKEN_CEILING = int(os.getenv('CAPABILITY_PROMPT_TOKEN_CEILING', '').strip() or 0) or None
+CAPABILITY_PROMPT_BYTES_PER_TOKEN = float(os.getenv('CAPABILITY_PROMPT_BYTES_PER_TOKEN', '').strip() or 2.6)
 CAPABILITY_REQUEST_TIMEOUT_SECONDS = int(os.getenv('CAPABILITY_REQUEST_TIMEOUT_SECONDS', str(AI_REQUEST_TIMEOUT_SECONDS)))
 # Optional stage overrides; selected values are frozen when an execution starts.
 CAPABILITY_ASSESSMENT_OUTPUT_TOKENS = int(os.environ['CAPABILITY_ASSESSMENT_OUTPUT_TOKENS']) if os.getenv('CAPABILITY_ASSESSMENT_OUTPUT_TOKENS') else None
