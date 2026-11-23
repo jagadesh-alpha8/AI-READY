@@ -838,6 +838,41 @@ class RankerAndRouteTests(SimpleTestCase):
         self.assertIs(layer2._attachment_ranker(ranker), twin)
         self.assertIs(twin.model, ranker.model)
 
+    def test_answers_attaching_submitted_documents_keep_one_corpus_index(self):
+        """Each answer attaching a different already-submitted document used to rank the corpus minus that document,
+        which changed the ranker's corpus key and rebuilt (and re-embedded) the whole corpus each time."""
+        import hashlib
+        from types import SimpleNamespace
+
+        class Ranker:
+            def __init__(self):
+                self.builds, self.key, self.items = 0, None, []
+
+            def passages(self, sources):
+                key = tuple(s['id'] for s in sources)
+                if key != self.key:
+                    self.builds += 1
+                    self.key = key
+                    self.items = [SimpleNamespace(source=s, start=0, end=len(s['text']), embedding_text=s['text'])
+                                  for s in sources]
+                return self.items
+
+            def similarities(self, passages, queries):
+                return [[int(hashlib.sha256((queries[0] + p.embedding_text).encode()).hexdigest()[:4], 16) / 65536 + .01
+                         for p in passages]]
+
+        corpus = [{'id': f'p{n}', 'document_id': f'd{n}', 'text': f'AI policy record number {n}. ' * 30}
+                  for n in range(6)]
+        ranker = Ranker()
+        first = layer2.search_with_answer('AI policy record', [corpus[0]], corpus, ranker=ranker)
+        second = layer2.search_with_answer('AI policy record', [corpus[1]], corpus, ranker=ranker)
+        self.assertEqual(ranker.builds, 1)
+        self.assertNotIn('p0', {w['id'] for w in first if w['evidence_role'] == 'answer_search'})
+        self.assertNotIn('p1', {w['id'] for w in second if w['evidence_role'] == 'answer_search'})
+        # The same as ranking the rest of the corpus alone (what the search did before).
+        alone = layer2.search_with_answer('AI policy record', [corpus[1]], corpus[:1] + corpus[2:], ranker=Ranker())
+        self.assertEqual(second, alone)
+
     def test_a_route_with_documents_but_nothing_found_reaches_no_judge_without_tagged_pages(self):
         rubric = release()
         indicator = rubric['indicators'][0]

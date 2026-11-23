@@ -108,6 +108,18 @@ class SecondLayerJobTests(APITestCase):
 
     # ---------------------------------------------------------------- questions
 
+    def test_the_explain_command_can_queue_the_metered_job(self):
+        out = StringIO()
+        with patch(f'{JOBS}.dispatch') as dispatch, self.captureOnCommitCallbacks(execute=True):
+            call_command('capability_explain', str(self.run.pk), '--job', stdout=out)
+        job = SecondLayerJob.objects.get(run=self.run)
+        self.assertEqual((job.operation, job.options, job.requested_by), ('explain', {'final': False}, None))
+        dispatch.assert_called_once()
+        self.assertIn(f'Queued explanation job {job.pk}', out.getvalue())
+        from django.core.management.base import CommandError
+        with self.assertRaisesRegex(CommandError, 'already active'):
+            call_command('capability_explain', str(self.run.pk), '--job', stdout=StringIO())
+
     def test_questions_job_is_metered_against_the_run_budget_and_saves_the_questions(self):
         from apps.extraction.models import AIUsage
         job = self.execute(self.post_job('questions'))
