@@ -180,6 +180,11 @@ class CapabilityReportTests(APITestCase):
             pdf = self.client.get(url, {'audience': 'summary', 'file': 'pdf'})
         self.assertEqual((pdf.status_code, pdf.content[:4]), (200, b'%PDF'))
         self.assertEqual(self.client.get(url, {'audience': 'board'}).status_code, 400)
+        # A run the new reports can't shape still gets a report: the older one, not an error.
+        with patch('apps.scoring.capability.presentation.build', side_effect=KeyError('x')), self.assertLogs('apps.scoring.capability.report_views', level='ERROR'):
+            fallback = self.client.get(url, {'audience': 'summary'})
+        self.assertEqual(fallback.status_code, 200)
+        self.assertIn('leadership', fallback['Content-Disposition'])
         self.assertEqual(list(self.run.events.values_list('id', 'payload')), before)
 
     def test_default_leadership_report_is_readable_without_changing_assessment(self):

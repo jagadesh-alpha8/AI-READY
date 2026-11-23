@@ -1,5 +1,6 @@
 """Authenticated, pinned, inference-free capability exports; no baseline approval gate."""
 import json
+import logging
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
@@ -15,6 +16,8 @@ from .report_projection import held_note
 from .recommendations import build_inputs
 from .storage import digest
 from .report_projection import build_report_view
+
+logger = logging.getLogger(__name__)
 
 
 class ReportUnavailable(APIException):
@@ -174,8 +177,12 @@ class CapabilityReportView(RunView):
         payload['report_view'] = build_report_view(payload, actions)
         if audience in {'summary', 'detailed'}:
             from .presentation import build
-            view = build(payload)
-            payload['presentation'] = view
+            try:
+                view = build(payload)
+                payload['presentation'] = view
+            except Exception:   # a run shaped in a way the new reports don't expect: serve the older report instead
+                logger.exception('presentation failed for run %s; serving the older %s report', run.pk, audience)
+                audience = 'leadership' if audience == 'summary' else 'evidence'
         if file_format == 'json':
             content = json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2)
         elif audience in {'summary', 'detailed'}:
