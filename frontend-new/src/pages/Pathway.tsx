@@ -110,6 +110,22 @@ function PriorityPathway({ plan }: { plan: PriorityPlan }) {
         </div>
         <p className="muted">{t.note} Target {plan.target ?? '—'} · projected {num(plan.projected_score, 1)}{plan.projected_tier ? ` (${plan.projected_tier})` : ''}{plan.reaches_target ? ' · reaches the target' : ''}.</p>
       </Panel>
+      {plan.follow_up && plan.follow_up.points > 0 && (
+        <Panel title={`Answer the follow-up questions: up to ${num(plan.follow_up.points, 1)} points`}
+          sub="Credit already in your documents, held until your answers show how far the evidence goes"
+          actions={<PageLink to="questionnaire" className="primary-action">Answer questions</PageLink>}>
+          <Table columns={['Key indicator', 'Requirements', 'Points']}>
+            {plan.follow_up.indicators.map((i) => (
+              <tr key={i.indicator}>
+                <td><b>{i.indicator}</b><small className="cell-sub">{i.name}</small></td>
+                <td>{i.requirements}</td>
+                <td>up to {num(i.points, 2)}</td>
+              </tr>
+            ))}
+          </Table>
+          <p className="muted">{plan.follow_up.note}</p>
+        </Panel>
+      )}
       <Panel title="Priority actions" sub="Per key indicator: each requirement's gap and the parts not yet shown">
         {!plan.actions.length ? <p className="muted">No priority actions: nothing within reach changes the score.</p> : (
           <Table columns={['Key indicator', 'Requirement', 'Gap', 'Missing parts', 'Gain']}>
