@@ -226,6 +226,9 @@ class FollowUpPolicyTests(SimpleTestCase):
         with override_settings(**base, CAPABILITY_FOLLOW_UP_SEARCH=True, CAPABILITY_MAX_HTTP_CALLS=150):
             self.assertEqual(policy()['max_http_calls'], 150)
             self.assertEqual(policy('recommendation')['max_http_calls'], 150)
-        with override_settings(**base, CAPABILITY_FOLLOW_UP_SEARCH=False, CAPABILITY_MAX_HTTP_CALLS=150):
+        # Without the follow-up search the ceiling is 108 plus the quotation repair's one request per indicator per
+        # pass (72, issue 10): 180.
+        with override_settings(**base, CAPABILITY_FOLLOW_UP_SEARCH=False, CAPABILITY_PART_QUOTE_REPAIR=True,
+                               CAPABILITY_MAX_HTTP_CALLS=181):
             with self.assertRaises(AssessmentDisabled):
                 policy()

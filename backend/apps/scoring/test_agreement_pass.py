@@ -94,6 +94,14 @@ class AgreementPolicyTests(SimpleTestCase):
         frozen = policy()
         self.assertEqual((frozen['agreement_passes'], frozen['gemini_reasoning_effort']), (2, 'high'))
 
+    @override_settings(CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_JUDGMENT='parts', CAPABILITY_PART_QUOTE_REPAIR=True,
+                       CAPABILITY_MAX_HTTP_CALLS=180)
+    def test_quote_repair_has_room_for_one_request_per_indicator_per_pass(self):
+        # Issue 10: a repair can ask once per pass, so two passes need 72 more requests, not 36 (108 + 72 = 180).
+        self.assertEqual(policy()['max_http_calls'], 180)
+        with override_settings(CAPABILITY_MAX_HTTP_CALLS=181), self.assertRaises(AssessmentDisabled):
+            policy()
+
     @override_settings(CAPABILITY_GEMINI_REASONING_EFFORT=None, AI_GEMINI_REASONING_EFFORT='low')
     def test_assessor_effort_falls_back_to_the_shared_setting(self):
         self.assertEqual(policy()['gemini_reasoning_effort'], 'low')

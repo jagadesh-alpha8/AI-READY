@@ -109,7 +109,7 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
         </section>
         <section className="surface surface-pad">
           <div className="section-head"><h2>Your reports</h2></div>
-          <p className="muted" style={{ fontSize: 14 }}>A two-page summary for leadership, and a detailed report with every finding and the documents behind it.</p>
+          <p className="muted" style={{ fontSize: 14 }}>A short report for leadership, and a detailed report with every finding and the documents behind it.</p>
           <Link className="btn" style={{ marginTop: 16 }} to={pathOf('reports')}><Icon name="download" />Open reports</Link>
         </section>
       </div>

@@ -126,6 +126,8 @@ await step('Stage 1 assessment from the Assessment page', async () => {
   // The stand-in runs the assessment inside the request, so the dialog stays until it has finished.
   await page.getByRole('dialog').waitFor({ state: 'detached', timeout: 300000 });
   await page.waitForLoadState('networkidle');
+  // The page polls the run list every few seconds and then loads the result.
+  await main().getByText('Your Stage 1 result').first().waitFor({ timeout: 60000 }).catch(() => {});
   await expectText('Your Stage 1 result', 'the Stage 1 result on the Assessment page:');
   await expectText(/so far/);
   await shot('assessment-stage-1');

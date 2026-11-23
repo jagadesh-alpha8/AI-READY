@@ -66,7 +66,7 @@ function Body({ sprint }: { sprint: Sprint }) {
       <FocusCards view={view} />
       <div className="spacer" />
       <div className="callout"><Icon name="download" />
-        <p>Your <Link to={pathOf('reports')}>reports</Link> have the same picture as a two-page leadership summary, and a detailed report with every finding and the documents behind it.</p>
+        <p>Your <Link to={pathOf('reports')}>reports</Link> have the same picture as a short leadership report, and a detailed report with every finding and the documents behind it.</p>
       </div>
     </>
   );

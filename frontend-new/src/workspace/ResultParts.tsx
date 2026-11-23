@@ -82,7 +82,7 @@ export function FocusCards({ view }: { view: ResultView }) {
           <div className="ws-row" style={{ justifyContent: 'space-between' }}><h3>{a.name}</h3><Stars stars={a.level.stars} size={14} /></div>
           <p>{a.score === 0 ? 'Nothing found in your documents yet.' : `${a.inPlace + a.partly} of ${a.requirements} practices shown so far.`}</p>
           {a.missing[0] && <p><strong>Start with:</strong> {a.missing[0]}</p>}
-          {a.pointsAvailable > 0 && <span className="ws-source">Up to {pts(a.pointsAvailable)} more</span>}
+          {a.room >= 0.5 && <span className="ws-source">Up to {pts(a.room)} to gain here</span>}
         </article>
       ))}
     </div>
