@@ -414,6 +414,13 @@ class ProductFlowTests(APITestCase):
         row = next(r for r in result['indicators'] if r['indicator'] == indicator['code'])
         self.assertTrue(row['rejudged_in_second_layer'])
         self.assertTrue(set(row['windows_added_after_first_judgment']) <= SECOND_LAYER_ROLES)
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('capability_page_use', str(final.pk), '--page', page, stdout=out)
+        text = out.getvalue()
+        self.assertIn('Packets rebuilt exactly as the run had them: 36 of 36.', text)
+        self.assertIn('re-judged in the second layer', text)
         # A page the second layer added: retrieval never read it, and the tool says so.
         added = final.inputs['second_layer']['added_sources']
         self.assertTrue(added)

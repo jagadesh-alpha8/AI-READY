@@ -72,6 +72,8 @@ class Command(BaseCommand):
             if row['credited_requirements_citing_it']:
                 line += '; cited by ' + ', '.join(row['credited_requirements_citing_it'])
             self.stdout.write(line)
+            if row.get('rejudged_in_second_layer'):
+                self.stdout.write('   re-judged in the second layer')
             if row.get('windows_added_after_first_judgment'):
                 self.stdout.write('   also holds windows added after the first judgment ('
                                   + ', '.join(row['windows_added_after_first_judgment']) + '); not recomputed')
