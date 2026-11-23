@@ -78,11 +78,13 @@ test('Stage 1 and final labels; the tier only on the final score (23 Nov)', () =
   assert.equal(tierShown('final'), true);
 });
 
-test("a part-credit run's tier is its score band, whatever the rubric's badge policy says", () => {
-  assert.deepEqual(bandTier(25.36), { current: null, next: 'Silver', pointsToNext: 34.64 });
-  assert.deepEqual(bandTier(72), { current: 'Gold', next: 'Platinum', pointsToNext: 8 });
+test("a part-credit run's level is its score band, whatever the rubric's badge policy says", () => {
+  // Five levels, one star for every 20 points (23 Nov); every score has a level.
+  assert.deepEqual(bandTier(25.36), { current: 'Getting there', next: 'Prepared', pointsToNext: 14.64 });
+  assert.deepEqual(bandTier(14.06), { current: 'Starting out', next: 'Getting there', pointsToNext: 5.94 });
+  assert.deepEqual(bandTier(72), { current: 'Advanced', next: 'Leading', pointsToNext: 8 });
   assert.equal(bandTier(95).next, null);
-  assert.equal(achievedTier({ tiers: [], badge_policy: 'not_calibrated', score: 61 }), 'Silver');
-  assert.equal(achievedTier({ tiers: [], badge_policy: 'not_calibrated', score: 59.9 }), null);
+  assert.equal(achievedTier({ tiers: [], badge_policy: 'not_calibrated', score: 61 }), 'Advanced');
+  assert.equal(achievedTier({ tiers: [], badge_policy: 'not_calibrated', score: 0 }), 'Starting out');
   assert.equal(achievedTier({ tiers: [tier('Silver', 'demonstrated')], badge_policy: 'not_calibrated' }), null);
 });

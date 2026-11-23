@@ -1,6 +1,5 @@
 /** Wording for capability-run results, matching A1's frontend/src/pages/capability/presentation.ts. */
 import type { ConditionRecord, DepthReserve, Job, Result } from '../types/capability';
-import { LEVELS } from './levels';
 
 export const isActive = (job?: Pick<Job, 'status'> | null) => !!job && (job.status === 'queued' || job.status === 'running');
 
@@ -63,7 +62,7 @@ export const capabilityTone = (s: string) =>
   s === 'demonstrated' || s === 'met' ? 'good' : s === 'requirements_unmet' || s === 'not_met' || s === 'conflicting' ? 'bad' : 'warn';
 
 /** The readiness levels as score bands on the part-credit score (backend action_plan.DEFAULT_TIERS; utils/levels.ts). */
-export const TIER_BANDS: [string, number][] = LEVELS.map((l) => [l.name, l.from]);
+export const TIER_BANDS: [string, number][] = [['Starting out', 0], ['Getting there', 20], ['Prepared', 40], ['Advanced', 60], ['Leading', 80]];
 export const TIER_BANDS_TEXT = TIER_BANDS.map(([n, v]) => `${n} ${v}`).join(', ');
 
 /** The band a part-credit score reaches, the next one and the points to it. */
