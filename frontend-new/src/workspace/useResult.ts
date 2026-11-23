@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { areaTitle } from '../utils/areaTitles';
 import { useCapability } from '../hooks/useCapability';
-import type { ConditionRecord, PriorityPlan, Result, Run } from '../types/capability';
+import type { ConditionRecord, FoundationPlan, PriorityPlan, Result, Run } from '../types/capability';
+import { chooseActions, cleanText, displayQuote, docLabel, quoteQuality, type FirstStep } from './plain';
 import { countedShare, headlineScore, pillarName } from '../utils/capability';
 import { levelFor, type Level } from '../utils/levels';
 
@@ -43,6 +44,10 @@ export interface ResultView {
   toNextLevel: { name: string; area: string; points: number }[];
   /** The three areas with the most overall points still to gain. */
   wherePoints: AreaView[];
+  /** The first steps (at most six): the leadership report's "What to do next". */
+  actions: FirstStep[];
+  /** Suggested leads by requirement, from the foundation goals. */
+  leads: Record<string, string>;
   plan: PriorityPlan | null;
   summary: string;
 }
@@ -50,15 +55,9 @@ export interface ResultView {
 const LEVEL_ORDER: Record<string, number> = { F: 0, A: 1, O: 2 };
 const levelOf = (conditionId: string) => LEVEL_ORDER[conditionId.split('.').pop()?.[0] || 'F'] ?? 3;
 
-function trimQuote(text: string) {
-  const clean = text.replace(/\s+/g, ' ').trim();
-  if (clean.length <= 170) return clean;
-  const cut = clean.slice(0, 170);
-  return `${cut.slice(0, cut.lastIndexOf(' '))}…`;
-}
 
 /** The readiness picture of the latest completed assessment, shaped for people rather than auditors. */
-export function buildResultView(run: Run, plan: PriorityPlan | null): ResultView | null {
+export function buildResultView(run: Run, plan: PriorityPlan | null, foundation: FoundationPlan | null = null): ResultView | null {
   const assessment = run.assessment;
   if (!assessment) return null;
   const result = assessment.result;
@@ -68,8 +67,13 @@ export function buildResultView(run: Run, plan: PriorityPlan | null): ResultView
   const records = new Map<string, ConditionRecord>(assessment.records.map((r) => [r.condition_id, r]));
   const pages = new Map<string, string>();
   for (const doc of run.source_manifest || []) {
-    doc.pages.forEach((p, i) => pages.set(p.page_id, `${doc.filename}, page ${i + 1}`));
+    doc.pages.forEach((p, i) => pages.set(p.page_id, `${docLabel(doc.filename)}, page ${i + 1}`));
   }
+  const names = Array.from(new Set((run.source_manifest || []).map((d) => docLabel(d.filename)).filter((n) => n.length >= 8)))
+    .sort((a, b) => b.length - a.length);
+  const leads: Record<string, string> = {};
+  for (const g of foundation?.goals || []) for (const id of g.target_condition_ids) leads[id] ||= g.suggested_role.replace(/ \(suggested\)$/, '');
+  const usedQuotes = new Set<string>();
   const gains = new Map<string, number>();
   for (const a of plan?.actions || []) {
     const area = a.pillar || a.indicator.split('.')[0];
@@ -86,7 +90,7 @@ export function buildResultView(run: Run, plan: PriorityPlan | null): ResultView
     let counted = 0;
     let inPlace = 0;
     let partly = 0;
-    let quote: AreaView['quote'] = null;
+    const candidates: { q: number; stage: number; text: string; source: string }[] = [];
     const missing: { text: string; order: number }[] = [];
     for (const c of conditions) {
       const r = records.get(c.id);
@@ -96,13 +100,19 @@ export function buildResultView(run: Run, plan: PriorityPlan | null): ResultView
       if (cr >= 1) inPlace += 1;
       else if (cr > 0) { partly += 1; missing.push({ text: `${c.text} (partly shown)`, order: levelOf(c.id) + 0.5 }); }
       else missing.push({ text: c.text, order: levelOf(c.id) });
-      if (!quote && cr >= 0.5) {
-        const cite = r?.citations?.[0] || r?.parts?.find((x) => x.citations?.length)?.citations[0];
-        if (cite?.quote) quote = { text: trimQuote(cite.quote), source: pages.get(cite.source_id) || 'your documents' };
+      if (cr >= 0.5) {
+        const cites = r?.citations?.length ? r.citations : (r?.parts || []).flatMap((x) => x.citations || []);
+        for (const cite of cites) {
+          const q = cite.quote ? quoteQuality(cite.quote, cr) : 0;
+          if (q > 0) candidates.push({ q, stage: levelOf(c.id), text: cite.quote, source: pages.get(cite.source_id) || 'your documents' });
+        }
       }
     }
     // The held part, area by area: requirements count equally within an area, so the ratio of credit shown to
     // credit counted scales the area's own score.
+    const best = candidates.sort((x, y) => y.q - x.q || x.stage - y.stage).find((x) => !usedQuotes.has(x.text));
+    if (best) usedQuotes.add(best.text);
+    const quote: AreaView['quote'] = best ? { text: displayQuote(best.text), source: best.source } : null;
     const ratio = counted > 0 ? credit / counted : 1;
     const shown = Math.min(100, p.score * ratio);
     const exp = p.explanation;
@@ -110,7 +120,7 @@ export function buildResultView(run: Run, plan: PriorityPlan | null): ResultView
       code: p.code, name: pillarName(p.code), score: p.score, shown, level: levelFor(p.score),
       requirements: conditions.length, inPlace, partly, quote,
       missing: missing.sort((a, b) => a.order - b.order).map((m) => m.text),
-      explanation: exp ? [exp.found, exp.text].filter(Boolean).join(' ') || null : null,
+      explanation: exp ? cleanText([exp.found, exp.text].filter(Boolean).join(' '), names) || null : null,
       pointsAvailable: gains.get(p.code) || 0, room,
     };
   });
@@ -128,13 +138,14 @@ export function buildResultView(run: Run, plan: PriorityPlan | null): ResultView
     gathered += a.score_gain;
   }
   const wherePoints = [...areas].sort((a, b) => b.room - a.room).slice(0, 3);
+  const actions = chooseActions(result, records, leads, [...wherePoints, ...focus].map((a) => a.code));
   const heldPoints = reserve?.still_held_points ?? 0;
   const summary = strengths.length
     ? `Your documents show the most in ${strengths[0].name}${strengths[1] ? `, followed by ${strengths[1].name}` : ''}.${focus.length ? ` Focus next on ${focus[0].name}${focus[1] ? `, then ${focus[1].name}` : ''}.` : ''}`
     : 'Your documents show little AI-specific practice so far. The areas below show where to start.';
   return {
     run, result, final, score, shownScore: Math.min(100, score + heldPoints), heldPoints, level, areas, strengths, focus,
-    toNextLevel, wherePoints, plan, summary,
+    toNextLevel, wherePoints, actions, leads, plan, summary,
   };
 }
 
@@ -142,7 +153,8 @@ export function buildResultView(run: Run, plan: PriorityPlan | null): ResultView
 export function useResultView(sprintId: string) {
   const cap = useCapability(sprintId);
   const plan = cap.plan?.priority_plan || null;
-  const view = useMemo(() => (cap.run.data ? buildResultView(cap.run.data, plan) : null), [cap.run.data, plan]);
+  const foundation = cap.foundation;
+  const view = useMemo(() => (cap.run.data ? buildResultView(cap.run.data, plan, foundation) : null), [cap.run.data, plan, foundation]);
   return { cap, view };
 }
 
