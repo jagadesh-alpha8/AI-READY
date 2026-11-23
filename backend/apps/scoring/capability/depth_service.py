@@ -159,9 +159,12 @@ def _exchanges(questions):
         for response in question.responses.all():
             if response.status != DepthResponse.Status.CHECKED:
                 continue
+            # A "Not yet in place" note is kept for the reports and the plan, but never reaches the judge: the choice
+            # must not move the score (Siddharth, 23 Nov), and the judge could read it as contradicting the evidence.
+            dont_know = response.kind == DepthResponse.Kind.DONT_KNOW
             row = {'question': response.parent.follow_up_text if response.parent_id else question.text,
-                   'kind': response.kind, 'answer': response.answer, 'documents': len(response.document_ids),
-                   'supported': response.supported}
+                   'kind': response.kind, 'answer': '' if dont_know else response.answer,
+                   'documents': len(response.document_ids), 'supported': response.supported}
             if response.support_check:
                 row['checked_against_documents'] = layer2.evidence_for_judge(response.support_check)
             out.append(row)
