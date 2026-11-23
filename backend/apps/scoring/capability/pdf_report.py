@@ -93,11 +93,12 @@ def render_pdf(report, indicators, actions):
                       f"Decided conditions: {result['condition_decision_coverage']}%. These are evidence-resolution measures.")
     band = report.get('tier_band')
     if not stage.get('tier_shown', True):
-        pdf.paragraph('The tier is awarded on the final AI-READY Score, once the follow-up questions are complete.')
+        pdf.paragraph('The level is set on the final AI-READY Score, once the follow-up questions are complete.')
     elif band:
-        pdf.paragraph(f"Tier: {band['current'] or 'none yet'}"
+        pdf.paragraph(f"Level: {band['current']} ({band['stars']} of 5 stars)"
                       + (f"; {band['points_to_next']} points to {band['next']}" if band['next'] else '')
-                      + f". Tiers are score bands ({band['bands']}), provisional and not yet calibrated across colleges.")
+                      + f". Levels are score bands ({band['bands']}), one star for every 20 points, provisional and "
+                        "not yet calibrated across colleges.")
     for tier in (result['tiers'] if stage.get('tier_shown', True) and not band else []):
         if tier['threshold'] is None:
             pdf.paragraph(f"{tier['name']}: achievement requirements are not calibrated; no badge awarded.")
@@ -165,7 +166,7 @@ def render_pdf(report, indicators, actions):
             pdf.paragraph(f"Score {priority['score']}; tier: {tier['current'] or 'none yet'}"
                           + (f"; {tier['points_to_next']} points to {tier['next']}." if tier['next'] else '.'))
         else:
-            pdf.paragraph(f"Score {priority['score']} at Stage 1; the tier is awarded on the final AI-READY Score.")
+            pdf.paragraph(f"Score {priority['score']} at Stage 1; the level is set on the final AI-READY Score.")
         pdf.paragraph(f"Projected score after the priority plan: {priority['projected_score']}. {priority['note']}")
         held = priority.get('follow_up')
         if held:

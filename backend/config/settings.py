@@ -899,7 +899,7 @@ DEPTH_UNSUPPORTED_ANSWERS = os.getenv('DEPTH_UNSUPPORTED_ANSWERS', 'ignore').str
 SECOND_LAYER_CHECK_ON_SUBMIT = os.getenv('SECOND_LAYER_CHECK_ON_SUBMIT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Provisional Silver/Gold/Platinum/Diamond bands on the final part-credit score (capability/action_plan.py), pending calibration
 # across colleges. "name:score" pairs; the rubric's own badge policy stays not_calibrated.
-CAPABILITY_PROVISIONAL_TIERS = os.getenv('CAPABILITY_PROVISIONAL_TIERS', 'Silver:60,Gold:70,Platinum:80,Diamond:90')
+CAPABILITY_PROVISIONAL_TIERS = os.getenv('CAPABILITY_PROVISIONAL_TIERS', 'Starting out:0,Getting there:20,Prepared:40,Advanced:60,Leading:80')
 # Second layer, for Harsha to confirm (design doc open question 1): can an answer count because the search found support
 # in documents the institution had already submitted (or in the credited evidence itself), without a new attachment?
 # true (default): yes, a record already submitted is evidence. false: only documents attached to the reply count.

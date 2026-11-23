@@ -141,7 +141,7 @@ class ClosingFixes(ProductFlowTests):
         closed = self.close(provisional)
         html = self.client.get(f'{self.base}/{closed.final_run_id}/report', {'audience': 'evidence', 'file': 'html'})
         # The final score shows its tier, as a score band (from main-demo, 23 Nov) rather than the uncalibrated table.
-        self.assertIn('Tiers are score bands (Silver 60, Gold 70, Platinum 80, Diamond 90)', html.content.decode())
+        self.assertIn('Levels are score bands (Starting out 0, Getting there 20, Prepared 40, Advanced 60, Leading 80)', html.content.decode())
         self.assertNotIn('Current eligibility', html.content.decode())
 
     def close(self, provisional, key='close'):

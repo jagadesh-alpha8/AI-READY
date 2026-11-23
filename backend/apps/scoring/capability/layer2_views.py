@@ -131,7 +131,7 @@ class _RunScoped(APIView):
         return Response(serialize_response(response), status=status.HTTP_201_CREATED)
 
 
-NOTICE_VERSION = 'questionnaire-notice-2'
+NOTICE_VERSION = 'questionnaire-notice-3'
 
 
 def questionnaire_notice(run):
@@ -145,11 +145,12 @@ def questionnaire_notice(run):
     worth = f', up to {points:g} points in total' if points else ''
     closed = stage_closed(run)
     return {'version': NOTICE_VERSION, 'title': 'Before you start', 'points': points, 'closed': closed,
-            'intro': ('These questions are about evidence we have already found in your documents. Your answers decide '
-                      f'how much of the held credit you earn back{worth}. The questions are in order of how much they '
-                      'are worth, so the first ones matter most, and you can stop whenever you like.'),
+            'intro': ('These questions follow up on your documents. Part of the score your documents earned is on hold '
+                      f'until your answers confirm how far the evidence goes{worth}. The questions come in order of how '
+                      'much they are worth, so the first ones matter most, and you can stop whenever you like.'),
             'rules': ['An answer counts only when a document supports it, so attach one wherever you can.',
-                      'You can answer "Don\'t know" or skip a question; it earns nothing back.',
+                      'If something is not in place, say so: "Not yet in place" never lowers your score. '
+                      'If you are not sure, choose "I need to check" and come back to it.',
                       'Please answer as accurately as you can. If a document you send shows something different from '
                       'what we credited, we adjust that part of the score, up or down. Accurate answers also make '
                       'your improvement plan more useful.'],

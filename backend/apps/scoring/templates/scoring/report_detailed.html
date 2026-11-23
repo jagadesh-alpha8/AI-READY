@@ -1,0 +1,50 @@
+{% load report_tags %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Detailed AI readiness report — {{ v.institution }}</title>{% include "scoring/report_style.html" %}</head><body><div class="sheet">
+
+<section>
+  <div class="header">
+    <div><div class="eyebrow">Detailed AI readiness report</div><h1>{{ v.institution }}</h1></div>
+    <div class="meta">{{ v.stage_label }}<br>{{ exported|date:"j F Y" }}</div>
+  </div>
+  <div class="hero">
+    <div class="badge">{{ v.level.stars|stars }}<span class="name">{{ v.level.name }}</span><span class="score">{{ v.score_whole }} out of 100{% if not v.final %} · so far{% endif %}</span></div>
+    <div class="text">
+      <p>Every practice we looked for, area by area: what your documents show (<span class="dot shown"></span> shown, <span class="dot partly"></span> partly shown, <span class="dot missing"></span> not found yet), the quotation and the document it came from, and the next step.</p>
+      <p class="small muted">{{ v.in_place }} of {{ v.requirements }} practices shown in full, {{ v.partly }} in part, from {{ v.documents }} document{{ v.documents|pluralize }}. The leadership report has the summary.</p>
+    </div>
+  </div>
+  <div class="section">
+    <h2>Contents</h2>
+    <table class="req">{% for a in v.areas %}<tr><td style="width:36%"><strong>{{ a.name }}</strong></td><td style="width:16%">{{ a.level.stars|stars }}</td>
+      <td style="width:12%">{{ a.score|whole }} / 100</td><td class="muted">{{ a.in_place }} of {{ a.requirements }} shown{% if a.partly %}, {{ a.partly }} in part{% endif %}</td></tr>{% endfor %}</table>
+  </div>
+</section>
+
+{% for a in v.areas %}<section class="section" style="{% if forloop.first %}page-break-before: always; break-before: page;{% else %}margin-top: 30px;{% endif %}">
+  <div class="area-head"><h2 style="margin:0">{{ a.name }} {{ a.level.stars|stars }}</h2><span class="muted">{{ a.level.name }} · <strong style="color:#0c4320">{{ a.score|whole }}</strong> / 100</span></div>
+  <div class="track" style="margin:6px 0 4px"><i class="shown {{ a.score|tone }}" style="width:{{ a.score|pct }}%"></i>{% if a.held >= 0.5 %}<i class="held" style="left:{{ a.score|pct }}%;width:{{ a.held|pct }}%"></i>{% endif %}</div>
+  {% if a.summary %}<p class="small" style="margin-top:8px">{{ a.summary }}</p>{% endif %}
+  {% for s in a.subareas %}<div class="sub">
+    <h3>{{ s.name }} {% if s.score is not None %}<span class="muted small">· {{ s.score|whole }} / 100</span>{% endif %}</h3>
+    {% if s.summary %}<p class="small muted" style="margin-top:2px">{{ s.summary }}</p>{% endif %}
+    <table class="req">{% for r in s.requirements %}<tr>
+      <td class="mark"><span class="dot {{ r.status }}"></span></td>
+      <td><strong>{{ r.text }}</strong>
+        {% if r.quote %}<p class="quote">“{{ r.quote }}”</p>{% if r.source %}<p class="source">{{ r.source }}</p>{% endif %}{% endif %}
+        {% if r.status != 'shown' and r.next_step %}<p class="small" style="margin-top:3px"><strong>Next step:</strong> {{ r.next_step }}</p>{% endif %}
+        {% if r.follow_up %}<p class="small muted" style="margin-top:3px">{{ r.follow_up }}</p>{% endif %}
+      </td>
+      <td class="stage">{{ r.stage }}</td>
+    </tr>{% endfor %}</table>
+  </div>{% endfor %}
+</section>{% endfor %}
+
+<section class="section" style="page-break-before: always; break-before: page;">
+  <h2>How to read this report</h2>
+  <p class="small">Each area has practices at three stages: <strong>Foundation</strong> (it is set up), <strong>In use</strong> (it happens, repeatedly) and <strong>Results</strong> (its effects are measured and reviewed). A practice is <span class="dot shown"></span> shown when your documents show all of it, <span class="dot partly"></span> partly shown when they show some of it, and <span class="dot missing"></span> not found when we found nothing yet. A practice we did not find may still exist: send the document and it can be counted.</p>
+  <table class="levels" style="margin-top:12px">{% for l in v.levels %}<tr class="{% if l.name == v.level.name %}here{% endif %}">
+    <td style="white-space:nowrap">{{ l.stars|stars }}</td><td style="white-space:nowrap"><strong>{{ l.name }}</strong></td>
+    <td class="muted" style="white-space:nowrap">{% if l.to %}{{ l.from }}–{{ l.to }}{% else %}{{ l.from }} and above{% endif %}</td><td>{{ l.meaning }}</td></tr>{% endfor %}</table>
+  <p class="small muted" style="margin-top:10px">The levels are provisional until calibrated across colleges.</p>
+</section>
+</div></body></html>

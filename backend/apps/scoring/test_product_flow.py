@@ -755,8 +755,8 @@ class ProductFlowTests(APITestCase):
         self.assertEqual(self.client.get(f'{self.base}/{final.pk}').data['assessment']['result']['score'],
                          self.client.get(f'{self.base}/{provisional.pk}').data['assessment']['result']['score'])
         final_body = self.client.get(f'{self.base}/{final.pk}/report', {'audience': 'evidence', 'file': 'html'}).content.decode()
-        self.assertIn('Tier: none yet;', final_body)                  # the score band, not the uncalibrated table
-        self.assertIn('Silver 60, Gold 70, Platinum 80, Diamond 90', final_body)
+        self.assertIn('Level: Starting out (★☆☆☆☆);', final_body)    # the score band, not the uncalibrated table
+        self.assertIn('Starting out 0, Getting there 20, Prepared 40, Advanced 60, Leading 80', final_body)
         self.assertNotIn('Current eligibility', final_body)
         self.assertNotIn('tier pathways', final_body)
         self.assertNotIn('0.0–100.0', final_body)                     # each key indicator's part-credit score
