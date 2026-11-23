@@ -4,8 +4,8 @@ import type { useCapability } from '../hooks/useCapability';
 import { cancelRun, startRun } from '../services/capability';
 import type { Result, Run, ScoreExplanation } from '../types/capability';
 import {
-  capabilityTone, causeLabel, indicatorScoreLabel, isPartCredit, newKey, partLabel, partTone, pillarScoreLabel, scoreLabel, stateCounts,
-  stateLabel, tierLabel,
+  capabilityTone, causeLabel, creditLabel, heldLine, indicatorScoreLabel, isPartCredit, newKey, partLabel, partTone, pillarScoreLabel,
+  scoreLabel, stateCounts, stateLabel, tierLabel,
 } from '../utils/capability';
 import { errorMessage } from '../utils/errors';
 import { dateTime } from '../utils/format';
@@ -29,6 +29,7 @@ export function ScoreExplanationBlock({ explanation, placeholder = true }: { exp
       {explanation.found && <><dt>Found and credited</dt><dd>{explanation.found}</dd></>}
       {explanation.looked && <><dt>Where we looked</dt><dd>{explanation.looked}</dd></>}
       {explanation.next_step && <><dt>Next step</dt><dd>{explanation.next_step}</dd></>}
+      {explanation.follow_up && <><dt>Follow-up</dt><dd>{explanation.follow_up}</dd></>}
     </dl>
   );
 }
@@ -38,16 +39,26 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
   const counts = stateCounts(result);
   const partCredit = isPartCredit(result);
   const causes = run.assessment?.decision_causes;
+  const held = result.depth_reserve;
+  const heldText = heldLine(held);
   return (
     <>
       <div className="stat-grid">
         <Stat label="Institutional AI capability"
           value={!partCredit && result.aggregation === 'independent_conditions' && result.condition_decision_coverage === 0 ? 'Review needed' : scoreLabel(result)}
-          note={partCredit ? 'What the documents show, with partial credit' : result.exact_score === null ? 'Bounds: unresolved evidence is not counted as capability' : 'Exact score'} />
+          note={heldText || (partCredit ? 'What the documents show, with partial credit' : result.exact_score === null ? 'Bounds: unresolved evidence is not counted as capability' : 'Exact score')} />
         <Stat label="Resolved indicator weight" value={`${result.assessment_coverage}%`} note="Evidence resolution, not model confidence" />
         <Stat label="Decided conditions" value={`${result.condition_decision_coverage}%`} note={`${counts.met} demonstrated · ${counts.not_met} shortfalls`} />
         <Stat label="Unknown / contradictory" value={counts.unknown + counts.conflicting} note="Remain unknown; never a pass or fail" />
       </div>
+      {held && heldText && (
+        <Notice tone="info">
+          {heldText}. Your documents show {held.evidence_score.toFixed(2)} points; {Math.round(held.share * 100)}% of each
+          credited requirement's credit is held until the follow-up answers show how far the evidence goes. Answers backed by
+          documents earn it back: half for substantiated, all for strong.
+          {!!held.held_for_review?.length && ` ${held.held_for_review.length} requirement(s) are held for review because an answer seemed to go against the evidence.`}
+        </Notice>
+      )}
       {!partCredit && result.lower === 0 && result.exact_score === null && (
         <Notice tone="warn">Zero demonstrated so far does not establish zero capability. Review the evidence needed below.</Notice>
       )}
@@ -134,12 +145,13 @@ export function CapabilityEvidence({ run }: { run: Run }) {
                   <article key={c.id} className="condition">
                     <div>
                       <Pill tone={capabilityTone(c.state)} label={stateLabel(c.state)} /> <b>{c.id}</b> · {c.level}
-                      {typeof d?.credit === 'number' && <span className="muted"> · credit {Math.round(d.credit * 100)}%</span>}
+                      {typeof d?.credit === 'number' && <span className="muted"> · {creditLabel(d)}</span>}
                       {d?.cause && c.state === 'unknown' && <span className="muted"> · {causeLabel(d.cause)}</span>}
                     </div>
                     <p>{c.text}</p>
                     {d?.reason && <p className="muted">{d.reason}</p>}
                     <ScoreExplanationBlock explanation={d?.explanation} placeholder={false} />
+                    {d?.depth_review && <p className="muted">{d.depth_review}</p>}
                     {!!d?.parts?.length && (
                       <ul className="plain-list">
                         {d.parts.map((part) => (

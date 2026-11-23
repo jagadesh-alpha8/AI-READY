@@ -115,6 +115,33 @@ class SecondLayerJobTests(APITestCase):
 
     # ---------------------------------------------------------------- questions
 
+    def test_finished_calls_count_at_their_billed_cost(self):
+        """23 Nov: the cap counted reservations (test 13: $14.34 reserved for $3.98 of calls). Each call is now settled
+        to its tokens at the configured prices: 200 in at $0.1/M and 150 out at $0.2/M is $0.00005."""
+        from decimal import Decimal
+        job = self.execute(self.post_job('questions'))
+        self.assertEqual(job.status, 'completed', job.detail)
+        budget = SecondLayerBudget.objects.get(run=self.run)
+        events = [e.payload for e in job.events.all()]
+        reserved = sum(Decimal(p['reserved_usd']) for p in events if p.get('kind') == 'request_reserved')
+        settled = [p for p in events if p.get('kind') == 'request_settled']
+        self.assertEqual(len(settled), 37)
+        self.assertTrue(all(Decimal(p['actual_usd']) == Decimal('0.000050') for p in settled))
+        self.assertEqual(sum(Decimal(p['reserved_usd']) - Decimal(p['released_usd']) for p in settled),
+                         Decimal('0.001850'))
+        self.assertGreater(reserved, Decimal('0.001850'))
+        self.assertEqual((job.usd_reserved, budget.usd_reserved), (Decimal('0.001850'), Decimal('0.001850')))
+        self.assertEqual(budget.requests_reserved, 37)   # the request cap still counts every request
+
+    @override_settings(SECOND_LAYER_SETTLE_TO_ACTUAL=False)
+    def test_without_settling_every_call_keeps_its_reservation(self):
+        from decimal import Decimal
+        job = self.execute(self.post_job('questions'))
+        events = [e.payload for e in job.events.all()]
+        reserved = sum(Decimal(p['reserved_usd']) for p in events if p.get('kind') == 'request_reserved')
+        self.assertFalse([p for p in events if p.get('kind') == 'request_settled'])
+        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).usd_reserved, reserved)
+
     def test_questions_job_is_metered_against_the_run_budget_and_saves_the_questions(self):
         from apps.extraction.models import AIUsage
         job = self.execute(self.post_job('questions'))
@@ -401,7 +428,7 @@ class SecondLayerJobTests(APITestCase):
                 'contradictions': [], 'context_audit': {}, 'routes': 1, 'note': ''}
 
     def test_rejudge_job_publishes_the_final_result_with_its_metered_calls(self):
-        job = self.post_job('rejudge')
+        job = self.post_job('rejudge', options={'close': True})
         with patch('apps.scoring.capability.layer2_service.rejudge_credit',
                    side_effect=lambda export, service, **kw: self.rejudge_result(export, service)) as fake:
             job = self.execute(job)
@@ -434,7 +461,7 @@ class SecondLayerJobTests(APITestCase):
         self.assertEqual(job.status, 'completed', job.detail)
         self.assertIsNone(job.final_run_id)
         self.assertEqual(self.calls(), 0)
-        self.assertEqual(job.result['note'], 'No new evidence to re-judge.')
+        self.assertTrue(job.result['note'].startswith('No new evidence to re-judge. Preview only'), job.result['note'])
 
     def test_export_still_reads_the_provisional_run(self):
         self.assertEqual(export_for_run(self.run.pk)['run_id'], str(self.run.pk))

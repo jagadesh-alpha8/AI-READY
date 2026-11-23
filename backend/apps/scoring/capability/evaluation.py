@@ -192,7 +192,7 @@ def ranking_sources(sources):
             for s in sources]
 
 
-def select_context(indicator, sources, max_chars=None, semantic_ranker=None, window_chars=None, diagnostics=None, structure=None):
+def select_context(indicator, sources, max_chars=None, semantic_ranker=None, window_chars=None, diagnostics=None, structure=None, window_cache=None):
     """Rank requirement-aware page windows, including evidence beyond the page prefix.
 
     Independent assertions retain distinct windows under the canonical page ID; the
@@ -207,7 +207,8 @@ def select_context(indicator, sources, max_chars=None, semantic_ranker=None, win
         bodies = ranking_sources(sources)
         allowance = 19 if max_chars >= 120 else 0
         context = select_context(indicator, bodies, max_chars=max_chars - allowance, semantic_ranker=semantic_ranker,
-                                 window_chars=window_chars, diagnostics=diagnostics, structure=structure)
+                                 window_chars=window_chars, diagnostics=diagnostics, structure=structure,
+                                 window_cache=window_cache)
         # A single companion from a selected page keeps repeated timestamps out of ranking.
         anchor = next((s for s in context if s['id'] in footers), None)
         if anchor and allowance:
@@ -224,7 +225,7 @@ def select_context(indicator, sources, max_chars=None, semantic_ranker=None, win
         return retrieve_evidence(indicator, sources, semantic_ranker, max_chars=max_chars, diagnostics=diagnostics,
                                  structure=structure)
     if indicator.get('scoring_mode') == 'independent_conditions':
-        return select_balanced_context(indicator, sources, max_chars=max_chars, semantic_ranker=semantic_ranker, window_chars=window_chars, diagnostics=diagnostics, structure=structure)
+        return select_balanced_context(indicator, sources, max_chars=max_chars, semantic_ranker=semantic_ranker, window_chars=window_chars, diagnostics=diagnostics, structure=structure, window_cache=window_cache)
     if structure is not None:
         raise ValueError('Structure routing applies only to independent-condition indicators.')
     ids = [s['id'] for s in sources]
@@ -321,7 +322,34 @@ RETRIEVAL_TERMS = {
 }
 
 
-def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker=None, window_chars=None, diagnostics=None, *, structural_seed=None, structure=None):
+# A keyword window's word counts and a page's hash depend only on their text, yet every key indicator recomputed them
+# for the whole corpus (about a third of retrieval's time on VISTAS). Hybrid retrieval passes a cache that lives with
+# the run's ranker and its corpus (evidence_retrieval.corpus_cache), so it is freed with them; without one nothing is
+# kept. Read-only wherever used. Bounded per corpus (about 10 KB a window): past the bound, windows are counted as
+# before.
+WINDOW_CACHE_LIMIT = 20_000
+
+
+def _window_words(excerpt, stop, cache):
+    words = cache['windows'].get(excerpt) if cache is not None else None
+    if words is None:
+        words = Counter(t for t in re.findall(r'[a-z0-9]{2,}', excerpt.lower()) if t not in stop)
+        if cache is not None and len(cache['windows']) < WINDOW_CACHE_LIMIT:
+            cache['windows'][excerpt] = words
+    return words
+
+
+def _page_hash(text, cache):
+    """sha256 of a page's text, the tie-break of keyword ranking (once per page, not once per window per query)."""
+    if cache is None:
+        return hashlib.sha256(text.encode()).hexdigest()
+    value = cache['pages'].get(text)
+    if value is None:
+        value = cache['pages'][text] = hashlib.sha256(text.encode()).hexdigest()
+    return value
+
+
+def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker=None, window_chars=None, diagnostics=None, *, structural_seed=None, structure=None, window_cache=None):
     """Assertion-diverse exact windows. Bounded retrieval, never a recall guarantee."""
     if len({s['id'] for s in sources}) != len(sources):
         raise ValueError('Source IDs must be unique.')
@@ -346,8 +374,7 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
         for offset in sorted(offsets):
             excerpt = source['text'][offset:offset + size]
             if excerpt.strip():
-                words = Counter(t for t in re.findall(r'[a-z0-9]{2,}', excerpt.lower()) if t not in stop)
-                windows.append((source, offset, excerpt, words))
+                windows.append((source, offset, excerpt, _window_words(excerpt, stop, window_cache)))
     if not windows:
         return []
     frequency = Counter(t for row in windows for t in row[3])
@@ -376,7 +403,7 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
             total = total * 1.5 + 2
         return total
     def ranked(query):
-        lexical = sorted(windows, key=lambda w: (-score(w, query), hashlib.sha256(w[0]['text'].encode()).hexdigest(), w[1], w[0]['id']))
+        lexical = sorted(windows, key=lambda w: (-score(w, query), _page_hash(w[0]['text'], window_cache), w[1], w[0]['id']))
         return lexical
 
     # Selected spans per page, in rank order: [source, start, end]. Overlapping candidates merge
@@ -657,13 +684,16 @@ def _request_shape(indicator, judgment, compact):
 
 
 def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope,
-             structure=None, fixed_context=None, lane_version=None, ceiling=None, judgment='conditions'):
+             structure=None, fixed_context=None, lane_version=None, ceiling=None, judgment='conditions',
+             diagnostics=None):
     """Build one indicator's frozen packet and request payload (local work, no model call).
 
     fixed_context: a packet given whole (the second assessment layer: a provisional packet plus new windows, see
     layer2.py). Retrieval and the extracted-evidence lane are skipped; the packet already holds what they added.
     ceiling: the run's frozen prompt ceiling (prompt_ceiling.py): the packet is rebuilt with a smaller keyword lane
-    while the request's estimated prompt tokens are over it."""
+    while the request's estimated prompt tokens are over it.
+    diagnostics: a dict that retrieval fills with its ranks (select_context); with a ceiling, those of the last build.
+    Used by capability_page_use, which needs the run's exact packet and the ranks behind it."""
     from .scope import context_scope
     from .reviewed_evidence import for_context
     from django.conf import settings
@@ -672,10 +702,11 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
         if fixed_context is not None:
             context = list(fixed_context)
         elif structure is None:
-            context = select_context(indicator, sources, semantic_ranker=ranker)
+            context = select_context(indicator, sources, semantic_ranker=ranker, diagnostics=diagnostics)
         else:
             # Retrieval reads the duplicate-free pages; validation still accepts any frozen source.
-            context = select_context(indicator, structure['sources'], semantic_ranker=ranker, structure=structure)
+            context = select_context(indicator, structure['sources'], semantic_ranker=ranker, structure=structure,
+                                     diagnostics=diagnostics)
         lane_audit = None
         if fixed_context is None and getattr(settings, 'CAPABILITY_EVIDENCE_LANE', True):
             from .reviewed_evidence import evidence_lane
@@ -762,7 +793,12 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
         """(records, audit or None): one repair request for the requirements whose found parts failed quotation."""
         failing = {r['condition_id']: [i.split(':')[0] for i in r.get('part_issues') or [] if 'without a valid quotation' in i]
                    for r in records}
-        failing = {cid: parts for cid, parts in failing.items() if parts}
+        # Only requirements whose found parts ALL failed their quotations (nothing found validated): one misquoted
+        # part beside a validated one is not repaired, since the repair re-judges every part of the requirement
+        # (audit, 23 Nov: any failed quotation triggered it, up to 72 requests a run, not the 36 budgeted).
+        validated = {r['condition_id']: any(p.get('finding') not in (None, 'not_found') for p in r.get('parts') or [])
+                     for r in records}
+        failing = {cid: parts for cid, parts in failing.items() if parts and not validated.get(cid)}
         if not quote_repair or not failing:
             return records, None
         group = [c for c in indicator['conditions'] if c['id'] in failing]

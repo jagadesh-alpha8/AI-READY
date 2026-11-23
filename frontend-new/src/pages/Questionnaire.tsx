@@ -264,12 +264,17 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
       )}
       <SecondLayerJobs sprint={sprint} runId={runId} progress={p} onChange={() => void next.refetch()} onFinal={onFinal} />
       <div className="stat-grid">
-        <Stat label="Questions" value={p?.questions ?? 0} note={`Provisional run ${runId.slice(0, 8)}${run.id === runId ? ` · ${dateTime(run.created_at)}` : ''}`} />
+        <Stat label="Questions" value={p?.questions ?? 0} note={`${p?.linked ? `${p.linked} more answered through linked questions · ` : ''}Provisional run ${runId.slice(0, 8)}${run.id === runId ? ` · ${dateTime(run.created_at)}` : ''}`} />
         <Stat label="Answered or skipped" value={p?.answered ?? 0} note={`${p?.open ?? 0} open`} />
         <Stat label="Checks waiting" value={p?.checks_waiting ?? 0} note="Answers are checked against the documents" />
         <Stat label="Follow-ups open" value={p?.follow_ups_open ?? 0} note="At most one per answer" />
       </div>
-      {p && p.questions > 0 && <Panel><ProgressLine done={p.answered} total={p.questions} label="Questions answered" /></Panel>}
+      {p && p.questions > 0 && (
+        <Panel>
+          <ProgressLine done={p.answered} total={p.questions} label="Questions answered" />
+          <p className="muted">Questions come in order of the points they can earn, highest first. You can stop whenever you like; unanswered questions earn nothing back.</p>
+        </Panel>
+      )}
       {!p?.questions ? (
         <Empty title="No follow-up questions yet">Questions for this run have not been planned yet. Use “Plan follow-up questions” above (it uses model credits).</Empty>
       ) : !next.data?.next ? (
@@ -293,6 +298,9 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
               {r.answer && <p>{tidyText(r.answer)}</p>}
               {r.document_ids.length > 0 && <p className="muted">{r.document_ids.length} document(s) attached</p>}
               {r.status === 'checked' && <p className="muted">{r.passages_found} passage(s) found{r.dimensions.length ? ` · ${r.dimensions.map((d) => `${humanize(d.dimension_id)}: ${humanize(d.support)}`).join(', ')}` : ''}</p>}
+              {!!r.search?.already_counted?.length && (
+                <p className="muted">Already read in the first assessment, so it added nothing new: {r.search.already_counted.map((d) => d.name).join(', ')}</p>
+              )}
               {r.follow_up && <p><b>Follow-up asked:</b> {r.follow_up}</p>}
             </article>
           ))}
@@ -309,6 +317,7 @@ const OPERATION_LABEL: Record<SecondLayerOperation, string> = {
   checks: 'Checking answers and additional evidence',
   depth: 'Judging how deep the credited evidence goes',
   rejudge: 'Publishing the final result',
+  explain: 'Writing score explanations',
 };
 
 /** Siddharth's job error codes, in plain words. */
@@ -325,7 +334,21 @@ const JOB_ERROR: Record<string, string> = {
 
 const isActiveJob = (j: SecondLayerJob) => j.status === 'queued' || j.status === 'running';
 
+/** "Writing score explanations", plus "(final result)" for the job that starts by itself after publishing. */
+const jobLabel = (j: SecondLayerJob) => `${OPERATION_LABEL[j.operation]}${j.operation === 'explain' && j.options?.final ? ' (final result)' : ''}`;
+
+/** An explain job's result: { calls, explained, fallbacks, areas_with_problems: { area: count } }. */
+function explainOutcome(r: Record<string, unknown> | null): string {
+  if (!r) return 'Done';
+  const num = (k: string) => (typeof r[k] === 'number' ? (r[k] as number) : 0);
+  const problems = Object.keys((r.areas_with_problems as Record<string, number> | undefined) || {}).length;
+  return [`${num('explained')} requirements explained in ${num('calls')} calls`,
+    num('fallbacks') ? `${num('fallbacks')} plain factual versions` : '',
+    problems ? `${problems} area${problems === 1 ? '' : 's'} with problems` : ''].filter(Boolean).join(' · ');
+}
+
 function jobOutcome(j: SecondLayerJob): string {
+  if (j.status === 'completed' && j.operation === 'explain') return explainOutcome(j.result);
   if (j.status === 'completed') return j.operation === 'rejudge' && j.final_run_id ? `Final run ${j.final_run_id.slice(0, 8)}` : 'Done';
   if (!j.error_code) return j.detail || '';
   const words = JOB_ERROR[j.error_code] || j.error_code;
@@ -359,8 +382,8 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
           onChange();
           if (j.operation === 'rejudge' && j.status === 'completed' && j.final_run_id) onFinal();
           setMsg(j.status === 'completed'
-            ? { tone: 'success', text: `${OPERATION_LABEL[j.operation]}: done.${j.final_run_id ? ' The final result is published.' : ''}` }
-            : { tone: 'error', text: `${OPERATION_LABEL[j.operation]}: ${jobOutcome(j)}` });
+            ? { tone: 'success', text: `${jobLabel(j)}: ${j.operation === 'explain' ? explainOutcome(j.result) : 'done'}.${j.final_run_id ? ' The final result is published; its explanations start by themselves.' : ''}` }
+            : { tone: 'error', text: `${jobLabel(j)}: ${jobOutcome(j)}` });
         }
       }
       jobs.setData(data);
@@ -393,6 +416,8 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
   const finished = !!p && hasQuestions && !p.open && !p.checks_waiting && !p.follow_ups_open;
   const budget = jobs.data?.budget;
   const disabled = !jobs.data?.enabled || !!active || !!busy;
+  // Final results are explained automatically; the provisional run's explanations are written on request.
+  const explained = list.some((j) => j.operation === 'explain' && !j.options?.final && j.status === 'completed');
 
   return (
     <Panel title="Follow-up questions and final result" sub="Background jobs on the provisional run; each uses model credits from this assessment's budget"
@@ -401,7 +426,10 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
           {!hasQuestions && <button className="primary-action" disabled={disabled} onClick={() => void start('questions')}>{busy === 'questions' ? 'Starting…' : 'Plan follow-up questions'}</button>}
           {hasQuestions && !p?.answered && <button className="secondary-button" disabled={disabled} onClick={() => setConfirmReplace(true)}>Plan again</button>}
           {hasQuestions && <button className="secondary-button" disabled={disabled} onClick={() => void start('depth')}>{busy === 'depth' ? 'Starting…' : 'Judge evidence depth'}</button>}
-          {finished && !p?.final_run_id && <button className="primary-action" disabled={disabled} onClick={() => void start('rejudge', { publish: true })}>{busy === 'rejudge' ? 'Starting…' : 'Publish final result'}</button>}
+          <button className="secondary-button" disabled={disabled} title="One model call per area (about 9), checked against this run's record"
+            onClick={() => void start('explain')}>{busy === 'explain' ? 'Starting…' : explained ? 'Write explanations again' : 'Write explanations'}</button>
+          {finished && !p?.final_run_id && <button className="primary-action" disabled={disabled} title="Closes the follow-up stage: after this no answer or document can change the final AI-READY Score"
+            onClick={() => void start('rejudge', { close: true })}>{busy === 'rejudge' ? 'Starting…' : 'Publish final result'}</button>}
         </div>
       )}>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
@@ -415,7 +443,7 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
       )}
       {active ? (
         <div className="condition">
-          <div><Pill status="pending" label={active.status === 'queued' ? 'Queued' : 'Running'} /> <b>{OPERATION_LABEL[active.operation]}</b> · started {dateTime(active.started_at || active.created_at)}</div>
+          <div><Pill status="pending" label={active.status === 'queued' ? 'Queued' : 'Running'} /> <b>{jobLabel(active)}</b> · started {dateTime(active.started_at || active.created_at)}</div>
           <p className="muted">{active.requests_reserved} model request(s) reserved so far (${active.usd_reserved}).</p>
           {manage && <div className="button-row"><button className="secondary-button" disabled={busy === 'cancel'} onClick={() => void cancel(active)}>Cancel this job</button></div>}
         </div>
@@ -428,7 +456,7 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
           <Table columns={['Job', 'Started', 'Status', 'Outcome', 'Reserved']}>
             {list.map((j) => (
               <tr key={j.id}>
-                <td><b>{OPERATION_LABEL[j.operation]}</b><small className="cell-sub">{j.id.slice(0, 8)}</small></td>
+                <td><b>{jobLabel(j)}</b><small className="cell-sub">{j.id.slice(0, 8)}</small></td>
                 <td>{dateTime(j.created_at)}</td>
                 <td><Pill status={isActiveJob(j) ? 'pending' : j.status === 'completed' ? 'completed' : j.status === 'cancelled' ? 'neutral' : 'failed'} label={j.status} /></td>
                 <td>{jobOutcome(j)}</td>
@@ -452,6 +480,8 @@ function QuestionItem({ sprint, runId, item, position, total, onDone }: {
   const [error, setError] = useState('');
   const followUp = item.type === 'follow_up';
   const missing = item.question.kind === 'missing';
+  const points = item.question.points_at_stake;
+  const [own, ...shared] = item.question.condition_ids;
 
   const send = async (skip: boolean) => {
     setError('');
@@ -474,11 +504,20 @@ function QuestionItem({ sprint, runId, item, position, total, onDone }: {
 
   return (
     <Panel title={followUp ? 'One follow-up' : `Question ${position} of ${total}`}
-      sub={`${item.question.indicator_code}${item.question.condition_ids.length ? ` · ${item.question.condition_ids.join(', ')}` : ''}`}
-      actions={<Pill status={followUp ? 'pending' : missing ? 'blocked' : 'active'} label={followUp ? 'Follow-up' : missing ? 'Nothing found yet' : 'About credited evidence'} />}>
+      sub={`${item.question.indicator_code}${own ? ` · ${missing ? item.question.condition_ids.join(', ') : own}` : ''}`}
+      actions={(
+        <>
+          {!followUp && !!points && <Pill tone="good" label={`Up to ${pointsLabel(points)}`} />}
+          {' '}<Pill status={followUp ? 'pending' : missing ? 'blocked' : 'active'} label={followUp ? 'Follow-up' : missing ? 'Nothing found yet' : 'About credited evidence'} />
+        </>
+      )}>
       <form onSubmit={(e) => { e.preventDefault(); void send(false); }} className="questionnaire-item">
         <h3>{item.text}</h3>
         {missing && !followUp && <p className="muted">We found nothing for this in the documents submitted. If you have anything, attach it here.</p>}
+        {!followUp && !!points && (
+          <p className="muted">Answering this with supporting documents can add up to {pointsLabel(points)} to the score.</p>
+        )}
+        {!missing && shared.length > 0 && <p className="muted">Also answers: {shared.join(', ')} (they need the same fact).</p>}
         <UploadBox files={files} onChange={setFiles} required={missing} />
         <label className="field"><span>Your answer</span>
           <textarea rows={3} maxLength={4000} value={answer} onChange={(e) => setAnswer(e.target.value)}
@@ -577,4 +616,10 @@ function AdditionalEvidence({ sprint, run, runId }: { sprint: Sprint; run: Run; 
       </Panel>
     </>
   );
+}
+
+/** "0.42 points", rounded to two decimals the way the backend reports points_at_stake. */
+function pointsLabel(n: number) {
+  const v = Number(n.toFixed(2));
+  return `${v} point${v === 1 ? '' : 's'}`;
 }

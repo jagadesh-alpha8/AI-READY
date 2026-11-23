@@ -97,7 +97,7 @@ def part_credit_rubric(rubric):
     return rubric.get('aggregation') == 'independent_conditions'
 
 
-def credit_projection(credits, accepted, rubric, phase, factors=None):
+def credit_projection(credits, accepted, rubric, phase, factors=None, factors_at_full=None):
     """The part-credit score if the accepted actions for this phase are completed and shown: a development mapping
     takes its requirement to full credit (the plan plus what the baseline already shows covers every part); a
     withdrawal takes it to 0."""
@@ -110,10 +110,17 @@ def credit_projection(credits, accepted, rubric, phase, factors=None):
             if after.get(cid, 0.0) != value:
                 changed.append({'condition_id': cid, 'credit_before': credits.get(cid, 0.0), 'credit_after': value})
             after[cid] = value
-    if factors:   # credit held for follow-up answers counts at the requirement's factor (reserve.py)
+    if factors or factors_at_full:   # credit held for follow-up answers counts at the requirement's factor (reserve.py)
         from .reserve import apply
-        held = {cid: Fraction(str(f)) for cid, f in factors.items()}
-        before, result = documented(apply(credits, held), rubric), documented(apply(after, held), rubric)
+        held = {cid: Fraction(str(f)) for cid, f in (factors or {}).items()}
+        # A requirement the plan takes to full credit counts at its factor at full credit (reserve.factors_at_full);
+        # scenarios frozen before 23 Nov carry no factors_at_full and keep the present factor.
+        after_held = dict(held)
+        if factors_at_full is not None:
+            for row in changed:
+                if row['credit_after'] == 1.0:
+                    after_held[row['condition_id']] = Fraction(str(factors_at_full.get(row['condition_id'], 1)))
+        before, result = documented(apply(credits, held), rubric), documented(apply(after, after_held), rubric)
     else:
         before, result = documented(credits, rubric), documented(after, rubric)
     pillars_before = {p['code']: p['score'] for p in before['pillars']}
@@ -123,7 +130,8 @@ def credit_projection(credits, accepted, rubric, phase, factors=None):
             'requirements': changed, 'basis': 'Part-credit score, as reported; assumes the mapped actions are completed and shown.'}
 
 
-def evaluate_plan(baseline, mappings, rubric, *, engine_version=ENGINE_VERSION, credits=None, factors=None):
+def evaluate_plan(baseline, mappings, rubric, *, engine_version=ENGINE_VERSION, credits=None, factors=None,
+                  factors_at_full=None):
     if engine_version not in {ENGINE_VERSION, LEGACY_ENGINE_VERSION}:
         raise ValueError('Recorded engine version is not supported.')
     validate_release(rubric)
@@ -131,11 +139,13 @@ def evaluate_plan(baseline, mappings, rubric, *, engine_version=ENGINE_VERSION, 
     scored = credits is not None and part_credit_rubric(rubric)
     result = {'version': VERSION, 'baseline': assess(baseline, rubric), 'accepted': accepted,
               'rejected': rejected, 'scenarios': {}, 'actual_assessment_changed': False,
-              'baseline_score': credit_projection(credits, [], rubric, 'results', factors)['score'] if scored else None,
+              'baseline_score': credit_projection(credits, [], rubric, 'results', factors, factors_at_full)['score']
+              if scored else None,
               'note': 'If the actions are completed and the listed requirements shown, the recorded method would give these conditional scores. Mapping validity and institutional success are not established by this calculation.'}
     for phase in ('implementation', 'results'):
         overlay = {m['condition_id']: m['state'] for m in accepted if phase == 'results' or m['phase'] == 'implementation'}
         result['scenarios'][phase] = {'result': assess({**baseline, **overlay}, rubric), 'overlay': overlay,
                                     'paired_change': paired_delta(baseline, overlay, rubric),
-                                    'score': credit_projection(credits, accepted, rubric, phase, factors) if scored else None}
+                                    'score': credit_projection(credits, accepted, rubric, phase, factors,
+                                                               factors_at_full) if scored else None}
     return result

@@ -9,7 +9,8 @@ export.json is the provisional run's assessment export; --run-id builds it from 
 model calls (two passes and the tie-break per key indicator re-judged; unmetered; the API's rejudge
 job is the metered path, second_layer_jobs.py).
 --publish (needs the run in this database) publishes the final result as a new run refining the provisional one, which
-reports, recommendations and plan evaluations then use.
+reports, recommendations and plan evaluations then use. Publishing closes the follow-up stage (as the API's close does):
+afterwards no answer or evidence is accepted, and a closed stage refuses a second final result.
 """
 import json
 

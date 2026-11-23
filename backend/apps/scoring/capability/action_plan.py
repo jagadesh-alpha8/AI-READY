@@ -130,8 +130,9 @@ def build(rubric, records):
     by_id = {r['condition_id']: r for r in records}
     credits = {cid: credit_of(by_id[cid]) if cid in by_id else 0.0 for cid in conditions}
     gaps = {cid: gap_of(by_id[cid]) if cid in by_id else 'establish' for cid in conditions}
-    from .reserve import factors as held_factors
+    from .reserve import factors as held_factors, factors_at_full
     held = {cid: f for cid, f in held_factors(records).items() if cid in conditions}   # credit held for follow-up
+    at_full = {cid: f for cid, f in factors_at_full(records).items() if cid in conditions}   # once shown in full
     score = _score(credits, rubric, held)
     target = min(100, (int(score // STEP) + 1) * STEP) if score < 100 else None
     planned, chosen, indicators = dict(credits), [], []
@@ -146,8 +147,10 @@ def build(rubric, records):
 
     def gain_of(cid):
         # The overall score is linear in credits: raising one requirement by d adds d x weight_units / 60
-        # (documented(): 100/3 x (sum of credits / 2) x weight / 1000 per key indicator).
-        return (1 - min(1.0, credits[cid])) * float(conditions[cid][0]['weight_units']) / 60 * float(held.get(cid, 1))
+        # (documented(): 100/3 x (sum of credits / 2) x weight / 1000 per key indicator). Shown in full, it counts at
+        # its factor at full credit, which can differ from its present one (reserve.factors_at_full).
+        counted = float(at_full.get(cid, 1)) - min(1.0, credits[cid]) * float(held.get(cid, 1))
+        return counted * float(conditions[cid][0]['weight_units']) / 60
 
     current = score
     while target is not None and current < target and len(chosen) < MAX_CONDITIONS:
@@ -199,7 +202,7 @@ def build(rubric, records):
         pillar = conditions[cid][0].get('pillar') or conditions[cid][0]['code']
         remaining.setdefault(pillar, {'pillar': pillar, 'establish': 0, 'complete': 0, 'reconcile': 0, 'rerun': 0})
         remaining[pillar][gap] += 1
-    projected = _score(planned, rubric, held)
+    projected = _score(planned, rubric, {**held, **{cid: at_full.get(cid, 1) for cid in chosen}})
     return {'version': VERSION, 'score': round(score, 2), 'tier': tier_for(score), 'target': target,
             'projected_score': round(projected, 2), 'projected_tier': tier_for(projected)['current'],
             'reaches_target': target is not None and projected >= target,

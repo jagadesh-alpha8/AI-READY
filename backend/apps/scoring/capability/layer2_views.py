@@ -48,10 +48,18 @@ def flag(value):
 
 
 def serialize_question(question):
-    return {'id': str(question.pk), 'rank': question.rank, 'kind': question.kind, 'text': question.text,
-            'indicator_code': question.indicator_code, 'condition_ids': question.condition_ids,
-            'status': question.status, 'points_at_stake': float(question.points_at_stake),
-            'linked_to': str(question.linked_to_id) if question.linked_to_id else None}
+    """A question; a group's lead also lists the questions it answers (\"Also answers: ...\" on the screen: they are
+    never served on their own, so without this list the front end could not show them; Jagadesh, 22 Nov)."""
+    out = {'id': str(question.pk), 'rank': question.rank, 'kind': question.kind, 'text': question.text,
+           'indicator_code': question.indicator_code, 'condition_ids': question.condition_ids,
+           'status': question.status, 'points_at_stake': float(question.points_at_stake),
+           'linked_to': str(question.linked_to_id) if question.linked_to_id else None}
+    if question.linked_to_id is None:
+        out['linked'] = [{'id': str(q.pk), 'rank': q.rank, 'indicator_code': q.indicator_code,
+                          'condition_ids': q.condition_ids, 'status': q.status,
+                          'points_at_stake': float(q.points_at_stake), 'text': q.text}
+                         for q in question.linked.order_by('rank')]
+    return out
 
 
 def serialize_response(response):
@@ -116,6 +124,27 @@ class _RunScoped(APIView):
         return Response(serialize_response(response), status=status.HTTP_201_CREATED)
 
 
+NOTICE_VERSION = 'questionnaire-notice-1'
+
+
+def questionnaire_notice(run):
+    """The text shown before the follow-up questions (agreed 23 Nov), with the points the answers can earn back.
+    Served with the questions so the screen and the reports use one wording."""
+    event = run.events.filter(state='completed', payload__result__isnull=False).last()
+    held = ((event.payload.get('result') or {}).get('depth_reserve') or {}) if event else {}
+    points = held.get('held_points') or 0
+    worth = f', up to {points:g} points in total' if points else ''
+    return {'version': NOTICE_VERSION, 'title': 'Before you start', 'points': points,
+            'intro': ('These questions are about evidence we have already found in your documents. Your answers decide '
+                      f'how much of the held credit you earn back{worth}. The questions are in order of how much they '
+                      'are worth, so the first ones matter most, and you can stop whenever you like.'),
+            'rules': ['An answer counts only when a document supports it, so attach one wherever you can.',
+                      'You can answer "Don\'t know" or skip a question; it earns nothing back.',
+                      'Please answer as accurately as you can. If a document you send shows something different from '
+                      'what we credited, we adjust that part of the score, up or down. Accurate answers also make '
+                      'your improvement plan more useful.']}
+
+
 class QuestionsView(_RunScoped):
     def get(self, request, sprint_id, run_id):
         execution = self.execution(request, sprint_id, run_id)
@@ -125,7 +154,8 @@ class QuestionsView(_RunScoped):
         if item is not None:
             next_payload = {'type': item['type'], 'text': item['text'], 'question': serialize_question(item['question']),
                             'response_id': str(item['response'].pk) if item['response'] is not None else None}
-        return Response({'next': next_payload, 'progress': service.progress(run_ref)})
+        return Response({'next': next_payload, 'progress': service.progress(run_ref),
+                         'notice': questionnaire_notice(execution.run)})
 
 
 class QuestionResponsesView(_RunScoped):

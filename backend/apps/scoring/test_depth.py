@@ -315,9 +315,15 @@ class FlowTests(TestCase):
     def test_proposed_past_cases_do_not_guide_judgments(self):
         create_questions(self.data, FakeModel(), commit=True)
         self.answer_all('About 40 hours.')
-        judge_run(self.data, FakeModel(), commit=True)
+        judge_run(self.data, FakeModel(), commit=True)   # files proposed past cases for both conditions
+        # Another run's judgments of the same conditions (this run's are kept until it has a new answer).
+        later = export('run-2', credited={F1: 1, F2: 1})
+        create_questions(later, FakeModel(), commit=True)
+        load_responses([{'question_id': str(q.pk), 'kind': 'answer', 'answer': 'About 40 hours.', 'supported': True,
+                         'document_ids': [DOCUMENT]} for q in DepthQuestion.objects.filter(run_ref='run-2', kind='depth')],
+                       commit=True)
         model = FakeModel()
-        judge_run(self.data, model)
+        judge_run(later, model)
         self.assertEqual([p['approved_past_cases'] for n, p in model.calls if n == 'depth_judgment'], [[], []])
 
     def test_uploads_for_missing_evidence_await_reassessment(self):

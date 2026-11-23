@@ -54,12 +54,23 @@ export async function downloadCapabilityReport(sprint: string, run: string, form
 // --- second assessment layer (A2, PR #45): the questionnaire's second line and additional evidence ---------------
 // Documents are uploaded first through the document API and referenced by id (they must belong to the sprint).
 export interface Layer2Question {
-  id: string; rank: number; kind: 'depth' | 'missing'; text: string; indicator_code: string; condition_ids: string[]; status: string;
+  id: string; rank: number; kind: 'depth' | 'missing'; text: string; indicator_code: string;
+  /** For a depth question: its own requirement first, then requirements that need the same fact. */
+  condition_ids: string[];
+  /** 'linked' questions are answered through their lead (linked_to) and never asked on their own. */
+  status: string;
+  /** Score points this question can earn (for a lead, its whole linked group); questions come highest first. */
+  points_at_stake?: number;
+  linked_to?: string | null;
 }
 export interface Layer2Progress {
+  /** Questions the college is asked; linked questions are counted separately. */
   questions: number; open: number; answered: number; checks_waiting: number; follow_ups_open: number;
+  linked?: number;
   /** Set once the final result has been published from this (provisional) run. */
   final_run_id?: string | null;
+  /** True once the follow-up stage is closed (the final result is published): answers and evidence are refused. */
+  closed?: boolean;
 }
 export interface Layer2Next { type: 'question' | 'follow_up'; text: string; question: Layer2Question; response_id: string | null }
 export interface Layer2Response {
@@ -67,6 +78,10 @@ export interface Layer2Response {
   answer: string; document_ids: string[]; status: 'pending' | 'checked'; supported: boolean | null;
   follow_up: string | null; dimensions: { dimension_id: string; support: string; note: string }[];
   passages_found: number; created_at: string;
+  /** 'linked' when recorded through the lead question of a linked group. */
+  submitted_via?: string;
+  /** already_counted: attached documents the first assessment had already read for this key indicator. */
+  search?: { already_counted?: { document_id: string; name: string }[]; [k: string]: unknown };
 }
 export interface AdditionalEvidenceItem {
   id: string; document_ids: string[]; note: string; picked: string[]; routed_indicators: string[]; unknown_picks: string[];
@@ -90,7 +105,7 @@ export const addAdditionalEvidence = (sprint: string, run: string, body: { docum
   http.post<AdditionalEvidenceItem>(`${root(sprint)}/${run}/additional-evidence`, body);
 
 // --- second-layer background jobs (PR #52/#54): always on the provisional run ------------------------------------
-export type SecondLayerOperation = 'questions' | 'checks' | 'depth' | 'rejudge';
+export type SecondLayerOperation = 'questions' | 'checks' | 'depth' | 'rejudge' | 'explain';
 export type SecondLayerJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 export interface SecondLayerJob {
   id: string; run_id: string; operation: SecondLayerOperation; options: Record<string, boolean>;

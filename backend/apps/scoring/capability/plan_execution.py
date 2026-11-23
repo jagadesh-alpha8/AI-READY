@@ -64,6 +64,8 @@ def baseline_view(run, event):
     return {'baseline_credits': credits, 'baseline_score': documented(reserve.apply(credits, held), rubric)['overall'],
             # Credit held for follow-up answers (reserve.py): a plan's projected credit counts at the same factor.
             'baseline_factors': {cid: str(f) for cid, f in held.items() if f != 1},
+            # ... and a requirement the plan would show in full counts at its factor then (reserve.factors_at_full).
+            'baseline_factors_at_full': {cid: str(f) for cid, f in reserve.factors_at_full(records).items() if f != 1},
             'strengths': sorted(c for c, v in credits.items() if v >= 1),
             'partly_shown': [{'condition_id': r['condition_id'], 'credit': action_plan.credit_of(r),
                               'missing_parts': action_plan.missing_parts(r)}

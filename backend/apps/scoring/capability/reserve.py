@@ -94,6 +94,14 @@ def factors(records):
     return {r['condition_id']: record_factor(r) for r in records}
 
 
+def factors_at_full(records):
+    """{condition id: factor} each requirement would count at once shown in full (for projections): a requirement a
+    plan would establish is then held like any credited one, at its record's depth level (evidenced unless a
+    follow-up showed more). Using its present factor overstated projections: below half credit nothing is held, so an
+    established requirement counted in full (audit, 23 Nov)."""
+    return {r['condition_id']: record_factor({**r, 'credit': 1.0}) for r in records}
+
+
 def apply(credits, factor_by_id):
     return {cid: Fraction(str(value or 0)) * factor_by_id.get(cid, Fraction(1)) for cid, value in credits.items()}
 
@@ -137,8 +145,9 @@ def summary(records, rubric):
             'held_for_review': sorted(r['condition_id'] for r in records if r.get('depth_review'))}
 
 
-def follow_up_note(record):
-    """One plain sentence for a requirement's explanation about the credit held for it, or None."""
+def follow_up_note(record, closed=False):
+    """One plain sentence for a requirement's explanation about the credit held for it, or None. closed: the follow-up
+    stage is closed, so the sentence does not invite more answers."""
     if not holds(record):
         return None
     if record.get('depth_review'):
@@ -148,4 +157,6 @@ def follow_up_note(record):
         return 'Your follow-up answers showed the full depth of this, which earned back all of the credit held for it.'
     if level == 'substantiated':
         return 'Your follow-up answers showed more of the depth of this, which earned back half of the credit held for it.'
+    if closed:
+        return 'Part of this credit stays held, because the follow-up answers did not show how far it goes.'
     return 'Part of this credit is held until your follow-up answers show how far it goes.'

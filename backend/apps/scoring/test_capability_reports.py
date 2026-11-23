@@ -145,7 +145,9 @@ class CapabilityReportTests(APITestCase):
         self.assertContains(response, '&lt;script&gt;profile_attack()&lt;/script&gt;')
         self.assertContains(response, '&lt;script&gt;source_attack()&lt;/script&gt;')
         self.assertContains(response, 'priority-plan-0.2')
-        self.assertContains(response, 'provisional tier')
+        # A Stage 1 result shows no tier (23 Nov); the tier comes with the final AI-READY Score.
+        self.assertContains(response, 'the tier is awarded on the final AI-READY Score')
+        self.assertNotContains(response, 'provisional tier')
 
     def test_default_leadership_report_is_readable_without_changing_assessment(self):
         import pymupdf

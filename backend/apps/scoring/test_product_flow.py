@@ -282,6 +282,17 @@ class ProductFlowTests(APITestCase):
         self.assertEqual(shown['progress']['questions'], questions.filter(linked_to__isnull=True).count())
         self.assertEqual(shown['progress']['linked'], questions.filter(linked_to__isnull=False).count())
         self.assertEqual(shown['next']['question']['rank'], 1)
+        # A lead lists the questions it answers ("Also answers: ..."); they are never served on their own.
+        served = DepthQuestion.objects.get(pk=shown['next']['question']['id'])
+        self.assertEqual([q['id'] for q in shown['next']['question']['linked']],
+                         [str(q.pk) for q in served.linked.order_by('rank')])
+        from .capability.layer2_views import serialize_question
+        lead = questions.filter(linked__isnull=False).distinct().first()
+        self.assertIsNotNone(lead)
+        listed = serialize_question(lead)['linked']
+        self.assertEqual({q['id'] for q in listed}, {str(q.pk) for q in lead.linked.all()})
+        self.assertTrue(all(q['status'] == 'linked' and q['condition_ids'] and q['text'] for q in listed))
+        self.assertNotIn('linked', serialize_question(lead.linked.first()))
         made = self.post(f'{self.base}/{provisional.pk}/questions/{depth_q.pk}/responses',
                          {'answer': 'Yes: 85 faculty completed the 40-hour accredited programme; register attached.',
                           'document_ids': [self.document(ATTACHMENT)]}, expect=201)
@@ -304,7 +315,8 @@ class ProductFlowTests(APITestCase):
         self.run_queued()
         self.assertTrue(DepthJudgment.objects.filter(run_ref=str(provisional.pk)).exists())
 
-        self.post(jobs_url, {'operation': 'rejudge'}, key='publish-final', expect=202)
+        # Only closing the follow-up stage publishes the final result (audit, 23 Nov).
+        self.post(jobs_url, {'operation': 'rejudge', 'options': {'close': True}}, key='publish-final', expect=202)
         rejudge = self.run_queued()[0]
         self.assertIsNotNone(rejudge.final_run_id, rejudge.result)
         final = CapabilityRun.objects.get(pk=rejudge.final_run_id)
@@ -382,6 +394,115 @@ class ProductFlowTests(APITestCase):
         call_command('capability_page_use', str(run.pk), '--document', payload['traces'][0]['source_excerpts'][0]
                      ['document_id'], '--no-recompute', stdout=out)
         self.assertIn('In the packet of', out.getvalue())
+
+    def test_page_use_on_a_final_run_reproduces_every_packet(self):
+        """Test 13 (22 Nov): on the final run, page-use-1 reported "does not reproduce" for C2.1, the one key indicator
+        re-judged, because it counted the second layer's windows as retrieval and searched the added pages too."""
+        from .capability.page_use import page_use, SECOND_LAYER_ROLES
+        indicator = next(i for i in release()['indicators'] if i['code'] in self.credited)
+        cid = indicator['conditions'][0]['id']
+        _, _, rejudge, final, _ = self.contradict_and_publish([cid], [cid])
+        payload = final.events.filter(state='completed').last().payload
+        traces = {t['indicator']: t for t in payload['traces']}
+        rejudged = set(rejudge.result['targets'])
+        self.assertEqual(rejudged, {indicator['code']})
+        self.assertTrue(any(e.get('evidence_role') in SECOND_LAYER_ROLES for e in traces[indicator['code']]['source_excerpts']))
+        page = traces[indicator['code']]['source_excerpts'][0]['id']
+        result = page_use(final, [page])
+        self.assertEqual(result['final_run_of'], final.inputs['refines_run_id'])
+        self.assertEqual(result['summary']['reproduced'], result['summary']['recomputed'])
+        self.assertEqual(result['summary']['recomputed'], len(release()['indicators']))
+        row = next(r for r in result['indicators'] if r['indicator'] == indicator['code'])
+        self.assertTrue(row['rejudged_in_second_layer'])
+        self.assertTrue(set(row['windows_added_after_first_judgment']) <= SECOND_LAYER_ROLES)
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('capability_page_use', str(final.pk), '--page', page, stdout=out)
+        text = out.getvalue()
+        self.assertIn('Packets rebuilt exactly as the run had them: 36 of 36.', text)
+        self.assertIn('re-judged in the second layer', text)
+        # A page the second layer added: retrieval never read it, and the tool says so.
+        added = final.inputs['second_layer']['added_sources']
+        self.assertTrue(added)
+        result = page_use(final, [added[0]], indicators=[indicator['code']])
+        self.assertEqual(result['pages_added_in_second_layer'], [added[0]])
+        self.assertTrue(result['indicators'][0]['recompute']['reproduced'])
+        # A packet that differs is reported passage by passage.
+        from .capability.page_use import compare_packets
+        same, diff = compare_packets(traces[indicator['code']]['source_excerpts'][1:],
+                                     [e for e in traces[indicator['code']]['source_excerpts']
+                                      if e.get('evidence_role') not in SECOND_LAYER_ROLES])
+        self.assertFalse(same)
+        self.assertEqual(diff['counts'], {'only_in_run': 0, 'only_in_rebuild': 1})
+
+    def test_packet_changes_lists_the_key_indicators_a_later_run_can_be_compared_on(self):
+        """Test 14 compares Claude and OpenAI with test 13 (Gemini) only where today's packet rules give the same
+        packet (capability_packet_changes; no model calls)."""
+        from io import StringIO
+        from django.core.management import call_command
+        from .management.commands.capability_packet_changes import changes
+        run = self.assess()
+        result = changes(run)
+        self.assertEqual(result['summary']['indicators'], 36)
+        self.assertEqual(result['summary']['reproduced'], 36)
+        self.assertEqual(result['summary']['unchanged'] + result['summary']['changed'], 36)
+        self.assertEqual(len(result['summary']['usable_for_comparison']), result['summary']['unchanged'])
+        # A run frozen before lane 2 is rebuilt with lane 2 for "today".
+        run.inputs = {**run.inputs, 'retrieval_policy': {k: v for k, v in (run.inputs.get('retrieval_policy') or {}).items()
+                                                          if k != 'evidence_lane'}}
+        older = changes(run, indicators=['AIQIF-C1.1'])
+        self.assertEqual((older['run_lane'], older['today_lane']), ('extracted-evidence-lane-1', 'extracted-evidence-lane-2'))
+        self.assertTrue(older['indicators'][0]['reproduced'])
+        out = StringIO()
+        call_command('capability_packet_changes', str(CapabilityRun.objects.get(pk=run.pk).pk), stdout=out)
+        self.assertIn('Packets rebuilt exactly as the run had them: 36 of 36.', out.getvalue())
+
+    # ---------------------------------------------------------------- Stage 1 and closing the follow-up stage (23 Nov)
+
+    def test_stage_one_shows_no_tier_and_closing_publishes_a_final_result(self):
+        """Colleges see a Stage 1 result before the follow-ups, without a tier, and their final AI-READY Score only
+        once the follow-up stage is closed: closing publishes it even when no answer changed anything."""
+        provisional = self.assess()
+        held = self.client.get(f'{self.base}/{provisional.pk}').data['assessment']['result']['depth_reserve']
+        stage = self.reports(provisional)['assessment_stage']
+        self.assertEqual((stage['stage'], stage['label'], stage['tier_shown']),
+                         ('provisional', 'Stage 1 result: Document Review', False))
+        self.assertEqual(stage['up_to'], held['evidence_score'])
+        self.assertIn('The final AI-READY Score and tier are published once', stage['note'])
+        html = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'leadership', 'file': 'html'})
+        self.assertIn(f"up to {held['evidence_score']:g} with your follow-up answers", html.content.decode())
+        self.assertIn('are awarded on the final AI-READY Score', html.content.decode())
+        evidence = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'evidence', 'file': 'html'})
+        self.assertNotIn('provisional tier:', evidence.content.decode())
+
+        listed = self.client.get(f'{self.base}/{provisional.pk}/questions').data
+        self.assertEqual(listed['notice']['points'], held['held_points'])
+        self.assertIn(f"up to {held['held_points']:g} points in total", listed['notice']['intro'])
+        self.assertEqual(len(listed['notice']['rules']), 3)
+
+        # Nothing answered: a plain re-judge publishes nothing; closing publishes the final result, no model call.
+        jobs_url = f'{self.base}/{provisional.pk}/second-layer/jobs'
+        self.post(jobs_url, {'operation': 'rejudge', 'options': {'close': True, 'publish': False}}, key='bad',
+                  expect=400)
+        self.post(jobs_url, {'operation': 'rejudge'}, key='plain', expect=202)
+        self.assertIsNone(self.run_queued()[0].final_run_id)
+        self.post(jobs_url, {'operation': 'rejudge', 'options': {'close': True}}, key='close', expect=202)
+        closed = self.run_queued()[0]
+        self.assertIsNotNone(closed.final_run_id, closed.result)
+        self.assertIn('Follow-up stage closed', closed.result['note'])
+        final = CapabilityRun.objects.get(pk=closed.final_run_id)
+        final_result = self.client.get(f'{self.base}/{final.pk}').data['assessment']['result']
+        self.assertEqual(final_result['score'], self.client.get(f'{self.base}/{provisional.pk}').data
+                         ['assessment']['result']['score'])
+        self.assertEqual(final_result['depth_reserve']['still_held_points'], held['held_points'])   # still held
+        stage = self.reports(final)['assessment_stage']
+        self.assertEqual((stage['stage'], stage['label'], stage['tier_shown'], stage['unchanged']),
+                         ('final', 'Final AI-READY Score', True, True))
+        self.assertIn('no answer changed the Stage 1 result', stage['note'])
+        old = self.reports(provisional)['assessment_stage']
+        self.assertEqual(old['final_run_id'], str(final.pk))
+        self.assertIn('has been published', old['note'])
 
     # ---------------------------------------------------------------- follow-up outcomes (21 Nov)
 
@@ -486,7 +607,8 @@ class ProductFlowTests(APITestCase):
         self.assertEqual(levels[dont_know], 'evidenced')
         self.assertNotIn(typed, levels)
 
-        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge'}, key='final', expect=202)
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge', 'options': {'close': True}},
+                  key='final', expect=202)
         rejudge = self.run_queued()[0]
         self.assertIsNotNone(rejudge.final_run_id, rejudge.result)
         self.assertTrue(rejudge.result['targets'])   # new evidence re-judged, and depth carried through the merge
@@ -564,8 +686,8 @@ class ProductFlowTests(APITestCase):
                    'picked': [sorted(set(i['code'] for i in release()['indicators']) - self.credited)[0]]},
                   expect=201)
         self.run_queued()
-        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge'}, key='publish-final',
-                  expect=202)
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge', 'options': {'close': True}},
+                  key='publish-final', expect=202)
         rejudge, explain_final = self.run_queued()
         self.assertEqual((explain_final.operation, explain_final.options), ('explain', {'final': True}))
         self.assertEqual(rejudge.result['explain_job_id'], str(explain_final.pk))
@@ -588,8 +710,8 @@ class ProductFlowTests(APITestCase):
                   {'document_ids': [self.document(WITHDRAWN)], 'note': 'The council withdrew the policy',
                    'picked': picked}, expect=201)
         self.run_queued()
-        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge'}, key='publish-final',
-                  expect=202)
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge', 'options': {'close': True}},
+                  key='publish-final', expect=202)
         rejudge = self.run_queued()[0]
         final = CapabilityRun.objects.get(pk=rejudge.final_run_id)
         final_detail = self.client.get(f'{self.base}/{final.pk}').data
