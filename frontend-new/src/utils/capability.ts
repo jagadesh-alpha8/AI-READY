@@ -61,8 +61,22 @@ export const tierLabel = (s: string) => TIER_ELIGIBILITY[s] || s.replace(/_/g, '
 export const capabilityTone = (s: string) =>
   s === 'demonstrated' || s === 'met' ? 'good' : s === 'requirements_unmet' || s === 'not_met' || s === 'conflicting' ? 'bad' : 'warn';
 
-/** Highest tier the run demonstrates, or null (never inferred from the upper bound). */
-export function achievedTier(r: Pick<Result, 'tiers' | 'badge_policy'>): string | null {
+/** The provisional tiers: score bands on the part-credit score (backend action_plan.DEFAULT_TIERS). */
+export const TIER_BANDS: [string, number][] = [['Silver', 60], ['Gold', 70], ['Platinum', 80], ['Diamond', 90]];
+export const TIER_BANDS_TEXT = TIER_BANDS.map(([n, v]) => `${n} ${v}`).join(', ');
+
+/** The band a part-credit score reaches, the next one and the points to it. */
+export function bandTier(score: number): { current: string | null; next: string | null; pointsToNext: number } {
+  const reached = TIER_BANDS.filter(([, v]) => score >= v);
+  const ahead = TIER_BANDS.filter(([, v]) => score < v);
+  return { current: reached.length ? reached[reached.length - 1][0] : null, next: ahead.length ? ahead[0][0] : null,
+    pointsToNext: ahead.length ? Math.round((ahead[0][1] - score) * 100) / 100 : 0 };
+}
+
+/** Highest tier the run demonstrates, or null (never inferred from the upper bound). A part-credit run's tier is
+ * its score band; the rubric's own tiers are not calibrated. */
+export function achievedTier(r: Pick<Result, 'tiers' | 'badge_policy'> & Partial<Pick<Result, 'score'>>): string | null {
+  if (r.score != null) return bandTier(r.score).current;
   if (r.badge_policy === 'not_calibrated') return null;
   const shown = r.tiers.filter((t) => t.eligibility === 'demonstrated');
   return shown.length ? shown[shown.length - 1].name : null;
@@ -119,3 +133,19 @@ export function heldLine(held?: DepthReserve | null): string | null {
   if (held.earned_back_points > 0) parts.push(`${pts(held.earned_back_points)} earned back by your follow-up answers`);
   return parts.length ? parts.join(' · ') : null;
 }
+/** The two stages a college sees (23 Nov): the Stage 1 result before the follow-up questions, and the Final AI-READY
+ * Score once the follow-up stage is closed (publishing the final result closes it). */
+export const STAGE_ONE = 'Stage 1 result: Document Review';
+export const FINAL_SCORE = 'Final AI-READY Score';
+export const stageLabel = (stage?: string | null) => (stage === 'final' ? FINAL_SCORE : STAGE_ONE);
+/** The tier is shown only on the final score: before the follow-ups the result is still open. */
+export const tierShown = (stage?: string | null) => stage === 'final';
+export const TIER_LATER = 'The tier is awarded on the final AI-READY Score, once the follow-up questions are complete.';
+
+/** The readiness areas' names, as the reports print them (backend report_projection.PILLARS). */
+export const PILLAR_NAMES: Record<string, string> = {
+  'AIQIF-C1': 'Leadership and investment', 'AIQIF-C2': 'Responsible and safe AI', 'AIQIF-C3': 'Curriculum and teaching',
+  'AIQIF-C4': 'Faculty and staff', 'AIQIF-C5': 'Student skills and careers', 'AIQIF-C6': 'Technology and data',
+  'AIQIF-C7': 'Research and innovation', 'AIQIF-C8': 'Services and partnerships', 'AIQIF-C9': 'Measurement and improvement',
+};
+export const pillarName = (code: string) => PILLAR_NAMES[code] || code;

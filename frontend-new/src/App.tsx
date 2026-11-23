@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { SprintProvider } from './context/SprintContext';
 import { Shell } from './components/Shell';
 import { Empty, Loading, PageLink } from './components/ui';
+import { DEMO_MODE } from './config/env';
 import { canSeePage, type PageKey } from './utils/access';
 import { pathOf } from './navigation';
 
@@ -85,7 +86,7 @@ function Protected({ page, children }: { page: PageKey; children: ReactNode }) {
   if (!user) return <Navigate to="/login" replace />;
   return (
     <Shell page={page}>
-      {canSeePage(user.role, page) ? children : (
+      {canSeePage(user.role, page) && !(DEMO_MODE && page === 'apistatus') ? children : (
         <Empty title="No access" action={<PageLink to="overview">Back to overview</PageLink>}>
           Your role does not include this screen.
         </Empty>

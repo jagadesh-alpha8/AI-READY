@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { RequireSprint } from '../components/RequireSprint';
 import { Bar, CheckItem, Empty, ErrorState, Loading, Notice, PageHeading, PageLink, Panel, Stat } from '../components/ui';
 import { CapabilityRunControl } from '../components/Capability';
+import { DEMO_MODE } from '../config/env';
 import { RunHistory } from '../components/RunHistory';
 import { useAccess } from '../hooks/useAccess';
 import { useCapability } from '../hooks/useCapability';
@@ -53,7 +54,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
 
   return (
     <>
-      <PageHeading page="assessment" actions={runButton} />
+      <PageHeading page="assessment" actions={!DEMO_MODE && runButton} />
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
       {!!cap.runs.data?.review_questions_awaiting && (
         <Notice tone="info">
@@ -63,6 +64,13 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
       )}
       <CapabilityRunControl sprintId={sprint.id} cap={cap} />
       {!!cap.error && <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} title="Could not load the capability assessment" />}
+      {DEMO_MODE && cap.run.data?.assessment && (
+        <Notice tone="info">
+          The result, area by area, is on <PageLink to="cri" className="link-button">Results</PageLink>. The follow-up
+          questions are on the <PageLink to="questionnaire" className="link-button">Questionnaire</PageLink>.
+        </Notice>
+      )}
+      {!DEMO_MODE && <>
       <RunHistory sprint={sprint} />
       <h2 className="section-title">Audit CRI (rubric over verified facts)</h2>
       <div className="stat-grid">
@@ -90,6 +98,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
           {verified === 0 && <p className="muted">Nothing is verified yet, so there is nothing to assess.</p>}
         </Panel>
       </div>
+      </>}
     </>
   );
 }

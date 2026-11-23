@@ -4,9 +4,10 @@ import type { useCapability } from '../hooks/useCapability';
 import { cancelRun, startRun } from '../services/capability';
 import type { Result, Run, ScoreExplanation } from '../types/capability';
 import {
-  capabilityTone, causeLabel, creditLabel, heldLine, indicatorScoreLabel, isPartCredit, newKey, partLabel, partTone, pillarScoreLabel,
-  scoreLabel, stateCounts, stateLabel, tierLabel,
+  bandTier, capabilityTone, causeLabel, creditLabel, heldLine, indicatorScoreLabel, isPartCredit, newKey, partLabel, partTone,
+  pillarName, pillarScoreLabel, scoreLabel, stageLabel, stateCounts, stateLabel, TIER_BANDS_TEXT, TIER_LATER, tierLabel, tierShown,
 } from '../utils/capability';
+import { DEMO_MODE } from '../config/env';
 import { errorMessage } from '../utils/errors';
 import { dateTime } from '../utils/format';
 import { ActionDialog, Bar, Notice, Panel, Pill, Stat } from './ui';
@@ -44,12 +45,22 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
   return (
     <>
       <div className="stat-grid">
-        <Stat label="Institutional AI capability"
+        <Stat label={partCredit ? stageLabel(run.stage) : 'Institutional AI capability'}
           value={!partCredit && result.aggregation === 'independent_conditions' && result.condition_decision_coverage === 0 ? 'Review needed' : scoreLabel(result)}
           note={heldText || (partCredit ? 'What the documents show, with partial credit' : result.exact_score === null ? 'Bounds: unresolved evidence is not counted as capability' : 'Exact score')} />
-        <Stat label="Resolved indicator weight" value={`${result.assessment_coverage}%`} note="Evidence resolution, not model confidence" />
-        <Stat label="Decided conditions" value={`${result.condition_decision_coverage}%`} note={`${counts.met} demonstrated · ${counts.not_met} shortfalls`} />
-        <Stat label="Unknown / contradictory" value={counts.unknown + counts.conflicting} note="Remain unknown; never a pass or fail" />
+        {DEMO_MODE && partCredit ? (
+          <>
+            <Stat label="Requirements shown" value={`${counts.met}`} note={`of ${counts.met + counts.not_met + counts.unknown + counts.conflicting}, in full`} />
+            <Stat label="Not yet shown" value={counts.unknown + counts.conflicting} note="Nothing found in the documents yet" />
+            <Stat label="Readiness areas" value={result.pillars.length} note="Each scored out of 100" />
+          </>
+        ) : (
+          <>
+            <Stat label="Resolved indicator weight" value={`${result.assessment_coverage}%`} note="Evidence resolution, not model confidence" />
+            <Stat label="Decided conditions" value={`${result.condition_decision_coverage}%`} note={`${counts.met} demonstrated · ${counts.not_met} shortfalls`} />
+            <Stat label="Unknown / contradictory" value={counts.unknown + counts.conflicting} note="Remain unknown; never a pass or fail" />
+          </>
+        )}
       </div>
       {held && heldText && (
         <Notice tone="info">
@@ -66,19 +77,19 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
         <Panel title="Nine readiness areas" sub="Part-credit score per area: a requirement earns credit for each part the documents evidence">
           {result.pillars.map((p) => {
             const d = result.documented?.pillars.find((x) => x.code === p.code);
-            return d ? <Bar key={p.code} label={p.code} value={d.score} /> : (
+            return d ? <Bar key={p.code} label={pillarName(p.code)} value={d.score} /> : (
               <div key={p.code} className="bar-row"><span>{p.code}</span><span className="muted">{pillarScoreLabel(result, p.code, p.lower, p.upper)}</span><b /></div>
             );
           })}
           <details className="indicator">
             <summary>How each area score was reached</summary>
             {result.documented?.pillars.some((x) => x.explanation) ? result.documented.pillars.map((x) => (
-              <article key={x.code} className="condition"><b>{x.code}</b><ScoreExplanationBlock explanation={x.explanation} /></article>
+              <article key={x.code} className="condition"><b>{pillarName(x.code)}</b><ScoreExplanationBlock explanation={x.explanation} /></article>
             )) : <ScoreExplanationBlock />}
           </details>
         </Panel>
       )}
-      {causes && (causes.unknown_evidentiary + causes.unknown_review + causes.unknown_processing) > 0 && (
+      {!DEMO_MODE && causes && (causes.unknown_evidentiary + causes.unknown_review + causes.unknown_processing) > 0 && (
         <Panel title="Why conditions are still unknown" sub="Unknown is read as missing evidence, a review hold or a processing problem">
           <div className="stat-grid">
             <Stat label="Evidence not supplied" value={causes.unknown_evidentiary} note="Upload or request the evidence" />
@@ -87,8 +98,18 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
           </div>
         </Panel>
       )}
-      <Panel title="Maturity eligibility" sub={`${result.methodology} · frozen ${dateTime(run.created_at)} · ${run.reference_period || 'default scope'}`}>
-        {result.badge_policy === 'not_calibrated' ? (
+      <Panel title={DEMO_MODE ? 'Tier' : 'Maturity eligibility'} sub={`${result.methodology} · frozen ${dateTime(run.created_at)} · ${run.reference_period || 'default scope'}`}>
+        {partCredit && !tierShown(run.stage) ? (
+          <p className="muted">{TIER_LATER}</p>
+        ) : partCredit && result.score != null ? (() => {
+          const band = bandTier(result.score);
+          return (
+            <p>
+              <b>Tier: {band.current || 'none yet'}</b>{band.next ? ` · ${band.pointsToNext} points to ${band.next}` : ''}.{' '}
+              <span className="muted">Tiers are score bands ({TIER_BANDS_TEXT}), provisional and not yet calibrated across colleges.</span>
+            </p>
+          );
+        })() : result.badge_policy === 'not_calibrated' ? (
           <p className="muted">Silver, Gold and Platinum standards are being calibrated. A readiness score alone does not award a maturity badge.</p>
         ) : (
           <div className="tier-grid">
@@ -106,7 +127,7 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
             ))}
           </div>
         )}
-        <p className="muted">Experimental internal criteria; these tiers are not external accreditation standards.</p>
+        {!DEMO_MODE && <p className="muted">Experimental internal criteria; these tiers are not external accreditation standards.</p>}
       </Panel>
     </>
   );
@@ -186,6 +207,9 @@ export function CapabilityRunControl({ sprintId, cap }: { sprintId: string; cap:
     <Panel title="Evidence-based capability assessment" sub={newest ? `Latest run ${dateTime(newest.created_at)}` : 'No run yet'}
       actions={newest && <Pill status={newest.status === 'queued' ? 'pending' : newest.status} label={newest.stalled ? 'Stalled' : newest.status} />}>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
+      {cap.assessment && isPartCredit(cap.assessment.result) && (
+        <p><Pill tone={tierShown(cap.stage) ? 'good' : 'neutral'} label={stageLabel(cap.stage)} /> <b>{scoreLabel(cap.assessment.result)}</b></p>
+      )}
       {cap.running && <Notice tone="info">Assessment in progress. This view refreshes every few seconds.</Notice>}
       {!cap.enabled && <p className="muted">Assessment inference is disabled by the deployment administrator. Existing results stay readable.</p>}
       <div className="button-row">

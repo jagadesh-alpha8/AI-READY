@@ -189,6 +189,8 @@ def finish(run_id, state, error_code):
         'budget_exhausted': 'Review partial decisions and request/cost limits before starting a new assessment.',
         'usage_telemetry_missing': 'Configure the provider to report token usage before starting a new assessment.',
         'provider_quota_exhausted': 'Restore provider credit or quota before starting a new assessment.',
+        'model_unavailable': ('The AI provider stopped answering partway through (repeated server errors), so this run '
+                              'was not published. Start a new assessment once the provider is answering again.'),
     }
     CapabilityRunEvent.objects.create(run_id=run_id, state=state, payload={
         'error_code': error_code, 'next_action': actions.get(error_code,

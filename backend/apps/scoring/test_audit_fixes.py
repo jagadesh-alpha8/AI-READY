@@ -140,7 +140,9 @@ class ClosingFixes(ProductFlowTests):
         self.assertFalse([t for t in written if 'Pillar floor' in t or 'no badge awarded' in t])
         closed = self.close(provisional)
         html = self.client.get(f'{self.base}/{closed.final_run_id}/report', {'audience': 'evidence', 'file': 'html'})
-        self.assertIn('Current eligibility', html.content.decode())   # the final score shows it
+        # The final score shows its tier, as a score band (from main-demo, 23 Nov) rather than the uncalibrated table.
+        self.assertIn('Tiers are score bands (Silver 60, Gold 70, Platinum 80, Diamond 90)', html.content.decode())
+        self.assertNotIn('Current eligibility', html.content.decode())
 
     def close(self, provisional, key='close'):
         self.post(self.jobs_url(provisional), {'operation': 'rejudge', 'options': {'close': True}}, key=key, expect=202)

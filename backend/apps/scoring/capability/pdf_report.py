@@ -91,8 +91,14 @@ def render_pdf(report, indicators, actions):
             pdf.paragraph('The lower bound is demonstrated capability. The upper bound is not demonstrated capability.')
         pdf.paragraph(f"Resolved indicator weight: {result['assessment_coverage']}%. "
                       f"Decided conditions: {result['condition_decision_coverage']}%. These are evidence-resolution measures.")
-    # Tier eligibility only on the final AI-READY Score (Siddharth, 23 Nov; the audit found it still listed at Stage 1).
-    for tier in (result['tiers'] if (report.get('assessment_stage') or {}).get('tier_shown', True) else []):
+    band = report.get('tier_band')
+    if not stage.get('tier_shown', True):
+        pdf.paragraph('The tier is awarded on the final AI-READY Score, once the follow-up questions are complete.')
+    elif band:
+        pdf.paragraph(f"Tier: {band['current'] or 'none yet'}"
+                      + (f"; {band['points_to_next']} points to {band['next']}" if band['next'] else '')
+                      + f". Tiers are score bands ({band['bands']}), provisional and not yet calibrated across colleges.")
+    for tier in (result['tiers'] if stage.get('tier_shown', True) and not band else []):
         if tier['threshold'] is None:
             pdf.paragraph(f"{tier['name']}: achievement requirements are not calibrated; no badge awarded.")
             continue
@@ -141,8 +147,9 @@ def render_pdf(report, indicators, actions):
                 pdf.paragraph('Source quote: ' + cite['quote'])
                 pdf.paragraph(source_labels.get(cite['source_id'], 'Frozen source') + ' | Page ID: ' + cite['source_id'], small=True)
     pdf.add_page()
-    pdf.section('Next improvements and conditional tier pathways')
-    for path in report['assessment']['pathways']:
+    if not band:
+        pdf.section('Next improvements and conditional tier pathways')
+    for path in ([] if band else report['assessment']['pathways']):
         pdf.paragraph(path['target'], heading=True)
         pdf.paragraph(path['note'])
         pdf.paragraph(f"Scenario sufficient: {path['scenario_sufficient']}. Already demonstrated: {path['already_demonstrated']}.")
@@ -155,7 +162,7 @@ def render_pdf(report, indicators, actions):
     if priority:
         tier = priority['tier']
         if stage.get('tier_shown', True):
-            pdf.paragraph(f"Score {priority['score']}; provisional tier: {tier['current'] or 'none yet'}"
+            pdf.paragraph(f"Score {priority['score']}; tier: {tier['current'] or 'none yet'}"
                           + (f"; {tier['points_to_next']} points to {tier['next']}." if tier['next'] else '.'))
         else:
             pdf.paragraph(f"Score {priority['score']} at Stage 1; the tier is awarded on the final AI-READY Score.")

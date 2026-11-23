@@ -474,7 +474,8 @@ def fallback_requirement(requirement, indicator):
     looked = '' if full else (f'We searched every document you uploaded; the closest passages were in '
                               f'{_list(documents)}.' if documents else 'We searched every document you uploaded.')
     missing = requirement['still_missing']
-    next_step = '' if full else (f'Next step: show {_lower_first(missing[0]).rstrip(".")}.' if missing else '')
+    # The reports and screens put "Next step:" in front of it themselves.
+    next_step = '' if full else (f'Show {_lower_first(missing[0]).rstrip(".")}.' if missing else '')
     return {'found': found, 'text': text, 'looked': looked, 'next_step': next_step,
             'quote_ids': ['Q1'] if found else [], 'fallback': True}
 
@@ -515,9 +516,11 @@ def build_target(run):
             'plan': build_plan(inputs['rubric'], records)}
 
 
-def _explain_area(area, target, model, take_call):
+def _explain_area(area, target, model, take_call, skip_error=None):
     """One area: up to two calls, the checks, and fallbacks for whatever still fails. take_call() reserves one call
-    under the explanation's own cap (False when the cap is spent)."""
+    under the explanation's own cap (False when the cap is spent). skip_error: a test for request failures (a timeout,
+    a malformed reply) that leave this area on the plain fallback text instead of failing the whole job; anything
+    else (a spent budget, a cancelled job) still stops it."""
     payload = area_input(area, target)
     ids = [r['condition_id'] for i in payload['indicators'] for r in i['requirements']]
     codes = [i['code'] for i in payload['indicators']]
@@ -531,7 +534,13 @@ def _explain_area(area, target, model, take_call):
                                   'instruction': 'Write the whole answer again, fixing every problem.'},
                                  ensure_ascii=False)
         calls += 1
-        response = model(SYSTEM_PROMPT, content, schema(ids, codes), 'score_explanations')
+        try:
+            response = model(SYSTEM_PROMPT, content, schema(ids, codes), 'score_explanations')
+        except Exception as exc:
+            if skip_error is None or not skip_error(exc):
+                raise
+            errors = [f'request failed: {type(exc).__name__}']
+            break
         checked, errors = validate(payload, response)
         # Keep the best of each entry across attempts: an entry that passed once stays.
         passed['requirements'].update({k: v for k, v in checked['requirements'].items()
@@ -557,7 +566,7 @@ def _explain_area(area, target, model, take_call):
     return {'passed': passed, 'errors': errors[:40], 'calls': calls, 'fallbacks': fallbacks}
 
 
-def explain(target, model, *, max_calls=None, concurrency=1):
+def explain(target, model, *, max_calls=None, concurrency=1, skip_error=None):
     """{'version', 'run_id', 'event_id', 'areas': {code: ...}, 'indicators': {code: ...}, 'requirements': {cid: ...},
     'fallbacks': [ids], 'calls': n}. model: the depth code's interface (system, content, schema, name) -> dict.
     concurrency: areas written side by side (the assessment's indicator concurrency in the job); the meter's
@@ -579,7 +588,7 @@ def explain(target, model, *, max_calls=None, concurrency=1):
             return True
 
     if concurrency <= 1:
-        results = [_explain_area(area, target, model, take_call) for area in areas]
+        results = [_explain_area(area, target, model, take_call, skip_error) for area in areas]
     else:
         import contextvars
         from concurrent.futures import ThreadPoolExecutor
@@ -587,7 +596,7 @@ def explain(target, model, *, max_calls=None, concurrency=1):
 
         def run_in_thread(area):
             try:
-                return _explain_area(area, target, model, take_call)
+                return _explain_area(area, target, model, take_call, skip_error)
             finally:
                 connections.close_all()
         executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix='capability-explain')

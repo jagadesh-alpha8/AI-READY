@@ -135,6 +135,15 @@ class SelectionTests(SimpleTestCase):
         self.assertIn('attendance list or participation certificates', text)
         self.assertIn('If you do not have them, please say so.', text)
 
+    def test_missing_question_lists_foundations_before_adoption_and_optimisation(self):
+        ids = ['AIQIF-C2.1.A1', 'AIQIF-C2.1.O1', 'AIQIF-C2.1.F2', 'AIQIF-C2.1.F1', 'AIQIF-C2.1.A2']
+        text = depth.missing_question({'indicator': 'AIQIF-C2.1', 'condition_ids': ids})
+        entries = depth.spec()['indicators']['AIQIF-C2.1']['conditions']
+        positions = [text.index(entries[cid]['assertion']) for cid in
+                     ['AIQIF-C2.1.F1', 'AIQIF-C2.1.F2', 'AIQIF-C2.1.A1', 'AIQIF-C2.1.A2', 'AIQIF-C2.1.O1']]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('1. ' + entries['AIQIF-C2.1.F1']['assertion'], text)
+
 
 class QuestionTests(SimpleTestCase):
     def test_model_output_is_checked(self):

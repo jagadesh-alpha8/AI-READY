@@ -105,6 +105,13 @@ class AssessmentRecoveryTests(SimpleTestCase):
         self.assertTrue(all(row['state'] == 'unknown' for row in result['records']))
         self.assertTrue(all(row['reason'].startswith('Model evaluation failed') for row in result['records']))
         self.assertIn('circuit open', result['records'][-1]['reason'])
+        self.assertEqual(result['circuit_skipped_indicators'], 2)   # the last two were never sent
+
+    def test_no_circuit_skips_when_the_provider_recovers(self):
+        ok = {'conditions': [{'condition_id': str(n), 'state': 'unknown', 'reason': 'Nothing found.', 'citations': [],
+                              'scope_supported': False, 'period_supported': False} for n in range(4)]}
+        service, result = self.run_evaluation([ProviderUnavailable(kind='timeout'), ok, ok, ok])
+        self.assertEqual(result['circuit_skipped_indicators'], 0)
 
     def test_repeated_single_item_truncation_is_bounded(self):
         service, result = self.run_evaluation([AIOutputTruncated(), AIOutputTruncated()])
@@ -315,12 +322,13 @@ class PersistedRecoveryTests(APITestCase):
         self.assertTrue(all(row['state'] == 'unknown' and not row['citations'] for row in failed))
         self.assertEqual(calls, 37)
 
-    def test_persistent_outage_stops_http_and_publishes_only_processing_unknowns(self):
+    def test_persistent_outage_stops_http_and_fails_the_run(self):
+        """Until 23 Nov an outage run was published with every key indicator a processing unknown, and the screens took
+        it as the latest result (run 80952be2). Now the run fails with model_unavailable and nothing is published."""
         self.sdk.chat.completions.create.side_effect = APITimeoutError(
             request=httpx.Request('POST', 'https://provider.example'))
         execution = self.execute(self.start())
-        self.assertEqual(execution.status, 'completed')
-        result = execution.run.events.filter(state='completed', payload__result__isnull=False).last().payload
-        self.assertEqual(len(result['records']), 216)
-        self.assertTrue(all(row['state'] == 'unknown' for row in result['records']))
+        self.assertEqual(execution.status, 'failed')
+        self.assertFalse(execution.run.events.filter(state='completed').exists())
+        self.assertEqual(execution.run.events.filter(state='failed').last().payload['error_code'], 'model_unavailable')
         self.assertEqual(self.sdk.chat.completions.create.call_count, 4)

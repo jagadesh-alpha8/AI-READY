@@ -1170,7 +1170,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                  tie_break=tie_break, quote_repair=quote_repair)
     structure = None
     frozen_policy = retrieval_policy or {}
-    state = {'calls': 0, 'repairs': 0, 'streak': 0, 'follow_up_calls': 0}
+    state = {'calls': 0, 'repairs': 0, 'streak': 0, 'follow_up_calls': 0, 'circuit_skipped': 0}
     lock = threading.Lock()
     if frozen_policy.get('follow_up') is not None:
         from . import follow_up as extra
@@ -1207,6 +1207,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
             if job['issue']:
                 return False, job['issue']
             if recover_provider_errors and state['streak'] >= 2:
+                state['circuit_skipped'] += 1
                 return False, 'Model evaluation failed (response circuit open). Capability is unknown; no further requests were made.'
             if state['calls'] >= max_calls:
                 return False, 'Evaluation call budget reached. Capability is unknown.'
@@ -1267,5 +1268,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     return {'records': records, 'decisions': {r['condition_id']: r['state'] for r in records},
             'traces': traces, 'indicator_calls': calls, 'correction_calls': repair_calls,
             **({'follow_up_requests': state['follow_up_calls']} if 'follow_up' in judge else {}),
+            # Key indicators never sent because the provider kept failing (two unavailable answers in a row). The
+            # assessment task does not publish such a run: its unknowns are an outage, not missing evidence.
+            'circuit_skipped_indicators': state['circuit_skipped'],
             'note': 'Citation validation checks grounding; semantic interpretation still requires quality evaluation. '
                     'correction_calls counts additional bounded decision-correction batches. Provider retries also spend the metered SDK budget; indicator_calls is not a billing-call count.'}
