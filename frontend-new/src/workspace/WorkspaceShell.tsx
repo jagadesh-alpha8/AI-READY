@@ -6,6 +6,7 @@ import { useSprint } from '../context/SprintContext';
 import { useAccess } from '../hooks/useAccess';
 import { useResource } from '../hooks/useResource';
 import { getEvidenceRequestSummary } from '../services/evidenceRequests';
+import { listRuns } from '../services/capability';
 import type { EvidenceRequestSummary } from '../types/api';
 import type { PageKey } from '../utils/access';
 import { roleLabel } from '../utils/access';
@@ -42,6 +43,12 @@ export function WorkspaceShell({ page, children }: { page: PageKey; children: Re
   const institutionName = sprint?.institution_name || 'No institution yet';
   const manyInstitutions = new Set(sprints.map((s) => s.institution_id)).size > 1;
   const stepIndex = JOURNEY_STEPS.findIndex((s) => s.key === section.key);
+  // How far the college has got, from its assessments (a light list call): a result means the documents and the
+  // assessment are done; a final result means the results step is done too.
+  const runs = useResource(() => listRuns(sprint!.id), `ws-journey:${sprint?.id}:${page}`, !!sprint && stepIndex >= 0);
+  const completed = runs.data?.results.filter((r) => r.status === 'completed') || [];
+  const reached = completed.some((r) => r.stage === 'final') ? 3 : completed.length ? 2 : -1;
+  const isDone = (i: number) => (i < stepIndex || i <= reached) && i !== stepIndex;
 
   const firstPage = (key: string) => {
     const s = SECTIONS.find((x) => x.key === key)!;
@@ -135,9 +142,9 @@ export function WorkspaceShell({ page, children }: { page: PageKey; children: Re
                   {JOURNEY_STEPS.map((s, i) => {
                     const target = firstPage(s.key);
                     return (
-                      <button key={s.key} className={i < stepIndex ? 'done' : i === stepIndex ? 'current' : ''}
+                      <button key={s.key} className={isDone(i) ? 'done' : i === stepIndex ? 'current' : ''}
                         onClick={() => target && navigate(pathOf(target))}>
-                        <span className="step-n">{i < stepIndex ? <Icon name="check" /> : i + 1}</span>
+                        <span className="step-n">{isDone(i) ? <Icon name="check" /> : i + 1}</span>
                         <span>{s.label}</span>
                       </button>
                     );

@@ -102,3 +102,25 @@
 .ws .ws-technical summary { cursor: pointer; }
 .ws .ws-technical .ws-row { margin-top: 10px; }
 .ws .ws-technical p { margin: 8px 0 0; }
+
+/* Assessment steps */
+.ws .ws-steps { display: grid; grid-template-columns: repeat(4, 1fr); background: white; border: 1px solid var(--line); border-radius: 6px; }
+@media (max-width: 1000px) { .ws .ws-steps { grid-template-columns: 1fr 1fr; } }
+.ws .ws-step { display: flex; gap: 12px; padding: 20px; border-right: 1px solid var(--line); }
+.ws .ws-step:last-child { border-right: 0; }
+.ws .ws-step h3 { font-size: 14px; }
+.ws .ws-step p { font-size: 13px; color: var(--muted); margin: 6px 0 8px; line-height: 1.5; }
+.ws .ws-step-mark { width: 26px; height: 26px; border-radius: 50%; border: 1px solid #dce3dc; display: grid; place-items: center; font-size: 12px; color: var(--muted); flex-shrink: 0; }
+.ws .ws-step.done .ws-step-mark { background: var(--green); border-color: var(--green); color: white; }
+.ws .ws-step.current { background: #f3f8ec; }
+.ws .ws-step.current .ws-step-mark { background: var(--olive); border-color: var(--olive); color: var(--green); }
+.ws .ws-pulse { animation: ws-pulse 1.6s ease-in-out infinite alternate; }
+@keyframes ws-pulse { from { opacity: .45; } to { opacity: 1; } }
+
+/* Recommended actions */
+.ws .ws-action-list { display: grid; gap: 12px; }
+.ws .ws-action { display: flex; gap: 16px; background: white; border: 1px solid var(--line); border-radius: 6px; padding: 20px; }
+.ws .ws-action > div { flex: 1; min-width: 0; }
+.ws .ws-action h3 { font-size: 15px; }
+.ws .ws-action-n { width: 28px; height: 28px; border-radius: 50%; background: var(--green); color: white; display: grid; place-items: center; font-size: 13px; font-weight: 650; flex-shrink: 0; }
+.ws .ws-action .ws-source { font-size: 12px; color: var(--muted); margin-top: 4px; }

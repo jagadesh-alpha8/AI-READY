@@ -44,6 +44,9 @@ import { ReadinessAreas } from './workspace/ReadinessAreas';
 import { OverviewPage } from './workspace/OverviewPage';
 import { ResultsSummary } from './workspace/ResultsSummary';
 import { PathwayPage } from './workspace/PathwayPage';
+import { AssessmentPage } from './workspace/AssessmentPage';
+import { ActionsPage } from './workspace/ActionsPage';
+import { PacePage } from './workspace/PacePage';
 
 const PAGES: Record<PageKey, () => JSX.Element> = {
   overview: OverviewPage,
@@ -54,12 +57,12 @@ const PAGES: Record<PageKey, () => JSX.Element> = {
   uploads: Uploads,
   evidence: EvidenceIntelligence,
   review: EvidenceReview,
-  assessment: Assessment,
+  assessment: DEMO_MODE ? AssessmentPage : Assessment,
   benchmark: BenchmarkComparison,
   gaps: GapAnalysis,
   cri: ResultsSummary,
   pathway: PathwayPage,
-  plan: TransformationPlan,
+  plan: DEMO_MODE ? PacePage : TransformationPlan,
   goals: GoalsTasks,
   reports: Reports,
   copilot: Advisor,
@@ -75,7 +78,7 @@ const PAGES: Record<PageKey, () => JSX.Element> = {
   aiqif: AIQIFTagging,
   baseline: BaselineApproval,
   questionnaire: Questionnaire,
-  actions: RecommendedActions,
+  actions: DEMO_MODE ? ActionsPage : RecommendedActions,
   plancompare: PlanComparison,
   institutions: Institutions,
   assessmentsetup: AssessmentSetup,

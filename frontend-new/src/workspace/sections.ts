@@ -33,7 +33,7 @@ export const SECTIONS: Section[] = [
       { page: 'compliance', label: 'Compliance', internal: true }] },
   { key: 'transformation', icon: 'route', label: 'Transformation', eyebrow: 'Campus transformation', title: 'Turn your result into progress',
     text: 'Where the next level is, the pace that suits you, and the plan to get there.',
-    tabs: [{ page: 'pathway', label: 'Your pathway' }, { page: 'plan', label: 'Choose a pace' }, { page: 'goals', label: 'Goals & tasks' },
+    tabs: [{ page: 'pathway', label: 'Your pathway' }, { page: 'plan', label: 'Choose a pace' }, { page: 'goals', label: 'Goals & tasks', internal: true },
       { page: 'plancompare', label: 'Check your own plan' }] },
   { key: 'admin', icon: 'settings', label: 'Administration', eyebrow: 'InGage workspace', title: 'Platform administration', staff: true,
     text: 'Manage institutions, the benchmark library and assessment standards.',

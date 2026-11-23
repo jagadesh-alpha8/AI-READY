@@ -1,9 +1,10 @@
 // End-to-end rehearsal of frontend-new's production build against scripts/rehearsal/standin_server.py.
 //
-// Drives the college's whole flow in a real browser: the Stage 1 assessment, the overview and results with no tier,
-// follow-up questions (an answer with an upload, a Skip), a document we missed, "Check answers now", publishing
-// (closing the follow-up stage), the Final AI-READY Score with its tier band, every report for both results, and plan
-// evaluation. Stops at the first step that doesn't show what it should, and leaves a screenshot of it.
+// Drives the college's whole flow in a real browser, in the workspace design (23 Nov): the Stage 1 assessment, the
+// overview and results with the level and stars ("so far"), follow-up questions (an answer with an upload, "I need to
+// check", a Skip), a document we missed, publishing (closing the follow-up stage), the final result, the leadership
+// and detailed reports and the technical appendix for both results, actions, paces, and plan evaluation. Stops at
+// the first step that doesn't show what it should, and leaves a screenshot of it.
 //
 // Usage, with the stand-in server on :8000 and `npx vite preview --port 4173` running in frontend-new:
 //   PLAYWRIGHT_MODULE=/path/to/node_modules/playwright/index.mjs node scripts/rehearsal/rehearse.mjs
@@ -88,13 +89,16 @@ async function expectNoText(pattern, message) {
   const body = await text();
   if (pattern instanceof RegExp ? pattern.test(body) : body.includes(pattern)) throw new Error(`${message || 'did not expect'} ${pattern}`);
 }
-async function open(link) {
-  await page.getByRole('link', { name: link, exact: true }).first().click();
+// The workspace's pages by address (the sidebar names sections; the pages are tabs within them).
+async function open(path) {
+  await page.goto(`${BASE}${path}`);
   await page.waitForLoadState('networkidle');
 }
+const scoreOnPage = async () => Number(((await page.locator('[aria-label*="out of 100"]').first().getAttribute('aria-label')) || '').match(/score (\d+) out of 100/)?.[1]);
+const OLD_WORDS = /\b(Silver|Gold|Platinum|Diamond|Tier:|AIQIF-C\d)/;
 async function reload() { await page.reload(); await page.waitForLoadState('networkidle'); }
 const button = (name, exact = false) => main().getByRole('button', { name, exact }).first();
-async function tab(name) { await main().getByRole('tab', { name }).click(); await page.waitForLoadState('networkidle'); }
+async function tab(name) { await main().getByRole('tablist', { name: 'Questionnaire' }).getByRole('tab', { name }).click(); await page.waitForLoadState('networkidle'); }
 // Click and wait for the API call it makes, so a click on a page that is still re-rendering isn't lost.
 async function clickAndWait(locator, urlPart) {
   const [response] = await Promise.all([
@@ -115,70 +119,86 @@ await step('sign in', async () => {
 });
 
 await step('Stage 1 assessment from the Assessment page', async () => {
-  await open('Assessment');
-  await button('Start new assessment').click();
-  await button('Start (uses credits)').click();
-  await expectText(/STAGE 1 RESULT: DOCUMENT REVIEW|Stage 1 result: Document Review/i, 'the Stage 1 label');
+  await open('/assessment');
+  await expectText('Run your assessment');
+  await button('Run the assessment', true).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Run the assessment' }).click();
+  // The stand-in runs the assessment inside the request, so the dialog stays until it has finished.
+  await page.getByRole('dialog').waitFor({ state: 'detached', timeout: 300000 });
+  await page.waitForLoadState('networkidle');
+  await expectText('Your Stage 1 result', 'the Stage 1 result on the Assessment page:');
+  await expectText(/so far/);
   await shot('assessment-stage-1');
 });
 
-await step('Overview and Results show the Stage 1 result and no tier', async () => {
-  await open('Overview');
-  await expectText(/Stage 1/i);
-  stageOne = Number(((await text()).match(/(\d+(?:\.\d+)?)\s*\n?\s*AI-READY score \/ 100/) || [])[1]);
+await step('Overview and Results show the Stage 1 level, in words and stars, with no old tier names', async () => {
+  await open('/');
+  await expectText(/Stage 1 · from your documents/i);
+  stageOne = await scoreOnPage();
   if (!Number.isFinite(stageOne)) throw new Error('no Stage 1 score on the overview');
-  await expectNoText(/Final AI-READY Score\s*\n?\s*\d/, 'a final score before publishing:');
+  await expectText(/Starting out|Getting there|Prepared|Advanced|Leading/);
+  await expectNoText(OLD_WORDS, 'an old tier name or a code:');
   await shot('overview-stage-1');
-  await open('Results');
-  await expectText('The tier is awarded on the final AI-READY Score');
-  await expectNoText(/Tier: (none yet|Silver|Gold|Platinum|Diamond)/, 'a tier at Stage 1:');
-  await expectNoText(/Audit CRI|Unverified/, 'the old pillar score in demo mode:');
+  await open('/cri');
+  await expectText(/Starting out|Getting there|Prepared|Advanced|Leading/);
+  await expectNoText(OLD_WORDS, 'an old tier name or a code on Results:');
+  await open('/areas');
+  await expectText('What to show next');
   await shot('results-stage-1');
 });
 
 await step('plan the follow-up questions', async () => {
-  await open('Questionnaire');
+  await open('/questionnaire');
   await expectText('Before you start');
   await button('Plan follow-up questions').click();
   await page.waitForTimeout(1500);
   await reload();
-  await expectText(/Question 1 of \d+/);
+  await expectText(/Question 1 of \d+/i);
 });
 
-await step('answer a question with an uploaded document', async () => {
-  await main().locator('input[type=file]').first().setInputFiles(REGISTER);
+await step('answer "Yes" with an uploaded document', async () => {
+  await main().locator('label.choice', { hasText: 'Yes, with supporting evidence' }).click();
   await main().locator('textarea').first().fill('Item 1: 85 of 120 faculty completed the accredited programme; the register is attached.');
-  await clickAndWait(button('Submit answer'), '/responses');
+  await main().locator('input[type=file]').first().setInputFiles(REGISTER);
+  await clickAndWait(button('Save & continue'), '/responses');
   await page.waitForTimeout(1500);
   await reload();
   if ((await text()).includes('One follow-up')) {   // the check asked one follow-up: Skip it
-    await clickAndWait(button('Skip', true), '/follow-up');
+    await clickAndWait(button('Skip this question'), '/follow-up');
     await reload();
   }
   await expectText(/Questions answered\s*\n?\s*1\s*\/\s*\d+/, 'one question answered:');
 });
 
+await step('"I need to check" saves the question for later', async () => {
+  await main().getByText(/Question \d+ of \d+/i).first().waitFor();
+  await main().locator('label.choice', { hasText: 'I need to check' }).click();
+  await clickAndWait(button('Save for later'), '/to-check');
+  await reload();
+  await expectText(/Questions answered\s*\n?\s*1\s*\/\s*\d+/, 'still one answered (a mark is not an answer):');
+});
+
 await step('Skip a question', async () => {
-  await main().getByText(/Question \d+ of \d+/).first().waitFor();
-  await clickAndWait(button('Skip', true), '/responses');
+  await main().getByText(/Question \d+ of \d+/i).first().waitFor();
+  await clickAndWait(button('Skip this question'), '/responses');
   await reload();
   await expectText(/Questions answered\s*\n?\s*2\s*\/\s*\d+/, 'two questions answered:');
   await shot('questionnaire-answered');
 });
 
-await step('send a document we missed', async () => {
+await step('send a document we missed (areas by name, not code)', async () => {
   await tab('Send a document we missed');
   await main().locator('input[type=file]').first().setInputFiles(MINUTES);
   await main().locator('textarea').first().fill('Board minutes adopting an AI research ethics review procedure.');
   // An area with gaps at Stage 1 (Research and innovation), so the document can raise the score.
-  await main().locator('label', { hasText: 'AIQIF-C7 (whole area)' }).locator('input[type=checkbox]').check();
+  await main().locator('label', { hasText: 'Research and innovation' }).first().locator('input[type=checkbox]').check();
   await clickAndWait(button('Submit evidence'), '/additional-evidence');
   await reload();
   await tab('Send a document we missed');
   await expectNoText('Nothing submitted yet.', 'the submission listed:');
 });
 
-await step('"Check answers now", then publish (close the follow-up stage)', async () => {
+await step('publish the final result (close the follow-up stage)', async () => {
   await tab('Follow-up questions');
   if (await button('Check answers now').isVisible().catch(() => false)) {
     await button('Check answers now').click();
@@ -191,8 +211,8 @@ await step('"Check answers now", then publish (close the follow-up stage)', asyn
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1500);
     const body = await text();
-    if (/Judge evidence depth/.test(body) && /have not been judged yet/.test(body)) {
-      await button('Judge evidence depth').click();   // depth answers must be judged before closing
+    if (/Check how far the evidence goes/.test(body) && /have not been judged yet/.test(body)) {
+      await button('Check how far the evidence goes').click();   // depth answers must be judged before closing
       await page.waitForLoadState('networkidle');
       await reload();
       continue;
@@ -204,42 +224,61 @@ await step('"Check answers now", then publish (close the follow-up stage)', asyn
   await shot('questionnaire-closed');
 });
 
-await step('Overview and Results show the Final AI-READY Score and its tier band', async () => {
-  await open('Overview');
-  await expectText(/Final AI-READY Score/i);
-  const finalScore = Number(((await text()).match(/(\d+(?:\.\d+)?)\s*\n?\s*AI-READY score \/ 100/) || [])[1]);
+await step('Overview, Results and Assessment show the final result', async () => {
+  await open('/');
+  await expectText('Final result');
+  const finalScore = await scoreOnPage();
   if (!(finalScore > stageOne)) throw new Error(`the final score (${finalScore}) should be above Stage 1 (${stageOne}): both documents carry new evidence`);
-  await open('Results');
-  await expectText(/Final AI-READY Score/i);
-  await expectText(/Tier: (none yet|Silver|Gold|Platinum|Diamond)/);
-  await expectText('Silver 60, Gold 70, Platinum 80, Diamond 90');
+  await expectNoText(OLD_WORDS, 'an old tier name or a code:');
+  await open('/cri');
+  await expectNoText(OLD_WORDS, 'an old tier name or a code on Results:');
   await shot('results-final');
+  await open('/assessment');
+  await expectText('Your final result');
 });
 
-await step('every report for both results downloads', async () => {
-  await open('Reports');
-  await expectText(/Final AI-READY Score/i);
+await step('the leadership and detailed reports and the technical appendix download for both results', async () => {
+  await open('/reports');
+  await expectText('Final result');
+  await expectText('Leadership report');
   const reports = [];
   const listen = (r) => { if (/\/capability-runs\/[^/]+\/report/.test(r.url())) reports.push([r.url(), r.status()]); };
   page.on('response', listen);
-  const buttons = main().locator('table').getByRole('button');
-  // The page shows its empty state until the run detail (over 1 MB) arrives, so wait for the table itself.
-  await buttons.nth(11).waitFor({ timeout: 30000 }).catch(() => {});
-  const count = await buttons.count();
-  if (count !== 12) throw new Error(`expected 12 report buttons (2 results x 2 audiences x 3 formats), found ${count}`);
-  for (let i = 0; i < count; i += 1) {
-    await buttons.nth(i).click();
-    await page.waitForTimeout(700);
+  const pdfs = main().getByRole('button', { name: 'Download PDF' });
+  await pdfs.nth(3).waitFor({ timeout: 30000 });
+  for (let i = 0; i < 4; i += 1) { await pdfs.nth(i).click(); await page.waitForTimeout(900); }
+  const [tabPage] = await Promise.all([page.context().waitForEvent('page'), main().getByRole('button', { name: 'Open', exact: true }).first().click()]);
+  await tabPage.waitForURL(/^blob:/, { timeout: 60000 });   // the tab opens first, then the report arrives
+  await tabPage.waitForLoadState();
+  if (!/AI readiness report/.test(await tabPage.title())) throw new Error(`the opened report's title: ${await tabPage.title()}`);
+  await tabPage.close();
+  for (const details of await main().locator('details.ws-technical').all()) {
+    await details.locator('summary').click();
+    const buttons = details.getByRole('button');
+    for (let i = 0; i < await buttons.count(); i += 1) { await buttons.nth(i).click(); await page.waitForTimeout(500); }
   }
   await page.waitForLoadState('networkidle');
   page.off('response', listen);
   const bad = reports.filter(([, s]) => s !== 200);
-  if (reports.length < 12 || bad.length) throw new Error(`report downloads: ${reports.length} answered, failing: ${JSON.stringify(bad)}`);
+  // 4 PDFs + 1 opened page + 2 results x 6 technical files.
+  if (reports.length < 17 || bad.length) throw new Error(`report downloads: ${reports.length} answered, failing: ${JSON.stringify(bad)}`);
   await shot('reports');
 });
 
-await step('plan evaluation on the final result', async () => {
-  await open('Plan evaluation');
+await step('actions, paces and pathway read in plain words', async () => {
+  await open('/actions');
+  await expectText('largest gain first');
+  await expectNoText(OLD_WORDS, 'an old tier name or a code on Actions:');
+  await open('/plan');
+  await expectText('Suits most colleges');
+  await expectNoText(OLD_WORDS, 'an old tier name or a code on the paces:');
+  await open('/pathway');
+  await expectText('Five levels of AI readiness');
+  await shot('pathway');
+});
+
+await step('check your own plan against the final result', async () => {
+  await open('/plancompare');
   await button('Compare a plan').click();
   await page.getByRole('dialog').locator('textarea').fill('Year 1: approve an AI policy and train 60 faculty. Year 2: an AI elective for all programmes.');
   await page.getByRole('button', { name: 'Compare (uses credits)' }).click();

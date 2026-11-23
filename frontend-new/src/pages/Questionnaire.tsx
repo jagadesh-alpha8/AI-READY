@@ -16,6 +16,7 @@ import type { Sprint } from '../types/api';
 import type { Run } from '../types/capability';
 import type { ReviewBatch, ReviewCase } from '../types/workflow';
 import { DEMO_MODE } from '../config/env';
+import { areaTitle } from '../utils/areaTitles';
 import { FINAL_SCORE, newKey, pillarName } from '../utils/capability';
 import { errorMessage } from '../utils/errors';
 import { dateTime, humanize, tidyText, valueText } from '../utils/format';
@@ -443,15 +444,15 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
           {!closed && !hasQuestions && <button className="primary-action" disabled={disabled} onClick={() => void start('questions')}>{busy === 'questions' ? 'Starting…' : 'Plan follow-up questions'}</button>}
           {!DEMO_MODE && !closed && hasQuestions && !p?.answered && <button className="secondary-button" disabled={disabled} onClick={() => setConfirmReplace(true)}>Plan again</button>}
           {!closed && hasQuestions && <button className="secondary-button" disabled={disabled} title="Needed before closing whenever an answer about credited evidence has been checked"
-            onClick={() => void start('depth')}>{busy === 'depth' ? 'Starting…' : 'Judge evidence depth'}</button>}
-          <button className="secondary-button" disabled={disabled} title="One model call per area (about 9), checked against this run's record"
-            onClick={() => void start('explain')}>{busy === 'explain' ? 'Starting…' : explained ? 'Write explanations again' : 'Write explanations'}</button>
+            onClick={() => void start('depth')}>{busy === 'depth' ? 'Starting…' : DEMO_MODE ? 'Check how far the evidence goes' : 'Judge evidence depth'}</button>}
+          {!(DEMO_MODE && (closed || explained)) && <button className="secondary-button" disabled={disabled} title="One model call per area (about 9), checked against this run's record"
+            onClick={() => void start('explain')}>{busy === 'explain' ? 'Starting…' : DEMO_MODE ? 'Explain the Stage 1 result' : explained ? 'Write explanations again' : 'Write explanations'}</button>}
           {canPublish && <button className="primary-action" disabled={disabled} title="Closes the follow-up stage: after this no answer or document can change the final AI-READY Score"
             onClick={() => setConfirmPublish(true)}>{busy === 'rejudge' ? 'Starting…' : 'Finish and publish the final result'}</button>}
         </div>
       )}>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
-      {!jobs.data?.enabled && <Notice tone="info">Second-layer jobs are switched off on this server (SECOND_LAYER_JOBS_ENABLED). Answers stay unchecked until they are on.</Notice>}
+      {!jobs.data?.enabled && <Notice tone="info">{DEMO_MODE ? 'Answer checking is switched off on this server for now, so answers stay unchecked until it is on.' : 'Second-layer jobs are switched off on this server (SECOND_LAYER_JOBS_ENABLED). Answers stay unchecked until they are on.'}</Notice>}
       {confirmReplace && (
         <Notice tone="info">
           Plan the questions again? The current questions are replaced (refused once any question has an answer).{' '}
@@ -649,21 +650,21 @@ function AdditionalEvidence({ sprint, run, runId, closed }: { sprint: Sprint; ru
                   <details key={area.code} className="indicator">
                     <summary>
                       <label className="field inline" onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" checked={picked.includes(area.code)} onChange={() => toggle(area.code)} /> <b>{area.code}</b> (whole area)
+                        <input type="checkbox" checked={picked.includes(area.code)} onChange={() => toggle(area.code)} /> <b>{DEMO_MODE ? pillarName(area.code) : area.code}</b> (whole area)
                       </label>
                     </summary>
                     {(result?.indicators || []).filter((i) => i.pillar === area.code).map((i) => (
                       <label key={i.code} className="field inline">
-                        <input type="checkbox" checked={picked.includes(i.code)} onChange={() => toggle(i.code)} /> {i.code} · {i.name}
+                        <input type="checkbox" checked={picked.includes(i.code)} onChange={() => toggle(i.code)} /> {DEMO_MODE ? areaTitle(i.code, i.name) : `${i.code} · ${i.name}`}
                       </label>
                     ))}
                   </details>
                 ))}
               </div>
             </fieldset>
-            <label className="field"><span>Specific requirements (optional, e.g. AIQIF-C4.1-a)</span>
+{!DEMO_MODE && (            <label className="field"><span>Specific requirements (optional, e.g. AIQIF-C4.1-a)</span>
               <input value={requirements} onChange={(e) => setRequirements(e.target.value)} placeholder="Comma-separated requirement ids" />
-            </label>
+            </label>)}
             <div className="button-row"><button className="primary-action" disabled={busy}>{busy ? 'Uploading…' : 'Submit evidence'}</button></div>
           </form>
         </Panel>
