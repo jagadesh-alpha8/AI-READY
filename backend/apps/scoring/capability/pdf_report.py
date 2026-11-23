@@ -152,7 +152,7 @@ def render_pdf(report, indicators, actions):
     if priority:
         tier = priority['tier']
         if stage.get('tier_shown', True):
-            pdf.paragraph(f"Score {priority['score']}; provisional tier: {tier['current'] or 'none yet'}"
+            pdf.paragraph(f"Score {priority['score']}; tier: {tier['current'] or 'none yet'}"
                           + (f"; {tier['points_to_next']} points to {tier['next']}." if tier['next'] else '.'))
         else:
             pdf.paragraph(f"Score {priority['score']} at Stage 1; the tier is awarded on the final AI-READY Score.")

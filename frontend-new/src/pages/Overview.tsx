@@ -4,7 +4,7 @@ import { ErrorState, Loading, Pill } from '../components/ui';
 import { useCapability } from '../hooks/useCapability';
 import { useCycle } from '../hooks/useCycle';
 import { useResource } from '../hooks/useResource';
-import { achievedTier, scoreLabel, stageLabel, tierShown } from '../utils/capability';
+import { achievedTier, headlineScore, scoreLabel, stageLabel, tierShown } from '../utils/capability';
 import { getSprintOverview } from '../services/sprints';
 import type { Sprint, SprintOverview } from '../types/api';
 import { date, num } from '../utils/format';
@@ -37,6 +37,8 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
   const target = nextTier(level);
 
   const actions = nextActions(o);
+  // Without an audit CRI, the hero shows the AI-READY Score (Stage 1 result or final) instead of an empty CRI.
+  const capScore = !score && capResult ? headlineScore(capResult) : null;
 
   return (
     <>
@@ -46,7 +48,8 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
           <h1>Your route from capable<br />to AI-leading.</h1>
           <p>
             {sprint.institution_name} is {level ? <>at <b>{tierName(level)}</b></> : <>not yet <b>verified</b> at a maturity level</>}.
-            {' '}{score ? interpretation(score.overall_cri, score.weaknesses.map((w) => w.label)) : 'No CRI has been calculated for this sprint yet.'}
+            {' '}{score ? interpretation(score.overall_cri, score.weaknesses.map((w) => w.label))
+              : capResult ? `${stageLabel(cap.stage)}: ${scoreLabel(capResult)}.` : 'No CRI has been calculated for this sprint yet.'}
           </p>
           <div className="button-row">
             <Link className="primary-action" to={pathOf('plan')}>Build the {target?.name || 'next'} plan</Link>
@@ -54,10 +57,10 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
           </div>
         </div>
         <div className="readiness-stamp" role="group" aria-label="Readiness score">
-          <span className="stamp-label">{approved ? 'Approved baseline' : 'Live CRI'}</span>
-          <strong className={score ? '' : 'empty'}>{score ? num(score.overall_cri) : '—'}</strong>
-          <span className="stamp-tier">{tierName(level)}</span>
-          <small>{score?.calculated_at ? date(score.calculated_at) : 'Not scored yet'}</small>
+          <span className="stamp-label">{capScore != null ? (cap.stage === 'final' ? 'Final AI-READY Score' : 'Stage 1 result') : approved ? 'Approved baseline' : 'Live CRI'}</span>
+          <strong className={score || capScore != null ? '' : 'empty'}>{score ? num(score.overall_cri) : capScore != null ? capScore.toFixed(1) : '—'}</strong>
+          <span className="stamp-tier">{capScore == null ? tierName(level) : !tierShown(cap.stage) ? 'Tier after follow-ups' : level ? tierName(level) : 'No tier yet'}</span>
+          <small>{score?.calculated_at ? date(score.calculated_at) : capScore != null ? 'out of 100' : 'Not scored yet'}</small>
         </div>
       </div>
 

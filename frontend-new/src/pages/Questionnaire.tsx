@@ -15,7 +15,7 @@ import { decideReviewCase, getReviewBatch, startReviewBatch } from '../services/
 import type { Sprint } from '../types/api';
 import type { Run } from '../types/capability';
 import type { ReviewBatch, ReviewCase } from '../types/workflow';
-import { FINAL_SCORE, newKey } from '../utils/capability';
+import { FINAL_SCORE, newKey, pillarName } from '../utils/capability';
 import { errorMessage } from '../utils/errors';
 import { dateTime, humanize, tidyText, valueText } from '../utils/format';
 
@@ -271,7 +271,7 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
       )}
       <SecondLayerJobs sprint={sprint} runId={runId} progress={p} onChange={() => void next.refetch()} onFinal={onFinal} />
       <div className="stat-grid">
-        <Stat label="Questions" value={p?.questions ?? 0} note={`Provisional run ${runId.slice(0, 8)}${run.id === runId ? ` · ${dateTime(run.created_at)}` : ''}`} />
+        <Stat label="Questions" value={p?.questions ?? 0} note={`Stage 1 result, run ${runId.slice(0, 8)}${run.id === runId ? ` · ${dateTime(run.created_at)}` : ''}`} />
         <Stat label="Answered or skipped" value={p?.answered ?? 0} note={`${p?.open ?? 0} open`} />
         <Stat label="Checks waiting" value={p?.checks_waiting ?? 0} note="Answers are checked against the documents" />
         <Stat label="Follow-ups open" value={p?.follow_ups_open ?? 0} note="At most one per answer" />
@@ -406,7 +406,7 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
   const disabled = !jobs.data?.enabled || !!active || !!busy;
 
   return (
-    <Panel title="Follow-up questions and final result" sub="Background jobs on the provisional run; each uses model credits from this assessment's budget"
+    <Panel title="Follow-up questions and final result" sub="Background jobs on the Stage 1 result; each uses model credits from this assessment's budget"
       actions={manage && (
         <div className="row-actions">
           {!closed && !hasQuestions && <button className="primary-action" disabled={disabled} onClick={() => void start('questions')}>{busy === 'questions' ? 'Starting…' : 'Plan follow-up questions'}</button>}
@@ -438,9 +438,14 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
           <p className="muted">{active.requests_reserved} model request(s) reserved so far (${active.usd_reserved}).</p>
           {manage && <div className="button-row"><button className="secondary-button" disabled={busy === 'cancel'} onClick={() => void cancel(active)}>Cancel this job</button></div>}
         </div>
-      ) : checking && <p className="muted">{p?.checks_waiting} answer(s) wait for their check; it starts by itself once their documents are processed (the server sweeps every 5 minutes).</p>}
+      ) : checking && (
+        <div>
+          <p className="muted">{p?.checks_waiting} answer(s) wait for their check. It starts once their documents are processed; if it hasn't, check them now.</p>
+          {manage && <div className="button-row"><button className="secondary-button" disabled={disabled} onClick={() => void start('checks')}>{busy === 'checks' ? 'Starting…' : 'Check answers now'}</button></div>}
+        </div>
+      )}
       {!closed && !!p?.checks_waiting && <p className="muted">“Finish and publish the final result” appears once every answer has been checked.</p>}
-      {budget && <p className="muted">Budget: {budget.requests_reserved} of {budget.max_http_calls} requests and ${budget.usd_reserved} of ${budget.max_cost_usd} reserved.</p>}
+      {budget && <p className="muted">Budget: {budget.requests_reserved} of {budget.max_http_calls} requests and ${Number(budget.usd_reserved).toFixed(2)} of ${Number(budget.max_cost_usd).toFixed(2)} reserved.</p>}
       {list.length > 0 && (
         <details>
           <summary>Job history ({list.length})</summary>
@@ -493,10 +498,10 @@ function QuestionItem({ sprint, runId, item, position, total, onDone }: {
 
   return (
     <Panel title={followUp ? 'One follow-up' : `Question ${position} of ${total}`}
-      sub={`${item.question.indicator_code}${item.question.condition_ids.length ? ` · ${item.question.condition_ids.join(', ')}` : ''}`}
+      sub={pillarName(item.question.indicator_code.split('.')[0])}
       actions={<Pill status={followUp ? 'pending' : missing ? 'blocked' : 'active'} label={followUp ? 'Follow-up' : missing ? 'Nothing found yet' : 'About credited evidence'} />}>
       <form onSubmit={(e) => { e.preventDefault(); void send(false); }} className="questionnaire-item">
-        <h3>{item.text}</h3>
+        <h3 style={{ whiteSpace: 'pre-line' }}>{item.text}</h3>
         {missing && !followUp && <p className="muted">We found nothing for this in the documents submitted. If you have anything, attach it here.</p>}
         <UploadBox files={files} onChange={setFiles} required={missing} />
         <label className="field"><span>Your answer</span>

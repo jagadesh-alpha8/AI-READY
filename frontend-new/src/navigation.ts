@@ -82,7 +82,7 @@ export const PAGE_META: Record<PageKey, [eyebrow: string, title: string, text: s
   verification: ['Evidence intelligence', 'Verification and corrections', 'See what the rules verified, answer the guided review questions and decide proposed corrections.'],
   aiqif: ['Evidence intelligence', 'AI-QIF tagging', 'Confirm which AI-QIF indicators each fact supports, and settle the expert queue.'],
   baseline: ['Assessment', 'Baseline approval', 'Approve, provisionally approve or return the baseline score that the transformation is measured from.'],
-  questionnaire: ['Assessment', 'Questionnaire', 'One item at a time: first the review items on the evidence, then, after the provisional score, follow-up questions and any evidence we may have missed.'],
+  questionnaire: ['Assessment', 'Questionnaire', 'One item at a time: first the review items on the evidence, then, after the Stage 1 result, follow-up questions and any evidence we may have missed.'],
   actions: ['Recommendations', 'Recommended actions', 'Grounded advice for the latest assessment, with an owner, feasibility and status for every action.'],
   plancompare: ['Recommendations', 'Plan comparison', "Compare the institution's own written plan with what the assessment found, and see what to change."],
   apistatus: ['Review', 'Backend status', 'Which screens are fully live, which show sample data waiting for an API, and which wait for a backend decision.'],

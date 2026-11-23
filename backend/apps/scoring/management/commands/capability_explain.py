@@ -68,5 +68,5 @@ class Command(BaseCommand):
         except APIException as exc:
             raise CommandError(str(getattr(exc, 'detail', exc)))
         self.stdout.write(f'Queued explanation job {job.pk} for run {run.pk} '
-                          f'({job.policy.get("indicator_concurrency", 1)} areas at a time). '
+                          f'({job.policy.get("indicator_concurrency", 1)} area(s) at a time). '
                           'The reports show the explanations once it completes.')

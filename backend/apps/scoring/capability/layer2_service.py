@@ -274,7 +274,10 @@ def progress(run_ref):
     return {'questions': questions.count(),
             'open': questions.filter(status=DepthQuestion.Status.OPEN).count(),
             'answered': questions.exclude(status=DepthQuestion.Status.OPEN).count(),
-            'checks_waiting': responses.filter(status=DepthResponse.Status.PENDING).count(),
+            # Additional evidence waiting for its check counts too: publishing is refused until it is checked.
+            'checks_waiting': responses.filter(status=DepthResponse.Status.PENDING).count()
+                              + AdditionalEvidence.objects.filter(run_ref=run_ref,
+                                                                  status=AdditionalEvidence.Status.PENDING).count(),
             'follow_ups_open': responses.filter(parent__isnull=True, status=DepthResponse.Status.CHECKED)
                                         .exclude(follow_up_text='').filter(follow_ups__isnull=True).count(),
             'final_run_id': final_run_id(run_ref)}

@@ -303,6 +303,15 @@ class SecondLayerJobTests(APITestCase):
         self.assertEqual(follow_on.status, 'completed')
         self.assertFalse(DepthResponse.objects.filter(question__run_ref=str(self.run.pk), status='pending').exists())
 
+    def test_additional_evidence_waiting_for_its_check_counts_as_waiting(self):
+        """The questionnaire offers publishing only when nothing waits; publishing refuses waiting evidence."""
+        from .capability.layer2_service import progress
+        self.assertEqual(progress(str(self.run.pk))['checks_waiting'], 0)
+        AdditionalEvidence.objects.create(run_ref=str(self.run.pk), document_ids=[str(self.doc.pk)],
+                                          picked=[self.rubric['indicators'][1]['code']],
+                                          routing={'indicators': [self.rubric['indicators'][1]['code']]})
+        self.assertEqual(progress(str(self.run.pk))['checks_waiting'], 1)
+
     def test_the_sweep_checks_answers_once_their_documents_are_extracted(self):
         from apps.documents.models import Document
         from apps.extraction.models import DocumentPage
