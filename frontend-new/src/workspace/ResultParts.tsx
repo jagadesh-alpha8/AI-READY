@@ -99,20 +99,15 @@ export function NextLevel({ view }: { view: ResultView }) {
         <span className="ws-big-number">{view.level.pointsToNext}</span>
         <span>points to <strong>{next.name}</strong> <Stars stars={next.stars} size={14} /></span>
       </div>
-      {view.toNextLevel.length > 0 && (() => {
-        const total = view.toNextLevel.reduce((n, x) => n + x.points, 0);
-        return (
-          <>
-            <p className="muted" style={{ fontSize: 13, marginBottom: 8 }}>The steps that add the most:</p>
-            <ul className="ws-plain-list">
-              {view.toNextLevel.map((x) => <li key={x.name}><strong>{x.name}</strong> <span className="muted">({x.area}, up to {pts(x.points)})</span></li>)}
-            </ul>
-            {total < view.level.pointsToNext && (
-              <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>Together these add about {pts(total)}; the rest comes from the focus areas.</p>
-            )}
-          </>
-        );
-      })()}
+      {view.wherePoints.length > 0 && (
+        <>
+          <p className="muted" style={{ fontSize: 13, marginBottom: 8 }}>Where the points are:</p>
+          <ul className="ws-plain-list">
+            {view.wherePoints.map((a) => <li key={a.code}><strong>{a.name}</strong> <span className="muted">(up to {pts(a.room)})</span></li>)}
+          </ul>
+          <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>The recommended actions say where to start in each.</p>
+        </>
+      )}
     </div>
   );
 }

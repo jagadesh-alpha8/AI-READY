@@ -36,9 +36,9 @@
   <div class="section next">
     {% if v.level.next %}
       <p><span class="big">{{ v.level.points_to_next }}</span> points to <strong>{{ v.level.next }}</strong> {{ v.level.next_stars|stars }}</p>
-      {% if v.to_next %}<p class="small muted" style="margin-top:6px">The steps that add the most:</p>
-      <ul class="small" style="margin:4px 0 0;padding-left:16px">{% for x in v.to_next %}<li><strong>{{ x.title }}</strong> <span class="muted">({{ x.area }}, up to {{ x.points|points }})</span></li>{% endfor %}</ul>
-      {% if v.to_next_points < v.level.points_to_next %}<p class="small muted" style="margin-top:4px">Together these add about {{ v.to_next_points|points }}; the rest comes from the focus areas on the next page.</p>{% endif %}{% endif %}
+      {% if v.where_points %}<p class="small muted" style="margin-top:6px">Where the points are:</p>
+      <ul class="small" style="margin:4px 0 0;padding-left:16px">{% for a in v.where_points %}<li><strong>{{ a.name }}</strong> <span class="muted">(up to {{ a.room|points }})</span></li>{% endfor %}</ul>
+      <p class="small muted" style="margin-top:4px">The next page says where to start in each.</p>{% endif %}
     {% else %}<p>You are at the top level. Keep your evidence current as your practice grows.</p>{% endif %}
   </div>
 </section>
@@ -64,7 +64,7 @@
     <ul>{% for s in x.show|slice:":2" %}<li>Show: {{ s }}</li>{% endfor %}{% if x.more or x.show|length > 2 %}<li class="muted">more in the detailed report</li>{% endif %}</ul>
     <p class="meta">{{ x.area }} · up to {{ x.points|points }}{% if x.lead %} · Led by: {{ x.lead }}{% endif %}</p>
   </div></div>{% endfor %}
-  {% if v.routes %}<p class="small muted" style="margin-top:10px">Pace: the same goals can be reached on {{ v.routes|length }} timescales: {% for r in v.routes %}{{ r.name|lower }} ({{ r.duration }}){% if not forloop.last %}, {% endif %}{% endfor %}. Choose yours in the transformation plan.</p>{% endif %}
+
   </div>{% endif %}
 </section>
 
@@ -75,8 +75,8 @@
     <div class="track"><i class="shown {{ a.score|tone }}" style="width:{{ a.score|pct }}%"></i>{% if a.held >= 0.5 %}<i class="held" style="left:{{ a.score|pct }}%;width:{{ a.held|pct }}%"></i>{% endif %}</div>
     <div class="cols">
       <div><h3>What's in place</h3>
-        {% if a.summary %}<p class="small">{{ a.summary }}</p>{% endif %}
-        {% if a.quote %}<p class="quote">“{{ a.quote.text }}”</p><p class="source">{{ a.quote.source }}</p>{% elif not a.summary %}<p class="small muted">Nothing in this area was found in your documents yet.</p>{% endif %}
+        {% if a.summary_short %}<p class="small">{{ a.summary_short }}</p>{% endif %}
+        {% if a.quote %}<p class="quote">“{{ a.quote.text }}”</p><p class="source">{{ a.quote.source }}</p>{% elif not a.summary_short %}<p class="small muted">Nothing in this area was found in your documents yet.</p>{% endif %}
       </div>
       <div><h3>What to show next</h3>
         {% if a.missing %}<ul>{% for m in a.missing|slice:":3" %}<li>{{ m }}</li>{% endfor %}{% if a.missing|length > 3 %}<li class="muted">and {{ a.missing|length|add:"-3" }} more in the detailed report</li>{% endif %}</ul>

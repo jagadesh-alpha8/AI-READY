@@ -51,6 +51,13 @@ def _quote(text, limit=190):
     return cut[:cut.rfind(' ')] + '…'
 
 
+def _first_sentences(text, count=2, limit=340):
+    """The opening of an explanation, for the leadership report: at most two sentences, cut at a word."""
+    text = re.sub(r'\s+', ' ', str(text or '')).strip()
+    parts = re.split(r'(?<=[.!?])\s+(?=[A-Z"\u201c])', text)
+    return _quote(' '.join(parts[:count]), limit)
+
+
 def _join(names):
     names = [n[0].lower() + n[1:] for n in names]
     return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
@@ -104,6 +111,7 @@ def build(payload):
                    for c in i['conditions']]
             pillars.append({'code': code, 'score': round(100 * sum(_credit(records.get(c)) for c in ids) / len(ids), 2)
                             if ids else 0.0})
+    total_weight = sum(float(i.get('weight_units') or 0) for i in result['indicators'])
     areas, used_quotes = [], set()
     for pillar in pillars:
         code = pillar['code']
@@ -125,8 +133,9 @@ def build(payload):
                     in_place += 1
                 elif status == 'partly':
                     partly += 1
+                    missing.append((_level_of(condition['id']), 1, _sentence(condition['text']) + ' (partly shown)'))
                 else:
-                    missing.append((_level_of(condition['id']), _sentence(condition['text'])))
+                    missing.append((_level_of(condition['id']), 0, _sentence(condition['text'])))
                 cites = (record or {}).get('citations') or [c for p in (record or {}).get('parts') or []
                                                             for c in p.get('citations') or []]
                 cite = next((c for c in cites if c.get('quote')), None)
@@ -145,6 +154,9 @@ def build(payload):
             subareas.append({'code': indicator['code'], 'name': AREA_TITLES.get(indicator['code'], indicator.get('name', '')),
                              'score': iscore, 'stars': level(iscore or 0)['stars'], 'requirements': rows,
                              'summary': ' '.join(x for x in (exp.get('found'), exp.get('text')) if x)})
+        # Overall points still to gain here if all of it were shown: each key indicator's weight times what it lacks.
+        room = sum(float(i.get('weight_units') or 0) / total_weight * (100 - float(indicator_scores.get(i['code'], {}).get('score') or 0))
+                   for i in indicators) if total_weight else 0.0
         ratio = credit / counted if counted else 1.0
         shown = min(100.0, pillar['score'] * ratio)
         exp = pillar.get('explanation') or {}
@@ -152,9 +164,10 @@ def build(payload):
                       'held': max(0.0, shown - pillar['score']), 'level': level(pillar['score']),
                       'requirements': sum(len(i['conditions']) for i in indicators), 'in_place': in_place,
                       'partly': partly, 'quote': quote,
-                      'missing': [m for _, m in sorted(missing, key=lambda x: x[0])],
+                      'missing': [m for *_, m in sorted(missing, key=lambda x: (x[0], x[1]))],
+                      'summary_short': _first_sentences(exp.get('found') or exp.get('text') or ''),
                       'summary': ' '.join(x for x in (exp.get('found'), exp.get('text')) if x),
-                      'points_available': round(gains.get(code, 0.0), 1), 'subareas': subareas})
+                      'points_available': round(gains.get(code, 0.0), 1), 'room': room, 'subareas': subareas})
 
     by_score = sorted(areas, key=lambda a: -a['score'])
     strengths = [a for a in by_score if a['score'] > 0][:3]
@@ -195,6 +208,7 @@ def build(payload):
             'shown_score': min(100.0, score + held_points),
             'areas': sorted(areas, key=lambda a: -a['score']), 'strengths': strengths, 'focus': focus,
             'actions': actions[:4], 'to_next': to_next,
+            'where_points': sorted(areas, key=lambda a: -a['room'])[:3],
             'started': [a for a in sorted(areas, key=lambda a: -a['score']) if a['score'] > 0 or a['partly']],
             'not_started': [a for a in areas if not (a['score'] > 0 or a['partly'])], 'to_next_points': gathered, 'summary': summary,
             'routes': routes, 'requirements': sum(a['requirements'] for a in areas),

@@ -42,6 +42,8 @@ export interface Indicator {
   code: string;
   name: string;
   pillar: string;
+  /** Share of the overall score (all key indicators sum to 1000). */
+  weight_units?: number;
   lower: number;
   upper: number;
   conditions: Condition[];

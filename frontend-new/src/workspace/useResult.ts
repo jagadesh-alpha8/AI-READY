@@ -24,6 +24,8 @@ export interface AreaView {
   explanation: string | null;
   /** Points the priority plan's actions in this area would add. */
   pointsAvailable: number;
+  /** Overall points this area could still add if all of it were shown (its key indicators' weights). */
+  room: number;
 }
 
 export interface ResultView {
@@ -39,6 +41,8 @@ export interface ResultView {
   focus: AreaView[];
   /** The plan's actions, largest first, that together reach the next level (at most three). */
   toNextLevel: { name: string; area: string; points: number }[];
+  /** The three areas with the most overall points still to gain. */
+  wherePoints: AreaView[];
   plan: PriorityPlan | null;
   summary: string;
 }
@@ -72,8 +76,11 @@ export function buildResultView(run: Run, plan: PriorityPlan | null): ResultView
     gains.set(area, (gains.get(area) || 0) + (a.score_gain || 0));
   }
 
+  const totalWeight = result.indicators.reduce((n, i) => n + (i.weight_units || 0), 0);
+  const indicatorScore = new Map((result.documented?.indicators || []).map((i) => [i.code, i.score]));
   const areas: AreaView[] = (result.documented?.pillars || []).map((p) => {
     const indicators = result.indicators.filter((i) => i.pillar === p.code || i.code.startsWith(`${p.code}.`));
+    const room = totalWeight ? indicators.reduce((n, i) => n + ((i.weight_units || 0) / totalWeight) * (100 - (indicatorScore.get(i.code) ?? 0)), 0) : 0;
     const conditions = indicators.flatMap((i) => i.conditions);
     let credit = 0;
     let counted = 0;
@@ -87,7 +94,7 @@ export function buildResultView(run: Run, plan: PriorityPlan | null): ResultView
       credit += cr;
       counted += r ? cr * countedShare(r) : cr;
       if (cr >= 1) inPlace += 1;
-      else if (cr > 0) partly += 1;
+      else if (cr > 0) { partly += 1; missing.push({ text: `${c.text} (partly shown)`, order: levelOf(c.id) + 0.5 }); }
       else missing.push({ text: c.text, order: levelOf(c.id) });
       if (!quote && cr >= 0.5) {
         const cite = r?.citations?.[0] || r?.parts?.find((x) => x.citations?.length)?.citations[0];
@@ -104,7 +111,7 @@ export function buildResultView(run: Run, plan: PriorityPlan | null): ResultView
       requirements: conditions.length, inPlace, partly, quote,
       missing: missing.sort((a, b) => a.order - b.order).map((m) => m.text),
       explanation: exp ? [exp.found, exp.text].filter(Boolean).join(' ') || null : null,
-      pointsAvailable: gains.get(p.code) || 0,
+      pointsAvailable: gains.get(p.code) || 0, room,
     };
   });
 
@@ -120,15 +127,14 @@ export function buildResultView(run: Run, plan: PriorityPlan | null): ResultView
     toNextLevel.push({ name: areaTitle(a.indicator, a.name), area: pillarName(a.pillar || a.indicator.split('.')[0]), points: a.score_gain });
     gathered += a.score_gain;
   }
+  const wherePoints = [...areas].sort((a, b) => b.room - a.room).slice(0, 3);
   const heldPoints = reserve?.still_held_points ?? 0;
-  const names = (list: AreaView[]) => list.map((a) => a.name.charAt(0).toLowerCase() + a.name.slice(1));
-  const join = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
   const summary = strengths.length
-    ? `Your documents show the most in ${join(names(strengths.slice(0, 2)))}. ${focus.length ? `${join(names(focus.slice(0, 2))).replace(/^./, (c) => c.toUpperCase())} ${focus.length > 1 ? 'are' : 'is'} where to focus next.` : ''}`
+    ? `Your documents show the most in ${strengths[0].name}${strengths[1] ? `, followed by ${strengths[1].name}` : ''}.${focus.length ? ` Focus next on ${focus[0].name}${focus[1] ? `, then ${focus[1].name}` : ''}.` : ''}`
     : 'Your documents show little AI-specific practice so far. The areas below show where to start.';
   return {
     run, result, final, score, shownScore: Math.min(100, score + heldPoints), heldPoints, level, areas, strengths, focus,
-    toNextLevel, plan, summary,
+    toNextLevel, wherePoints, plan, summary,
   };
 }
 

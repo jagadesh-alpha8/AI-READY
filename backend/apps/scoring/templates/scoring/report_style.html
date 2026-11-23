@@ -18,7 +18,8 @@ h3 { font-size: 11pt; font-weight: 650; }
 .page:last-child { page-break-after: auto; break-after: auto; }
 .section { margin-top: 22px; }
 .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #0c4320; padding-bottom: 12px; margin-bottom: 20px; }
-.header .meta { text-align: right; font-size: 9pt; color: #707a73; }
+.header > div:first-child { flex: 1; padding-right: 24px; }
+.header .meta { text-align: right; font-size: 9pt; color: #707a73; white-space: nowrap; flex: 0 0 auto; }
 .stars { color: #c9a227; letter-spacing: 1px; }
 .stars .off { color: #d9dfd6; }
 .hero { display: table; width: 100%; background: #edf4df; border-radius: 8px; padding: 20px 24px; }
