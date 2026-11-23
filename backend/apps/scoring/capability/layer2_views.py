@@ -48,10 +48,18 @@ def flag(value):
 
 
 def serialize_question(question):
-    return {'id': str(question.pk), 'rank': question.rank, 'kind': question.kind, 'text': question.text,
-            'indicator_code': question.indicator_code, 'condition_ids': question.condition_ids,
-            'status': question.status, 'points_at_stake': float(question.points_at_stake),
-            'linked_to': str(question.linked_to_id) if question.linked_to_id else None}
+    """A question; a group's lead also lists the questions it answers (\"Also answers: ...\" on the screen: they are
+    never served on their own, so without this list the front end could not show them; Jagadesh, 22 Nov)."""
+    out = {'id': str(question.pk), 'rank': question.rank, 'kind': question.kind, 'text': question.text,
+           'indicator_code': question.indicator_code, 'condition_ids': question.condition_ids,
+           'status': question.status, 'points_at_stake': float(question.points_at_stake),
+           'linked_to': str(question.linked_to_id) if question.linked_to_id else None}
+    if question.linked_to_id is None:
+        out['linked'] = [{'id': str(q.pk), 'rank': q.rank, 'indicator_code': q.indicator_code,
+                          'condition_ids': q.condition_ids, 'status': q.status,
+                          'points_at_stake': float(q.points_at_stake), 'text': q.text}
+                         for q in question.linked.order_by('rank')]
+    return out
 
 
 def serialize_response(response):

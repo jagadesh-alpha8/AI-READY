@@ -54,7 +54,9 @@ All substantiated would give 22.87, all strong 26.14.
   one document, would answer (2 to 6 each; checked). The college sees the group's lead, with one wording and the
   group's points; members wait (`status='linked'`, `linked_to`). An answer to the lead is recorded for every member
   (`submitted_via='linked'`) and checked against each member's own requirement; a member it does not resolve gets
-  its own follow-up, shown next. Members can't be answered separately. `progress.linked` counts them.
+  its own follow-up, shown next. Members can't be answered separately. `progress.linked` counts them. A served
+  lead lists its members in `question.linked` (id, rank, indicator, requirement ids, status, points, wording), for
+  the screen's "Also answers: ..."; a member carries `linked_to` and no list.
 
 ## What problem it solves
 

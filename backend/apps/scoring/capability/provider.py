@@ -37,6 +37,9 @@ class MeteredService:
     #: at the start of its own call (extract_structured_data) before any request it makes.
     _call = threading.local()
     execution_key = 'run_id'
+    #: Give back what a call's reservation held beyond its billed tokens once the response arrives (settle()). Off
+    #: for the assessment, whose ledger reports the reservation; the second layer's jobs settle (SecondLayerMeter).
+    settles = False
 
     def enabled(self):
         return settings.CAPABILITY_ASSESSMENT_ENABLED
@@ -67,6 +70,7 @@ class MeteredService:
         self.policy = execution_policy if execution_policy is not None else execution.run.inputs['execution_policy']
         self.deadline = time.monotonic() + self.policy['max_duration_seconds']
         self.limit_breach = False
+        self._reserved = {}   # reservation event id -> USD reserved, until the call is settled
         self.model = service.model
         from apps.extraction.services.provider_features import direct_gemini
         self.provider = ('gemini' if direct_gemini(getattr(service, 'base_url', None)) else 'anthropic' if isinstance(service, AnthropicExtractionService)
@@ -166,6 +170,7 @@ class MeteredService:
                          if k in kwargs}, **({'effort': kwargs['output_config']['effort']}
                                             if 'effort' in (kwargs.get('output_config') or {}) else {})},
             'schema_hash': digest(kwargs.get('response_format', kwargs.get('tools', (kwargs.get('output_config') or {}).get('format', []))))})
+        self._reserved[event.pk] = amount
         return event.pk
 
     def remaining_time(self):
@@ -248,7 +253,47 @@ class MeteredService:
         if not usage_known:
             # Reservation retained; do not silently treat missing telemetry as zero cost.
             raise UsageUnavailable()
+        if self.settles:
+            self.settle(event_id, counts)
         return response
+
+    def actual_cost(self, counts):
+        """USD for a response's billed tokens at the configured prices (the tier its prompt falls in), or None."""
+        from apps.extraction.pricing import cost_usd
+        if self.provider == 'anthropic':
+            return cost_usd(self.model, input_tokens=counts.get('input_tokens', 0),
+                            output_tokens=counts.get('output_tokens', 0),
+                            cache_read_tokens=counts.get('cache_read_input_tokens', 0),
+                            cache_write_tokens=counts.get('cache_creation_input_tokens', 0))
+        cached = counts.get('cached_tokens', 0)
+        return cost_usd(self.model, input_tokens=counts.get('prompt_tokens', 0) - cached,
+                        output_tokens=counts.get('completion_tokens', 0), cache_read_tokens=cached)
+
+    def settle(self, reservation_id, counts):
+        """Release what the reservation held beyond the call's billed cost, from the execution and its budget.
+
+        A reservation is the worst case (the whole input bound at the dearest input rate, plus the full output
+        allowance), about $0.24 or more per call on Gemini; test 13's second layer reserved $14.34 for $3.98 of
+        calls, so a cost cap on reservations stopped work at about a quarter of the money it named. Settled, the
+        budget holds the billed cost of finished calls plus the reservations of calls still in flight. Calls whose
+        usage is unknown, or that failed, keep their whole reservation."""
+        from apps.extraction.usage import DB_WRITE_LOCK
+        reserved = self._reserved.pop(reservation_id, None)
+        actual = self.actual_cost(counts)
+        if reserved is None or actual is None:
+            return
+        released = max(Decimal(0), reserved - min(actual, reserved))
+        with DB_WRITE_LOCK:
+            with transaction.atomic():
+                execution = self.execution_model.objects.select_for_update().get(**{self.execution_key: self.run_id})
+                budget = self.budget(execution)
+                rows = [execution] if budget is execution else [execution, budget]
+                for row in rows:
+                    row.usd_reserved = max(Decimal(0), row.usd_reserved - released)
+                    row.save(update_fields=['usd_reserved'])
+                self.event(execution.status, {'kind': 'request_settled', 'reservation_event_id': reservation_id,
+                                              'reserved_usd': str(reserved), 'actual_usd': str(actual),
+                                              'released_usd': str(released)})
 
     def record(self, reservation_id, data):
         from apps.extraction.usage import DB_WRITE_LOCK

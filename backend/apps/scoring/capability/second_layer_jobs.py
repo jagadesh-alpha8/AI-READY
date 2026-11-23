@@ -298,6 +298,11 @@ class SecondLayerMeter(MeteredService):
     execution_model = SecondLayerJob
     execution_key = 'pk'
 
+    @property
+    def settles(self):
+        """Finished calls count at their billed cost (MeteredService.settle; SECOND_LAYER_SETTLE_TO_ACTUAL)."""
+        return settings.SECOND_LAYER_SETTLE_TO_ACTUAL
+
     def __init__(self, service, job):
         super().__init__(service, job, execution_policy=job.policy, ledger_id=job.pk)
 

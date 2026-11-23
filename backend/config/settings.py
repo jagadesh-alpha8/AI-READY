@@ -928,6 +928,10 @@ SECOND_LAYER_MAX_HTTP_CALLS = int(os.environ['SECOND_LAYER_MAX_HTTP_CALLS']) if 
 SECOND_LAYER_MAX_COST_USD = os.getenv('SECOND_LAYER_MAX_COST_USD', '').strip() or None
 SECOND_LAYER_MAX_DURATION_SECONDS = int(os.environ['SECOND_LAYER_MAX_DURATION_SECONDS']) if os.getenv('SECOND_LAYER_MAX_DURATION_SECONDS') else None
 SECOND_LAYER_SWEEP_SECONDS = int(os.getenv('SECOND_LAYER_SWEEP_SECONDS', '300'))
+# The second-layer cost cap counts finished calls at their billed cost (tokens at the configured prices) and calls in
+# flight at their worst-case reservation. Off: every call keeps its whole reservation (before 23 Nov; test 13 reserved
+# $14.34 for $3.98 of calls).
+SECOND_LAYER_SETTLE_TO_ACTUAL = os.getenv('SECOND_LAYER_SETTLE_TO_ACTUAL', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
 if SECOND_LAYER_JOBS_ENABLED:
     CELERY_BEAT_SCHEDULE['second-layer-check-sweep'] = {
         'task': 'apps.scoring.capability.second_layer_jobs.sweep_second_layer_checks',

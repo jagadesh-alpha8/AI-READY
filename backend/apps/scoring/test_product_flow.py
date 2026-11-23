@@ -282,6 +282,17 @@ class ProductFlowTests(APITestCase):
         self.assertEqual(shown['progress']['questions'], questions.filter(linked_to__isnull=True).count())
         self.assertEqual(shown['progress']['linked'], questions.filter(linked_to__isnull=False).count())
         self.assertEqual(shown['next']['question']['rank'], 1)
+        # A lead lists the questions it answers ("Also answers: ..."); they are never served on their own.
+        served = DepthQuestion.objects.get(pk=shown['next']['question']['id'])
+        self.assertEqual([q['id'] for q in shown['next']['question']['linked']],
+                         [str(q.pk) for q in served.linked.order_by('rank')])
+        from .capability.layer2_views import serialize_question
+        lead = questions.filter(linked__isnull=False).distinct().first()
+        self.assertIsNotNone(lead)
+        listed = serialize_question(lead)['linked']
+        self.assertEqual({q['id'] for q in listed}, {str(q.pk) for q in lead.linked.all()})
+        self.assertTrue(all(q['status'] == 'linked' and q['condition_ids'] and q['text'] for q in listed))
+        self.assertNotIn('linked', serialize_question(lead.linked.first()))
         made = self.post(f'{self.base}/{provisional.pk}/questions/{depth_q.pk}/responses',
                          {'answer': 'Yes: 85 faculty completed the 40-hour accredited programme; register attached.',
                           'document_ids': [self.document(ATTACHMENT)]}, expect=201)
@@ -382,6 +393,40 @@ class ProductFlowTests(APITestCase):
         call_command('capability_page_use', str(run.pk), '--document', payload['traces'][0]['source_excerpts'][0]
                      ['document_id'], '--no-recompute', stdout=out)
         self.assertIn('In the packet of', out.getvalue())
+
+    def test_page_use_on_a_final_run_reproduces_every_packet(self):
+        """Test 13 (22 Nov): on the final run, page-use-1 reported "does not reproduce" for C2.1, the one key indicator
+        re-judged, because it counted the second layer's windows as retrieval and searched the added pages too."""
+        from .capability.page_use import page_use, SECOND_LAYER_ROLES
+        indicator = next(i for i in release()['indicators'] if i['code'] in self.credited)
+        cid = indicator['conditions'][0]['id']
+        _, _, rejudge, final, _ = self.contradict_and_publish([cid], [cid])
+        payload = final.events.filter(state='completed').last().payload
+        traces = {t['indicator']: t for t in payload['traces']}
+        rejudged = set(rejudge.result['targets'])
+        self.assertEqual(rejudged, {indicator['code']})
+        self.assertTrue(any(e.get('evidence_role') in SECOND_LAYER_ROLES for e in traces[indicator['code']]['source_excerpts']))
+        page = traces[indicator['code']]['source_excerpts'][0]['id']
+        result = page_use(final, [page])
+        self.assertEqual(result['final_run_of'], final.inputs['refines_run_id'])
+        self.assertEqual(result['summary']['reproduced'], result['summary']['recomputed'])
+        self.assertEqual(result['summary']['recomputed'], len(release()['indicators']))
+        row = next(r for r in result['indicators'] if r['indicator'] == indicator['code'])
+        self.assertTrue(row['rejudged_in_second_layer'])
+        self.assertTrue(set(row['windows_added_after_first_judgment']) <= SECOND_LAYER_ROLES)
+        # A page the second layer added: retrieval never read it, and the tool says so.
+        added = final.inputs['second_layer']['added_sources']
+        self.assertTrue(added)
+        result = page_use(final, [added[0]], indicators=[indicator['code']])
+        self.assertEqual(result['pages_added_in_second_layer'], [added[0]])
+        self.assertTrue(result['indicators'][0]['recompute']['reproduced'])
+        # A packet that differs is reported passage by passage.
+        from .capability.page_use import compare_packets
+        same, diff = compare_packets(traces[indicator['code']]['source_excerpts'][1:],
+                                     [e for e in traces[indicator['code']]['source_excerpts']
+                                      if e.get('evidence_role') not in SECOND_LAYER_ROLES])
+        self.assertFalse(same)
+        self.assertEqual(diff['counts'], {'only_in_run': 0, 'only_in_rebuild': 1})
 
     # ---------------------------------------------------------------- follow-up outcomes (21 Nov)
 
