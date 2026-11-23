@@ -200,6 +200,8 @@ def judge_run(export, model, *, commit=False, max_calls=None, guard=None):
     answers without a supporting document are not sent to the judge; a condition with nothing else stays evidenced
     without a model call (listed in 'answers_without_documents'). Missing-evidence questions answered with documents
     are listed in 'awaiting_reassessment': they go to the credit path (layer2_rejudge), not to a depth judgment.
+    Requirements the planner found shown in full by their own quotations (no question) are judged on them. A
+    requirement already judged, with no response since, keeps its judgment (listed in 'kept'; no model call).
     guard: as for create_questions."""
     run_ref, rubric, records = _records(export)
     rules = _run_rules(records)
@@ -224,11 +226,27 @@ def judge_run(export, model, *, commit=False, max_calls=None, guard=None):
             for other in question.condition_ids[1:]:
                 if other in by_id:
                     per_condition.setdefault(other, []).append(question)
+    # Requirements whose own quotations already show every dimension get no question (DepthPlan.shown_by_evidence);
+    # they are judged on those quotations (audit, 23 Nov: they were never judged, so their held credit stayed held).
     shown = set(_shown_by_evidence(run_ref))
-    judged = []
+    for cid in sorted(shown):
+        if (by_id.get(cid) or {}).get('credit'):
+            per_condition.setdefault(cid, [])
+    # A requirement already judged is judged again only when it has a response newer than its latest judgment (a
+    # follow-up answer, a linked answer). Re-running the depth job no longer re-judges everything: each run paid
+    # again, a new reading replaced the old one with no new answer, and a duplicate past case was filed (audit, 23 Nov).
+    last_judged = {}
+    for cid, created in (DepthJudgment.objects.filter(run_ref=run_ref).order_by('condition_id', '-created_at')
+                         .values_list('condition_id', 'created_at')):
+        last_judged.setdefault(cid, created)
+    judged, kept = [], []
     for cid, condition_questions in per_condition.items():
         if any(r.status == DepthResponse.Status.PENDING for q in condition_questions for r in q.responses.all()):
             awaiting_check.append(cid)
+            continue
+        if cid in last_judged and not any(r.created_at > last_judged[cid] for q in condition_questions
+                                          for r in q.responses.all()):
+            kept.append(cid)
             continue
         exchanges = _exchanges(condition_questions)
         if not exchanges and cid not in shown:
@@ -281,7 +299,7 @@ def judge_run(export, model, *, commit=False, max_calls=None, guard=None):
                 DepthPastCase.objects.create(judgment=judgment, condition_id=row['condition_id'],
                                              level=row['final_level'], dimension_findings=row['dimension_findings'],
                                              reasoning=row['reason'], spec_version=spec['version'])
-    return {'run_ref': run_ref, 'policy': rules, 'judged': judged, 'unanswered': sorted(unanswered),
+    return {'run_ref': run_ref, 'policy': rules, 'judged': judged, 'kept': sorted(kept), 'unanswered': sorted(unanswered),
             'answers_without_documents': sorted(without_documents), 'awaiting_check': sorted(awaiting_check),
             'awaiting_reassessment': awaiting, 'saved': commit}
 

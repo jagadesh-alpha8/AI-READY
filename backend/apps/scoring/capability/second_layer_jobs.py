@@ -397,7 +397,7 @@ def run_depth(job, meter):
                        guard=lambda: commit_point(job.pk))
     record_result(job.pk, {'judged': [{k: row[k] for k in ('condition_id', 'level', 'final_level', 'final_credit')}
                                       for row in result['judged']],
-                           **{k: result[k] for k in ('unanswered', 'answers_without_documents', 'awaiting_check',
+                           **{k: result[k] for k in ('kept', 'unanswered', 'answers_without_documents', 'awaiting_check',
                                                      'awaiting_reassessment', 'policy')}})
 
 
