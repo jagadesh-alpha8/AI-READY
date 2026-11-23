@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSprint } from '../context/SprintContext';
 import { useAccess } from '../hooks/useAccess';
 import { useResource } from '../hooks/useResource';
+import { DEMO_MODE } from '../config/env';
 import { useReviewMode } from '../hooks/useReviewMode';
 import { NAV_GROUPS, PAGE_META, PAGE_STEP, nextActionFor, pathOf } from '../navigation';
 import { getEvidenceRequestSummary } from '../services/evidenceRequests';
@@ -112,8 +113,10 @@ export function Shell({ page, children }: { page: PageKey; children: ReactNode }
                 </select>
               )}
             </label>
-            <button className={review ? 'primary-action' : 'secondary-button'} aria-pressed={review} title="Mark every screen with its backend status"
-              onClick={() => setReview(!review)}>{review ? 'Review mode on' : 'Review mode'}</button>
+            {!DEMO_MODE && (
+              <button className={review ? 'primary-action' : 'secondary-button'} aria-pressed={review} title="Mark every screen with its backend status"
+                onClick={() => setReview(!review)}>{review ? 'Review mode on' : 'Review mode'}</button>
+            )}
             <button className="icon-button" title="Evidence search" aria-label="Evidence search" onClick={() => navigate('/copilot')}>⌕</button>
             <button className="icon-button notification" title="Data requests waiting for you" aria-label={`Data requests${openForMe ? `, ${openForMe} open` : ''}`} onClick={() => navigate(pathOf('requests'))}>
               ◌{openForMe > 0 && <i />}

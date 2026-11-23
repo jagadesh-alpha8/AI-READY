@@ -176,6 +176,9 @@ export function CapabilityRunControl({ sprintId, cap }: { sprintId: string; cap:
     <Panel title="Evidence-based capability assessment" sub={newest ? `Latest run ${dateTime(newest.created_at)}` : 'No run yet'}
       actions={newest && <Pill status={newest.status === 'queued' ? 'pending' : newest.status} label={newest.stalled ? 'Stalled' : newest.status} />}>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
+      {cap.assessment && isPartCredit(cap.assessment.result) && (
+        <p><Pill tone={tierShown(cap.stage) ? 'good' : 'neutral'} label={stageLabel(cap.stage)} /> <b>{scoreLabel(cap.assessment.result)}</b></p>
+      )}
       {cap.running && <Notice tone="info">Assessment in progress. This view refreshes every few seconds.</Notice>}
       {!cap.enabled && <p className="muted">Assessment inference is disabled by the deployment administrator. Existing results stay readable.</p>}
       <div className="button-row">

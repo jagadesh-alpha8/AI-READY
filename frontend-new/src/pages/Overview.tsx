@@ -4,7 +4,7 @@ import { ErrorState, Loading, Pill } from '../components/ui';
 import { useCapability } from '../hooks/useCapability';
 import { useCycle } from '../hooks/useCycle';
 import { useResource } from '../hooks/useResource';
-import { achievedTier, scoreLabel, tierShown } from '../utils/capability';
+import { achievedTier, scoreLabel, stageLabel, tierShown } from '../utils/capability';
 import { getSprintOverview } from '../services/sprints';
 import type { Sprint, SprintOverview } from '../types/api';
 import { date, num } from '../utils/format';
@@ -99,7 +99,12 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
         <section className="panel">
           <div className="panel-head"><div><h2>Position</h2><p>Evidence and blockers</p></div></div>
           <dl className="kv">
-            <dt>Capability score</dt><dd>{capResult ? `${scoreLabel(capResult)} · ${capResult.condition_decision_coverage}% conditions decided` : 'No completed assessment'}</dd>
+            <dt>Capability score</dt><dd>{capResult ? (
+              <>
+                <Pill tone={tierShown(cap.stage) ? 'good' : 'neutral'} label={stageLabel(cap.stage)} />{' '}
+                {scoreLabel(capResult)} · {capResult.condition_decision_coverage}% conditions decided
+              </>
+            ) : 'No completed assessment'}</dd>
             <dt>Evidence confidence</dt><dd>{score ? `${num(score.overall_confidence)}%` : '—'}</dd>
             <dt>Coverage-adjusted CRI</dt><dd>{score?.coverage_adjusted_cri != null ? num(score.coverage_adjusted_cri, 1) : '—'}</dd>
             <dt>Critical blockers</dt><dd>{o.gaps.blocking_open} blocking gap{o.gaps.blocking_open === 1 ? '' : 's'} open</dd>

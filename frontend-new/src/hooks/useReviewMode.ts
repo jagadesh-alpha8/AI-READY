@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DEMO_MODE } from '../config/env';
 import { storage } from '../utils/storage';
 
 const KEY = 'aircampus_review_mode';
@@ -19,5 +20,5 @@ export function useReviewMode(): [boolean, (on: boolean) => void] {
     if (next) storage.set(KEY, '1'); else storage.remove(KEY);
     window.dispatchEvent(new Event(EVENT));
   };
-  return [on, set];
+  return [!DEMO_MODE && on, set];   // no Review mode in the demo build
 }

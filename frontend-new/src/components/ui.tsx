@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { DEMO_MODE } from '../config/env';
 import { PAGE_META, pathOf } from '../navigation';
 import type { PageKey } from '../utils/access';
 import { errorMessage, statusOf } from '../utils/errors';
@@ -52,6 +53,7 @@ export function Notice({ tone = 'info', children, onClose }: { tone?: 'info' | '
  * backend has no API for yet (listed in docs/API_MAPPING.md). Always labelled, so sample data is never read as real.
  */
 export function Dummy({ title, note, children, code }: { title: string; note: ReactNode; children?: ReactNode; code?: string }) {
+  if (DEMO_MODE) return null;   // the demo build shows only what the backend serves
   return (
     <section className="dummy" aria-label={`${title} (sample data)`}>
       <div className="dummy-head">
