@@ -372,8 +372,9 @@ def unconfirmed_reliance(report, decisions):
     return unconfirmed, in_conflict
 
 
-def held_note(held):
-    """One or two sentences on the credit held for follow-up answers (reserve.py), or ''."""
+def held_note(held, closed=False):
+    """One or two sentences on the credit held for follow-up answers (reserve.py), or ''. closed: the follow-up stage
+    is closed (layer2_service.stage_closed), so nothing invites more answers (audit, 23 Nov)."""
     if not held or not held.get('held_points'):
         return ''
     share = f"{held['share'] * 100:g}%"
@@ -381,8 +382,13 @@ def held_note(held):
         text = (f" Your follow-up answers earned back {held['earned_back_points']:g} of the {held['held_points']:g} "
                 f"points held for depth of evidence.")
         if held.get('still_held_points'):
-            text += f" {held['still_held_points']:g} remain held for requirements whose depth is not yet shown."
+            text += (f" {held['still_held_points']:g} stay held for requirements whose depth the follow-up answers did "
+                     "not show." if closed else
+                     f" {held['still_held_points']:g} remain held for requirements whose depth is not yet shown.")
         return text
+    if closed:
+        return (f" {share} of each credited requirement's credit, {held['held_points']:g} points in all, stays held: "
+                f"the follow-up stage is closed and no answer showed how far the evidence goes.")
     return (f" {share} of each credited requirement's credit, {held['held_points']:g} points in all, is held until "
             f"your follow-up answers show how far the evidence goes. Answering them can raise this score to "
             f"{held['evidence_score']:g}.")
@@ -401,7 +407,8 @@ def single_headline(result, decisions, report=None):
         'score': f"{result['score']:g} / 100", 'score_value': result['score'],
         'score_up_to': (f"up to {(report or {})['assessment_stage']['up_to']:g} with your follow-up answers"
                         if ((report or {}).get('assessment_stage') or {}).get('up_to') else ''),
-        'score_explanation': SCORE_NOTE + held_note(result.get('depth_reserve')),
+        'score_explanation': SCORE_NOTE + held_note(result.get('depth_reserve'),
+                                                    closed=((report or {}).get('assessment_stage') or {}).get('closed', False)),
         'depth_reserve': result.get('depth_reserve'),
         'condition_summary': (f"{statuses['demonstrated']} of {total} requirements demonstrated, {statuses['partly']} partly "
                               f"demonstrated, {statuses['not_found']} not found in the documents"

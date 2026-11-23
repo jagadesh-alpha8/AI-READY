@@ -99,3 +99,120 @@ class DepthJudgingFixes(TestCase):
         result = judge_run(data, model, commit=True)
         self.assertFalse([n for n, _ in model.calls if n == 'depth_judgment'])
         self.assertEqual(result['kept'], [F1])
+
+
+from .models import CapabilityRun, SecondLayerJob   # noqa: E402
+from .test_product_flow import ATTACHMENT, SETTINGS, ProductFlowTests   # noqa: E402
+
+
+@override_settings(**SETTINGS)
+class ClosingFixes(ProductFlowTests):
+    """Audit bugs 5, 6 and 7: a closed follow-up stage, set only by closing; no final label or tier without it; held
+    credit wording that knows the stage is closed. Reuses the product-flow harness: run the methods below by name
+    (the class also inherits the product-flow tests)."""
+
+    def jobs_url(self, run):
+        return f'{self.base}/{run.pk}/second-layer/jobs'
+
+    def answer_missing(self, provisional):
+        self.post(self.jobs_url(provisional), {'operation': 'questions'}, key='plan', expect=202)
+        self.run_queued()
+        question = DepthQuestion.objects.filter(run_ref=str(provisional.pk), kind='missing').order_by('rank').first()
+        self.post(f'{self.base}/{provisional.pk}/questions/{question.pk}/responses',
+                  {'answer': 'Our register.', 'document_ids': [self.document(ATTACHMENT)]}, expect=201)
+        self.run_queued()
+        return question
+
+    def test_fix_evidence_report_shows_no_tier_eligibility_at_stage_one(self):
+        provisional = self.assess()
+        html = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'evidence', 'file': 'html'})
+        self.assertNotIn('Current eligibility', html.content.decode())
+        from unittest.mock import patch
+        from .capability import pdf_report
+        written, original = [], pdf_report.Report.paragraph
+
+        def capture(pdf, value, **kwargs):
+            written.append(value)
+            return original(pdf, value, **kwargs)
+        with patch.object(pdf_report.Report, 'paragraph', capture):
+            self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'evidence', 'file': 'pdf'})
+        self.assertTrue(written)
+        self.assertFalse([t for t in written if 'Pillar floor' in t or 'no badge awarded' in t])
+        closed = self.close(provisional)
+        html = self.client.get(f'{self.base}/{closed.final_run_id}/report', {'audience': 'evidence', 'file': 'html'})
+        self.assertIn('Current eligibility', html.content.decode())   # the final score shows it
+
+    def close(self, provisional, key='close'):
+        self.post(self.jobs_url(provisional), {'operation': 'rejudge', 'options': {'close': True}}, key=key, expect=202)
+        job = self.run_queued()[0]
+        self.assertIsNotNone(job.final_run_id, job.result)
+        return job
+
+    def test_fix_a_re_judge_without_close_publishes_nothing(self):
+        provisional = self.assess()
+        self.answer_missing(provisional)
+        self.post(self.jobs_url(provisional), {'operation': 'rejudge'}, key='preview', expect=202)
+        job = self.run_queued()[0]
+        self.assertIsNone(job.final_run_id)
+        self.assertTrue(job.result['targets'])                 # it still reports what would change
+        self.assertIn('Preview only', job.result['note'])
+        self.assertFalse(CapabilityRun.objects.filter(inputs__second_layer__provisional_run_id=str(provisional.pk)).exists())
+        # Publishing without closing is refused outright, so the front end's old button cannot publish by accident.
+        self.post(self.jobs_url(provisional), {'operation': 'rejudge', 'options': {'publish': True}}, key='publish',
+                  expect=400)
+
+    def test_fix_after_closing_nothing_more_is_accepted(self):
+        provisional = self.assess()
+        question = self.answer_missing(provisional)
+        self.close(provisional)
+        progress = self.client.get(f'{self.base}/{provisional.pk}/questions').data['progress']
+        self.assertTrue(progress['closed'])
+        other = DepthQuestion.objects.filter(run_ref=str(provisional.pk), status='open').exclude(pk=question.pk).first()
+        response = self.post(f'{self.base}/{provisional.pk}/questions/{other.pk}/responses', {'skip': True}, expect=400)
+        self.assertIn('closed', response.data['detail'])
+        self.post(f'{self.base}/{provisional.pk}/additional-evidence',
+                  {'document_ids': [self.document(ATTACHMENT)], 'picked': ['AIQIF-C1.1']}, expect=400)
+        for operation, options in (('rejudge', {'close': True}), ('depth', {}), ('questions', {'replace': True})):
+            self.post(self.jobs_url(provisional), {'operation': operation, 'options': options},
+                      key=f'after-{operation}', expect=400)
+        self.post(self.jobs_url(provisional), {'operation': 'explain', 'options': {'final': True}}, key='explain-again',
+                  expect=202)   # explanations can still be written again
+        finals = CapabilityRun.objects.filter(inputs__second_layer__provisional_run_id=str(provisional.pk))
+        self.assertEqual(finals.count(), 1)
+
+    def test_fix_closing_waits_for_checks_and_depth(self):
+        provisional = self.assess()
+        self.post(self.jobs_url(provisional), {'operation': 'questions'}, key='plan', expect=202)
+        self.run_queued()
+        depth_q = DepthQuestion.objects.filter(run_ref=str(provisional.pk), kind='depth', status='open').first()
+        self.post(f'{self.base}/{provisional.pk}/questions/{depth_q.pk}/responses',
+                  {'answer': 'The register.', 'document_ids': [self.document(ATTACHMENT)]}, expect=201)
+        self.queued.clear()   # the check has not run yet: its job is cancelled before it starts
+        from .capability.second_layer_jobs import finish
+        for job in SecondLayerJob.objects.filter(run=provisional, status__in=('queued', 'running')):
+            finish(job.pk, 'cancelled', 'cancelled_by_user')
+        self.post(self.jobs_url(provisional), {'operation': 'rejudge', 'options': {'close': True}}, key='early',
+                  expect=400)
+        self.post(self.jobs_url(provisional), {'operation': 'checks'}, key='checks', expect=202)
+        self.run_queued()
+        self.post(self.jobs_url(provisional), {'operation': 'rejudge', 'options': {'close': True}}, key='before-depth',
+                  expect=400)   # the checked answer has not been judged for depth
+        self.post(self.jobs_url(provisional), {'operation': 'depth'}, key='depth', expect=202)
+        self.run_queued()
+        self.close(provisional)
+
+    def test_fix_held_credit_wording_knows_the_stage_is_closed(self):
+        provisional = self.assess()
+        before = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'leadership', 'file': 'html'})
+        self.assertIn('Answering them can raise this score to', before.content.decode())   # Stage 1, still open
+        job = self.close(provisional)
+        for run_id in (job.final_run_id, provisional.pk):
+            for audience in ('leadership', 'evidence'):
+                text = self.client.get(f'{self.base}/{run_id}/report', {'audience': audience, 'file': 'html'}).content.decode()
+                self.assertNotIn('Answering them can raise this score', text, (run_id, audience))
+                self.assertNotIn('held until your follow-up answers show', text, (run_id, audience))
+            records = self.client.get(f'{self.base}/{run_id}').data['assessment']['records']
+            self.assertFalse([r for r in records if 'held until your follow-up answers'
+                              in str((r.get('explanation') or {}).get('follow_up'))])
+        text = self.client.get(f'{self.base}/{job.final_run_id}/report', {'audience': 'leadership', 'file': 'html'}).content.decode()
+        self.assertIn('stays held: the follow-up stage is closed', text)

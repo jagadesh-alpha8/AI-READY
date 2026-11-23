@@ -619,7 +619,7 @@ def latest(run):
     return row.payload if row else None
 
 
-def attach(assessment, explanations):
+def attach(assessment, explanations, closed=False):
     """A copy of an assessment payload (records, result) with explanations attached where the front end reads them:
     records[].explanation, result.indicators[].explanation, result.documented.indicators[] and .pillars[]."""
     if not explanations:
@@ -629,7 +629,9 @@ def attach(assessment, explanations):
 
     def for_record(r):
         e = public(explanations['requirements'].get(r.get('condition_id')))
-        note = follow_up_note(r)   # the credit held for follow-up answers (reserve.py); written here, not by the model
+        # The credit held for follow-up answers (reserve.py); written here, not by the model; closed: the follow-up
+        # stage is closed.
+        note = follow_up_note(r, closed=closed)
         return {**e, 'follow_up': note} if e and note else e
     out = dict(assessment)
     out['records'] = [{**r, 'explanation': for_record(r)} for r in assessment.get('records') or []]

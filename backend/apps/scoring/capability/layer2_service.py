@@ -267,13 +267,33 @@ def progress(run_ref):
             'checks_waiting': responses.filter(status=DepthResponse.Status.PENDING).count(),
             'follow_ups_open': responses.filter(parent__isnull=True, status=DepthResponse.Status.CHECKED)
                                         .exclude(follow_up_text='').filter(follow_ups__isnull=True).count(),
-            'final_run_id': final_run_id(run_ref)}
+            'final_run_id': final_run_id(run_ref), 'closed': stage_closed(run_ref)}
 
 
 def final_run_id(run_ref):
     """The newest final result published for this provisional run, or None."""
     final = CapabilityRun.objects.filter(inputs__second_layer__provisional_run_id=str(run_ref)).order_by('-created_at').first()
     return str(final.pk) if final else None
+
+
+CLOSED = ('The follow-up stage is closed: the final AI-READY Score has been published, so answers and evidence can no '
+          'longer change it.')
+
+
+def stage_closed(run_or_ref):
+    """True once the follow-up stage is closed: the run is a final result, or a final result has been published from
+    this provisional run. A final result is published only by closing the stage (second_layer_jobs.run_rejudge with
+    close, or layer2_rejudge --publish), so a published final result is the closed state (audit, 23 Nov)."""
+    if isinstance(run_or_ref, CapabilityRun):
+        if is_final(run_or_ref):
+            return True
+        run_or_ref = run_or_ref.pk
+    return final_run_id(run_or_ref) is not None
+
+
+def refuse_closed(run_ref):
+    if stage_closed(run_ref):
+        raise Layer2Error(CLOSED)
 
 
 def submit(question, *, answer='', document_ids=(), skip=False, parent=None, user=None, via='college'):
@@ -290,6 +310,10 @@ def submit(question, *, answer='', document_ids=(), skip=False, parent=None, use
         if sprint_id is not None:
             documents = check_documents(documents, sprint_id)
     with transaction.atomic():
+        # The provisional run is locked first (as closing locks it), so an answer is either recorded before the stage
+        # closes or refused after it.
+        CapabilityRun.objects.select_for_update().filter(pk=_uuid(question.run_ref)).first()
+        refuse_closed(question.run_ref)
         locked = DepthQuestion.objects.select_for_update().get(pk=question.pk)
         if parent is not None:
             parent = DepthResponse.objects.select_for_update().get(pk=parent.pk)
@@ -489,6 +513,7 @@ def add_evidence(run_ref, rubric, *, document_ids, note='', picked=(), user=None
     documents = [str(d) for d in document_ids or []]
     if not documents:
         raise Layer2Error('Attach at least one document.')
+    refuse_closed(run_ref)
     sprint_id = run_sprint_id(run_ref)
     if sprint_id is not None:
         documents = check_documents(documents, sprint_id)
@@ -675,7 +700,8 @@ def _inference(service, provisional_event):
 
 
 def publish_final(result, *, service=None, user=None, inference=None):
-    """Publish a rejudge_credit result as the final result: a new run refining the provisional one, with the new
+    """Publish a rejudge_credit result as the final result and so close the follow-up stage (stage_closed): a new run
+    refining the provisional one, with the new
     documents' pages added to its frozen sources and the merged records published through storage.publish (which
     revalidates every citation and trace excerpt against those sources). Re-judged key indicators take their new
     traces; the rest keep the provisional ones. Idempotent: the same result publishes once. Returns the final run."""
@@ -701,6 +727,7 @@ def publish_final(result, *, service=None, user=None, inference=None):
         existing = CapabilityExecution.objects.filter(sprint=sprint, idempotency_key=key).select_related('run').first()
         if existing:
             return existing.run
+        refuse_closed(provisional_run.pk)   # one final result per provisional run: publishing closes the stage
         inputs = dict(provisional_run.inputs)
         frozen_ids = {s['id'] for s in inputs['sources']}
         added = [s for s in new_sources if s['id'] not in frozen_ids]

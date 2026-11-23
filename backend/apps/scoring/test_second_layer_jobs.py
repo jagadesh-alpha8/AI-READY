@@ -428,7 +428,7 @@ class SecondLayerJobTests(APITestCase):
                 'contradictions': [], 'context_audit': {}, 'routes': 1, 'note': ''}
 
     def test_rejudge_job_publishes_the_final_result_with_its_metered_calls(self):
-        job = self.post_job('rejudge')
+        job = self.post_job('rejudge', options={'close': True})
         with patch('apps.scoring.capability.layer2_service.rejudge_credit',
                    side_effect=lambda export, service, **kw: self.rejudge_result(export, service)) as fake:
             job = self.execute(job)
@@ -461,7 +461,7 @@ class SecondLayerJobTests(APITestCase):
         self.assertEqual(job.status, 'completed', job.detail)
         self.assertIsNone(job.final_run_id)
         self.assertEqual(self.calls(), 0)
-        self.assertEqual(job.result['note'], 'No new evidence to re-judge.')
+        self.assertTrue(job.result['note'].startswith('No new evidence to re-judge. Preview only'), job.result['note'])
 
     def test_export_still_reads_the_provisional_run(self):
         self.assertEqual(export_for_run(self.run.pk)['run_id'], str(self.run.pk))

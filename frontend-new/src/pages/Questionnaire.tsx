@@ -428,7 +428,8 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
           {hasQuestions && <button className="secondary-button" disabled={disabled} onClick={() => void start('depth')}>{busy === 'depth' ? 'Starting…' : 'Judge evidence depth'}</button>}
           <button className="secondary-button" disabled={disabled} title="One model call per area (about 9), checked against this run's record"
             onClick={() => void start('explain')}>{busy === 'explain' ? 'Starting…' : explained ? 'Write explanations again' : 'Write explanations'}</button>
-          {finished && !p?.final_run_id && <button className="primary-action" disabled={disabled} onClick={() => void start('rejudge', { publish: true })}>{busy === 'rejudge' ? 'Starting…' : 'Publish final result'}</button>}
+          {finished && !p?.final_run_id && <button className="primary-action" disabled={disabled} title="Closes the follow-up stage: after this no answer or document can change the final AI-READY Score"
+            onClick={() => void start('rejudge', { close: true })}>{busy === 'rejudge' ? 'Starting…' : 'Publish final result'}</button>}
         </div>
       )}>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}

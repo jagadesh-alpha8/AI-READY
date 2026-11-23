@@ -82,7 +82,7 @@ def render_pdf(report, indicators, actions):
         from .report_projection import held_note
         pdf.paragraph('What the supplied documents show, with partial credit where only some parts of a requirement '
                       'are evidenced. A requirement the documents do not show earns no credit.'
-                      + held_note(result.get('depth_reserve')))
+                      + held_note(result.get('depth_reserve'), closed=stage.get('closed', False)))
     else:
         score = (f"{result['exact_score']:.2f}" if result['exact_score'] is not None else
                  f"{result['lower']:.2f} - {result['upper']:.2f}")
@@ -91,7 +91,8 @@ def render_pdf(report, indicators, actions):
             pdf.paragraph('The lower bound is demonstrated capability. The upper bound is not demonstrated capability.')
         pdf.paragraph(f"Resolved indicator weight: {result['assessment_coverage']}%. "
                       f"Decided conditions: {result['condition_decision_coverage']}%. These are evidence-resolution measures.")
-    for tier in result['tiers']:
+    # Tier eligibility only on the final AI-READY Score (Siddharth, 23 Nov; the audit found it still listed at Stage 1).
+    for tier in (result['tiers'] if (report.get('assessment_stage') or {}).get('tier_shown', True) else []):
         if tier['threshold'] is None:
             pdf.paragraph(f"{tier['name']}: achievement requirements are not calibrated; no badge awarded.")
             continue

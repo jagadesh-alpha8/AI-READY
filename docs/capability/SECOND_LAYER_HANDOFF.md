@@ -74,7 +74,7 @@ With `SECOND_LAYER_JOBS_ENABLED=true` the steps above run in Celery instead of f
 | `questions` | plans and saves the follow-up questions | `replace` (refused once the college has answered) |
 | `checks` | checks waiting answers and additional evidence | none |
 | `depth` | judges depth from checked answers (saves judgments and pending past cases) | none |
-| `rejudge` | re-judges credit and publishes the final result as a run refining the provisional one | `publish` (default true; false reports only); `close` (default false): publish even when nothing changed, which closes the follow-up stage (23 Nov) |
+| `rejudge` | re-judges credit; with `close`, publishes the final result as a run refining the provisional one and closes the follow-up stage | `close` (default false): publish (even when nothing changed) and close the stage; without it the job is a preview and publishes nothing. `publish` follows `close`; `publish: true` without `close` is refused (audit fix, 23 Nov). Closing is refused while answers wait for a check or for the depth job. After closing, answers, additional evidence and every job but `explain` are refused, and `progress.closed` is true |
 
 - **Metered.** Every model call is reserved against the job (it must still be running, within its deadline) and the
   run's `SecondLayerBudget`, which all of the run's jobs share. The budget is frozen when the first job starts:

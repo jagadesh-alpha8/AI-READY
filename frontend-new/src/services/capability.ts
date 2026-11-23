@@ -69,6 +69,8 @@ export interface Layer2Progress {
   linked?: number;
   /** Set once the final result has been published from this (provisional) run. */
   final_run_id?: string | null;
+  /** True once the follow-up stage is closed (the final result is published): answers and evidence are refused. */
+  closed?: boolean;
 }
 export interface Layer2Next { type: 'question' | 'follow_up'; text: string; question: Layer2Question; response_id: string | null }
 export interface Layer2Response {

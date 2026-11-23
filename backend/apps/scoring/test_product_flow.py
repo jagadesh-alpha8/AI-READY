@@ -315,7 +315,8 @@ class ProductFlowTests(APITestCase):
         self.run_queued()
         self.assertTrue(DepthJudgment.objects.filter(run_ref=str(provisional.pk)).exists())
 
-        self.post(jobs_url, {'operation': 'rejudge'}, key='publish-final', expect=202)
+        # Only closing the follow-up stage publishes the final result (audit, 23 Nov).
+        self.post(jobs_url, {'operation': 'rejudge', 'options': {'close': True}}, key='publish-final', expect=202)
         rejudge = self.run_queued()[0]
         self.assertIsNotNone(rejudge.final_run_id, rejudge.result)
         final = CapabilityRun.objects.get(pk=rejudge.final_run_id)
@@ -606,7 +607,8 @@ class ProductFlowTests(APITestCase):
         self.assertEqual(levels[dont_know], 'evidenced')
         self.assertNotIn(typed, levels)
 
-        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge'}, key='final', expect=202)
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge', 'options': {'close': True}},
+                  key='final', expect=202)
         rejudge = self.run_queued()[0]
         self.assertIsNotNone(rejudge.final_run_id, rejudge.result)
         self.assertTrue(rejudge.result['targets'])   # new evidence re-judged, and depth carried through the merge
@@ -684,8 +686,8 @@ class ProductFlowTests(APITestCase):
                    'picked': [sorted(set(i['code'] for i in release()['indicators']) - self.credited)[0]]},
                   expect=201)
         self.run_queued()
-        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge'}, key='publish-final',
-                  expect=202)
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge', 'options': {'close': True}},
+                  key='publish-final', expect=202)
         rejudge, explain_final = self.run_queued()
         self.assertEqual((explain_final.operation, explain_final.options), ('explain', {'final': True}))
         self.assertEqual(rejudge.result['explain_job_id'], str(explain_final.pk))
@@ -708,8 +710,8 @@ class ProductFlowTests(APITestCase):
                   {'document_ids': [self.document(WITHDRAWN)], 'note': 'The council withdrew the policy',
                    'picked': picked}, expect=201)
         self.run_queued()
-        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge'}, key='publish-final',
-                  expect=202)
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge', 'options': {'close': True}},
+                  key='publish-final', expect=202)
         rejudge = self.run_queued()[0]
         final = CapabilityRun.objects.get(pk=rejudge.final_run_id)
         final_detail = self.client.get(f'{self.base}/{final.pk}').data

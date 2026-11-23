@@ -65,7 +65,7 @@ def assessment_stage(run, event):
         if lowered:
             note += (f" {len(lowered)} requirement{'s' if len(lowered) != 1 else ''} went down because documents the "
                      'institution sent show otherwise.')
-        return {'stage': 'final', 'label': FINAL, 'tier_shown': True,
+        return {'stage': 'final', 'label': FINAL, 'tier_shown': True, 'closed': True,
                 'provisional_run_id': second['provisional_run_id'],
                 'provisional_score': second.get('provisional_score'), 'score': score, 'lowered': lowered,
                 'unchanged': unchanged, 'note': note}
@@ -79,7 +79,8 @@ def assessment_stage(run, event):
         note = (f'{STAGE_ONE}: what the documents show before the follow-up questions.'
                 + (f' Follow-up answers backed by documents can raise it to {up_to:g}.' if up_to else '')
                 + ' The final AI-READY Score and tier are published once the follow-up questions are complete.')
-    return {'stage': 'provisional', 'label': STAGE_ONE, 'tier_shown': False, 'final_run_id': final, 'score': score,
+    return {'stage': 'provisional', 'label': STAGE_ONE, 'tier_shown': False, 'closed': bool(final),
+            'final_run_id': final, 'score': score,
             'up_to': up_to, 'note': note}
 
 
@@ -112,6 +113,7 @@ class CapabilityReportView(RunView):
         validate_report_identity(run, event, snapshot, completed)
         from .explanations import attach, latest
         explanations = latest(run)   # beside the run, never in it: the integrity hashes above read event.payload
+        stage = assessment_stage(run, event)
         payload = {'format_version': 'AIQIF-REPORT-0.2', 'exported_at': timezone.now(),
             'run_id': str(run.pk), 'assessment_event_id': event.pk, 'inputs_hash': run.inputs_hash,
             'profile': run.inputs['profile'], 'population': run.inputs['population'], 'rubric': run.inputs['rubric'],
@@ -120,8 +122,9 @@ class CapabilityReportView(RunView):
             'refines_run_id': run.inputs.get('refines_run_id'), 'source_manifest': run.inputs['manifest'],
             'assessment_protocol': run.inputs.get('assessment_protocol'),
             'retrieval_policy': run.inputs.get('retrieval_policy'),
-            'assessment': attach(event.payload, explanations), 'explanations_version': (explanations or {}).get('version'),
-            'assessment_stage': assessment_stage(run, event), 'recommendation': recommendation,
+            'assessment': attach(event.payload, explanations, closed=stage['closed']),
+            'explanations_version': (explanations or {}).get('version'),
+            'assessment_stage': stage, 'recommendation': recommendation,
             'deterministic_plan': snapshot.inputs if recommendation else build_inputs(run, event, {}),
             'notice': 'Experimental internal methodology, not an external accreditation standard. Unknown evidence is not failure. '
                       'Tier pathways are conditional sufficient scenarios, not optimal or guaranteed. Workflow completion does not change scores; reassessment is required.'}
@@ -152,7 +155,7 @@ class CapabilityReportView(RunView):
                 template = 'scoring/leadership_report.html' if audience == 'leadership' else 'scoring/capability_report.html'
                 content = render_to_string(template, {'report': payload, 'view': payload['report_view'],
                     'result': event.payload['result'], 'indicators': indicators, 'actions': actions,
-                    'held_note': held_note(event.payload['result'].get('depth_reserve'))})
+                    'held_note': held_note(event.payload['result'].get('depth_reserve'), closed=stage['closed'])})
         response = HttpResponse(content, content_type={'json': 'application/json; charset=utf-8',
             'html': 'text/html; charset=utf-8', 'pdf': 'application/pdf'}[file_format])
         response['Content-Disposition'] = f'attachment; filename="capability-{run.pk}-{audience}.{file_format}"'

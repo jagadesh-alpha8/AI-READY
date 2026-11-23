@@ -137,8 +137,9 @@ def summary(records, rubric):
             'held_for_review': sorted(r['condition_id'] for r in records if r.get('depth_review'))}
 
 
-def follow_up_note(record):
-    """One plain sentence for a requirement's explanation about the credit held for it, or None."""
+def follow_up_note(record, closed=False):
+    """One plain sentence for a requirement's explanation about the credit held for it, or None. closed: the follow-up
+    stage is closed, so the sentence does not invite more answers."""
     if not holds(record):
         return None
     if record.get('depth_review'):
@@ -148,4 +149,6 @@ def follow_up_note(record):
         return 'Your follow-up answers showed the full depth of this, which earned back all of the credit held for it.'
     if level == 'substantiated':
         return 'Your follow-up answers showed more of the depth of this, which earned back half of the credit held for it.'
+    if closed:
+        return 'Part of this credit stays held, because the follow-up answers did not show how far it goes.'
     return 'Part of this credit is held until your follow-up answers show how far it goes.'
