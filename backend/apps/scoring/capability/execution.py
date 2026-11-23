@@ -63,7 +63,7 @@ def policy(stage='assessment'):
     # A tie-break pass adds at most one request per indicator (36), only where the two passes disagree.
     tie_break = bool(getattr(settings, 'CAPABILITY_TIE_BREAK', False))
     # A quotation repair asks again, once per pass, only for requirements whose found parts all failed their
-    # quotations (rare: 2 key indicators in test 13); up to 36 more requests at worst.
+    # quotations (rare: 2 key indicators in test 13); at worst one more request per key indicator per pass (72).
     quote_repair = judgment == 'parts' and bool(getattr(settings, 'CAPABILITY_PART_QUOTE_REPAIR', False))
     call_limit = 108 + (108 if follow_up else 0) + (36 if tie_break else 0) + (36 if quote_repair else 0)
     call_floor = 74 if passes == 2 else 1

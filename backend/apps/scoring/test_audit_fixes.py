@@ -216,3 +216,36 @@ class ClosingFixes(ProductFlowTests):
                               in str((r.get('explanation') or {}).get('follow_up'))])
         text = self.client.get(f'{self.base}/{job.final_run_id}/report', {'audience': 'leadership', 'file': 'html'}).content.decode()
         self.assertIn('stays held: the follow-up stage is closed', text)
+
+
+from .test_tie_break import A, SOURCES, QuoteRepairTests, rubric as one_indicator   # noqa: E402
+
+
+class QuoteRepairFixes(SimpleTestCase):
+    """Audit bug 3: the quotation repair runs only when every found part of a requirement failed its quotation."""
+
+    class OneMisquoted(QuoteRepairTests.Service):
+        def extract_structured_data(self, *, system_prompt, user_content, response_schema, schema_name):
+            out = super().extract_structured_data(system_prompt=system_prompt, user_content=user_content,
+                                                  response_schema=response_schema, schema_name=schema_name)
+            if len(self.calls) == 1:   # first pass: the first part quoted exactly, the others misquoted
+                for f in out['conditions'][A]['findings'][1:]:
+                    f['citations'] = [{'source_id': f['citations'][0]['source_id'], 'quote': 'not on the page at all'}]
+            return out
+
+    def evaluate(self, service):
+        from .capability.evaluation import evaluate
+        return evaluate(SOURCES, service=service, population='Students', reference_period='2023-24',
+                        rubric=one_indicator(), retrieval_policy={'mode': 'bm25'}, agreement_passes=2,
+                        judgment='parts', tie_break=True, quote_repair=True)
+
+    def test_one_misquoted_part_beside_a_validated_one_is_not_repaired(self):
+        service = self.OneMisquoted(bad_quote_calls=set())
+        result = self.evaluate(service)
+        self.assertNotIn('quote_repair_audit', result['traces'][0])
+        self.assertFalse([p for p in service.payloads if 'quotation_repair' in p])
+
+    def test_every_found_part_misquoted_is_still_repaired(self):
+        service = QuoteRepairTests.Service(bad_quote_calls={0})
+        result = self.evaluate(service)
+        self.assertEqual(result['traces'][0]['quote_repair_audit'][0]['pass'], 'first')

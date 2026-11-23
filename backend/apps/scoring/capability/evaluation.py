@@ -793,7 +793,12 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
         """(records, audit or None): one repair request for the requirements whose found parts failed quotation."""
         failing = {r['condition_id']: [i.split(':')[0] for i in r.get('part_issues') or [] if 'without a valid quotation' in i]
                    for r in records}
-        failing = {cid: parts for cid, parts in failing.items() if parts}
+        # Only requirements whose found parts ALL failed their quotations (nothing found validated): one misquoted
+        # part beside a validated one is not repaired, since the repair re-judges every part of the requirement
+        # (audit, 23 Nov: any failed quotation triggered it, up to 72 requests a run, not the 36 budgeted).
+        validated = {r['condition_id']: any(p.get('finding') not in (None, 'not_found') for p in r.get('parts') or [])
+                     for r in records}
+        failing = {cid: parts for cid, parts in failing.items() if parts and not validated.get(cid)}
         if not quote_repair or not failing:
             return records, None
         group = [c for c in indicator['conditions'] if c['id'] in failing]
