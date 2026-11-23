@@ -1,4 +1,8 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useResource } from '../hooks/useResource';
+import { pathOf } from '../navigation';
+import { listSprintGapsPage } from '../services/gaps';
 import { levelFor, starText } from '../utils/levels';
 import { useAccess } from '../hooks/useAccess';
 import type { useCapability } from '../hooks/useCapability';
@@ -203,6 +207,15 @@ export function CapabilityRunControl({ sprintId, cap }: { sprintId: string; cap:
   const [key] = useState(newKey);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const newest = cap.newest;
+  // Facts whose sources disagree (23 Nov: warn, don't block). Facts are frozen when an assessment starts, so this is
+  // the moment to settle them; the run goes ahead either way.
+  const conflicts = useResource<number>(async () => {
+    const res = await listSprintGapsPage(sprintId, { gap_type: 'conflict', status: 'open', page_size: 1 });
+    return { data: res.data.count };
+  }, `conflicts:${sprintId}`);
+  const open = conflicts.data || 0;
+  const conflictText = open ? `${open} fact${open === 1 ? '' : 's'} where your documents disagree ${open === 1 ? 'is' : 'are'} not settled yet. ` +
+    'The assessment uses the documents as they are now, so settle them first if you can; you can also run it now.' : '';
 
   return (
     <Panel title="Evidence-based capability assessment" sub={newest ? `Latest run ${dateTime(newest.created_at)}` : 'No run yet'}
@@ -213,6 +226,9 @@ export function CapabilityRunControl({ sprintId, cap }: { sprintId: string; cap:
       )}
       {cap.running && <Notice tone="info">Assessment in progress. This view refreshes every few seconds.</Notice>}
       {!cap.enabled && <p className="muted">Assessment inference is disabled by the deployment administrator. Existing results stay readable.</p>}
+      {open > 0 && !cap.running && (
+        <Notice tone="info">{conflictText} <Link to={pathOf('gaps')}>Settle them</Link></Notice>
+      )}
       <div className="button-row">
         {can('sprint.manage') && (
           <button className="primary-action" disabled={!cap.enabled || cap.running} onClick={() => setConfirming(true)}>Start new assessment</button>
@@ -227,7 +243,7 @@ export function CapabilityRunControl({ sprintId, cap }: { sprintId: string; cap:
       {confirming && (
         <ActionDialog
           title="Start a new capability assessment?"
-          description="This uses model credits within the configured limits. It freezes the current verified sources; earlier assessments stay unchanged."
+          description={`${conflictText}This uses model credits within the configured limits. It freezes the current verified sources; earlier assessments stay unchanged.`}
           fields={[]}
           confirmLabel="Start (uses credits)"
           onSubmit={async () => {
