@@ -74,8 +74,11 @@ def render_pdf(report, indicators, actions):
     pdf.paragraph(report['notice'])
     pdf.section('Current standing')
     single = result.get('score') is not None
+    stage = report.get('assessment_stage') or {}
     if single:
-        pdf.paragraph(f"{result['score']:g} / 100", heading=True)
+        pdf.paragraph((f"{stage['label']}: " if stage.get('label') else '') + f"{result['score']:g} / 100"
+                      + (f" (up to {stage['up_to']:g} with the follow-up answers)" if stage.get('up_to') else ''),
+                      heading=True)
         from .report_projection import held_note
         pdf.paragraph('What the supplied documents show, with partial credit where only some parts of a requirement '
                       'are evidenced. A requirement the documents do not show earns no credit.'
@@ -150,8 +153,11 @@ def render_pdf(report, indicators, actions):
     priority = report['deterministic_plan'].get('priority_plan')
     if priority:
         tier = priority['tier']
-        pdf.paragraph(f"Score {priority['score']}; provisional tier: {tier['current'] or 'none yet'}"
-                      + (f"; {tier['points_to_next']} points to {tier['next']}." if tier['next'] else '.'))
+        if stage.get('tier_shown', True):
+            pdf.paragraph(f"Score {priority['score']}; provisional tier: {tier['current'] or 'none yet'}"
+                          + (f"; {tier['points_to_next']} points to {tier['next']}." if tier['next'] else '.'))
+        else:
+            pdf.paragraph(f"Score {priority['score']} at Stage 1; the tier is awarded on the final AI-READY Score.")
         pdf.paragraph(f"Projected score after the priority plan: {priority['projected_score']}. {priority['note']}")
         held = priority.get('follow_up')
         if held:

@@ -967,7 +967,7 @@ class FinalResultReportTests(FinalResultTests):
                 self.assertEqual(response.status_code, 200, (audience, fmt))
         data = json.loads(self.client.get(f'{self.base}/{final.pk}/report', {'file': 'json'}).content)
         self.assertEqual(data['assessment_stage']['stage'], 'final')
-        self.assertIn('Final result', data['report_view']['stage_notice'])
+        self.assertIn('Final AI-READY Score', data['report_view']['stage_notice'])   # Stage 1 / final labels, 23 Nov
         old = json.loads(self.client.get(f'{self.base}/{self.run.pk}/report', {'file': 'json'}).content)
         self.assertEqual((old['assessment_stage']['stage'], old['assessment_stage']['final_run_id']), ('provisional', str(final.pk)))
         listed = self.client.get(self.base)

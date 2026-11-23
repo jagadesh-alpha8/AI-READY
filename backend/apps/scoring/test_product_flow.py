@@ -435,6 +435,74 @@ class ProductFlowTests(APITestCase):
         self.assertFalse(same)
         self.assertEqual(diff['counts'], {'only_in_run': 0, 'only_in_rebuild': 1})
 
+    def test_packet_changes_lists_the_key_indicators_a_later_run_can_be_compared_on(self):
+        """Test 14 compares Claude and OpenAI with test 13 (Gemini) only where today's packet rules give the same
+        packet (capability_packet_changes; no model calls)."""
+        from io import StringIO
+        from django.core.management import call_command
+        from .management.commands.capability_packet_changes import changes
+        run = self.assess()
+        result = changes(run)
+        self.assertEqual(result['summary']['indicators'], 36)
+        self.assertEqual(result['summary']['reproduced'], 36)
+        self.assertEqual(result['summary']['unchanged'] + result['summary']['changed'], 36)
+        self.assertEqual(len(result['summary']['usable_for_comparison']), result['summary']['unchanged'])
+        # A run frozen before lane 2 is rebuilt with lane 2 for "today".
+        run.inputs = {**run.inputs, 'retrieval_policy': {k: v for k, v in (run.inputs.get('retrieval_policy') or {}).items()
+                                                          if k != 'evidence_lane'}}
+        older = changes(run, indicators=['AIQIF-C1.1'])
+        self.assertEqual((older['run_lane'], older['today_lane']), ('extracted-evidence-lane-1', 'extracted-evidence-lane-2'))
+        self.assertTrue(older['indicators'][0]['reproduced'])
+        out = StringIO()
+        call_command('capability_packet_changes', str(CapabilityRun.objects.get(pk=run.pk).pk), stdout=out)
+        self.assertIn('Packets rebuilt exactly as the run had them: 36 of 36.', out.getvalue())
+
+    # ---------------------------------------------------------------- Stage 1 and closing the follow-up stage (23 Nov)
+
+    def test_stage_one_shows_no_tier_and_closing_publishes_a_final_result(self):
+        """Colleges see a Stage 1 result before the follow-ups, without a tier, and their final AI-READY Score only
+        once the follow-up stage is closed: closing publishes it even when no answer changed anything."""
+        provisional = self.assess()
+        held = self.client.get(f'{self.base}/{provisional.pk}').data['assessment']['result']['depth_reserve']
+        stage = self.reports(provisional)['assessment_stage']
+        self.assertEqual((stage['stage'], stage['label'], stage['tier_shown']),
+                         ('provisional', 'Stage 1 result: Document Review', False))
+        self.assertEqual(stage['up_to'], held['evidence_score'])
+        self.assertIn('The final AI-READY Score and tier are published once', stage['note'])
+        html = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'leadership', 'file': 'html'})
+        self.assertIn(f"up to {held['evidence_score']:g} with your follow-up answers", html.content.decode())
+        self.assertIn('are awarded on the final AI-READY Score', html.content.decode())
+        evidence = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'evidence', 'file': 'html'})
+        self.assertNotIn('provisional tier:', evidence.content.decode())
+
+        listed = self.client.get(f'{self.base}/{provisional.pk}/questions').data
+        self.assertEqual(listed['notice']['points'], held['held_points'])
+        self.assertIn(f"up to {held['held_points']:g} points in total", listed['notice']['intro'])
+        self.assertEqual(len(listed['notice']['rules']), 3)
+
+        # Nothing answered: a plain re-judge publishes nothing; closing publishes the final result, no model call.
+        jobs_url = f'{self.base}/{provisional.pk}/second-layer/jobs'
+        self.post(jobs_url, {'operation': 'rejudge', 'options': {'close': True, 'publish': False}}, key='bad',
+                  expect=400)
+        self.post(jobs_url, {'operation': 'rejudge'}, key='plain', expect=202)
+        self.assertIsNone(self.run_queued()[0].final_run_id)
+        self.post(jobs_url, {'operation': 'rejudge', 'options': {'close': True}}, key='close', expect=202)
+        closed = self.run_queued()[0]
+        self.assertIsNotNone(closed.final_run_id, closed.result)
+        self.assertIn('Follow-up stage closed', closed.result['note'])
+        final = CapabilityRun.objects.get(pk=closed.final_run_id)
+        final_result = self.client.get(f'{self.base}/{final.pk}').data['assessment']['result']
+        self.assertEqual(final_result['score'], self.client.get(f'{self.base}/{provisional.pk}').data
+                         ['assessment']['result']['score'])
+        self.assertEqual(final_result['depth_reserve']['still_held_points'], held['held_points'])   # still held
+        stage = self.reports(final)['assessment_stage']
+        self.assertEqual((stage['stage'], stage['label'], stage['tier_shown'], stage['unchanged']),
+                         ('final', 'Final AI-READY Score', True, True))
+        self.assertIn('no answer changed the Stage 1 result', stage['note'])
+        old = self.reports(provisional)['assessment_stage']
+        self.assertEqual(old['final_run_id'], str(final.pk))
+        self.assertIn('has been published', old['note'])
+
     # ---------------------------------------------------------------- follow-up outcomes (21 Nov)
 
     def test_follow_up_answers_have_the_outcomes_they_should(self):

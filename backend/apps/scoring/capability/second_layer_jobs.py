@@ -9,7 +9,9 @@ and credit):
     depth      judge the depth of credited evidence from checked answers (depth_service.judge_run)
     rejudge    re-judge credit on the provisional packets plus the new passages and publish the final result as a run
                refining the provisional one (layer2_service.rejudge_credit, publish_final); options.publish=false
-               only reports what would change
+               only reports what would change; options.close also publishes when nothing changed, which closes the
+               follow-up stage (a college sees its final result only once the stage is closed, so one that answers
+               nothing, or only "don't know", still gets one, with the held credit still held)
     explain    write the score explanations for the provisional run, or with options.final for its final result
                (explanations.explain; one call per area, at most two); started on its own after a final result is
                published when SECOND_LAYER_EXPLAIN_AFTER_PUBLISH is on
@@ -109,7 +111,7 @@ def clean_options(operation, options):
     options = options or {}
     if not isinstance(options, dict):
         raise ValidationError({'options': 'Must be an object.'})
-    allowed = {'questions': {'replace'}, 'rejudge': {'publish'}, 'explain': {'final'}}.get(operation, set())
+    allowed = {'questions': {'replace'}, 'rejudge': {'publish', 'close'}, 'explain': {'final'}}.get(operation, set())
     unknown = set(options) - allowed
     if unknown:
         raise ValidationError({'options': f'Unknown for {operation}: {", ".join(sorted(unknown))}.'})
@@ -120,6 +122,9 @@ def clean_options(operation, options):
         out[key] = value
     if operation == 'rejudge':
         out.setdefault('publish', True)
+        out.setdefault('close', False)
+        if out['close'] and not out['publish']:
+            raise ValidationError({'options': 'close publishes the final result, so it needs publish.'})
     if operation == 'questions':
         out.setdefault('replace', False)
     if operation == 'explain':
@@ -403,7 +408,9 @@ def run_rejudge(job, meter):
         'concurrency': job.policy.get('indicator_concurrency', 1)})
     summary = {k: result.get(k) for k in ('provisional_score', 'final_score', 'targets', 'merge', 'contradictions',
                                           'lowerings', 'depth_changes', 'routes', 'note')}
-    publishable = result.get('targets') or result.get('depth_changes')   # new evidence, or depth answers that count
+    changed = bool(result.get('targets') or result.get('depth_changes'))   # new evidence, or depth answers that count
+    # Closing the follow-up stage publishes the final result even when nothing changed (no model calls then).
+    publishable = changed or job.options.get('close', False)
     final = None
     with transaction.atomic():
         commit_point(job.pk, lock_run=True)
@@ -413,7 +420,9 @@ def run_rejudge(job, meter):
                 final = publish_final(result, service=meter, user=job.requested_by)
             except ValueError as exc:   # storage.publish's own refusals (a citation or excerpt that does not match)
                 raise Layer2Error(f'The final result could not be published: {exc}')
-            summary['note'] = 'Published as the final result.'
+            summary['note'] = ('Published as the final result.' if changed else
+                               'Follow-up stage closed: published as the final result; no answer changed the Stage 1 '
+                               'result.')
             if enabled() and settings.SECOND_LAYER_EXPLAIN_AFTER_PUBLISH:
                 options = {'final': True}
                 explain_next = SecondLayerJob.objects.create(
