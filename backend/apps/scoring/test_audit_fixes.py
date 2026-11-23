@@ -249,3 +249,58 @@ class QuoteRepairFixes(SimpleTestCase):
         service = QuoteRepairTests.Service(bad_quote_calls={0})
         result = self.evaluate(service)
         self.assertEqual(result['traces'][0]['quote_repair_audit'][0]['pass'], 'first')
+
+
+class PlanProjectionFixes(SimpleTestCase):
+    """Audit bug 4: projections count a requirement they would establish at the credit it would then count for (held
+    for depth like any credited requirement), not in full."""
+
+    def rows(self, rubric, credited=None):
+        rows = [{'condition_id': c['id'], 'credit': (credited or {}).get(c['id'], 0), 'parts': []}
+                for i in rubric['indicators'] for c in i['conditions']]
+        return reserve.stamp(rows, Fraction(1, 4), min_credit=Fraction(1, 2))
+
+    def test_priority_plan_projects_what_a_reassessment_would_publish(self):
+        from .capability import action_plan
+        rubric = release()
+        first = rubric['indicators'][0]['conditions']
+        rows = self.rows(rubric, {first[0]['id']: 1, first[1]['id']: 0.25})
+        plan = action_plan.build(rubric, rows)
+        chosen = set(plan['condition_ids'])
+        self.assertTrue(chosen)
+        after = [dict(r, credit=1.0) if r['condition_id'] in chosen else r for r in rows]
+        published = documented(reserve.scored_credits(after), rubric)['overall']
+        self.assertAlmostEqual(plan['projected_score'], published, delta=0.011)
+        gains = sum(a['score_gain'] for a in plan['actions'])
+        self.assertAlmostEqual(plan['score'] + gains, published, delta=0.02)
+
+    def test_plan_scenarios_project_what_a_reassessment_would_publish(self):
+        from .capability.scenarios import credit_projection
+        rubric = release()
+        cid = rubric['indicators'][0]['conditions'][0]['id']
+        rows = self.rows(rubric)
+        credits = {r['condition_id']: r['credit'] for r in rows}
+        held = {r['condition_id']: f for r in rows if (f := reserve.record_factor(r)) != 1}
+        at_full = {r['condition_id']: str(f) for r in rows if (f := reserve.record_factor({**r, 'credit': 1.0})) != 1}
+        accepted = [{'condition_id': cid, 'state': 'met', 'phase': 'implementation'}]
+        projected = credit_projection(credits, accepted, rubric, 'results', held, factors_at_full=at_full)
+        published = documented(reserve.scored_credits([dict(r, credit=1.0) if r['condition_id'] == cid else r
+                                                       for r in rows]), rubric)['overall']
+        self.assertAlmostEqual(projected['score'], published, places=6)
+
+
+class RejudgeScoreFixes(TestCase):
+    """Audit bug 8: the re-judge's own final score equals the score the final result is published with."""
+
+    def test_a_replaced_record_below_half_credit_counts_the_same_in_both(self):
+        from .capability import layer2
+        from .capability.layer2_service import with_depth
+        rubric = release()
+        cid = rubric['indicators'][0]['conditions'][0]['id']
+        rows = [{'condition_id': c['id'], 'credit': 0} for i in rubric['indicators'] for c in i['conditions']]
+        reserve.stamp(rows, Fraction(1, 4), min_credit=Fraction(1, 2))
+        replaced = [{'condition_id': cid, 'credit': 0.25} if r['condition_id'] == cid else r for r in rows]
+        deepened, _ = with_depth(replaced, 'not-a-run', share='1/4')
+        published = reserve.stamp([dict(r) for r in deepened], Fraction(1, 4), min_credit=Fraction(1, 2))
+        self.assertEqual(layer2.final_score(deepened, rubric),
+                         documented(reserve.scored_credits(published), rubric)['overall'])

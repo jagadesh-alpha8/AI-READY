@@ -671,17 +671,21 @@ def with_depth(records, run_ref, share=None):
     """The records with the provisional run's depth judgments applied (reserve.py): a requirement whose follow-up
     answers showed depth earns back the credit held for it. Returns (records, changes). Records of a run that holds
     nothing come back unchanged."""
+    from fractions import Fraction
     from .depth_service import latest_levels
-    from .reserve import stamp
+    from .reserve import run_min_credit, run_share, stamp
+    run = _run(run_ref)
     if share is None:   # the run's frozen share; else what the records carry
-        run = _run(run_ref)
-        from .reserve import run_share
         share = run_share(run.inputs) if run is not None else next(
             (r.get('depth_share') for r in records if r.get('depth_share')), None)
     if not share:
         return records, []
+    # The half-credit line too, as publish stamps it: a record the re-judge replaced carries none, and without it a
+    # replaced record below half credit counted at the held factor here but in full once published (audit, 23 Nov).
+    minimum = run_min_credit(run.inputs) if run is not None else max(
+        [Fraction(str(r.get('depth_min_credit') or 0)) for r in records] or [Fraction(0)])
     levels = latest_levels(run_ref)
-    out = stamp([dict(r) for r in records], share, levels)
+    out = stamp([dict(r) for r in records], share, levels, min_credit=minimum or None)
     changes = [{'condition_id': r['condition_id'], 'level': r['depth_level'], **({'review': r['depth_review']}
                 if r.get('depth_review') else {})}
                for r in out if (r.get('credit') or 0) > 0 and (levels.get(r['condition_id']) or 'evidenced') != 'evidenced']

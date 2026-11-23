@@ -94,6 +94,14 @@ def factors(records):
     return {r['condition_id']: record_factor(r) for r in records}
 
 
+def factors_at_full(records):
+    """{condition id: factor} each requirement would count at once shown in full (for projections): a requirement a
+    plan would establish is then held like any credited one, at its record's depth level (evidenced unless a
+    follow-up showed more). Using its present factor overstated projections: below half credit nothing is held, so an
+    established requirement counted in full (audit, 23 Nov)."""
+    return {r['condition_id']: record_factor({**r, 'credit': 1.0}) for r in records}
+
+
 def apply(credits, factor_by_id):
     return {cid: Fraction(str(value or 0)) * factor_by_id.get(cid, Fraction(1)) for cid, value in credits.items()}
 
