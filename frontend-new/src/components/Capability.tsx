@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { levelFor, starText } from '../utils/levels';
 import { useAccess } from '../hooks/useAccess';
 import type { useCapability } from '../hooks/useCapability';
 import { cancelRun, startRun } from '../services/capability';
@@ -35,7 +36,7 @@ export function ScoreExplanationBlock({ explanation, placeholder = true }: { exp
   );
 }
 
-/** Score bounds, evidence resolution and Silver / Gold / Platinum eligibility of one frozen run. */
+/** Score bounds, evidence resolution and the readiness level of one frozen run. */
 export function CapabilityStanding({ result, run }: { result: Result; run: Run }) {
   const counts = stateCounts(result);
   const partCredit = isPartCredit(result);
@@ -105,12 +106,12 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
           const band = bandTier(result.score);
           return (
             <p>
-              <b>Tier: {band.current || 'none yet'}</b>{band.next ? ` · ${band.pointsToNext} points to ${band.next}` : ''}.{' '}
-              <span className="muted">Tiers are score bands ({TIER_BANDS_TEXT}), provisional and not yet calibrated across colleges.</span>
+              <b>Level: {band.current} ({starText(levelFor(result.score).stars)})</b>{band.next ? ` · ${band.pointsToNext} points to ${band.next}` : ''}.{' '}
+              <span className="muted">Levels are score bands ({TIER_BANDS_TEXT}), one star for every 20 points, provisional and not yet calibrated across colleges.</span>
             </p>
           );
         })() : result.badge_policy === 'not_calibrated' ? (
-          <p className="muted">Silver, Gold and Platinum standards are being calibrated. A readiness score alone does not award a maturity badge.</p>
+          <p className="muted">The readiness levels are being calibrated. A score alone does not award a level.</p>
         ) : (
           <div className="tier-grid">
             {result.tiers.map((t) => (

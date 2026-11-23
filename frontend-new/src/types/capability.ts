@@ -139,7 +139,7 @@ export interface CapabilityAction {
   priority_action?: string | null;
 }
 
-/** Provisional score bands (Silver 60, Gold 70, Platinum 80, Diamond 90) until calibration (D-01). */
+/** Provisional readiness levels, one star for every 20 points, until calibration (D-01). */
 export interface PriorityTier {
   current: string | null;
   next: string | null;

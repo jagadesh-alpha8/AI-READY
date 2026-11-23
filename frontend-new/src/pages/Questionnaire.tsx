@@ -6,7 +6,7 @@ import { useCapability } from '../hooks/useCapability';
 import { usePolling, useResource } from '../hooks/useResource';
 import {
   addAdditionalEvidence, answerFollowUp, answerQuestion, cancelSecondLayerJob, getNextQuestion, getResponse,
-  listAdditionalEvidence, listSecondLayerJobs, startSecondLayerJob,
+  listAdditionalEvidence, listSecondLayerJobs, markToCheck, startSecondLayerJob,
   type AdditionalEvidenceItem, type Layer2Next, type Layer2Progress, type Layer2Questions, type Layer2Response, type SecondLayerJob,
   type SecondLayerJobList, type SecondLayerOperation,
 } from '../services/capability';
@@ -36,7 +36,8 @@ const ALL_TABS = [
 type Tab = (typeof ALL_TABS)[number]['key'];
 // Demo mode: only what follows the Stage 1 result, in plain words (the evidence review comes before the assessment).
 const TABS: readonly { key: Tab; label: string }[] = DEMO_MODE
-  ? [{ key: 'line2', label: 'Follow-up questions' }, { key: 'extra', label: 'Send a document we missed' }]
+  ? [{ key: 'line1', label: 'Before the assessment: check the facts' }, { key: 'line2', label: 'Follow-up questions' },
+    { key: 'extra', label: 'Send a document we missed' }]
   : ALL_TABS;
 
 /**
@@ -296,7 +297,7 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
       ) : (
         <QuestionItem key={`${next.data.next.type}:${next.data.next.response_id || next.data.next.question.id}`} sprint={sprint} runId={runId} item={next.data.next}
           position={(p.answered || 0) + 1} total={p.questions}
-          onDone={(r, text) => { setAnswered((a) => [r, ...a]); setMsg({ tone: 'success', text }); void next.refetch(); }} />
+          onDone={(r, text) => { if (r) setAnswered((a) => [r, ...a]); setMsg({ tone: 'success', text }); void next.refetch(); }} />
       )}
       {answered.length > 0 && (
         <Panel title="Your answers this session" sub="A typed answer counts only when supporting evidence is found for it">
@@ -436,7 +437,7 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
   const explained = list.some((j) => j.operation === 'explain' && !j.options?.final && j.status === 'completed');
 
   return (
-    <Panel title={DEMO_MODE ? 'Your final result' : 'Follow-up questions and final result'} sub={DEMO_MODE ? `Publishing gives your ${FINAL_SCORE} and tier, and closes the follow-up questions.` : "Background jobs on the Stage 1 result; each uses model credits from this assessment's budget"}
+    <Panel title={DEMO_MODE ? 'Your final result' : 'Follow-up questions and final result'} sub={DEMO_MODE ? `Publishing gives your ${FINAL_SCORE} and readiness level, and closes the follow-up questions.` : "Background jobs on the Stage 1 result; each uses model credits from this assessment's budget"}
       actions={manage && (
         <div className="row-actions">
           {!closed && !hasQuestions && <button className="primary-action" disabled={disabled} onClick={() => void start('questions')}>{busy === 'questions' ? 'Starting…' : 'Plan follow-up questions'}</button>}
@@ -461,7 +462,8 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
       {confirmPublish && (
         <Notice tone="info">
           Publish the {FINAL_SCORE}? This closes the follow-up stage: no more answers or documents can be added, and
-          unanswered questions earn nothing.{' '}
+          unanswered questions earn nothing.
+          {!!p?.to_check && <strong> {p.to_check} question{p.to_check === 1 ? ' is' : 's are'} still marked “I need to check”.</strong>}{' '}
           <button className="link-button" onClick={() => { setConfirmPublish(false); void start('rejudge', { close: true }); }}>Yes, publish</button>{' '}
           <button className="link-button" onClick={() => setConfirmPublish(false)}>No</button>
         </Notice>
@@ -500,31 +502,52 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
   );
 }
 
+type Option = 'yes' | 'partly' | 'not_yet' | 'check';
+const OPTIONS: { key: Option; label: string; help: string }[] = [
+  { key: 'yes', label: 'Yes, with supporting evidence', help: 'Attach the document that shows it.' },
+  { key: 'partly', label: 'Partially in place', help: 'Attach what you have, and say what is still missing.' },
+  { key: 'not_yet', label: 'Not yet in place', help: 'Recorded for your improvement plan. It does not lower your score.' },
+  { key: 'check', label: 'I need to check', help: 'Saved for later. The question waits at the end of the list.' },
+];
+
 function QuestionItem({ sprint, runId, item, position, total, onDone }: {
-  sprint: Sprint; runId: string; item: Layer2Next; position: number; total: number; onDone: (r: Layer2Response, text: string) => void;
+  sprint: Sprint; runId: string; item: Layer2Next; position: number; total: number; onDone: (r: Layer2Response | null, text: string) => void;
 }) {
   const { can } = useAccess();
+  const [option, setOption] = useState<Option | ''>(item.question.to_check ? 'check' : '');
   const [answer, setAnswer] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [noDocOk, setNoDocOk] = useState(false);
   const followUp = item.type === 'follow_up';
-  const missing = item.question.kind === 'missing';
   const points = item.question.points_at_stake;
-  const shared = item.question.condition_ids.slice(1);
+  const withDocs = option === 'yes' || option === 'partly' || followUp;
 
-  const send = async (skip: boolean) => {
+  const send = async (skip = false) => {
     setError('');
-    if (!skip && !answer.trim() && !files.length) { setError('Type an answer, attach a document, or skip.'); return; }
+    if (!skip && !followUp && !option) { setError('Choose one of the options.'); return; }
     setBusy(true);
     try {
-      const document_ids = !skip && files.length ? await uploadAll(sprint.id, files) : [];
-      const body = { answer: skip ? '' : answer.trim(), document_ids, skip };
+      if (option === 'check' && !skip && !followUp) {
+        await markToCheck(sprint.id, runId, item.question.id, true);
+        onDone(null, 'Saved for later: this question waits at the end of the list.');
+        return;
+      }
+      if (!skip && withDocs && !files.length && !noDocOk) {
+        if (!answer.trim()) { setError('Attach a document, or describe what is in place.'); return; }
+        setNoDocOk(true);
+        setError('An answer counts only when a document supports it. Attach one, or press Save again to send the answer on its own.');
+        return;
+      }
+      const document_ids = !skip && withDocs && files.length ? await uploadAll(sprint.id, files) : [];
+      const choice = skip || followUp ? undefined : (option as 'yes' | 'partly' | 'not_yet');
+      const body = { answer: skip ? '' : answer.trim(), document_ids, skip, ...(choice ? { choice } : {}) };
       const res = followUp && item.response_id
         ? await answerFollowUp(sprint.id, runId, item.response_id, body)
         : await answerQuestion(sprint.id, runId, item.question.id, body);
-      onDone(res.data, skip ? 'Skipped: the item stays as it is.' : res.data.status === 'pending'
-        ? 'Saved. Your answer is checked against the documents once they are processed.' : 'Saved and checked.');
+      onDone(res.data, skip ? 'Skipped.' : option === 'not_yet' ? 'Recorded as not yet in place.'
+        : res.data.status === 'pending' ? 'Saved. Your answer is checked against your documents once they have been read.' : 'Saved.');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -533,33 +556,41 @@ function QuestionItem({ sprint, runId, item, position, total, onDone }: {
   };
 
   return (
-    <Panel title={followUp ? 'One follow-up' : `Question ${position} of ${total}`}
-      sub={pillarName(item.question.indicator_code.split('.')[0])}
-      actions={(
-        <>
-          {!followUp && !!points && <Pill tone="good" label={`Up to ${pointsLabel(points)}`} />}
-          {' '}<Pill status={followUp ? 'pending' : missing ? 'blocked' : 'active'} label={followUp ? 'Follow-up' : missing ? 'Nothing found yet' : 'About credited evidence'} />
-        </>
-      )}>
-      <form onSubmit={(e) => { e.preventDefault(); void send(false); }} className="questionnaire-item">
-        <h3 className="question-text">{item.text}</h3>
-        {missing && !followUp && <p className="muted">We found nothing for this in the documents submitted. If you have anything, attach it here.</p>}
-        {!followUp && !!points && (
-          <p className="muted">Answering this with supporting documents can add up to {pointsLabel(points)} to the score.</p>
+    <section className="question-card">
+      <div className="question-head" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <span className="eyebrow" style={{ margin: 0 }}>{followUp ? 'One follow-up' : `Question ${position} of ${total}`} · {pillarName(item.question.indicator_code.split('.')[0])}</span>
+        <span className="ws-row">
+          {item.question.to_check && <span className="tag">Marked to check</span>}
+          {!followUp && !!points && <span className="tag">Up to {pointsLabel(points)}</span>}
+        </span>
+      </div>
+      <h2 className="question-text" style={{ marginTop: 12, whiteSpace: 'pre-line', fontSize: 17, lineHeight: 1.5 }}>{item.text}</h2>
+      <form onSubmit={(e) => { e.preventDefault(); void send(false); }}>
+        {!followUp && OPTIONS.map((o) => (
+          <label key={o.key} className={`choice ${option === o.key ? 'selected' : ''}`}>
+            <input type="radio" name={`answer-${item.question.id}`} value={o.key} checked={option === o.key}
+              onChange={() => { setOption(o.key); setError(''); setNoDocOk(false); }} />
+            <span><strong>{o.label}</strong><small style={{ display: 'block' }}>{o.help}</small></span>
+          </label>
+        ))}
+        {(withDocs || option === 'not_yet') && (
+          <label className="field" style={{ marginTop: 20, display: 'block' }}>
+            <span>{option === 'not_yet' ? 'Anything you plan (optional)' : 'What is in place, and where is it documented?'}</span>
+            <textarea rows={3} maxLength={4000} value={answer} onChange={(e) => { setAnswer(e.target.value); setNoDocOk(false); }}
+              style={{ width: '100%' }} placeholder={option === 'not_yet' ? 'e.g. planned for the 2027 academic year' : 'e.g. 42 of 60 faculty completed the NPTEL course; certificates attached'} />
+          </label>
         )}
-        {!missing && shared.length > 0 && <p className="muted">Also answers: {shared.join(', ')} (they need the same fact).</p>}
-        <UploadBox files={files} onChange={setFiles} required={missing} />
-        <label className="field"><span>Your answer</span>
-          <textarea rows={3} maxLength={4000} value={answer} onChange={(e) => setAnswer(e.target.value)}
-            placeholder={missing ? 'Optional: say what the document shows' : 'e.g. 300 hours, 42 of 60 faculty, delivered by NPTEL'} />
-        </label>
-        {error && <Notice tone="error">{error}</Notice>}
-        <div className="button-row">
-          <button type="button" className="secondary-button" disabled={busy} onClick={() => void send(true)}>Skip</button>
-          {can('sprint.manage') && <button className="primary-action" disabled={busy}>{busy ? 'Saving…' : 'Submit answer'}</button>}
+        {withDocs && <div style={{ marginTop: 14 }}><UploadBox files={files} onChange={(f) => { setFiles(f); setNoDocOk(false); }} required={false} /></div>}
+        {error && <div style={{ marginTop: 14 }}><Notice tone={noDocOk ? 'warn' : 'error'}>{error}</Notice></div>}
+        <div className="question-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 22, gap: 12, flexWrap: 'wrap' }}>
+          <button type="button" className="text-btn" disabled={busy} onClick={() => void send(true)}
+            title="Moves on without an answer; this question earns nothing">Skip this question</button>
+          {can('sprint.manage') && (
+            <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : option === 'check' ? 'Save for later' : 'Save & continue'}</button>
+          )}
         </div>
       </form>
-    </Panel>
+    </section>
   );
 }
 

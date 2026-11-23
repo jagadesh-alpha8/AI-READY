@@ -78,6 +78,7 @@ export const PAGE_ROLES = {
   institutions: STAFF, // institution management
   apistatus: 'all', // review: which screens are live, partly sample or waiting for a backend decision
   assessmentsetup: STAFF, // plan templates, score rules, college profiles
+  areas: 'all', // results: the nine readiness areas (workspace design)
 } as const satisfies Record<string, Roles>;
 
 export type PageKey = keyof typeof PAGE_ROLES;

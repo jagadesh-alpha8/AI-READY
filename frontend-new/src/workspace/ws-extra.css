@@ -1,0 +1,104 @@
+/* Additions to the design preview's stylesheet (workspace.css): links in place of its buttons, stars, the held
+   (hatched) part of a bar, and the pieces the preview did not need. Everything is scoped to .ws. */
+.ws .nav a, .ws .tabs a { text-decoration: none; }
+.ws .tabs a { color: var(--muted); }
+.ws .tabs a.active { color: var(--green); }
+.ws .nav .count { margin-left: auto; }
+.ws .help-link { text-decoration: none; }
+.ws-campus { position: relative; cursor: pointer; }
+.ws-campus select { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.ws-campus-text { min-width: 0; flex: 1; }
+.ws-campus-text strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws .ws-signout { justify-content: center; }
+.ws .ws-dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--olive); }
+.ws-scrim { position: fixed; inset: 0; background: #0006; z-index: 25; }
+@media (max-width: 1000px) { .ws #sidebar.open { transform: none !important; display: flex !important; } }
+.ws .ws-page-actions { display: flex; justify-content: flex-end; gap: 10px; margin: -8px 0 18px; flex-wrap: wrap; }
+
+/* Stars */
+.ws-stars { display: inline-flex; gap: 2px; line-height: 1; letter-spacing: 0; }
+.ws-stars span { color: #d9dfd6; }
+.ws-stars span.on { color: #c9a227; }
+
+/* Level badge (score ring) */
+.ws .ws-level { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ws .ws-level b { font-size: 46px; line-height: 1; color: var(--green); font-weight: 700; }
+.ws .ws-level .ws-level-name { font-size: 15px; font-weight: 650; color: var(--green); }
+
+/* Area bars with the held part hatched */
+.ws .ws-bars { display: grid; gap: 14px; }
+.ws .ws-bar-row { display: grid; grid-template-columns: minmax(150px, 220px) 1fr 92px 36px; gap: 14px; align-items: center; font-size: 14px; }
+.ws .ws-bar-row > span:first-child { color: var(--ink); }
+.ws .ws-bar { height: 10px; background: #edf0ec; border-radius: 5px; overflow: hidden; display: flex; }
+.ws .ws-bar i { display: block; height: 100%; }
+.ws .ws-bar i.shown { background: var(--green); }
+.ws .ws-bar i.shown.low { background: #b49461; }
+.ws .ws-bar i.shown.mid { background: #8db600; }
+.ws .ws-bar i.held { background: repeating-linear-gradient(135deg, #8db60066 0 4px, #ffffff 4px 7px); border: 1px solid #8db60055; border-left: 0; }
+.ws .ws-bar-row b { text-align: right; font-weight: 650; }
+.ws .ws-legend { display: flex; gap: 18px; font-size: 12px; color: var(--muted); margin-top: 16px; flex-wrap: wrap; }
+.ws .ws-legend i { display: inline-block; width: 18px; height: 8px; border-radius: 4px; margin-right: 6px; vertical-align: middle; }
+.ws .ws-legend i.shown { background: var(--green); }
+.ws .ws-legend i.held { background: repeating-linear-gradient(135deg, #8db60066 0 4px, #fff 4px 7px); border: 1px solid #8db60055; }
+
+/* Strengths and focus */
+.ws .ws-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 1000px) { .ws .ws-cards { grid-template-columns: 1fr; } }
+.ws .ws-card { background: white; border: 1px solid var(--line); border-radius: 6px; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+.ws .ws-card h3 { font-size: 15px; }
+.ws .ws-card p { font-size: 14px; color: var(--ink); }
+.ws .ws-card .ws-quote { border-left: 3px solid var(--olive); padding: 2px 0 2px 12px; font-size: 13px; color: var(--gray); font-style: italic; }
+.ws .ws-card .ws-source { font-size: 12px; color: var(--muted); }
+.ws .ws-card.focus { border-top: 3px solid #b49461; }
+.ws .ws-card.strong { border-top: 3px solid var(--green); }
+
+/* Levels ladder */
+.ws .ws-ladder { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+@media (max-width: 1000px) { .ws .ws-ladder { grid-template-columns: 1fr; } }
+.ws .ws-rung { border: 1px solid var(--line); border-radius: 6px; padding: 16px; background: white; display: flex; flex-direction: column; gap: 8px; }
+.ws .ws-rung.here { border: 2px solid var(--green); background: var(--tint); }
+.ws .ws-rung.next { border: 2px dashed var(--olive); }
+.ws .ws-rung h3 { font-size: 15px; }
+.ws .ws-rung p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+.ws .ws-rung small { font-size: 12px; color: var(--muted); }
+
+/* Questionnaire */
+.ws .choice input { accent-color: var(--green); }
+.ws .choice.selected { border-color: var(--green); background: var(--tint); }
+.ws .ws-mark { border: 1px dashed var(--olive); background: #fbfdf6; }
+.ws .ws-warn { border-color: #e7d4b5; background: #fbf6ee; }
+
+/* Small helpers */
+.ws .ws-big-number { font-size: 30px; font-weight: 700; color: var(--green); line-height: 1.1; }
+.ws .ws-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.ws .ws-grid-2 { display: grid; grid-template-columns: 1.15fr .85fr; gap: 22px; }
+@media (max-width: 1000px) { .ws .ws-grid-2 { grid-template-columns: 1fr; } }
+.ws .ws-plain-list { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: 14px; }
+
+/* The existing screens' controls, drawn in the design's style */
+.ws .primary-action, .ws .secondary-button { min-height: 38px; border-radius: 5px; padding: 9px 14px; font-size: 13px; font-weight: 550;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; line-height: 1.3; cursor: pointer; }
+.ws .primary-action { background: var(--green); color: white; border: 1px solid var(--green); }
+.ws .secondary-button { background: white; color: var(--ink); border: 1px solid #dce2dc; }
+.ws .primary-action:disabled, .ws .secondary-button:disabled { opacity: .45; }
+.ws .link-button { border: 0; background: transparent; color: var(--green); font-weight: 600; padding: 0; cursor: pointer; }
+.ws .filter-pills { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; margin-bottom: 22px; background: white; flex-wrap: wrap; }
+.ws .filter-pills button { border: 0; background: white; padding: 9px 16px; font-size: 13px; color: var(--ink); border-radius: 0; }
+.ws .filter-pills button.active { background: var(--green); color: white; }
+.ws .panel { border-radius: 6px; border-color: var(--line); box-shadow: none; }
+.ws .question-card h2.question-text { font-weight: 500; }
+.ws .question-card .choice span small { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+/* Reports */
+.ws .ws-cards.ws-cards-2 { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 1000px) { .ws .ws-cards.ws-cards-2 { grid-template-columns: 1fr; } }
+.ws .ws-report-group { margin-bottom: 30px; }
+.ws .ws-report-group-title { font-size: 17px; color: var(--green); margin: 0 0 14px; display: flex; gap: 12px; align-items: baseline; }
+.ws .ws-report-group-title small { font-size: 12px; color: var(--muted); font-weight: 400; }
+.ws .ws-report-card .ws-row { margin-top: 6px; }
+.ws .ws-report-icon { width: 38px; height: 38px; border-radius: 6px; background: var(--tint); color: var(--green); display: grid; place-items: center; }
+.ws .ws-report-icon svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ws .ws-technical { margin-top: 14px; font-size: 13px; color: var(--muted); }
+.ws .ws-technical summary { cursor: pointer; }
+.ws .ws-technical .ws-row { margin-top: 10px; }
+.ws .ws-technical p { margin: 8px 0 0; }
