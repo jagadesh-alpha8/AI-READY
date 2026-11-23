@@ -60,7 +60,7 @@ function Body({ sprint }: { sprint: Sprint }) {
         </Empty>
       ) : tab === 'line2'
         ? <LineTwo sprint={sprint} run={cap.run.data} runId={cap.provisionalId} onFinal={() => void cap.runs.refetch()} />
-        : <AdditionalEvidence sprint={sprint} run={cap.run.data} runId={cap.provisionalId} />)}
+        : <AdditionalEvidence sprint={sprint} run={cap.run.data} runId={cap.provisionalId} closed={cap.stage === 'final'} />)}
     </>
   );
 }
@@ -515,7 +515,7 @@ function QuestionItem({ sprint, runId, item, position, total, onDone }: {
 
 // --- additional evidence: documents we may have missed, with what they are for ---------------------------------
 
-function AdditionalEvidence({ sprint, run, runId }: { sprint: Sprint; run: Run; runId: string }) {
+function AdditionalEvidence({ sprint, run, runId, closed }: { sprint: Sprint; run: Run; runId: string; closed: boolean }) {
   const { can } = useAccess();
   const list = useResource<{ results: AdditionalEvidenceItem[] }>(() => listAdditionalEvidence(sprint.id, runId), `ae:${runId}`);
   const result = run.assessment?.result;
@@ -551,7 +551,10 @@ function AdditionalEvidence({ sprint, run, runId }: { sprint: Sprint; run: Run; 
   return (
     <>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
-      {can('sprint.manage') && (
+      {closed && (
+        <Notice tone="info">The follow-up stage is closed and the {FINAL_SCORE} has been published, so no more documents can be added to this assessment. New evidence needs a new assessment.</Notice>
+      )}
+      {can('sprint.manage') && !closed && (
         <Panel title="Add evidence we may have missed" sub="Optional. Documents, a note, and what they are for (at least one pick)">
           <form onSubmit={submit} className="questionnaire-item">
             <UploadBox files={files} onChange={setFiles} required />
