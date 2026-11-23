@@ -67,6 +67,7 @@ export const DEMO_NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     { key: 'cri', icon: '◌', label: 'Results' },
     { key: 'reports', icon: '▧', label: 'Reports' },
     { key: 'pathway', icon: '⇢', label: 'Transformation' },
+    { key: 'plancompare', icon: '⇄', label: 'Plan evaluation' },
   ] },
 ];
 
@@ -116,6 +117,7 @@ if (DEMO_MODE) {
     pathway: ['Transformation', 'Your pathway', 'The tier bands, and the requirements that would move the score most.'],
     uploads: ['Evidence', 'Evidence', 'The documents submitted for the assessment.'],
     profile: ['Institution', 'Institution', 'The institution being assessed.'],
+    plancompare: ['Transformation', 'Plan evaluation', "Paste the institution's own plan: see what it would add to the score if its actions were done and shown, and what to change."],
   } as Partial<typeof PAGE_META>);
 }
 

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DEMO_MODE } from '../config/env';
 import { RequireSprint } from '../components/RequireSprint';
 import { ActionDialog, Empty, ErrorState, Loading, Notice, PageHeading, PageLink, Panel, Pill, Table } from '../components/ui';
 import { useAccess } from '../hooks/useAccess';
@@ -122,8 +123,10 @@ function PlanScores({ original, improved }: { original?: PlanEvaluationScores; i
       </Table>
       {cov && (
         <div className="check-list">
-          {cov.missed.length > 0 && <p><b>Priority requirements the plan misses:</b> {cov.missed.join(', ')}</p>}
-          {cov.outside_priority_plan.length > 0 && <p className="muted">Also targets, outside the priority plan: {cov.outside_priority_plan.join(', ')}</p>}
+          {cov.missed.length > 0 && (DEMO_MODE
+            ? <p><b>The plan leaves {cov.missed.length} of the {cov.covered.length + cov.missed.length} priority requirements uncovered.</b> The pathway lists them.</p>
+            : <p><b>Priority requirements the plan misses:</b> {cov.missed.join(', ')}</p>)}
+          {!DEMO_MODE && cov.outside_priority_plan.length > 0 && <p className="muted">Also targets, outside the priority plan: {cov.outside_priority_plan.join(', ')}</p>}
           {cov.priority_projected_score != null && <p className="muted">The priority plan alone projects {num(cov.priority_projected_score, 1)}{cov.target != null ? ` against a target of ${cov.target}` : ''}.</p>}
         </div>
       )}
