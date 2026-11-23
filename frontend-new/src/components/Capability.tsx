@@ -5,7 +5,7 @@ import { cancelRun, startRun } from '../services/capability';
 import type { Result, Run, ScoreExplanation } from '../types/capability';
 import {
   capabilityTone, causeLabel, indicatorScoreLabel, isPartCredit, newKey, partLabel, partTone, pillarScoreLabel, scoreLabel, stageLabel,
-  pillarName, stateCounts, stateLabel, TIER_LATER, tierLabel, tierShown,
+  bandTier, pillarName, stateCounts, stateLabel, TIER_BANDS_TEXT, TIER_LATER, tierLabel, tierShown,
 } from '../utils/capability';
 import { errorMessage } from '../utils/errors';
 import { dateTime } from '../utils/format';
@@ -79,7 +79,15 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
       <Panel title="Maturity eligibility" sub={`${result.methodology} · frozen ${dateTime(run.created_at)} · ${run.reference_period || 'default scope'}`}>
         {partCredit && !tierShown(run.stage) ? (
           <p className="muted">{TIER_LATER}</p>
-        ) : result.badge_policy === 'not_calibrated' ? (
+        ) : partCredit && result.score != null ? (() => {
+          const band = bandTier(result.score);
+          return (
+            <p>
+              <b>Tier: {band.current || 'none yet'}</b>{band.next ? ` · ${band.pointsToNext} points to ${band.next}` : ''}.{' '}
+              <span className="muted">Tiers are score bands ({TIER_BANDS_TEXT}), provisional and not yet calibrated across colleges.</span>
+            </p>
+          );
+        })() : result.badge_policy === 'not_calibrated' ? (
           <p className="muted">Silver, Gold and Platinum standards are being calibrated. A readiness score alone does not award a maturity badge.</p>
         ) : (
           <div className="tier-grid">

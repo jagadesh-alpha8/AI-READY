@@ -120,6 +120,27 @@ class SecondLayerJobTests(APITestCase):
         with self.assertRaisesRegex(CommandError, 'already active'):
             call_command('capability_explain', str(self.run.pk), '--job', stdout=StringIO())
 
+    def test_a_job_runs_at_the_runs_frozen_settings_whatever_shell_started_it(self):
+        """Audit A1: a command run from a window with other settings froze that window's concurrency for the job."""
+        frozen = self.run.inputs['execution_policy']
+        out = StringIO()
+        with override_settings(CAPABILITY_INDICATOR_CONCURRENCY=frozen['indicator_concurrency'] % 8 + 1,
+                               CAPABILITY_GEMINI_REASONING_EFFORT='minimal'):
+            with patch(f'{JOBS}.dispatch'), self.captureOnCommitCallbacks(execute=True):
+                call_command('capability_explain', str(self.run.pk), '--job', stdout=out)
+        job = SecondLayerJob.objects.get(run=self.run)
+        self.assertEqual((job.policy['indicator_concurrency'], job.policy['gemini_reasoning_effort']),
+                         (frozen['indicator_concurrency'], frozen['gemini_reasoning_effort']))
+        self.assertEqual(job.policy['stage'], 'second_layer_explain')
+        self.assertIn(f"({frozen['indicator_concurrency']} area(s) at a time)", out.getvalue())
+
+    def test_the_explain_command_wants_a_published_result_for_final(self):
+        from django.core.management.base import CommandError
+        with self.assertRaisesRegex(CommandError, 'no published final result'):
+            call_command('capability_explain', str(self.run.pk), '--job', '--final', stdout=StringIO())
+        with self.assertRaisesRegex(CommandError, '--final goes with --job'):
+            call_command('capability_explain', str(self.run.pk), '--final', stdout=StringIO())
+
     def test_questions_job_is_metered_against_the_run_budget_and_saves_the_questions(self):
         from apps.extraction.models import AIUsage
         job = self.execute(self.post_job('questions'))

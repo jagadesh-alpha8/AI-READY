@@ -128,6 +128,21 @@ class CapabilityReportView(RunView):
         records = {r['condition_id']: r for r in attached['records']}
         indicators = [{**i, 'requirements': [{**c, 'decision': records[c['id']]} for c in i['conditions']]}
                       for i in attached['result']['indicators']]
+        result_view = event.payload['result']
+        if result_view.get('score') is not None:
+            # A single-score (part-credit) run: each key indicator's part-credit score and each requirement's credit
+            # label, as the PDF prints them, instead of the strict ranges and states; and the tier as a score band.
+            from .action_plan import tier_for, tiers
+            from .report_projection import CREDIT_LABELS, credit_status
+            scores = {i['code']: i['score'] for i in (result_view.get('documented') or {}).get('indicators') or []}
+            for indicator in indicators:
+                indicator['part_score'] = scores.get(indicator['code'])
+                for requirement in indicator['requirements']:
+                    decision = requirement['decision']
+                    requirement['credit_label'] = (f"{CREDIT_LABELS[credit_status(decision)]} "
+                                                   f"(credit {decision.get('credit') or 0:g})")
+            payload['tier_band'] = {**tier_for(result_view['score']),
+                                    'bands': ', '.join(f'{name} {value:g}' for name, value in tiers())}
         plan_actions = payload['deterministic_plan']['actions']
         enriched = {a['condition_id']: a for a in (completed.payload['advice'] if completed else [])}
         actions = [{**a, 'advice': enriched.get(a['id'])} for a in plan_actions]

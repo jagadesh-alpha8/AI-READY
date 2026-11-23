@@ -61,8 +61,22 @@ export const tierLabel = (s: string) => TIER_ELIGIBILITY[s] || s.replace(/_/g, '
 export const capabilityTone = (s: string) =>
   s === 'demonstrated' || s === 'met' ? 'good' : s === 'requirements_unmet' || s === 'not_met' || s === 'conflicting' ? 'bad' : 'warn';
 
-/** Highest tier the run demonstrates, or null (never inferred from the upper bound). */
-export function achievedTier(r: Pick<Result, 'tiers' | 'badge_policy'>): string | null {
+/** The provisional tiers: score bands on the part-credit score (backend action_plan.DEFAULT_TIERS). */
+export const TIER_BANDS: [string, number][] = [['Silver', 60], ['Gold', 70], ['Platinum', 80], ['Diamond', 90]];
+export const TIER_BANDS_TEXT = TIER_BANDS.map(([n, v]) => `${n} ${v}`).join(', ');
+
+/** The band a part-credit score reaches, the next one and the points to it. */
+export function bandTier(score: number): { current: string | null; next: string | null; pointsToNext: number } {
+  const reached = TIER_BANDS.filter(([, v]) => score >= v);
+  const ahead = TIER_BANDS.filter(([, v]) => score < v);
+  return { current: reached.length ? reached[reached.length - 1][0] : null, next: ahead.length ? ahead[0][0] : null,
+    pointsToNext: ahead.length ? Math.round((ahead[0][1] - score) * 100) / 100 : 0 };
+}
+
+/** Highest tier the run demonstrates, or null (never inferred from the upper bound). A part-credit run's tier is
+ * its score band; the rubric's own tiers are not calibrated. */
+export function achievedTier(r: Pick<Result, 'tiers' | 'badge_policy'> & Partial<Pick<Result, 'score'>>): string | null {
+  if (r.score != null) return bandTier(r.score).current;
   if (r.badge_policy === 'not_calibrated') return null;
   const shown = r.tiers.filter((t) => t.eligibility === 'demonstrated');
   return shown.length ? shown[shown.length - 1].name : null;

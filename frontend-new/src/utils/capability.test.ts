@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { achievedTier, capabilityTone, isActive, scoreLabel, stageLabel, stateCounts, stateLabel, tierLabel, tierShown } from './capability.ts';
+import { achievedTier, bandTier, capabilityTone, isActive, scoreLabel, stageLabel, stateCounts, stateLabel, tierLabel, tierShown } from './capability.ts';
 
 const tier = (name: string, eligibility: string) => ({ name, eligibility, threshold: null, pillar_floor: null, gates: {} });
 
@@ -36,4 +36,13 @@ test('Stage 1 and final labels; the tier only on the final score (23 Nov)', () =
   assert.equal(tierShown('provisional'), false);
   assert.equal(tierShown(undefined), false);
   assert.equal(tierShown('final'), true);
+});
+
+test("a part-credit run's tier is its score band, whatever the rubric's badge policy says", () => {
+  assert.deepEqual(bandTier(25.36), { current: null, next: 'Silver', pointsToNext: 34.64 });
+  assert.deepEqual(bandTier(72), { current: 'Gold', next: 'Platinum', pointsToNext: 8 });
+  assert.equal(bandTier(95).next, null);
+  assert.equal(achievedTier({ tiers: [], badge_policy: 'not_calibrated', score: 61 }), 'Silver');
+  assert.equal(achievedTier({ tiers: [], badge_policy: 'not_calibrated', score: 59.9 }), null);
+  assert.equal(achievedTier({ tiers: [tier('Silver', 'demonstrated')], badge_policy: 'not_calibrated' }), null);
 });

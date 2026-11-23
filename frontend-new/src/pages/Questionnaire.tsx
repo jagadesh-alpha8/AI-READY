@@ -55,7 +55,7 @@ function Body({ sprint }: { sprint: Sprint }) {
       <Tabs tabs={TABS} value={tab} onChange={setTab} label="Questionnaire" />
       {tab === 'line1' && <LineOne sprint={sprint} />}
       {tab !== 'line1' && (cap.loading ? <Loading /> : cap.error ? <ErrorState error={cap.error} /> : !cap.run.data ? (
-        <Empty title="No provisional score yet" action={<PageLink to="assessment" className="primary-action">Go to the assessment</PageLink>}>
+        <Empty title="No Stage 1 result yet" action={<PageLink to="assessment" className="primary-action">Go to the assessment</PageLink>}>
           The follow-up questions and additional evidence belong to a completed assessment run. Finish the evidence review, then run the assessment.
         </Empty>
       ) : tab === 'line2'
@@ -152,7 +152,7 @@ function LineOne({ sprint }: { sprint: Sprint }) {
       </Panel>
       {!current ? (
         <Empty title="Evidence review complete" action={<PageLink to="assessment" className="primary-action">Run the assessment</PageLink>}>
-          Every review item has an answer. The assessment gives the provisional score; the follow-up questions come after it.
+          Every review item has an answer. The assessment gives the Stage 1 result; the follow-up questions come after it.
         </Empty>
       ) : (
         <ReviewItem key={current.id} sprint={sprint} item={current} position={decided + 1} total={b.cases.length}
@@ -316,6 +316,7 @@ const OPERATION_LABEL: Record<SecondLayerOperation, string> = {
   checks: 'Checking answers and additional evidence',
   depth: 'Judging how deep the credited evidence goes',
   rejudge: 'Publishing the final result',
+  explain: 'Writing the score explanations',
 };
 
 /** Siddharth's job error codes, in plain words. */
@@ -440,7 +441,7 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
         </div>
       ) : checking && (
         <div>
-          <p className="muted">{p?.checks_waiting} answer(s) wait for their check. It starts once their documents are processed; if it hasn't, check them now.</p>
+          <p className="muted">{p?.checks_waiting} answer(s) or evidence item(s) wait for their check. It starts once their documents are processed; if it hasn't, check them now.</p>
           {manage && <div className="button-row"><button className="secondary-button" disabled={disabled} onClick={() => void start('checks')}>{busy === 'checks' ? 'Starting…' : 'Check answers now'}</button></div>}
         </div>
       )}
