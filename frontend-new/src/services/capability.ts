@@ -89,8 +89,11 @@ export interface AdditionalEvidenceItem {
 }
 type Reply = { answer?: string; document_ids?: string[]; skip?: boolean };
 
+/** The text shown before the follow-up questions; served by the back end so every screen uses one wording. */
+export interface QuestionnaireNotice { version: string; title: string; intro: string; rules: string[]; closed: boolean; closed_text?: string }
+export interface Layer2Questions { next: Layer2Next | null; progress: Layer2Progress; notice?: QuestionnaireNotice }
 export const getNextQuestion = (sprint: string, run: string) =>
-  http.get<{ next: Layer2Next | null; progress: Layer2Progress }>(`${root(sprint)}/${run}/questions`);
+  http.get<Layer2Questions>(`${root(sprint)}/${run}/questions`);
 export const answerQuestion = (sprint: string, run: string, question: string, body: Reply) =>
   http.post<Layer2Response>(`${root(sprint)}/${run}/questions/${question}/responses`, body);
 export const getResponse = (sprint: string, run: string, response: string) =>
@@ -133,6 +136,8 @@ export const cancelSecondLayerJob = (sprint: string, run: string, job: string) =
 export interface AssessmentStage {
   stage: 'provisional' | 'final'; score?: number | null; note: string;
   final_run_id?: string | null; provisional_run_id?: string; provisional_score?: number | null;
+  /** "Stage 1 result: Document Review" or "Final AI-READY Score"; the tier is shown only when tier_shown. */
+  label?: string; tier_shown?: boolean; closed?: boolean; unchanged?: boolean;
 }
 export async function getAssessmentStage(sprint: string, run: string): Promise<AssessmentStage | null> {
   const res = await http.get<Blob>(`${root(sprint)}/${run}/report`, { params: { file: 'json' }, responseType: 'blob' });

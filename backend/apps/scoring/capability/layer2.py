@@ -111,20 +111,27 @@ def _lexical(query, texts):
     return scores
 
 
-def _ranked(query, sources, ranker, covered, limit, picks=PICKS, kept=None):
+def _ranked(query, sources, ranker, covered, limit, picks=PICKS, kept=None, exclude=()):
     """[(source, start, end)]: the best uncovered pieces for the query, keyword and (with a ranker) embedding ranks
     fused. Without a ranker only keyword matches are taken. kept: shingle sets of text already taken; a piece that
-    mostly repeats one of them is skipped, and each piece taken is added."""
+    mostly repeats one of them is skipped, and each piece taken is added. exclude: source ids left out of the ranking.
+    They are dropped after the ranker has indexed `sources`, so the ranker's corpus index (keyed on the sources it is
+    given) is the same for every answer; passages are built per source, so the result is the same as ranking the
+    remaining sources alone. Leaving them out first rebuilt and re-embedded the whole corpus for each answer that
+    attached an already-submitted document (about 10 minutes each in test 13)."""
     kept = [] if kept is None else kept
+    exclude = set(exclude)
     from .follow_up import _uncovered
     if not sources or limit < MIN_PIECE or not query.strip():
         return []
     if ranker is not None:
         passages = ranker.passages(sources)
-        candidates = [(p.source, p.start, p.end, p.embedding_text) for p in passages]
         similarity = list(ranker.similarities(passages, [query])[0]) if passages else []
+        keep = [n for n, p in enumerate(passages) if p.source['id'] not in exclude]
+        candidates = [(passages[n].source, passages[n].start, passages[n].end, passages[n].embedding_text) for n in keep]
+        similarity = [similarity[n] for n in keep] if similarity else []
     else:
-        candidates = [(s, a, b, s['text'][a:b]) for s, a, b in _chunks(sources)]
+        candidates = [(s, a, b, s['text'][a:b]) for s, a, b in _chunks([s for s in sources if s['id'] not in exclude])]
         similarity = []
     if not candidates:
         return []
@@ -192,8 +199,8 @@ def search_with_answer(query, attached, corpus, *, packet=(), attachment_limit=A
         for source, a, b in _ranked(query if query.strip() else fallback_query, attached, _attachment_ranker(ranker),
                                     covered, attachment_limit, kept=kept):
             windows.append(_window(source, a, b, 'answer_attachment'))
-    rest = [s for s in corpus if s['id'] not in attached_ids and (s.get('text') or '').strip()]
-    for source, a, b in _ranked(query, rest, ranker, covered, corpus_limit, kept=kept):
+    rest = [s for s in corpus if (s.get('text') or '').strip()]
+    for source, a, b in _ranked(query, rest, ranker, covered, corpus_limit, kept=kept, exclude=attached_ids):
         windows.append(_window(source, a, b, 'answer_search'))
     return windows
 

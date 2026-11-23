@@ -124,17 +124,20 @@ class _RunScoped(APIView):
         return Response(serialize_response(response), status=status.HTTP_201_CREATED)
 
 
-NOTICE_VERSION = 'questionnaire-notice-1'
+NOTICE_VERSION = 'questionnaire-notice-2'
 
 
 def questionnaire_notice(run):
     """The text shown before the follow-up questions (agreed 23 Nov), with the points the answers can earn back.
-    Served with the questions so the screen and the reports use one wording."""
+    Served with the questions so the screen and the reports use one wording. Once the stage is closed (the final
+    result published), `closed` is true and `closed_text` says so; the front end shows it instead of the invitation."""
+    from .layer2_service import stage_closed
     event = run.events.filter(state='completed', payload__result__isnull=False).last()
     held = ((event.payload.get('result') or {}).get('depth_reserve') or {}) if event else {}
     points = held.get('held_points') or 0
     worth = f', up to {points:g} points in total' if points else ''
-    return {'version': NOTICE_VERSION, 'title': 'Before you start', 'points': points,
+    closed = stage_closed(run)
+    return {'version': NOTICE_VERSION, 'title': 'Before you start', 'points': points, 'closed': closed,
             'intro': ('These questions are about evidence we have already found in your documents. Your answers decide '
                       f'how much of the held credit you earn back{worth}. The questions are in order of how much they '
                       'are worth, so the first ones matter most, and you can stop whenever you like.'),
@@ -142,7 +145,9 @@ def questionnaire_notice(run):
                       'You can answer "Don\'t know" or skip a question; it earns nothing back.',
                       'Please answer as accurately as you can. If a document you send shows something different from '
                       'what we credited, we adjust that part of the score, up or down. Accurate answers also make '
-                      'your improvement plan more useful.']}
+                      'your improvement plan more useful.'],
+            **({'closed_text': 'The follow-up stage is closed and your final AI-READY Score has been published.'}
+               if closed else {})}
 
 
 class QuestionsView(_RunScoped):

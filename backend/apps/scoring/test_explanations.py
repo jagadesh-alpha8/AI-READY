@@ -231,8 +231,29 @@ class ExplanationTests(SimpleTestCase):
         self.assertEqual(len(written['requirements']), 24)
         self.assertEqual(len(written['fallbacks']), 24 + 4 + 1)
         partial = written['requirements'][self.partial]
-        self.assertTrue(partial['next_step'].startswith('Next step: show '))
+        self.assertTrue(partial['next_step'].startswith('Show '))
         self.assertIn('Strategic Plan', partial['looked'])
+
+    def test_a_failed_request_leaves_its_area_on_the_fallback_when_told_to(self):
+        """One timeout used to fail the whole explanation job with nothing stored (audit B4)."""
+        from apps.extraction.exceptions import RecoverableExtractionError
+        target = {**self.target, 'rubric': release()}   # all nine areas
+
+        def model(system, content, schema, name):
+            import json as _json
+            payload = _json.loads(content)
+            if payload.get('area') == 'AIQIF-C2':
+                raise RecoverableExtractionError('timed out')
+            return writer(payload)
+        with self.assertRaises(RecoverableExtractionError):
+            explanations.explain(target, model)
+        written = explanations.explain(target, model, concurrency=4,
+                                       skip_error=lambda exc: isinstance(exc, RecoverableExtractionError))
+        self.assertEqual(len(written['requirements']), 216)
+        self.assertIn('AIQIF-C2', written['errors'])
+        self.assertIn('AIQIF-C2', written['fallbacks'])
+        c1 = [r['condition_id'] for r in target['records'] if r['condition_id'].startswith('AIQIF-C1.')]
+        self.assertFalse(set(c1) & set(written['fallbacks']))
 
     def test_areas_written_side_by_side_give_the_same_result_and_respect_the_call_cap(self):
         target = {**self.target, 'rubric': release()}   # all nine areas

@@ -93,10 +93,16 @@ def ensure_budget(run):
 
 
 def job_policy(operation, budget):
-    """The assessment's per-request settings, under this job's stage and the run's second-layer limits."""
+    """The assessment's per-request settings, under this job's stage and the run's second-layer limits.
+
+    The run's own frozen request settings (its execution_policy) when it has them, so a job started from a shell or
+    process with other settings (a command run from another window) runs at the run's concurrency, reasoning effort,
+    output allowance and timeout. A run without them takes this process's settings."""
     from .depth import PROMPT_VERSION as DEPTH_PROMPTS
     from .layer2 import VERSION as LAYER2_VERSION
-    request = policy(stage='assessment')
+    frozen = (budget.run.inputs or {}).get('execution_policy') or {}
+    request = dict(frozen) if frozen.get('indicator_concurrency') and frozen.get('max_duration_seconds') \
+        else policy(stage='assessment')
     duration = settings.SECOND_LAYER_MAX_DURATION_SECONDS or request['max_duration_seconds']
     if type(duration) is not int or not 60 <= duration <= 21600:
         raise AssessmentDisabled('SECOND_LAYER_MAX_DURATION_SECONDS is invalid.')
@@ -476,7 +482,9 @@ def run_explain(job, meter):
         target = build_target(target_run)
     except ValueError as exc:
         raise Layer2Error(str(exc))
-    written = explain(target, metered_model(meter), concurrency=max(1, int(job.policy.get('indicator_concurrency') or 1)))
+    # A failed request leaves its area on the plain fallback text; a spent budget or a cancelled job still stops it.
+    written = explain(target, metered_model(meter), concurrency=max(1, int(job.policy.get('indicator_concurrency') or 1)),
+                      skip_error=lambda exc: recoverable_failure(exc) and not isinstance(exc, ProviderQuotaExhausted))
     with transaction.atomic():
         commit_point(job.pk, lock_run=True)
         CapabilityExplanation.objects.create(run=target_run, event_id=target['event_id'], version=written['version'],

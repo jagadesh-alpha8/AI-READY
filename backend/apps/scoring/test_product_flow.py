@@ -634,6 +634,73 @@ class ProductFlowTests(APITestCase):
 
     # ---------------------------------------------------------------- score explanations
 
+    def test_closing_shows_the_tier_band_and_part_credit_in_the_evidence_report(self):
+        """23 Nov (from main-demo): the Stage 1 evidence report has no tier and shows the single score; closing publishes
+        the final result even when nothing changed; its evidence report gives the tier as a score band and each key
+        indicator's part-credit score; and nothing is accepted after closing."""
+        provisional = self.assess()
+        stage = self.reports(provisional)['assessment_stage']
+        self.assertEqual((stage['stage'], stage['label'], stage['tier_shown'], stage['closed']),
+                         ('provisional', 'Stage 1 result: Document Review', False, False))
+        evidence = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'evidence', 'file': 'html'})
+        body = evidence.content.decode()
+        self.assertNotIn('Current eligibility', body)                # no tier table at Stage 1
+        self.assertNotIn('provisional tier:', body)
+        self.assertIn('Stage 1 result: Document Review:', body)      # the single score, not the strict range
+        leadership = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'leadership', 'file': 'html'})
+        self.assertIn('are awarded on the final AI-READY Score', leadership.content.decode())
+        notice = self.client.get(f'{self.base}/{provisional.pk}/questions').data['notice']
+        self.assertEqual((notice['title'], len(notice['rules']), notice['closed']), ('Before you start', 3, False))
+
+        # Nothing answered: closing still publishes the final result (no model call), and closes the stage.
+        jobs_url = f'{self.base}/{provisional.pk}/second-layer/jobs'
+        self.post(jobs_url, {'operation': 'rejudge', 'options': {'close': True}}, key='publish', expect=202)
+        closed = self.run_queued()
+        published = next(j for j in closed if j.operation == 'rejudge')
+        self.assertIsNotNone(published.final_run_id, published.result)
+        self.assertIn('Follow-up stage closed', published.result['note'])
+        final = CapabilityRun.objects.get(pk=published.final_run_id)
+        final_stage = self.reports(final)['assessment_stage']
+        self.assertEqual((final_stage['stage'], final_stage['label'], final_stage['tier_shown'], final_stage['unchanged']),
+                         ('final', 'Final AI-READY Score', True, True))
+        self.assertEqual(self.client.get(f'{self.base}/{final.pk}').data['assessment']['result']['score'],
+                         self.client.get(f'{self.base}/{provisional.pk}').data['assessment']['result']['score'])
+        final_body = self.client.get(f'{self.base}/{final.pk}/report', {'audience': 'evidence', 'file': 'html'}).content.decode()
+        self.assertIn('Tier: none yet;', final_body)                  # the score band, not the uncalibrated table
+        self.assertIn('Silver 60, Gold 70, Platinum 80, Diamond 90', final_body)
+        self.assertNotIn('Current eligibility', final_body)
+        self.assertNotIn('tier pathways', final_body)
+        self.assertNotIn('0.0–100.0', final_body)                     # each key indicator's part-credit score
+        self.assertIn('Not found in the documents (credit 0)', final_body)
+        final_pdf = self.client.get(f'{self.base}/{final.pk}/report', {'audience': 'evidence', 'file': 'pdf'})
+        self.assertEqual(final_pdf.status_code, 200)
+        after = self.reports(provisional)['assessment_stage']
+        self.assertEqual((after['closed'], after['final_run_id']), (True, str(final.pk)))
+        self.assertTrue(self.client.get(f'{self.base}/{provisional.pk}/questions').data['notice']['closed'])
+
+        # Closed: no more answers, evidence or jobs (explanations excepted), and no second final result.
+        from .capability import layer2_service
+        from .capability.layer2 import Layer2Error
+        question = DepthQuestion.objects.filter(run_ref=str(provisional.pk)).first()
+        if question is not None:
+            self.post(f'{self.base}/{provisional.pk}/questions/{question.pk}/responses', {'skip': True}, expect=400)
+        self.post(f'{self.base}/{provisional.pk}/additional-evidence',
+                  {'document_ids': [self.document(ADDITIONAL)], 'note': 'Late', 'picked': ['AIQIF-C1.1']}, expect=400)
+        self.post(jobs_url, {'operation': 'rejudge', 'options': {'close': True}}, key='again', expect=400)
+        with self.assertRaises(Layer2Error):
+            layer2_service.refuse_closed(provisional.pk)
+
+    def test_publishing_waits_for_answers_still_being_checked(self):
+        provisional = self.assess()
+        self.post(f'{self.base}/{provisional.pk}/additional-evidence',
+                  {'document_ids': [self.document(ADDITIONAL)], 'note': 'AI research ethics review procedure',
+                   'picked': ['AIQIF-C2.1']}, expect=201)
+        self.queued.clear()   # the checks job never ran (cancelled), so the evidence is still waiting for its check
+        SecondLayerJob.objects.filter(run=provisional).update(status='cancelled')
+        response = self.post(f'{self.base}/{provisional.pk}/second-layer/jobs',
+                             {'operation': 'rejudge', 'options': {'close': True}}, key='early', expect=400)
+        self.assertIn('still being checked', str(response.data))
+
     def test_explanations_for_the_provisional_and_the_final_result(self):
         from .models import CapabilityExplanation
         provisional = self.assess()

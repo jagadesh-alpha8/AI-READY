@@ -203,7 +203,11 @@ def missing_question(target, *, depth_spec=None):
     depth_spec = depth_spec or spec()
     indicator = depth_spec['indicators'][target['indicator']]
     lines = []
-    for n, cid in enumerate(target['condition_ids'], 1):
+    # Foundations first, then adoption, then optimisation (the rubric's own order); the run's records can list them
+    # in another order (test 13 asked about applying a policy before asking whether there is one).
+    stage = {'F': 0, 'A': 1, 'O': 2}
+    ordered = sorted(target['condition_ids'], key=lambda cid: (stage.get(cid.rsplit('.', 1)[-1][:1], 3), cid))
+    for n, cid in enumerate(ordered, 1):
         entry = indicator['conditions'][cid]
         forms = '; '.join(entry['evidence_forms'])
         lines.append(f'{n}. {entry["assertion"]} (for example: {forms})')

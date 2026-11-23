@@ -10,6 +10,8 @@ import { downloadReport, generateReport, listReports } from '../services/reports
 import { listSprintFactsPage } from '../services/facts';
 import { listSprintGapsPage } from '../services/gaps';
 import type { Fact, Gap, Report, Sprint } from '../types/api';
+import { DEMO_MODE } from '../config/env';
+import { STAGE_ONE, stageLabel } from '../utils/capability';
 import { toCsv } from '../utils/csv';
 import { errorMessage } from '../utils/errors';
 import { dateTime, num, pct, tidyText, valueText } from '../utils/format';
@@ -96,9 +98,9 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
 
   return (
     <>
-      <PageHeading page="reports" actions={can('sprint.manage') && <button className="primary-action" disabled={busy || generating} onClick={() => void generate()}>{generating ? 'Generating…' : 'Generate report'}</button>} />
+      <PageHeading page="reports" actions={!DEMO_MODE && can('sprint.manage') && <button className="primary-action" disabled={busy || generating} onClick={() => void generate()}>{generating ? 'Generating…' : 'Generate report'}</button>} />
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
-      <div className="feature-grid">
+      {!DEMO_MODE && <div className="feature-grid">
         {OUTPUTS.map((o, i) => (
           <article key={o.title} className={`feature-card ${o.live ? '' : 'muted-card'}`}>
             <div className="feature-icon">{String(i + 1).padStart(2, '0')}</div>
@@ -107,27 +109,32 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
             <div className="feature-meta"><span>{o.meta}</span><b>{o.live ? 'Available' : 'Sample only'}</b></div>
           </article>
         ))}
-      </div>
-      <h2 className="section-title">Capability assessment report</h2>
+      </div>}
+      {!DEMO_MODE && <h2 className="section-title">Capability assessment report</h2>}
       {stage.data && (
         <Notice tone={stage.data.stage === 'final' ? 'success' : 'info'}>
-          <Pill tone={stage.data.stage === 'final' ? 'good' : 'neutral'} label={stage.data.stage === 'final' ? 'Final result' : 'Provisional result'} /> {stage.data.note}
+          <Pill tone={stage.data.stage === 'final' ? 'good' : 'neutral'} label={stage.data.label || stageLabel(stage.data.stage)} /> {stage.data.note}
         </Notice>
       )}
       {!cap.run.data?.assessment ? <Empty title="No completed capability assessment">The capability report is available once an evidence-based assessment completes.</Empty> : (
         <Table columns={['Audience', 'Formats']}>
-          {(['leadership', 'evidence'] as const).map((audience) => (
-            <tr key={audience}>
-              <td><strong>{audience === 'leadership' ? 'Leadership report' : 'Evidence report'}</strong><small className="cell-sub">Run {dateTime(cap.run.data!.created_at)}</small></td>
+          {/* After publishing, the Stage 1 result's reports stay downloadable beside the final ones. */}
+          {[{ runId: cap.run.data!.id, label: '', advice: cap.advice?.id, when: dateTime(cap.run.data!.created_at) },
+            ...(stage.data?.stage === 'final' && stage.data.provisional_run_id
+              ? [{ runId: stage.data.provisional_run_id, label: `${STAGE_ONE} · `, advice: undefined, when: `run ${stage.data.provisional_run_id.slice(0, 8)}` }] : []),
+          ].flatMap((row) => (['leadership', 'evidence'] as const).map((audience) => (
+            <tr key={`${row.runId}-${audience}`}>
+              <td><strong>{row.label}{audience === 'leadership' ? 'Leadership report' : 'Evidence report'}</strong><small className="cell-sub">{row.label ? row.when : `Run ${row.when}`}</small></td>
               <td><div className="row-actions">
                 {(['pdf', 'html', 'json'] as const).map((format) => (
-                  <button key={format} className="secondary-button" onClick={() => void download(() => downloadCapabilityReport(sprint.id, cap.run.data!.id, format, audience, cap.advice?.id))}>{format.toUpperCase()}</button>
+                  <button key={format} className="secondary-button" onClick={() => void download(() => downloadCapabilityReport(sprint.id, row.runId, format, audience, row.advice))}>{format.toUpperCase()}</button>
                 ))}
               </div></td>
             </tr>
-          ))}
+          )))}
         </Table>
       )}
+      {!DEMO_MODE && <>
       <h2 className="section-title">Audit report versions</h2>
       {reports.loading && !reports.data ? <Loading /> : reports.error ? <ErrorState error={reports.error} onRetry={() => void reports.refetch()} /> :
         !reports.data?.length ? <Empty title="No reports yet">Generate the first report once the assessment has run.</Empty> : (
@@ -163,6 +170,7 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
           <button className="secondary-button" disabled>Board presentation · PPTX</button>
         </div>
       </Dummy>
+      </>}
     </>
   );
 }
