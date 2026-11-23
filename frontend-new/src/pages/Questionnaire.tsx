@@ -7,7 +7,7 @@ import { usePolling, useResource } from '../hooks/useResource';
 import {
   addAdditionalEvidence, answerFollowUp, answerQuestion, cancelSecondLayerJob, getNextQuestion, getResponse,
   listAdditionalEvidence, listSecondLayerJobs, startSecondLayerJob,
-  type AdditionalEvidenceItem, type Layer2Next, type Layer2Progress, type Layer2Response, type SecondLayerJob,
+  type AdditionalEvidenceItem, type Layer2Next, type Layer2Progress, type Layer2Questions, type Layer2Response, type SecondLayerJob,
   type SecondLayerJobList, type SecondLayerOperation,
 } from '../services/capability';
 import { startExtraction, uploadDocument } from '../services/documents';
@@ -15,7 +15,7 @@ import { decideReviewCase, getReviewBatch, startReviewBatch } from '../services/
 import type { Sprint } from '../types/api';
 import type { Run } from '../types/capability';
 import type { ReviewBatch, ReviewCase } from '../types/workflow';
-import { newKey } from '../utils/capability';
+import { FINAL_SCORE, newKey } from '../utils/capability';
 import { errorMessage } from '../utils/errors';
 import { dateTime, humanize, tidyText, valueText } from '../utils/format';
 
@@ -35,9 +35,9 @@ const TABS = [
 type Tab = (typeof TABS)[number]['key'];
 
 /**
- * Shown on the questionnaire's first screen. Decided with Harsha on 12 Nov 2026: answers (including "don't know" and
- * skips) can lower a score, and the college is told so up front. The wording comes from Siddharth / Harsha; until it
- * arrives this stays empty and nothing is shown.
+ * A notice for the questionnaire's first screen. The follow-up notice agreed on 23 Nov (answers count only with a
+ * document; a document can move the score up or down) is served with the questions (GET .../questions `notice`) and
+ * shown on the follow-up tab, so this stays empty.
  */
 const QUESTIONNAIRE_NOTICE = '';
 
@@ -238,10 +238,11 @@ function ReviewItem({ sprint, item, position, total, onSkip, onDone }: {
 // --- line 2: follow-up and "nothing found" questions after the provisional score ---------------------------------
 
 function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; runId: string; onFinal: () => void }) {
-  const next = useResource<{ next: Layer2Next | null; progress: Layer2Progress }>(() => getNextQuestion(sprint.id, runId), `l2:${runId}`);
+  const next = useResource<Layer2Questions>(() => getNextQuestion(sprint.id, runId), `l2:${runId}`);
   const [answered, setAnswered] = useState<Layer2Response[]>([]);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
   const p = next.data?.progress;
+  const notice = next.data?.notice;
   const pending = answered.filter((r) => r.status === 'pending');
 
   // Responses come back "pending" until the check has run; refresh them while any is pending.
@@ -260,7 +261,13 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
     <>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
       {p?.final_run_id && (
-        <Notice tone="success">The final result has been published (run {p.final_run_id.slice(0, 8)}). Reports, recommendations and plan comparison now use it.</Notice>
+        <Notice tone="success">The follow-up stage is closed and the {FINAL_SCORE} has been published (run {p.final_run_id.slice(0, 8)}). Reports, recommendations and plan comparison now use it.</Notice>
+      )}
+      {notice && !p?.final_run_id && (
+        <Panel title={notice.title}>
+          <p>{notice.intro}</p>
+          <ul>{notice.rules.map((rule) => <li key={rule}>{rule}</li>)}</ul>
+        </Panel>
       )}
       <SecondLayerJobs sprint={sprint} runId={runId} progress={p} onChange={() => void next.refetch()} onFinal={onFinal} />
       <div className="stat-grid">
@@ -270,7 +277,7 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
         <Stat label="Follow-ups open" value={p?.follow_ups_open ?? 0} note="At most one per answer" />
       </div>
       {p && p.questions > 0 && <Panel><ProgressLine done={p.answered} total={p.questions} label="Questions answered" /></Panel>}
-      {!p?.questions ? (
+      {p?.final_run_id ? null : !p?.questions ? (
         <Empty title="No follow-up questions yet">Questions for this run have not been planned yet. Use “Plan follow-up questions” above (it uses model credits).</Empty>
       ) : !next.data?.next ? (
         <Empty title="All questions answered" action={<PageLink to="cri" className="primary-action">See the report</PageLink>}>
@@ -345,6 +352,7 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [confirmReplace, setConfirmReplace] = useState(false);
+  const [confirmPublish, setConfirmPublish] = useState(false);
   const list = jobs.data?.results || [];
   const active = list.find(isActiveJob) || null;
   const checking = !!progress?.checks_waiting;
@@ -390,7 +398,10 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
   const manage = can('sprint.manage');
   const p = progress;
   const hasQuestions = !!p?.questions;
-  const finished = !!p && hasQuestions && !p.open && !p.checks_waiting && !p.follow_ups_open;
+  const closed = !!p?.final_run_id;
+  // The college can stop whenever it likes (the questionnaire notice says so): publishing closes the follow-up stage
+  // once no answer is still waiting for its check. Unanswered questions earn nothing.
+  const canPublish = !!p && !closed && !p.checks_waiting;
   const budget = jobs.data?.budget;
   const disabled = !jobs.data?.enabled || !!active || !!busy;
 
@@ -398,10 +409,10 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
     <Panel title="Follow-up questions and final result" sub="Background jobs on the provisional run; each uses model credits from this assessment's budget"
       actions={manage && (
         <div className="row-actions">
-          {!hasQuestions && <button className="primary-action" disabled={disabled} onClick={() => void start('questions')}>{busy === 'questions' ? 'Starting…' : 'Plan follow-up questions'}</button>}
-          {hasQuestions && !p?.answered && <button className="secondary-button" disabled={disabled} onClick={() => setConfirmReplace(true)}>Plan again</button>}
-          {hasQuestions && <button className="secondary-button" disabled={disabled} onClick={() => void start('depth')}>{busy === 'depth' ? 'Starting…' : 'Judge evidence depth'}</button>}
-          {finished && !p?.final_run_id && <button className="primary-action" disabled={disabled} onClick={() => void start('rejudge', { publish: true })}>{busy === 'rejudge' ? 'Starting…' : 'Publish final result'}</button>}
+          {!closed && !hasQuestions && <button className="primary-action" disabled={disabled} onClick={() => void start('questions')}>{busy === 'questions' ? 'Starting…' : 'Plan follow-up questions'}</button>}
+          {!closed && hasQuestions && !p?.answered && <button className="secondary-button" disabled={disabled} onClick={() => setConfirmReplace(true)}>Plan again</button>}
+          {!closed && hasQuestions && <button className="secondary-button" disabled={disabled} onClick={() => void start('depth')}>{busy === 'depth' ? 'Starting…' : 'Judge evidence depth'}</button>}
+          {canPublish && <button className="primary-action" disabled={disabled} onClick={() => setConfirmPublish(true)}>{busy === 'rejudge' ? 'Starting…' : 'Finish and publish the final result'}</button>}
         </div>
       )}>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
@@ -413,6 +424,14 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
           <button className="link-button" onClick={() => setConfirmReplace(false)}>No</button>
         </Notice>
       )}
+      {confirmPublish && (
+        <Notice tone="info">
+          Publish the {FINAL_SCORE}? This closes the follow-up stage: no more answers or documents can be added, and
+          unanswered questions earn nothing.{' '}
+          <button className="link-button" onClick={() => { setConfirmPublish(false); void start('rejudge', { publish: true }); }}>Yes, publish</button>{' '}
+          <button className="link-button" onClick={() => setConfirmPublish(false)}>No</button>
+        </Notice>
+      )}
       {active ? (
         <div className="condition">
           <div><Pill status="pending" label={active.status === 'queued' ? 'Queued' : 'Running'} /> <b>{OPERATION_LABEL[active.operation]}</b> · started {dateTime(active.started_at || active.created_at)}</div>
@@ -420,7 +439,7 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
           {manage && <div className="button-row"><button className="secondary-button" disabled={busy === 'cancel'} onClick={() => void cancel(active)}>Cancel this job</button></div>}
         </div>
       ) : checking && <p className="muted">{p?.checks_waiting} answer(s) wait for their check; it starts by itself once their documents are processed (the server sweeps every 5 minutes).</p>}
-      {hasQuestions && !finished && !p?.final_run_id && <p className="muted">“Publish final result” appears once every question is answered or skipped and every answer has been checked.</p>}
+      {!closed && !!p?.checks_waiting && <p className="muted">“Finish and publish the final result” appears once every answer has been checked.</p>}
       {budget && <p className="muted">Budget: {budget.requests_reserved} of {budget.max_http_calls} requests and ${budget.usd_reserved} of ${budget.max_cost_usd} reserved.</p>}
       {list.length > 0 && (
         <details>

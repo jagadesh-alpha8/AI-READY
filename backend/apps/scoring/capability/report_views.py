@@ -40,27 +40,42 @@ def validate_report_identity(run, event, snapshot=None, completed=None):
             raise ReportIntegrityError()
 
 
+STAGE_ONE = 'Stage 1 result: Document Review'
+FINAL = 'Final AI-READY Score'
+
+
 def assessment_stage(run, event):
-    """Whether this report shows the provisional result (before follow-up questions and additional evidence) or the
-    final one published after them (layer2_service.publish_final)."""
+    """Whether this report shows the Stage 1 result (the provisional run: what the documents show before the follow-up
+    questions and additional evidence) or the Final AI-READY Score, published once the follow-up stage is closed
+    (layer2_service.publish_final; publishing is what closes it). The tier is shown only on the final score
+    (Siddharth, 23 Nov)."""
     second = (run.inputs or {}).get('second_layer')
     score = event.payload.get('result', {}).get('score')
     if second:
         lowered = [row['condition_id'] for row in second.get('lowerings') or []]
-        note = (f"Final result: includes the evidence the institution sent after the provisional score "
-                f"({second.get('provisional_score')} provisional, {score} final).")
+        unchanged = not second.get('targets')
+        if unchanged:
+            note = (f"{FINAL}: the follow-up stage is closed, and nothing sent in it changed the Stage 1 result "
+                    f"({second.get('provisional_score')}).")
+        else:
+            note = (f"{FINAL}: includes the follow-up answers and evidence the institution sent after the Stage 1 "
+                    f"result ({second.get('provisional_score')} at Stage 1, {score} final). The follow-up stage is "
+                    'closed.')
         if lowered:
             note += (f" {len(lowered)} requirement{'s' if len(lowered) != 1 else ''} went down because documents the "
                      'institution sent show otherwise.')
-        return {'stage': 'final', 'provisional_run_id': second['provisional_run_id'],
-                'provisional_score': second.get('provisional_score'), 'score': score, 'lowered': lowered,
-                'note': note}
+        return {'stage': 'final', 'label': FINAL, 'tier_shown': True, 'closed': True,
+                'provisional_run_id': second['provisional_run_id'], 'provisional_score': second.get('provisional_score'),
+                'score': score, 'lowered': lowered, 'unchanged': unchanged, 'note': note}
     from .layer2_service import final_run_id
     final = final_run_id(str(run.pk))
-    return {'stage': 'provisional', 'final_run_id': final, 'score': score,
-            'note': ('Provisional result: a final result that includes later evidence has been published (run '
-                     f'{final}).') if final else
-                    'Provisional result: follow-up questions and any additional evidence may still change it.'}
+    note = (f'{STAGE_ONE}. The follow-up stage is closed and the final AI-READY Score has been published (run {final}).'
+            if final else
+            f'{STAGE_ONE}: what the documents show before the follow-up questions. Follow-up answers backed by documents, '
+            'and documents we missed, can change it. The final AI-READY Score and tier are published once the '
+            'follow-up questions are complete.')
+    return {'stage': 'provisional', 'label': STAGE_ONE, 'tier_shown': False, 'closed': bool(final),
+            'final_run_id': final, 'score': score, 'note': note}
 
 
 class CapabilityReportView(RunView):

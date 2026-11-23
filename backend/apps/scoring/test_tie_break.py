@@ -183,6 +183,22 @@ class QuoteRepairTests(SimpleTestCase):
         self.assertIn('tie_break', trace['agreement_audit'])
         self.assertNotIn('quote_repair_audit', trace)
 
+    def test_one_bad_quotation_beside_good_ones_is_not_repaired(self):
+        """Audit, 23 Nov: the repair is for requirements whose found parts all failed, not for one misquoted part."""
+        class Mixed(self.Service):
+            def extract_structured_data(self, **kwargs):
+                answer = super().extract_structured_data(**kwargs)
+                if len(self.calls) == 2:   # the second pass: the first part keeps its good quotation, the rest fail
+                    row = answer['conditions'][A]
+                    for finding in row['findings'][1:]:
+                        for citation in finding['citations']:
+                            citation['quote'] = 'operates an ERP platform serving admissions'
+                return answer
+        service = Mixed(bad_quote_calls=set())
+        records, trace = self.judge(service)
+        self.assertNotIn('quote_repair_audit', trace)
+        self.assertFalse(any('quotation_repair' in p for p in service.payloads))
+
     def test_a_repair_that_still_fails_keeps_the_pass_as_it_was(self):
         service = self.Service(bad_quote_calls={0}, repair_fixes=False)
         records, trace = self.judge(service)

@@ -74,7 +74,7 @@ def render_single_score_pdf(view):
     pdf.set_fill_color(235, 245, 245)
     pdf.rect(16, panel_y, pdf.w - 32, 30, style='F')
     pdf.set_y(panel_y + 3)
-    pdf.display(f"AI readiness: {view['score']}", 24)
+    pdf.display(f"{view.get('stage_label') or 'AI readiness'}: {view['score']}", 24)
     pdf.paragraph(view['condition_summary'])
     pdf.set_y(max(pdf.get_y(), panel_y + 33))
     pdf.paragraph(view['score_explanation'], small=True)

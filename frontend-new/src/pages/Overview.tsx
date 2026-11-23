@@ -4,7 +4,7 @@ import { ErrorState, Loading, Pill } from '../components/ui';
 import { useCapability } from '../hooks/useCapability';
 import { useCycle } from '../hooks/useCycle';
 import { useResource } from '../hooks/useResource';
-import { achievedTier, scoreLabel } from '../utils/capability';
+import { achievedTier, scoreLabel, tierShown } from '../utils/capability';
 import { getSprintOverview } from '../services/sprints';
 import type { Sprint, SprintOverview } from '../types/api';
 import { date, num } from '../utils/format';
@@ -30,7 +30,8 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
   const approved = APPROVED.has(sprint.status);
   // The evidence-based capability run decides the tier when it has one; otherwise the benchmark assessment cycle.
   const capResult = cap.assessment?.result || null;
-  const capTier = capResult ? achievedTier(capResult) : null;
+  // The tier comes with the final AI-READY Score only (23 Nov); a Stage 1 result shows none.
+  const capTier = capResult && tierShown(cap.stage) ? achievedTier(capResult) : null;
   const capLevel = capTier ? TIERS.find((t) => t.name === capTier)?.level ?? null : null;
   const level = capLevel ?? (detail.data ? institutionLevel(detail.data.benchmarks) : null);
   const target = nextTier(level);

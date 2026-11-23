@@ -4,7 +4,7 @@ import { ScoreHistory } from '../components/ScoreHistory';
 import { CheckItem, Empty, ErrorState, Loading, Notice, PageHeading, PageLink, Panel, Pill, Stat } from '../components/ui';
 import { useCapability } from '../hooks/useCapability';
 import { useCycle } from '../hooks/useCycle';
-import { achievedTier } from '../utils/capability';
+import { achievedTier, tierShown } from '../utils/capability';
 import { useResource } from '../hooks/useResource';
 import { getSprintOverview } from '../services/sprints';
 import type { CycleBenchmarkRow, Sprint, SprintOverview } from '../types/api';
@@ -34,7 +34,7 @@ function CriBody({ sprint }: { sprint: Sprint }) {
     : cap.error ? <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} title="Could not load the capability assessment" />
       : cap.run.data?.assessment ? (
         <>
-          <h2 className="section-title">Evidence-based capability standing{achievedTier(cap.run.data.assessment.result) ? ` · ${achievedTier(cap.run.data.assessment.result)} achieved` : ''}</h2>
+          <h2 className="section-title">Evidence-based capability standing{tierShown(cap.stage) && achievedTier(cap.run.data.assessment.result) ? ` · ${achievedTier(cap.run.data.assessment.result)} achieved` : ''}</h2>
           <CapabilityStanding result={cap.run.data.assessment.result} run={cap.run.data} />
         </>
       ) : <Notice tone="info">No completed capability assessment yet. Start one on the AI readiness assessment screen.</Notice>;

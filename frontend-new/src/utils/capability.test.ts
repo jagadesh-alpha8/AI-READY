@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { achievedTier, capabilityTone, isActive, scoreLabel, stateCounts, stateLabel, tierLabel } from './capability.ts';
+import { achievedTier, capabilityTone, isActive, scoreLabel, stageLabel, stateCounts, stateLabel, tierLabel, tierShown } from './capability.ts';
 
 const tier = (name: string, eligibility: string) => ({ name, eligibility, threshold: null, pillar_floor: null, gates: {} });
 
@@ -27,4 +27,13 @@ test('labels, tones, counts and job state', () => {
   assert.equal(isActive({ status: 'running' }), true);
   assert.equal(isActive({ status: 'completed' }), false);
   assert.equal(isActive(null), false);
+});
+
+test('Stage 1 and final labels; the tier only on the final score (23 Nov)', () => {
+  assert.equal(stageLabel('provisional'), 'Stage 1 result: Document Review');
+  assert.equal(stageLabel(null), 'Stage 1 result: Document Review');
+  assert.equal(stageLabel('final'), 'Final AI-READY Score');
+  assert.equal(tierShown('provisional'), false);
+  assert.equal(tierShown(undefined), false);
+  assert.equal(tierShown('final'), true);
 });

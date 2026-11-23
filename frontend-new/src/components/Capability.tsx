@@ -4,8 +4,8 @@ import type { useCapability } from '../hooks/useCapability';
 import { cancelRun, startRun } from '../services/capability';
 import type { Result, Run, ScoreExplanation } from '../types/capability';
 import {
-  capabilityTone, causeLabel, indicatorScoreLabel, isPartCredit, newKey, partLabel, partTone, pillarScoreLabel, scoreLabel, stateCounts,
-  stateLabel, tierLabel,
+  capabilityTone, causeLabel, indicatorScoreLabel, isPartCredit, newKey, partLabel, partTone, pillarScoreLabel, scoreLabel, stageLabel,
+  pillarName, stateCounts, stateLabel, TIER_LATER, tierLabel, tierShown,
 } from '../utils/capability';
 import { errorMessage } from '../utils/errors';
 import { dateTime } from '../utils/format';
@@ -41,7 +41,7 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
   return (
     <>
       <div className="stat-grid">
-        <Stat label="Institutional AI capability"
+        <Stat label={partCredit ? stageLabel(run.stage) : 'Institutional AI capability'}
           value={!partCredit && result.aggregation === 'independent_conditions' && result.condition_decision_coverage === 0 ? 'Review needed' : scoreLabel(result)}
           note={partCredit ? 'What the documents show, with partial credit' : result.exact_score === null ? 'Bounds: unresolved evidence is not counted as capability' : 'Exact score'} />
         <Stat label="Resolved indicator weight" value={`${result.assessment_coverage}%`} note="Evidence resolution, not model confidence" />
@@ -55,14 +55,14 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
         <Panel title="Nine readiness areas" sub="Part-credit score per area: a requirement earns credit for each part the documents evidence">
           {result.pillars.map((p) => {
             const d = result.documented?.pillars.find((x) => x.code === p.code);
-            return d ? <Bar key={p.code} label={p.code} value={d.score} /> : (
+            return d ? <Bar key={p.code} label={pillarName(p.code)} value={d.score} /> : (
               <div key={p.code} className="bar-row"><span>{p.code}</span><span className="muted">{pillarScoreLabel(result, p.code, p.lower, p.upper)}</span><b /></div>
             );
           })}
           <details className="indicator">
             <summary>How each area score was reached</summary>
             {result.documented?.pillars.some((x) => x.explanation) ? result.documented.pillars.map((x) => (
-              <article key={x.code} className="condition"><b>{x.code}</b><ScoreExplanationBlock explanation={x.explanation} /></article>
+              <article key={x.code} className="condition"><b>{pillarName(x.code)}</b><ScoreExplanationBlock explanation={x.explanation} /></article>
             )) : <ScoreExplanationBlock />}
           </details>
         </Panel>
@@ -77,7 +77,9 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
         </Panel>
       )}
       <Panel title="Maturity eligibility" sub={`${result.methodology} · frozen ${dateTime(run.created_at)} · ${run.reference_period || 'default scope'}`}>
-        {result.badge_policy === 'not_calibrated' ? (
+        {partCredit && !tierShown(run.stage) ? (
+          <p className="muted">{TIER_LATER}</p>
+        ) : result.badge_policy === 'not_calibrated' ? (
           <p className="muted">Silver, Gold and Platinum standards are being calibrated. A readiness score alone does not award a maturity badge.</p>
         ) : (
           <div className="tier-grid">

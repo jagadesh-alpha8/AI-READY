@@ -10,6 +10,7 @@ import { downloadReport, generateReport, listReports } from '../services/reports
 import { listSprintFactsPage } from '../services/facts';
 import { listSprintGapsPage } from '../services/gaps';
 import type { Fact, Gap, Report, Sprint } from '../types/api';
+import { stageLabel } from '../utils/capability';
 import { toCsv } from '../utils/csv';
 import { errorMessage } from '../utils/errors';
 import { dateTime, num, pct, tidyText, valueText } from '../utils/format';
@@ -111,7 +112,7 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
       <h2 className="section-title">Capability assessment report</h2>
       {stage.data && (
         <Notice tone={stage.data.stage === 'final' ? 'success' : 'info'}>
-          <Pill tone={stage.data.stage === 'final' ? 'good' : 'neutral'} label={stage.data.stage === 'final' ? 'Final result' : 'Provisional result'} /> {stage.data.note}
+          <Pill tone={stage.data.stage === 'final' ? 'good' : 'neutral'} label={stage.data.label || stageLabel(stage.data.stage)} /> {stage.data.note}
         </Notice>
       )}
       {!cap.run.data?.assessment ? <Empty title="No completed capability assessment">The capability report is available once an evidence-based assessment completes.</Empty> : (

@@ -412,11 +412,18 @@ class SecondLayerJobTests(APITestCase):
         self.assertEqual(job.result['final_score'], 1.1)
         self.assertEqual(CapabilityRun.objects.filter(inputs__second_layer__isnull=False).count(), 0)
 
-    def test_rejudge_with_no_new_evidence_publishes_nothing_and_makes_no_call(self):
+    def test_rejudge_with_no_new_evidence_still_publishes_and_closes_with_no_call(self):
+        """23 Nov: publishing closes the follow-up stage, so a college that sent nothing still gets its final result."""
         job = self.execute(self.post_job('rejudge'))
         self.assertEqual(job.status, 'completed', job.detail)
-        self.assertIsNone(job.final_run_id)
+        self.assertIsNotNone(job.final_run_id)
         self.assertEqual(self.calls(), 0)
+        self.assertIn('follow-up stage is closed', job.result['note'])
+
+    def test_without_publishing_nothing_is_published_or_closed(self):
+        job = self.execute(self.post_job('rejudge', options={'publish': False}))
+        self.assertEqual(job.status, 'completed', job.detail)
+        self.assertIsNone(job.final_run_id)
         self.assertEqual(job.result['note'], 'No new evidence to re-judge.')
 
     def test_export_still_reads_the_provisional_run(self):

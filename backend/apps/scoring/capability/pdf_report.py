@@ -74,8 +74,9 @@ def render_pdf(report, indicators, actions):
     pdf.paragraph(report['notice'])
     pdf.section('Current standing')
     single = result.get('score') is not None
+    stage = report.get('assessment_stage') or {}
     if single:
-        pdf.paragraph(f"{result['score']:g} / 100", heading=True)
+        pdf.paragraph((f"{stage['label']}: " if stage.get('label') else '') + f"{result['score']:g} / 100", heading=True)
         pdf.paragraph('What the supplied documents show, with partial credit where only some parts of a requirement '
                       'are evidenced. A requirement the documents do not show earns no credit.')
     else:
@@ -86,7 +87,9 @@ def render_pdf(report, indicators, actions):
             pdf.paragraph('The lower bound is demonstrated capability. The upper bound is not demonstrated capability.')
         pdf.paragraph(f"Resolved indicator weight: {result['assessment_coverage']}%. "
                       f"Decided conditions: {result['condition_decision_coverage']}%. These are evidence-resolution measures.")
-    for tier in result['tiers']:
+    if not stage.get('tier_shown', True):
+        pdf.paragraph('The tier is awarded on the final AI-READY Score, once the follow-up questions are complete.')
+    for tier in (result['tiers'] if stage.get('tier_shown', True) else []):
         if tier['threshold'] is None:
             pdf.paragraph(f"{tier['name']}: achievement requirements are not calibrated; no badge awarded.")
             continue
@@ -148,8 +151,11 @@ def render_pdf(report, indicators, actions):
     priority = report['deterministic_plan'].get('priority_plan')
     if priority:
         tier = priority['tier']
-        pdf.paragraph(f"Score {priority['score']}; provisional tier: {tier['current'] or 'none yet'}"
-                      + (f"; {tier['points_to_next']} points to {tier['next']}." if tier['next'] else '.'))
+        if stage.get('tier_shown', True):
+            pdf.paragraph(f"Score {priority['score']}; provisional tier: {tier['current'] or 'none yet'}"
+                          + (f"; {tier['points_to_next']} points to {tier['next']}." if tier['next'] else '.'))
+        else:
+            pdf.paragraph(f"Score {priority['score']} at Stage 1; the tier is awarded on the final AI-READY Score.")
         pdf.paragraph(f"Projected score after the priority plan: {priority['projected_score']}. {priority['note']}")
     if report['recommendation']:
         pdf.paragraph(f"Recommendation version: {report['recommendation']['id']} | {report['recommendation']['status']}")

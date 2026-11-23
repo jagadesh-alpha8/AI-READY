@@ -50,6 +50,17 @@ def is_final(run):
     return bool(run is not None and (run.inputs or {}).get('second_layer'))
 
 
+CLOSED = ('The follow-up stage for this assessment is closed: its final AI-READY Score has been published, so no '
+          'more answers or evidence can be added to it.')
+
+
+def refuse_closed(run_ref):
+    """Publishing the final result closes the follow-up stage (23 Nov): a college sees its final AI-READY Score only
+    once the stage is closed, and that score must not change under it afterwards."""
+    if final_run_id(str(run_ref)):
+        raise Layer2Error(CLOSED)
+
+
 def _refuse_final(run):
     if is_final(run):
         raise Layer2Error('This run is a second-layer final result; use its provisional run '
@@ -282,6 +293,7 @@ def submit(question, *, answer='', document_ids=(), skip=False, parent=None, use
     cannot both be accepted. Documents must belong to the run's sprint when the run is in this database."""
     answer = (answer or '').strip()
     documents = [str(d) for d in document_ids or []]
+    refuse_closed(question.run_ref)
     if not skip and not answer and not documents:
         raise Layer2Error('Give an answer, attach a document, or skip.')
     if documents and not skip:
@@ -409,6 +421,7 @@ def add_evidence(run_ref, rubric, *, document_ids, note='', picked=(), user=None
     """Record documents the institution thinks were missed. It must pick at least one readiness area, key indicator
     or requirement; extraction's tags are added when the documents are checked."""
     documents = [str(d) for d in document_ids or []]
+    refuse_closed(run_ref)
     if not documents:
         raise Layer2Error('Attach at least one document.')
     sprint_id = run_sprint_id(run_ref)
@@ -598,6 +611,7 @@ def publish_final(result, *, service=None, user=None, inference=None):
         existing = CapabilityExecution.objects.filter(sprint=sprint, idempotency_key=key).select_related('run').first()
         if existing:
             return existing.run
+        refuse_closed(provisional_run.pk)   # one final result per provisional run: publishing closed the stage
         inputs = dict(provisional_run.inputs)
         frozen_ids = {s['id'] for s in inputs['sources']}
         added = [s for s in new_sources if s['id'] not in frozen_ids]

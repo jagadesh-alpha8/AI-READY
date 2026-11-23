@@ -5,7 +5,7 @@ import { useCapability } from '../hooks/useCapability';
 import { useCycle } from '../hooks/useCycle';
 import type { CycleBenchmarkRow, Sprint } from '../types/api';
 import { KIND_LABEL } from '../utils/benchmark';
-import { achievedTier, capabilityTone, tierLabel } from '../utils/capability';
+import { achievedTier, capabilityTone, TIER_LATER, tierLabel, tierShown } from '../utils/capability';
 import type { PriorityPlan } from '../types/capability';
 import { num } from '../utils/format';
 import { TIERS, institutionLevel, levelRank, meetsLevel, nextTier, tierName } from '../utils/maturity';
@@ -31,7 +31,9 @@ function PathwayBody({ sprint }: { sprint: Sprint }) {
       <PageHeading page="pathway" actions={<CyclePicker cycles={cycles} value={cycleId} onChange={choose} />} />
       {!!cap.error && <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} title="Could not load the capability assessment" />}
 
-      {priority ? <PriorityPathway plan={priority} /> : result ? (
+      {priority ? <PriorityPathway plan={priority} final={tierShown(cap.stage)} /> : result && !tierShown(cap.stage) ? (
+        <Panel title="Silver to Platinum"><p className="muted">{TIER_LATER}</p></Panel>
+      ) : result ? (
         <Panel title="Silver to Platinum eligibility" sub={`From the latest capability assessment · achieved: ${achievedTier(result) || 'none demonstrated yet'}`}>
           {result.badge_policy === 'not_calibrated' ? <p className="muted">Silver, Gold and Platinum standards are being calibrated; no badge is awarded yet.</p> : (
             <div className="tier-grid">
@@ -86,14 +88,17 @@ function PathwayBody({ sprint }: { sprint: Sprint }) {
 }
 
 /** Provisional score bands on the part-credit score and the priority actions that move it (priority_plan). */
-function PriorityPathway({ plan }: { plan: PriorityPlan }) {
+function PriorityPathway({ plan, final }: { plan: PriorityPlan; final: boolean }) {
   const t = plan.tier;
+  // Before the follow-up stage is closed the score is the Stage 1 result: no band is "reached" (23 Nov).
   return (
     <>
-      <Panel title="Requirements pathway" sub={`Score ${num(plan.score, 1)} · ${t.current ? `${t.current} band` : 'below the first band'}${t.next ? ` · ${num(t.points_to_next, 1)} points to ${t.next}` : ''}`}>
+      <Panel title="Requirements pathway" sub={final
+        ? `Score ${num(plan.score, 1)} · ${t.current ? `${t.current} band` : 'below the first band'}${t.next ? ` · ${num(t.points_to_next, 1)} points to ${t.next}` : ''}`
+        : `Stage 1 score ${num(plan.score, 1)} · ${TIER_LATER}`}>
         <div className="tier-grid">
           {t.thresholds.map((b) => {
-            const reached = plan.score >= b.score;
+            const reached = final && plan.score >= b.score;
             const projected = !reached && plan.projected_score >= b.score;
             return (
               <article key={b.name} className={`tier-card ${b.name.toLowerCase()}`}>
@@ -101,14 +106,14 @@ function PriorityPathway({ plan }: { plan: PriorityPlan }) {
                 <h2>{b.name}</h2>
                 <strong>{b.score} points</strong>
                 <ul>
-                  <li>{reached ? 'At or above this score' : `${num(b.score - plan.score, 1)} points to go`}</li>
+                  <li>{reached ? 'At or above this score' : plan.score >= b.score ? 'At or above this score at Stage 1' : `${num(b.score - plan.score, 1)} points to go`}</li>
                   {projected && <li>Reached if the priority actions are shown</li>}
                 </ul>
               </article>
             );
           })}
         </div>
-        <p className="muted">{t.note} Target {plan.target ?? '—'} · projected {num(plan.projected_score, 1)}{plan.projected_tier ? ` (${plan.projected_tier})` : ''}{plan.reaches_target ? ' · reaches the target' : ''}.</p>
+        <p className="muted">{t.note} Target {plan.target ?? '—'} · projected {num(plan.projected_score, 1)}{final && plan.projected_tier ? ` (${plan.projected_tier})` : ''}{plan.reaches_target ? ' · reaches the target' : ''}.</p>
       </Panel>
       <Panel title="Priority actions" sub="Per key indicator: each requirement's gap and the parts not yet shown">
         {!plan.actions.length ? <p className="muted">No priority actions: nothing within reach changes the score.</p> : (

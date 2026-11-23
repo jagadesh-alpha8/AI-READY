@@ -109,7 +109,8 @@ def clean_options(operation, options):
     options = options or {}
     if not isinstance(options, dict):
         raise ValidationError({'options': 'Must be an object.'})
-    allowed = {'questions': {'replace'}, 'rejudge': {'publish'}, 'explain': {'final'}}.get(operation, set())
+    # 'close' is accepted for the A2 front end; on this branch publishing is what closes the stage.
+    allowed = {'questions': {'replace'}, 'rejudge': {'publish', 'close'}, 'explain': {'final'}}.get(operation, set())
     unknown = set(options) - allowed
     if unknown:
         raise ValidationError({'options': f'Unknown for {operation}: {", ".join(sorted(unknown))}.'})
@@ -158,6 +159,10 @@ def preflight(run, operation, options):
         raise ValidationError('This assessment has no follow-up questions yet.')
     elif operation == 'checks' and not waiting(run_ref):
         raise ValidationError('Nothing is waiting for a check.')
+    elif operation == 'rejudge' and options.get('publish', True) and waiting(run_ref):
+        # Publishing closes the follow-up stage; answers still waiting for their check would be shut out of it.
+        raise ValidationError('Some answers or evidence are still waiting for their check; publish the final result '
+                              'once they are checked.')
     elif operation == 'explain':
         target = explain_target(run, options)
         if not target.events.filter(state='completed', payload__result__isnull=False).exists():
@@ -202,6 +207,13 @@ def start(*, run, operation, user, key, options=None):
     _expire_stale(run)
     if SecondLayerJob.objects.filter(run=run, status__in=ACTIVE).exists():
         raise AssessmentConflict('A second-layer job is already active for this assessment.')
+    if operation != 'explain':
+        from .layer2 import Layer2Error
+        from .layer2_service import refuse_closed
+        try:
+            refuse_closed(run.pk)
+        except Layer2Error as exc:
+            raise ValidationError(str(exc))
     preflight(run, operation, options)
     budget = ensure_budget(run)
     try:
@@ -388,12 +400,16 @@ def run_rejudge(job, meter):
     with transaction.atomic():
         commit_point(job.pk, lock_run=True)
         explain_next = None
-        if job.options.get('publish', True) and result.get('targets'):
+        # Publishing closes the follow-up stage, so it publishes even when nothing changed (no model calls then): a
+        # college that answered nothing, or only "don't know", still gets its final AI-READY Score (23 Nov).
+        if job.options.get('publish', True):
             try:
                 final = publish_final(result, service=meter, user=job.requested_by)
             except ValueError as exc:   # storage.publish's own refusals (a citation or excerpt that does not match)
                 raise Layer2Error(f'The final result could not be published: {exc}')
-            summary['note'] = 'Published as the final result.'
+            summary['note'] = ('Published as the final result; the follow-up stage is closed.' if result.get('targets')
+                               else 'The follow-up stage is closed: published as the final result; nothing changed '
+                                    'the Stage 1 result.')
             if enabled() and settings.SECOND_LAYER_EXPLAIN_AFTER_PUBLISH:
                 options = {'final': True}
                 explain_next = SecondLayerJob.objects.create(

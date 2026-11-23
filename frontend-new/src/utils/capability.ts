@@ -78,3 +78,20 @@ export function stateCounts(r: Pick<Result, 'indicators'>): Record<string, numbe
 /** A fresh idempotency key for one explicit "start" click. */
 export const newKey = () =>
   (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+/** The two stages a college sees (23 Nov): the Stage 1 result before the follow-up questions, and the Final AI-READY
+ * Score once the follow-up stage is closed (publishing the final result closes it). */
+export const STAGE_ONE = 'Stage 1 result: Document Review';
+export const FINAL_SCORE = 'Final AI-READY Score';
+export const stageLabel = (stage?: string | null) => (stage === 'final' ? FINAL_SCORE : STAGE_ONE);
+/** The tier is shown only on the final score: before the follow-ups the result is still open. */
+export const tierShown = (stage?: string | null) => stage === 'final';
+export const TIER_LATER = 'The tier is awarded on the final AI-READY Score, once the follow-up questions are complete.';
+
+/** The readiness areas' names, as the reports print them (backend report_projection.PILLARS). */
+export const PILLAR_NAMES: Record<string, string> = {
+  'AIQIF-C1': 'Leadership and investment', 'AIQIF-C2': 'Responsible and safe AI', 'AIQIF-C3': 'Curriculum and teaching',
+  'AIQIF-C4': 'Faculty and staff', 'AIQIF-C5': 'Student skills and careers', 'AIQIF-C6': 'Technology and data',
+  'AIQIF-C7': 'Research and innovation', 'AIQIF-C8': 'Services and partnerships', 'AIQIF-C9': 'Measurement and improvement',
+};
+export const pillarName = (code: string) => PILLAR_NAMES[code] || code;

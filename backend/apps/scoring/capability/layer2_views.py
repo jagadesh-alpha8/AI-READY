@@ -115,6 +115,30 @@ class _RunScoped(APIView):
         return Response(serialize_response(response), status=status.HTTP_201_CREATED)
 
 
+NOTICE_VERSION = 'questionnaire-notice-main-1'
+
+
+def questionnaire_notice(run_ref):
+    """The text shown before the follow-up questions (agreed 23 Nov), served with them so the screen and the reports
+    share one wording. On this branch no credit is held for depth, so only documents can change the score: a missing-
+    evidence answer or additional evidence can raise it, and a document that contradicts credited evidence can lower
+    it. Answers about credited evidence are recorded but do not change the score."""
+    from .layer2_service import final_run_id
+    closed = bool(final_run_id(str(run_ref)))
+    return {'version': NOTICE_VERSION, 'title': 'Before you start', 'closed': closed,
+            'intro': ('These questions follow up on your documents. Where a question says we found nothing yet, a '
+                      'document you send can add to your score. Questions about evidence we have already credited help '
+                      'us understand how far it goes. You can stop whenever you like; your final AI-READY Score and '
+                      'tier are published when you finish.'),
+            'rules': ['An answer counts only when a document supports it, so attach one wherever you can.',
+                      'You can answer "Don\'t know" or skip a question.',
+                      'Please answer as accurately as you can. If a document you send shows something different from '
+                      'what we credited, we adjust that part of the score, up or down. Accurate answers also make '
+                      'your improvement plan more useful.'],
+            **({'closed_text': 'The follow-up stage is closed and your final AI-READY Score has been published.'}
+               if closed else {})}
+
+
 class QuestionsView(_RunScoped):
     def get(self, request, sprint_id, run_id):
         execution = self.execution(request, sprint_id, run_id)
@@ -124,7 +148,8 @@ class QuestionsView(_RunScoped):
         if item is not None:
             next_payload = {'type': item['type'], 'text': item['text'], 'question': serialize_question(item['question']),
                             'response_id': str(item['response'].pk) if item['response'] is not None else None}
-        return Response({'next': next_payload, 'progress': service.progress(run_ref)})
+        return Response({'next': next_payload, 'progress': service.progress(run_ref),
+                         'notice': questionnaire_notice(run_ref)})
 
 
 class QuestionResponsesView(_RunScoped):
