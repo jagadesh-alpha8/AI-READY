@@ -25,7 +25,13 @@ def _completed(run):
 
 
 def _kept(quote, page_id, packet):
-    return any(e['id'] == page_id and quote in (e.get('text') or '') for e in packet)
+    """True when a window of the page still holds the quotation, compared as the citation validator compares it
+    (citations.normalize: stored quotations have their whitespace collapsed). Test 13 at 2.9 bytes per token (23 Nov):
+    44 credited parts were reported lost with nothing trimmed, because a quotation spanning a line break is not a
+    substring of the raw page text."""
+    from apps.scoring.capability.citations import normalize
+    quote = normalize(quote or '')
+    return bool(quote) and any(e['id'] == page_id and quote in normalize(e.get('text') or '') for e in packet)
 
 
 def check(run, *, ceiling_tokens, bytes_per_token, indicators=None, ranker=None):

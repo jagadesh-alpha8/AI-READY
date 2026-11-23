@@ -74,7 +74,7 @@ With `SECOND_LAYER_JOBS_ENABLED=true` the steps above run in Celery instead of f
 | `questions` | plans and saves the follow-up questions | `replace` (refused once the college has answered) |
 | `checks` | checks waiting answers and additional evidence | none |
 | `depth` | judges depth from checked answers (saves judgments and pending past cases) | none |
-| `rejudge` | re-judges credit and publishes the final result as a run refining the provisional one | `publish` (default true; false reports only) |
+| `rejudge` | re-judges credit and publishes the final result as a run refining the provisional one | `publish` (default true; false reports only); `close` (default false): publish even when nothing changed, which closes the follow-up stage (23 Nov) |
 
 - **Metered.** Every model call is reserved against the job (it must still be running, within its deadline) and the
   run's `SecondLayerBudget`, which all of the run's jobs share. The budget is frozen when the first job starts:
@@ -106,3 +106,12 @@ instead of retrieval.
 - Held and unapplied contradictions into a review screen (they are in the job result and the final run's inputs).
 - Depth judging for requirements newly credited in the credit path; a second round of questions.
 - Not run against a real model or the VISTAS export yet.
+
+## Stage 1 result and final AI-READY Score (23 Nov)
+Agreed with Siddharth: colleges see the provisional run as the **Stage 1 result: Document Review** ("X now, up to Y with
+your follow-up answers", Y being `depth_reserve.evidence_score`), with no tier, and their **Final AI-READY Score** and
+tier only once the follow-up stage is closed. Closing (`rejudge` with `close`) publishes the final result even when no
+answer changed anything, so a college that answers nothing, or only "don't know", still gets one, with the held credit
+still held. `assessment_stage` in the report carries `label`, `tier_shown`, and on Stage 1 `up_to`; on a final run
+`unchanged` says the stage closed with nothing changed. `GET .../questions` serves the agreed questionnaire notice as
+`notice` (title, intro with the points the answers can earn back, three rules).

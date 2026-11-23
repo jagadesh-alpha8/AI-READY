@@ -296,7 +296,9 @@ def build_report_view(report, actions):
         'scope_notices': scope_notices,
         'methodology': result['methodology'], 'methodology_status': result['methodology_status'],
         'stage_notice': (report.get('assessment_stage') or {}).get('note', ''),
-        'methodology_notice': (((report.get('assessment_stage') or {}).get('note', '') + ' ') if single and report.get('assessment_stage') else '') + ('Readiness method ' + result['methodology'] + ', scored with part credit. Achievement levels (' + ', '.join(f'{n} {v:g}' for n, v in tiers()) + ' on this score) are provisional and not yet calibrated across colleges.') if single else ('This report uses independent assertion credit under the experimental readiness method. Source-period findings do not prove current operation. Achievement levels are not calibrated.' if result.get('aggregation') == 'independent_conditions' else 'This report uses its recorded historical capability method. Start a new assessment to use the revised readiness method. Experimental results do not constitute accreditation.'),
+        'stage_label': (report.get('assessment_stage') or {}).get('label', ''),
+        'tier_shown': (report.get('assessment_stage') or {}).get('tier_shown', True),
+        'methodology_notice': (((report.get('assessment_stage') or {}).get('note', '') + ' ') if single and report.get('assessment_stage') else '') + ('Readiness method ' + result['methodology'] + ', scored with part credit. ' + (('Achievement levels (' + ', '.join(f'{n} {v:g}' for n, v in tiers()) + ' on this score) are provisional and not yet calibrated across colleges.') if (report.get('assessment_stage') or {}).get('tier_shown', True) else ('Achievement levels (' + ', '.join(f'{n} {v:g}' for n, v in tiers()) + ') are awarded on the final AI-READY Score, after the follow-up questions, and are provisional and not yet calibrated across colleges.'))) if single else ('This report uses independent assertion credit under the experimental readiness method. Source-period findings do not prove current operation. Achievement levels are not calibrated.' if result.get('aggregation') == 'independent_conditions' else 'This report uses its recorded historical capability method. Start a new assessment to use the revised readiness method. Experimental results do not constitute accreditation.'),
         **(single_headline(result, decisions, report) if single else {
             'score': score_label(result['lower'], result['upper']),
             'score_explanation': bounds_note(result['lower'], result['upper']),
@@ -397,6 +399,8 @@ def single_headline(result, decisions, report=None):
                           + '. They are credited on the source text; confirming or correcting those facts in the review '
                             'queue can change them.') if unconfirmed else '',
         'score': f"{result['score']:g} / 100", 'score_value': result['score'],
+        'score_up_to': (f"up to {(report or {})['assessment_stage']['up_to']:g} with your follow-up answers"
+                        if ((report or {}).get('assessment_stage') or {}).get('up_to') else ''),
         'score_explanation': SCORE_NOTE + held_note(result.get('depth_reserve')),
         'depth_reserve': result.get('depth_reserve'),
         'condition_summary': (f"{statuses['demonstrated']} of {total} requirements demonstrated, {statuses['partly']} partly "

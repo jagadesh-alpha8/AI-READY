@@ -6,7 +6,10 @@
 
 Per key indicator: whether the page reached the judge, whether a credited requirement cites it, and (unless
 --no-recompute) where it ranked for each requirement under the run's frozen retrieval, and whether that recompute
-reproduces the run's packet.
+reproduces the run's packet (and, when it does not, which passages differ). A final run is read on its provisional
+pages; windows the second layer added to a re-judged key indicator are reported, not recomputed.
+
+About two seconds per key indicator on VISTAS; --indicator narrows it to the one a college asks about.
 """
 import json
 
@@ -53,6 +56,13 @@ class Command(BaseCommand):
         s = result['summary']
         self.stdout.write(f"{len(result['pages'])} page(s). In the packet of {s['indicators_with_page_in_packet']} of "
                           f"{s['indicators']} key indicators; cited by credited requirements in {s['indicators_citing_it']}.")
+        if 'recomputed' in s:
+            self.stdout.write(f"Packets rebuilt exactly as the run had them: {s['reproduced']} of {s['recomputed']}.")
+        if result.get('final_run_of'):
+            self.stdout.write(f"A final run (provisional run {result['final_run_of']}): retrieval is recomputed on the "
+                              "provisional run's pages.")
+        for page in result.get('pages_added_in_second_layer') or []:
+            self.stdout.write(f'{page} was added in the second layer: retrieval never read it; see the roles below.')
         for dropped, kept in result['read_as_identical_copy_of'].items():
             self.stdout.write(f'{dropped} is an identical copy; it was read as {kept}.')
         for row in result['indicators']:
@@ -62,10 +72,22 @@ class Command(BaseCommand):
             if row['credited_requirements_citing_it']:
                 line += '; cited by ' + ', '.join(row['credited_requirements_citing_it'])
             self.stdout.write(line)
+            if row.get('rejudged_in_second_layer'):
+                self.stdout.write('   re-judged in the second layer')
+            if row.get('windows_added_after_first_judgment'):
+                self.stdout.write('   also holds windows added after the first judgment ('
+                                  + ', '.join(row['windows_added_after_first_judgment']) + '); not recomputed')
             recompute = row.get('recompute')
             if recompute:
                 if not recompute['reproduced']:
-                    self.stdout.write("   recompute does not reproduce the run's packet: ranks are indicative only")
+                    d = recompute['differences']
+                    self.stdout.write("   recompute does not reproduce the run's packet: ranks are indicative only "
+                                      f"({d['counts']['only_in_run']} passages only in the run, "
+                                      f"{d['counts']['only_in_rebuild']} only in the rebuild)")
+                    for label in ('only_in_run', 'only_in_rebuild'):
+                        for w in d[label]:
+                            self.stdout.write(f"     {label.replace('_', ' ')}: {w['id']} at {w['offset']} "
+                                              f"({w['chars']} characters, {w['role']})")
                 for r in recompute['requirements']:
                     if r['best_rank'] is None:
                         continue

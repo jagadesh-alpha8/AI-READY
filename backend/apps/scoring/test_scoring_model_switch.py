@@ -479,3 +479,15 @@ class CeilingWithHybridRetrievalTests(SimpleTestCase):
                 for citation in part['citations']:
                     self.assertIn(citation['source_id'], real)
         self.assertIn('prompt_ceiling', result['traces'][0])
+
+
+class CeilingCheckQuotationTests(SimpleTestCase):
+    def test_a_quotation_across_a_line_break_is_still_in_the_packet(self):
+        """Test 13 (23 Nov): stored quotations are whitespace-normalised, so a raw substring test called 44 credited
+        parts lost when nothing had been trimmed."""
+        from .management.commands.capability_prompt_ceiling_check import _kept
+        packet = [{'id': 'p1', 'text': 'The Board approved the AI policy\n  in its meeting of\n12 March 2024.'}]
+        self.assertTrue(_kept('approved the AI policy in its meeting of 12 March', 'p1', packet))
+        self.assertFalse(_kept('approved the AI policy in its meeting of 12 March', 'p2', packet))
+        self.assertFalse(_kept('approved the data policy', 'p1', packet))
+        self.assertFalse(_kept('', 'p1', packet))
