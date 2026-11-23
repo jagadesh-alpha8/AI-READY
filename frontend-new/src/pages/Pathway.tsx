@@ -1,3 +1,4 @@
+import { DEMO_MODE } from '../config/env';
 import { CyclePicker } from '../components/CyclePicker';
 import { RequireSprint } from '../components/RequireSprint';
 import { Empty, ErrorState, Loading, PageHeading, PageLink, Panel, Pill, Table } from '../components/ui';
@@ -67,7 +68,7 @@ function PathwayBody({ sprint }: { sprint: Sprint }) {
       {cycleId && detail.data && <BenchmarkTiers all={detail.data.benchmarks} />}
       {cycleId && !!detail.error && <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />}
 
-      {cap.foundation ? (
+      {DEMO_MODE ? null : cap.foundation ? (
         <Panel title="Progression routes" sub={cap.foundation.destination}>
           <div className="route-timeline">
             {cap.foundation.routes.map((r) => (

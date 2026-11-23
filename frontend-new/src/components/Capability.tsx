@@ -7,6 +7,7 @@ import {
   capabilityTone, causeLabel, indicatorScoreLabel, isPartCredit, newKey, partLabel, partTone, pillarScoreLabel, scoreLabel, stageLabel,
   bandTier, pillarName, stateCounts, stateLabel, TIER_BANDS_TEXT, TIER_LATER, tierLabel, tierShown,
 } from '../utils/capability';
+import { DEMO_MODE } from '../config/env';
 import { errorMessage } from '../utils/errors';
 import { dateTime } from '../utils/format';
 import { ActionDialog, Bar, Notice, Panel, Pill, Stat } from './ui';
@@ -44,9 +45,19 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
         <Stat label={partCredit ? stageLabel(run.stage) : 'Institutional AI capability'}
           value={!partCredit && result.aggregation === 'independent_conditions' && result.condition_decision_coverage === 0 ? 'Review needed' : scoreLabel(result)}
           note={partCredit ? 'What the documents show, with partial credit' : result.exact_score === null ? 'Bounds: unresolved evidence is not counted as capability' : 'Exact score'} />
-        <Stat label="Resolved indicator weight" value={`${result.assessment_coverage}%`} note="Evidence resolution, not model confidence" />
-        <Stat label="Decided conditions" value={`${result.condition_decision_coverage}%`} note={`${counts.met} demonstrated · ${counts.not_met} shortfalls`} />
-        <Stat label="Unknown / contradictory" value={counts.unknown + counts.conflicting} note="Remain unknown; never a pass or fail" />
+        {DEMO_MODE && partCredit ? (
+          <>
+            <Stat label="Requirements shown" value={`${counts.met}`} note={`of ${counts.met + counts.not_met + counts.unknown + counts.conflicting}, in full`} />
+            <Stat label="Not yet shown" value={counts.unknown + counts.conflicting} note="Nothing found in the documents yet" />
+            <Stat label="Readiness areas" value={result.pillars.length} note="Each scored out of 100" />
+          </>
+        ) : (
+          <>
+            <Stat label="Resolved indicator weight" value={`${result.assessment_coverage}%`} note="Evidence resolution, not model confidence" />
+            <Stat label="Decided conditions" value={`${result.condition_decision_coverage}%`} note={`${counts.met} demonstrated · ${counts.not_met} shortfalls`} />
+            <Stat label="Unknown / contradictory" value={counts.unknown + counts.conflicting} note="Remain unknown; never a pass or fail" />
+          </>
+        )}
       </div>
       {!partCredit && result.lower === 0 && result.exact_score === null && (
         <Notice tone="warn">Zero demonstrated so far does not establish zero capability. Review the evidence needed below.</Notice>
@@ -67,7 +78,7 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
           </details>
         </Panel>
       )}
-      {causes && (causes.unknown_evidentiary + causes.unknown_review + causes.unknown_processing) > 0 && (
+      {!DEMO_MODE && causes && (causes.unknown_evidentiary + causes.unknown_review + causes.unknown_processing) > 0 && (
         <Panel title="Why conditions are still unknown" sub="Unknown is read as missing evidence, a review hold or a processing problem">
           <div className="stat-grid">
             <Stat label="Evidence not supplied" value={causes.unknown_evidentiary} note="Upload or request the evidence" />
@@ -76,7 +87,7 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
           </div>
         </Panel>
       )}
-      <Panel title="Maturity eligibility" sub={`${result.methodology} · frozen ${dateTime(run.created_at)} · ${run.reference_period || 'default scope'}`}>
+      <Panel title={DEMO_MODE ? 'Tier' : 'Maturity eligibility'} sub={`${result.methodology} · frozen ${dateTime(run.created_at)} · ${run.reference_period || 'default scope'}`}>
         {partCredit && !tierShown(run.stage) ? (
           <p className="muted">{TIER_LATER}</p>
         ) : partCredit && result.score != null ? (() => {
@@ -105,7 +116,7 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
             ))}
           </div>
         )}
-        <p className="muted">Experimental internal criteria; these tiers are not external accreditation standards.</p>
+        {!DEMO_MODE && <p className="muted">Experimental internal criteria; these tiers are not external accreditation standards.</p>}
       </Panel>
     </>
   );

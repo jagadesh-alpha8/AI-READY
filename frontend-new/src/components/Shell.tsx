@@ -7,7 +7,7 @@ import { useAccess } from '../hooks/useAccess';
 import { useResource } from '../hooks/useResource';
 import { DEMO_MODE } from '../config/env';
 import { useReviewMode } from '../hooks/useReviewMode';
-import { NAV_GROUPS, PAGE_META, PAGE_STEP, nextActionFor, pathOf } from '../navigation';
+import { DEMO_NAV_GROUPS, NAV_GROUPS, PAGE_META, PAGE_STEP, nextActionFor, pathOf } from '../navigation';
 import { getEvidenceRequestSummary } from '../services/evidenceRequests';
 import type { EvidenceRequestSummary } from '../types/api';
 import type { PageKey } from '../utils/access';
@@ -16,7 +16,8 @@ import { initials } from '../utils/format';
 import { PAGE_API_STATUS, STATUS_LABEL, STATUS_MARK, STATUS_TONE } from '../utils/apiStatus';
 import { JOURNEY, journeyStep } from '../utils/journey';
 
-const APP_TITLE = 'AI Ready Campus';
+const APP_TITLE = DEMO_MODE ? 'AI READY' : 'AI Ready Campus';
+const GROUPS = DEMO_MODE ? DEMO_NAV_GROUPS : NAV_GROUPS;
 
 /** Sidebar + header + journey strip around every signed-in screen (prototype layout). */
 export function Shell({ page, children }: { page: PageKey; children: ReactNode }) {
@@ -34,7 +35,7 @@ export function Shell({ page, children }: { page: PageKey; children: ReactNode }
 
   // Name the browser tab after the page (sidebar label), so tabs and history can be told apart.
   useEffect(() => {
-    const name = NAV_GROUPS.flatMap((g) => g.items).find((item) => item.key === page)?.label ?? PAGE_META[page][1];
+    const name = GROUPS.flatMap((g) => g.items).find((item) => item.key === page)?.label ?? PAGE_META[page][1];
     document.title = `${name} · ${APP_TITLE}`;
     return () => { document.title = APP_TITLE; };
   }, [page]);
@@ -55,11 +56,11 @@ export function Shell({ page, children }: { page: PageKey; children: ReactNode }
         <div className="product-brand">
           {/* Brand guideline: on a coloured background the colour logo sits on a white clear area. */}
           <span className="brand-plate"><img className="brand-logo" src={ingageLogo} alt="Ingage" /></span>
-          <div><strong>AI Ready Campus</strong><span>Maturity programme</span></div>
+          {DEMO_MODE ? <div><strong>AI READY</strong><span>By InGage</span></div> : <div><strong>AI Ready Campus</strong><span>Maturity programme</span></div>}
           <button className="sidebar-close" aria-label="Close menu" onClick={() => setMenuOpen(false)}>×</button>
         </div>
         <nav className="side-nav">
-          {NAV_GROUPS.map((g) => {
+          {GROUPS.map((g) => {
             const items = g.items.filter((i) => canSee(i.key));
             if (items.length === 0) return null;
             return (
@@ -94,7 +95,7 @@ export function Shell({ page, children }: { page: PageKey; children: ReactNode }
       <section className="app-frame">
         <header className="app-header">
           <button className="icon-button menu-button" aria-label="Open menu" aria-controls="sidebar" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>☰</button>
-          <div className="breadcrumb"><strong>{PAGE_META[page][1]}</strong></div>
+          <div className="breadcrumb">{DEMO_MODE && <><span className="crumb-root">Workspace</span><span className="crumb-sep" aria-hidden="true">›</span></>}<strong>{DEMO_MODE ? (GROUPS.flatMap((g) => g.items).find((item) => item.key === page)?.label ?? PAGE_META[page][1]) : PAGE_META[page][1]}</strong></div>
           <div className="header-actions">
             <label className="institution-switcher">
               <span className="institution-logo" aria-hidden="true">{initials(institutionName)}</span>
@@ -121,20 +122,20 @@ export function Shell({ page, children }: { page: PageKey; children: ReactNode }
             <button className="icon-button notification" title="Data requests waiting for you" aria-label={`Data requests${openForMe ? `, ${openForMe} open` : ''}`} onClick={() => navigate(pathOf('requests'))}>
               ◌{openForMe > 0 && <i />}
             </button>
-            {canSee(next) && (
+            {!DEMO_MODE && canSee(next) && (
               <button className="primary-action" onClick={() => navigate(pathOf(next))}>
                 {page === 'overview' ? 'Continue audit' : 'Next step'}
               </button>
             )}
           </div>
         </header>
-        <ol className="journey-strip" aria-label="Journey">
+        {!DEMO_MODE && <ol className="journey-strip" aria-label="Journey">
           {JOURNEY.map((label, i) => (
             <li key={label} className={`journey-step ${i < current ? 'done' : i === current ? 'current' : ''}`} aria-current={i === current ? 'step' : undefined}>
               <span>{i < current ? '✓' : i + 1}</span><b>{label}</b>
             </li>
           ))}
-        </ol>
+        </ol>}
         <main className={`page page-${page}`} id="main">
           {review && (
             <div className={`notice notice-${pageStatus.status === 'live' ? 'success' : pageStatus.status === 'partial' ? 'warn' : 'error'}`} role="status">

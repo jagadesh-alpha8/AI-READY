@@ -15,6 +15,7 @@ import { decideReviewCase, getReviewBatch, startReviewBatch } from '../services/
 import type { Sprint } from '../types/api';
 import type { Run } from '../types/capability';
 import type { ReviewBatch, ReviewCase } from '../types/workflow';
+import { DEMO_MODE } from '../config/env';
 import { FINAL_SCORE, newKey, pillarName } from '../utils/capability';
 import { errorMessage } from '../utils/errors';
 import { dateTime, humanize, tidyText, valueText } from '../utils/format';
@@ -27,12 +28,16 @@ import { dateTime, humanize, tidyText, valueText } from '../utils/format';
  *           (second assessment layer, at most one follow-up per answer);
  *   additional evidence: documents the institution thinks were missed, for at least one area / indicator / requirement.
  */
-const TABS = [
+const ALL_TABS = [
   { key: 'line1', label: '1 · Evidence review' },
   { key: 'line2', label: '2 · Follow-up questions' },
   { key: 'extra', label: 'Additional evidence' },
 ] as const;
-type Tab = (typeof TABS)[number]['key'];
+type Tab = (typeof ALL_TABS)[number]['key'];
+// Demo mode: only what follows the Stage 1 result, in plain words (the evidence review comes before the assessment).
+const TABS: readonly { key: Tab; label: string }[] = DEMO_MODE
+  ? [{ key: 'line2', label: 'Follow-up questions' }, { key: 'extra', label: 'Send a document we missed' }]
+  : ALL_TABS;
 
 /**
  * A notice for the questionnaire's first screen. The follow-up notice agreed on 23 Nov (answers count only with a
@@ -46,7 +51,7 @@ export function Questionnaire() {
 }
 
 function Body({ sprint }: { sprint: Sprint }) {
-  const [tab, setTab] = useState<Tab>('line1');
+  const [tab, setTab] = useState<Tab>(DEMO_MODE ? 'line2' : 'line1');
   const cap = useCapability(sprint.id);
   return (
     <>
@@ -263,19 +268,25 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
       {p?.final_run_id && (
         <Notice tone="success">The follow-up stage is closed and the {FINAL_SCORE} has been published (run {p.final_run_id.slice(0, 8)}). Reports, recommendations and plan comparison now use it.</Notice>
       )}
-      {notice && !p?.final_run_id && (
+      {DEMO_MODE && !p?.final_run_id ? (
+        <Notice tone="info">
+          Each question lists what we did not find in your documents. If you have a document that shows it, attach it;
+          if not, press Skip. Only documents change the score. When you are done, press “Finish and publish the final
+          result” to get your {FINAL_SCORE} and tier.
+        </Notice>
+      ) : notice && !p?.final_run_id && (
         <Panel title={notice.title}>
           <p>{notice.intro}</p>
           <ul>{notice.rules.map((rule) => <li key={rule}>{rule}</li>)}</ul>
         </Panel>
       )}
       <SecondLayerJobs sprint={sprint} runId={runId} progress={p} onChange={() => void next.refetch()} onFinal={onFinal} />
-      <div className="stat-grid">
+      {!DEMO_MODE && <div className="stat-grid">
         <Stat label="Questions" value={p?.questions ?? 0} note={`Stage 1 result, run ${runId.slice(0, 8)}${run.id === runId ? ` · ${dateTime(run.created_at)}` : ''}`} />
         <Stat label="Answered or skipped" value={p?.answered ?? 0} note={`${p?.open ?? 0} open`} />
         <Stat label="Checks waiting" value={p?.checks_waiting ?? 0} note="Answers are checked against the documents" />
         <Stat label="Follow-ups open" value={p?.follow_ups_open ?? 0} note="At most one per answer" />
-      </div>
+      </div>}
       {p && p.questions > 0 && <Panel><ProgressLine done={p.answered} total={p.questions} label="Questions answered" /></Panel>}
       {p?.final_run_id ? null : !p?.questions ? (
         <Empty title="No follow-up questions yet">Questions for this run have not been planned yet. Use “Plan follow-up questions” above (it uses model credits).</Empty>
@@ -407,12 +418,12 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
   const disabled = !jobs.data?.enabled || !!active || !!busy;
 
   return (
-    <Panel title="Follow-up questions and final result" sub="Background jobs on the Stage 1 result; each uses model credits from this assessment's budget"
+    <Panel title={DEMO_MODE ? 'Your final result' : 'Follow-up questions and final result'} sub={DEMO_MODE ? `Publishing gives your ${FINAL_SCORE} and tier, and closes the follow-up questions.` : "Background jobs on the Stage 1 result; each uses model credits from this assessment's budget"}
       actions={manage && (
         <div className="row-actions">
           {!closed && !hasQuestions && <button className="primary-action" disabled={disabled} onClick={() => void start('questions')}>{busy === 'questions' ? 'Starting…' : 'Plan follow-up questions'}</button>}
-          {!closed && hasQuestions && !p?.answered && <button className="secondary-button" disabled={disabled} onClick={() => setConfirmReplace(true)}>Plan again</button>}
-          {!closed && hasQuestions && <button className="secondary-button" disabled={disabled} onClick={() => void start('depth')}>{busy === 'depth' ? 'Starting…' : 'Judge evidence depth'}</button>}
+          {!DEMO_MODE && !closed && hasQuestions && !p?.answered && <button className="secondary-button" disabled={disabled} onClick={() => setConfirmReplace(true)}>Plan again</button>}
+          {!DEMO_MODE && !closed && hasQuestions && <button className="secondary-button" disabled={disabled} onClick={() => void start('depth')}>{busy === 'depth' ? 'Starting…' : 'Judge evidence depth'}</button>}
           {canPublish && <button className="primary-action" disabled={disabled} onClick={() => setConfirmPublish(true)}>{busy === 'rejudge' ? 'Starting…' : 'Finish and publish the final result'}</button>}
         </div>
       )}>
@@ -446,8 +457,8 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
         </div>
       )}
       {!closed && !!p?.checks_waiting && <p className="muted">“Finish and publish the final result” appears once every answer has been checked.</p>}
-      {budget && <p className="muted">Budget: {budget.requests_reserved} of {budget.max_http_calls} requests and ${Number(budget.usd_reserved).toFixed(2)} of ${Number(budget.max_cost_usd).toFixed(2)} reserved.</p>}
-      {list.length > 0 && (
+      {!DEMO_MODE && budget && <p className="muted">Budget: {budget.requests_reserved} of {budget.max_http_calls} requests and ${Number(budget.usd_reserved).toFixed(2)} of ${Number(budget.max_cost_usd).toFixed(2)} reserved.</p>}
+      {!DEMO_MODE && list.length > 0 && (
         <details>
           <summary>Job history ({list.length})</summary>
           <Table columns={['Job', 'Started', 'Status', 'Outcome', 'Reserved']}>
@@ -502,7 +513,7 @@ function QuestionItem({ sprint, runId, item, position, total, onDone }: {
       sub={pillarName(item.question.indicator_code.split('.')[0])}
       actions={<Pill status={followUp ? 'pending' : missing ? 'blocked' : 'active'} label={followUp ? 'Follow-up' : missing ? 'Nothing found yet' : 'About credited evidence'} />}>
       <form onSubmit={(e) => { e.preventDefault(); void send(false); }} className="questionnaire-item">
-        <h3 style={{ whiteSpace: 'pre-line' }}>{item.text}</h3>
+        <h3 className="question-text">{item.text}</h3>
         {missing && !followUp && <p className="muted">We found nothing for this in the documents submitted. If you have anything, attach it here.</p>}
         <UploadBox files={files} onChange={setFiles} required={missing} />
         <label className="field"><span>Your answer</span>

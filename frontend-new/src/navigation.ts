@@ -1,3 +1,4 @@
+import { DEMO_MODE } from './config/env';
 import type { PageKey } from './utils/access';
 
 /** Sidebar groups and page headings, as in the handoff prototype (app.js navGroups / pageMeta). */
@@ -54,6 +55,21 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   ] },
 ];
 
+/** Demo mode's sidebar: the workspace design's seven sections (Harsha's preview, 23 Nov), each on the working screen
+ * that carries it today. The full menu stays for everyone else. */
+export const DEMO_NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+  { label: 'Workspace', items: [
+    { key: 'overview', icon: '⌂', label: 'Overview' },
+    { key: 'profile', icon: '▦', label: 'Institution' },
+    { key: 'uploads', icon: '⇧', label: 'Evidence' },
+    { key: 'assessment', icon: '◉', label: 'Assessment' },
+    { key: 'questionnaire', icon: '?', label: 'Questionnaire' },
+    { key: 'cri', icon: '◌', label: 'Results' },
+    { key: 'reports', icon: '▧', label: 'Reports' },
+    { key: 'pathway', icon: '⇢', label: 'Transformation' },
+  ] },
+];
+
 export const PAGE_META: Record<PageKey, [eyebrow: string, title: string, text: string]> = {
   overview: ['Leadership view', 'AI readiness at a glance', "See the institution's current standing, urgent decisions and next best actions."],
   onboarding: ['Getting started', 'Institution onboarding', 'Create the customer workspace, confirm scope and assign the people who will participate.'],
@@ -89,6 +105,19 @@ export const PAGE_META: Record<PageKey, [eyebrow: string, title: string, text: s
   institutions: ['Administration', 'Institutions', 'Manage colleges, their coordinators, departments, systems and leaders, and archive or delete them.'],
   assessmentsetup: ['Benchmark governance', 'Assessment setup', 'Plan templates, benchmark score weights and the college profiles that decide which benchmarks apply.'],
 };
+
+// Demo mode: plainer page headings for the screens the demo walks through.
+if (DEMO_MODE) {
+  Object.assign(PAGE_META, {
+    cri: ['Results', 'Your result', 'What the documents show, area by area, and how each score was reached.'],
+    reports: ['Results', 'Reports', 'The leadership and evidence reports for the Stage 1 result and the Final AI-READY Score.'],
+    questionnaire: ['Assessment', 'Follow-up questions', 'Where we found nothing yet, send a document if you have one. Only documents change the score; publish the final result when you finish.'],
+    assessment: ['Assessment', 'Assessment', 'Run the assessment on the documents submitted, and see its result.'],
+    pathway: ['Transformation', 'Your pathway', 'The tier bands, and the requirements that would move the score most.'],
+    uploads: ['Evidence', 'Evidence', 'The documents submitted for the assessment.'],
+    profile: ['Institution', 'Institution', 'The institution being assessed.'],
+  } as Partial<typeof PAGE_META>);
+}
 
 export const pathOf = (key: PageKey) => (key === 'overview' ? '/' : `/${key}`);
 

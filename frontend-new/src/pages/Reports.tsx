@@ -10,6 +10,7 @@ import { downloadReport, generateReport, listReports } from '../services/reports
 import { listSprintFactsPage } from '../services/facts';
 import { listSprintGapsPage } from '../services/gaps';
 import type { Fact, Gap, Report, Sprint } from '../types/api';
+import { DEMO_MODE } from '../config/env';
 import { STAGE_ONE, stageLabel } from '../utils/capability';
 import { toCsv } from '../utils/csv';
 import { errorMessage } from '../utils/errors';
@@ -97,9 +98,9 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
 
   return (
     <>
-      <PageHeading page="reports" actions={can('sprint.manage') && <button className="primary-action" disabled={busy || generating} onClick={() => void generate()}>{generating ? 'Generating…' : 'Generate report'}</button>} />
+      <PageHeading page="reports" actions={!DEMO_MODE && can('sprint.manage') && <button className="primary-action" disabled={busy || generating} onClick={() => void generate()}>{generating ? 'Generating…' : 'Generate report'}</button>} />
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
-      <div className="feature-grid">
+      {!DEMO_MODE && <div className="feature-grid">
         {OUTPUTS.map((o, i) => (
           <article key={o.title} className={`feature-card ${o.live ? '' : 'muted-card'}`}>
             <div className="feature-icon">{String(i + 1).padStart(2, '0')}</div>
@@ -108,8 +109,8 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
             <div className="feature-meta"><span>{o.meta}</span><b>{o.live ? 'Available' : 'Sample only'}</b></div>
           </article>
         ))}
-      </div>
-      <h2 className="section-title">Capability assessment report</h2>
+      </div>}
+      {!DEMO_MODE && <h2 className="section-title">Capability assessment report</h2>}
       {stage.data && (
         <Notice tone={stage.data.stage === 'final' ? 'success' : 'info'}>
           <Pill tone={stage.data.stage === 'final' ? 'good' : 'neutral'} label={stage.data.label || stageLabel(stage.data.stage)} /> {stage.data.note}
@@ -133,6 +134,7 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
           )))}
         </Table>
       )}
+      {!DEMO_MODE && <>
       <h2 className="section-title">Audit report versions</h2>
       {reports.loading && !reports.data ? <Loading /> : reports.error ? <ErrorState error={reports.error} onRetry={() => void reports.refetch()} /> :
         !reports.data?.length ? <Empty title="No reports yet">Generate the first report once the assessment has run.</Empty> : (
@@ -168,6 +170,7 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
           <button className="secondary-button" disabled>Board presentation · PPTX</button>
         </div>
       </Dummy>
+      </>}
     </>
   );
 }

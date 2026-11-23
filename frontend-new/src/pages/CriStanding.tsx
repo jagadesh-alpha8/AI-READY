@@ -1,3 +1,4 @@
+import { DEMO_MODE } from '../config/env';
 import { CapabilityStanding } from '../components/Capability';
 import { RequireSprint } from '../components/RequireSprint';
 import { ScoreHistory } from '../components/ScoreHistory';
@@ -34,7 +35,7 @@ function CriBody({ sprint }: { sprint: Sprint }) {
     : cap.error ? <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} title="Could not load the capability assessment" />
       : cap.run.data?.assessment ? (
         <>
-          <h2 className="section-title">Evidence-based capability standing{tierShown(cap.stage) && achievedTier(cap.run.data.assessment.result) ? ` · ${achievedTier(cap.run.data.assessment.result)} achieved` : ''}</h2>
+          {!DEMO_MODE && <h2 className="section-title">Evidence-based capability standing{tierShown(cap.stage) && achievedTier(cap.run.data.assessment.result) ? ` · ${achievedTier(cap.run.data.assessment.result)} achieved` : ''}</h2>}
           <CapabilityStanding result={cap.run.data.assessment.result} run={cap.run.data} />
         </>
       ) : <Notice tone="info">No completed capability assessment yet. Start one on the AI readiness assessment screen.</Notice>;
@@ -45,10 +46,10 @@ function CriBody({ sprint }: { sprint: Sprint }) {
       <>
         <PageHeading page="cri" />
         {capability}
-        <Empty title="No audit CRI yet" action={<PageLink to="assessment" className="primary-action">Go to the assessment</PageLink>}>
+        {!DEMO_MODE && <><Empty title="No audit CRI yet" action={<PageLink to="assessment" className="primary-action">Go to the assessment</PageLink>}>
           No CRI has been calculated for this sprint. An unscored institution is shown as unverified, not as failing.
         </Empty>
-        <ScoreHistory sprint={sprint} onReassessed={() => void overview.refetch()} />
+        <ScoreHistory sprint={sprint} onReassessed={() => void overview.refetch()} /></>}
       </>
     );
   }
