@@ -632,6 +632,32 @@ class ProductFlowTests(APITestCase):
         from .capability.plan_execution import validate_baseline
         validate_baseline(final, final.events.filter(state='completed').last())
 
+    # ---------------------------------------------------------------- a provider outage (23 Nov)
+
+    def test_a_run_the_provider_stopped_answering_fails_and_the_last_real_result_stays(self):
+        """Run 80952be2: Gemini answered every request with 503, the circuit breaker stopped the run, and it was still
+        marked completed with every key indicator unknown, so the screens showed it as the latest result."""
+        good = self.assess()
+        from apps.extraction.exceptions import ProviderUnavailable
+        self.sdk.chat.completions.create.side_effect = ProviderUnavailable(kind='server_error')
+        with patch('apps.scoring.capability.execution.dispatch'):
+            with self.captureOnCommitCallbacks(execute=True):
+                started = self.client.post(self.base, {'population': 'All faculty and students',
+                                                       'reference_period': '2024-25'}, format='json',
+                                           HTTP_IDEMPOTENCY_KEY='outage')
+        self.assertEqual(started.status_code, 202, started.data)
+        execution = CapabilityExecution.objects.get(run_id=started.data['id'])
+        with patch('apps.scoring.tasks.get_ai_service', return_value=self.service()), patch(
+                'apps.scoring.tasks.get_router_pool', return_value=None):
+            run_capability_assessment.run(str(execution.run_id), str(execution.task_id))
+        execution.refresh_from_db()
+        self.assertEqual(execution.status, 'failed')
+        detail = self.client.get(f'{self.base}/{execution.run_id}').data
+        self.assertIsNone(detail['assessment'])
+        self.assertEqual(detail['error']['error_code'], 'model_unavailable')
+        listed = self.client.get(self.base).data['results']
+        self.assertEqual(next(r for r in listed if r['status'] == 'completed')['id'], str(good.pk))
+
     # ---------------------------------------------------------------- score explanations
 
     def test_closing_shows_the_tier_band_and_part_credit_in_the_evidence_report(self):
