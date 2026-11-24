@@ -66,6 +66,7 @@ INSTALLED_APPS = [
     'apps.dashboard',
     'apps.vector_store',
     'apps.evidence_map',
+    'apps.stored_judgments',
 ]
 
 MIDDLEWARE = [
@@ -880,6 +881,11 @@ CAPABILITY_TIE_BREAK = os.getenv('CAPABILITY_TIE_BREAK', 'false').strip().lower(
 # Ask once more, per pass, for requirements whose found parts all failed their quotations (quote-repair-v1, 22 Nov
 # 2026; test 13 lost full credit on two requirements in one pass to quotations alone). Frozen per run.
 CAPABILITY_PART_QUOTE_REPAIR = os.getenv('CAPABILITY_PART_QUOTE_REPAIR', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+# Stored judgments (apps/stored_judgments; a stopgap against judge noise, approved 24 Nov 2026): a Stage 1 request
+# identical to one an earlier run sent (same model, settings, prompt, schema and packet) reuses that run's answer
+# instead of asking again, so re-running an unchanged college gives the same judgments. Everything after the answer
+# runs again. Never the second layer. Frozen per run; the run lists the answers it reused.
+CAPABILITY_STORED_JUDGMENTS = os.getenv('CAPABILITY_STORED_JUDGMENTS', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Extracted-evidence lane (reviewed_evidence.evidence_lane): adds the source page of each relevant extracted AI item
 # to the indicator's packet (up to 18,000 characters), so evidence extraction found reaches the judge.
 CAPABILITY_EVIDENCE_LANE = os.getenv('CAPABILITY_EVIDENCE_LANE', 'true').strip().lower() in ('1', 'true', 'yes', 'on')

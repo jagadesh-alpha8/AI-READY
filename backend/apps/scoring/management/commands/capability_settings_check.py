@@ -40,6 +40,7 @@ SETTING = {
     ('execution_policy', 'agreement_passes'): 'CAPABILITY_AGREEMENT_PASSES',
     ('execution_policy', 'gemini_reasoning_effort'): 'CAPABILITY_GEMINI_REASONING_EFFORT (else AI_GEMINI_REASONING_EFFORT)',
     ('execution_policy', 'tie_break'): 'CAPABILITY_TIE_BREAK',
+    ('execution_policy', 'stored_judgments'): 'CAPABILITY_STORED_JUDGMENTS',
     ('execution_policy', 'part_quote_repair'): 'CAPABILITY_PART_QUOTE_REPAIR',
     ('retrieval_policy', 'evidence_lane'): 'CAPABILITY_EVIDENCE_LANE',
     ('execution_policy', 'judgment'): 'CAPABILITY_JUDGMENT',

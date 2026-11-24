@@ -70,6 +70,7 @@ class MeteredService:
         self.policy = execution_policy if execution_policy is not None else execution.run.inputs['execution_policy']
         self.deadline = time.monotonic() + self.policy['max_duration_seconds']
         self.limit_breach = False
+        self.answers = None   # set below when the frozen policy reuses stored answers (apps/stored_judgments)
         self._reserved = {}   # reservation event id -> USD reserved, until the call is settled
         self.model = service.model
         from apps.extraction.services.provider_features import direct_gemini
@@ -101,6 +102,12 @@ class MeteredService:
             sender = client.chat.completions.create
             service._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
                 create=lambda **kw: self.send(sender, kw))))
+        if self.reuses_answers and self.policy.get('stage') == 'assessment' and self.policy.get('stored_judgments'):
+            from apps.stored_judgments.store import RunAnswers
+            self.answers = RunAnswers(self.run_id)
+
+    #: Stage 1 may reuse stored answers when its frozen policy says so; the second layer never does.
+    reuses_answers = True
 
     def extract_structured_data(self, **kwargs):
         # One transient retry per indicator; format/JSON fallbacks inside the existing
@@ -108,12 +115,30 @@ class MeteredService:
         # The call's kind decides its effort (judging or writing); kept per thread, as indicators run concurrently.
         from .model_choice import tier
         self._call.tier = tier(kwargs.get('schema_name'))
+        stored = None
+        if self.answers is not None:
+            from apps.stored_judgments.store import request_hash
+            key = request_hash(provider=self.provider, model=self.model, policy=self.policy,
+                               tier=self._call.tier, kwargs=kwargs)
+            occurrence = self.answers.occurrence(key)
+            row = self.answers.find(key, occurrence)
+            if row is not None:
+                self.remaining_time()
+                from apps.extraction.usage import DB_WRITE_LOCK
+                with DB_WRITE_LOCK:
+                    self.event('partial', {'kind': 'stored_answer_reused', 'stage': self.policy['stage'],
+                                           'request_hash': key, 'occurrence': occurrence,
+                                           'schema_name': kwargs.get('schema_name'), 'answered_in_run': str(row.run_id)})
+                return row.answer
+            stored = (key, occurrence)
         for attempt in range(2):
             self.remaining_time()
             try:
                 result = self.service.extract_structured_data(**kwargs, timeout=self.policy['timeout_seconds'])
                 if self.limit_breach:
                     raise BudgetExceeded()
+                if stored is not None:
+                    self.answers.keep(*stored, model=self.model, schema_name=kwargs.get('schema_name'), answer=result)
                 return result
             except ProviderQuotaExhausted:
                 raise
@@ -317,4 +342,7 @@ class MeteredService:
         events = self.events()
         return {'provider': self.provider, 'model': self.model, 'settings': self.policy,
                 'configured_prices': self.configured_prices(),
-                'calls': [e.payload for e in events if e.payload.get('kind') in {'request_reserved', 'request_outcome', 'request_rejected'}]}
+                'calls': [e.payload for e in events if e.payload.get('kind') in {'request_reserved', 'request_outcome', 'request_rejected'}],
+                **({'stored_judgments': {**self.answers.summary(), 'reused': [
+                    e.payload for e in events if e.payload.get('kind') == 'stored_answer_reused']}}
+                   if self.answers is not None else {})}
