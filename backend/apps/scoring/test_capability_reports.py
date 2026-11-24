@@ -149,6 +149,14 @@ class CapabilityReportTests(APITestCase):
         self.assertContains(response, 'the level is set on the final AI-READY Score')
         self.assertNotContains(response, 'provisional tier')
 
+    def test_run_detail_leaves_out_the_model_packets_unless_asked(self):
+        self.prepare_run()
+        url = f'/api/v1/sprints/{self.sprint.pk}/capability-runs/{self.run.pk}'
+        self.assertIn('traces', self.run.events.filter(state='completed').last().payload)
+        self.assertNotIn('traces', self.client.get(url).data['assessment'])
+        self.assertIn('traces', self.client.get(url, {'traces': '1'}).data['assessment'])
+        self.assertIn('traces', json.loads(self.client.get(f'{url}/report', {'file': 'json'}).content)['assessment'])
+
     def test_summary_and_detailed_reports_for_people(self):
         """The reports designed for Vijay's review (23 Nov): levels with stars, the nine areas, plain words, escaped
         institution text, a PDF from the same page (or the older renderer where WeasyPrint is missing)."""

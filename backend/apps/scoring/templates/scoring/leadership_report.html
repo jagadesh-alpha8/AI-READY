@@ -12,7 +12,7 @@ body{font:15px/1.6 system-ui,sans-serif;color:#19323c;max-width:1050px;margin:40
 <h2>{% if view.stage_label %}{{ view.stage_label }}{% else %}Overall capability result{% endif %}</h2>
 <p class="score">{{ view.score }}</p>{% if view.score_up_to %}<p><strong>{{ view.score_up_to }}</strong></p>{% endif %}{% if view.condition_summary %}<p><strong>{{ view.condition_summary }}</strong></p>{% endif %}<p>{{ view.score_explanation }}</p>{% if view.documented_score %}<p><strong>{{ view.documented_score }}.</strong> {{ view.documented_explanation }}</p>{% endif %}{% if view.digital_score %}<p><strong>{{ view.digital_score }}.</strong> {{ view.digital_explanation }}</p>{% endif %}
 <p>{{ view.evidence_summary }}</p><p class="muted">{{ view.methodology_notice }}</p>
-{% if view.foundation_plan %}<h2>Proposed foundation pathway</h2><p>{{ view.foundation_plan.destination }}. Current achievement level is not verified; this does not award Silver.</p>
+{% if view.foundation_plan %}<h2>Proposed foundation pathway</h2><p>{{ view.foundation_plan.destination }}. Following it does not by itself award a readiness level; a new assessment of the documents does.</p>
 <table><thead><tr><th>Pace</th><th>Indicative duration</th><th>Assumptions</th></tr></thead><tbody>{% for route in view.foundation_plan.routes %}<tr><td>{{ route.name }}</td><td>{{ route.indicative_duration }}</td><td>{{ route.assumptions|join:" " }}</td></tr>{% endfor %}</tbody></table>
 <p>These routes contain the same remaining goals. No price or delivery date is promised.</p>{% endif %}
 <h2>Results across nine readiness areas</h2>

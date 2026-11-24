@@ -56,7 +56,7 @@ function Body({ sprint }: { sprint: Sprint }) {
                   {a.missing.length > 3 && <li className="muted">and {a.missing.length - 3} more in the detailed report</li>}
                 </ul>
               )}
-              {a.pointsAvailable > 0 && <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>The recommended actions here would add up to {pts(a.pointsAvailable)}.</p>}
+              {a.room >= 0.5 && <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>Shown in full, this area would add up to {pts(a.room)} to your overall score.</p>}
             </div>
           </div>
         </section>

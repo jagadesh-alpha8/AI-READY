@@ -195,6 +195,16 @@ class CreditPathTests(SimpleTestCase):
         self.assertEqual(tiny[self.code], self.packet)  # pieces under MIN_PIECE are not worth a place
         with self.assertRaises(Layer2Error):
             layer2.fixed_contexts([], targets)
+        # A short page sent whole (a one-line certificate) still reaches the re-judge; a short remainder does not.
+        line = {'id': 'cert-line', 'document_id': 'doc-cert', 'page_number': 1, 'text_offset': 0,
+                'text': 'Certificate: 85 of 120 faculty completed the AI programme in 2025.'}
+        self.assertLess(len(line['text']), layer2.MIN_PIECE)
+        short, _ = layer2.fixed_contexts([{'indicator': self.code, 'source_excerpts': self.packet}],
+                                         {self.code: {'conditions': self.ids[:1], 'windows': [line]}})
+        self.assertEqual([w['id'] for w in short[self.code][1:]], ['cert-line'])
+        cut, _ = layer2.fixed_contexts([{'indicator': self.code, 'source_excerpts': self.packet}],
+                                       {self.code: {'conditions': self.ids[:1], 'windows': [line]}}, limit=50)
+        self.assertEqual(cut[self.code], self.packet)
 
     def test_credit_rises_only_on_evidence_new_to_the_packet(self):
         cid = self.ids[0]

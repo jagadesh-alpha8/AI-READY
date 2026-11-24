@@ -100,11 +100,11 @@ def build_foundation_plan(rubric, records, result):
                'cost': None, 'outcomes': [g['id'] for g in goals]} for name, duration, batches in orders]
     covered = {cid for q in questions for cid in q['condition_ids']}
     return {'version': VERSION, 'status': 'pilot_proposal_not_achievement_standard',
-        'destination': 'Proposed Silver foundation goals', 'current_level': 'not_verified',
+        'destination': 'Proposed foundation goals', 'current_level': 'not_verified',
         'achievement_awarded': False, 'baseline': baseline_review(records, result),
         'existing_strengths': assets, 'goals': goals, 'routes': routes,
         'review_questions': questions[:25],
         'other_unresolved_requirements': sum(r['state'] in ('unknown', 'conflicting') and r['condition_id'] not in covered for r in records),
-        'limitations': ['This is a proposed foundation pathway, not a calibrated Silver gate or an inferred missing-capability diagnosis.',
+        'limitations': ['This is a proposed foundation pathway, not a calibrated readiness level or an inferred missing-capability diagnosis.',
                        'Routes contain the same remaining outcomes. Suggested roles and timing require local feasibility review.',
                        'No verified work is repeated. Evidence questions are a prioritised subset, not a complete review of all advanced requirements.']}

@@ -65,7 +65,7 @@ def policy(stage='assessment'):
     # A quotation repair asks again, once per pass, only for requirements whose found parts all failed their
     # quotations (rare: 2 key indicators in test 13); at worst one more request per key indicator per pass (72).
     quote_repair = judgment == 'parts' and bool(getattr(settings, 'CAPABILITY_PART_QUOTE_REPAIR', False))
-    call_limit = 108 + (108 if follow_up else 0) + (36 if tie_break else 0) + (36 if quote_repair else 0)
+    call_limit = 108 + (108 if follow_up else 0) + (36 if tie_break else 0) + (36 * passes if quote_repair else 0)
     call_floor = 74 if passes == 2 else 1
     if follow_up and stage == 'assessment':
         call_floor = 146 if passes == 2 else 74

@@ -4,7 +4,7 @@ import { Dummy, Empty, ErrorState, Loading, Notice, PageHeading, Pill, Table } f
 import { useAccess } from '../hooks/useAccess';
 import { useCapability } from '../hooks/useCapability';
 import { usePolling, useResource } from '../hooks/useResource';
-import { downloadCapabilityReport, getAssessmentStage, openCapabilityReport, type AssessmentStage } from '../services/capability';
+import { downloadCapabilityReport, openCapabilityReport } from '../services/capability';
 import { Icon } from '../workspace/Icon';
 import { http, saveBlob } from '../services/http';
 import { downloadReport, generateReport, listReports } from '../services/reports';
@@ -17,10 +17,10 @@ import { toCsv } from '../utils/csv';
 import { errorMessage } from '../utils/errors';
 import { dateTime, num, pct, tidyText, valueText } from '../utils/format';
 
-/** The two reports for the institution (23 Nov): a four-page summary and the full detail. */
+/** The two reports for the institution (23 Nov): a short leadership report and the full detail. */
 const REPORTS = [
   { audience: 'summary' as const, icon: 'file', title: 'Leadership report',
-    text: 'Your level and stars, the nine areas at a glance, where you are strong, where to focus and what to do next.', meta: 'About 4 pages · for leadership and the board' },
+    text: 'Your level and stars, the nine areas at a glance, where you are strong, where to focus and what to do next.', meta: 'About 7 pages · for leadership and the board' },
   { audience: 'detailed' as const, icon: 'assessment', title: 'Detailed report',
     text: 'Every practice in all nine areas: what your documents show, the quotation and its document, and the next step.', meta: 'Every practice · for the teams doing the work' },
 ];
@@ -44,7 +44,9 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
   const reports = useResource<Report[]>(() => listReports(sprint.id), sprint.id);
   const cap = useCapability(sprint.id);
   const capRunId = cap.run.data?.assessment ? cap.run.data.id : '';
-  const stage = useResource<AssessmentStage | null>(async () => ({ data: await getAssessmentStage(sprint.id, capRunId) }), `stage:${capRunId}`, !!capRunId);
+  // The stage comes from the run list (a final run names its Stage 1 run), not from the JSON report, which carries
+  // every model packet (73 MB for test 13) and was downloaded just to read two fields.
+  const final = cap.stage === 'final';
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -119,13 +121,13 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
           </article>
         ))}
       </div>}
-      {stage.data && stage.data.stage !== 'final' && (
+      {capRunId && !final && (
         <Notice tone="info">These reports show your Stage 1 result, from your documents alone. Once the follow-up questions are answered and the result is published, the final reports appear here.</Notice>
       )}
       {!cap.run.data?.assessment ? (cap.run.loading ? <Loading /> : <Empty title="No reports yet">The reports are ready once the assessment of your documents completes.</Empty>) : (() => {
-        const rows = [{ runId: cap.run.data!.id, final: stage.data?.stage === 'final', when: dateTime(cap.run.data!.created_at), advice: cap.advice?.id },
-          ...(stage.data?.stage === 'final' && stage.data.provisional_run_id
-            ? [{ runId: stage.data.provisional_run_id, final: false, when: '', advice: undefined }] : [])];
+        const rows = [{ runId: cap.run.data!.id, final, when: dateTime(cap.run.data!.created_at), advice: cap.advice?.id },
+          ...(final && cap.provisionalId
+            ? [{ runId: cap.provisionalId, final: false, when: '', advice: undefined }] : [])];
         return (
           <>
             {rows.map((row) => (

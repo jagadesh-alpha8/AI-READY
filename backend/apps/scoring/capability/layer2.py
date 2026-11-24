@@ -40,6 +40,7 @@ SHINGLE = 5                 # words per shingle for the repeated-text check
 RESTATES = 0.6              # share of a passage's shingles already sent that marks it a restatement
 PICKS = 6                   # windows taken per search
 MIN_PIECE = 120             # characters; a smaller uncovered remainder is not worth sending
+MIN_WHOLE = 40              # characters; a short window sent whole (a one-line certificate page) is still evidence
 CANDIDATES = 60             # ranks per route that enter fusion, as in evidence_retrieval
 ROUTE_CAP = 8               # key indicators one additional-evidence submission can reach
 SUPPORT = ('supported', 'partly', 'not_supported')
@@ -122,7 +123,7 @@ def _ranked(query, sources, ranker, covered, limit, picks=PICKS, kept=None, excl
     kept = [] if kept is None else kept
     exclude = set(exclude)
     from .follow_up import _uncovered
-    if not sources or limit < MIN_PIECE or not query.strip():
+    if not sources or limit < MIN_WHOLE or not query.strip():
         return []
     if ranker is not None:
         passages = ranker.passages(sources)
@@ -150,12 +151,16 @@ def _ranked(query, sources, ranker, covered, limit, picks=PICKS, kept=None, excl
         if len(chosen) >= picks:
             break
         source, start, end, _ = candidates[n]
-        pieces = [(a, b) for a, b in _uncovered(start, end, covered.get(source['id'], [])) if b - a >= MIN_PIECE]
+        page = (0, len(source['text']))
+
+        def enough(a, b):   # a short page taken whole is evidence; a short remainder is not (53)
+            return b - a >= (MIN_WHOLE if (a, b) == page and len(source['text'].strip()) >= MIN_WHOLE else MIN_PIECE)
+        pieces = [(a, b) for a, b in _uncovered(start, end, covered.get(source['id'], [])) if enough(a, b)]
         if not pieces:
             continue
         a, b = max(pieces, key=lambda span: span[1] - span[0])
         b = min(b, a + (limit - used))
-        if b - a < MIN_PIECE:
+        if not enough(a, b):
             continue
         shingles = _shingles(source['text'][a:b])
         if _restates(shingles, kept):
@@ -493,10 +498,14 @@ def fixed_contexts(traces, targets, limit=NEW_CHARS):
             if limit - used < MIN_PIECE:
                 break
             start = window.get('text_offset', 0)
-            for a, b in _uncovered(start, start + len(window['text']), covered.get(window['id'], [])):
+            whole = (start, start + len(window['text']))
+            for a, b in _uncovered(*whole, covered.get(window['id'], [])):
                 b = min(b, a + (limit - used))
                 text = window['text'][a - start:b - start]
-                if b - a < MIN_PIECE or not text.strip():
+                # A remainder under MIN_PIECE is not worth a place, but a short window sent whole is: a one-line
+                # certificate page the answer check found supporting would otherwise never reach the re-judge (53).
+                minimum = MIN_WHOLE if (a, b) == whole else MIN_PIECE
+                if b - a < minimum or len(text.strip()) < MIN_WHOLE:
                     continue
                 shingles = _shingles(text)
                 if _restates(shingles, kept):
