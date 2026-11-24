@@ -965,7 +965,7 @@ if SECOND_LAYER_JOBS_ENABLED:
 CAPABILITY_EMBEDDING_CACHE_DIR = os.getenv('CAPABILITY_EMBEDDING_CACHE_DIR', '')
 
 # Evidence map (apps/evidence_map; spec: claude.ai project doc claude/ai-ready-evidence-map-spec.md): every page read once
-# against the rubric, tags stored per page. Tagging only for now; no assessment reads the map yet. The tagger uses its
+# against the rubric, tags stored per page. Map-mode runs read it (CAPABILITY_RETRIEVAL_MODE=map). The tagger uses its
 # own key and model when EVIDENCE_MAP_AI_API_KEY is set, else the scoring model (CAPABILITY_AI_*, else AI_*).
 # EVIDENCE_MAP_AI_EFFORT is Claude's effort for tagging (JSON output); EVIDENCE_MAP_MAX_COST_USD stops a pass from
 # starting new requests once its metered spend reaches it.
@@ -974,3 +974,11 @@ EVIDENCE_MAP_AI_MODEL = os.getenv('EVIDENCE_MAP_AI_MODEL', '').strip()
 EVIDENCE_MAP_AI_BASE_URL = os.getenv('EVIDENCE_MAP_AI_BASE_URL', '').strip()
 EVIDENCE_MAP_AI_EFFORT = os.getenv('EVIDENCE_MAP_AI_EFFORT', 'low').strip().lower() or None
 EVIDENCE_MAP_MAX_COST_USD = float(os.getenv('EVIDENCE_MAP_MAX_COST_USD', '').strip() or 5)
+# Tag a sprint's new pages automatically once its extraction jobs have all finished (apps/evidence_map/tasks.py). Off by
+# default: each pass calls the tagging model (about $1 per VISTAS-sized sprint on Claude Haiku 5.5 or GPT-6 Luna, est.).
+EVIDENCE_MAP_AUTO_TAG = os.getenv('EVIDENCE_MAP_AUTO_TAG', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+EVIDENCE_MAP_CONCURRENCY = int(os.getenv('EVIDENCE_MAP_CONCURRENCY', '').strip() or 4)
+# A running tagging job older than this is taken as dead (its worker stopped) and no longer blocks a new one.
+EVIDENCE_MAP_STALE_SECONDS = int(os.getenv('EVIDENCE_MAP_STALE_SECONDS', '').strip() or 6 * 3600)
+if EXTRACTION_QUEUE:
+    CELERY_TASK_ROUTES['apps.evidence_map.tasks.tag_sprint'] = {'queue': EXTRACTION_QUEUE}

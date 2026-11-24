@@ -332,6 +332,8 @@ def _advance_sprint_if_all_jobs_done(sprint):
 
     from .models import ExtractionJob
 
+    from apps.evidence_map.tasks import queue_after_extraction
+    queue_after_extraction(sprint)   # off unless EVIDENCE_MAP_AUTO_TAG; tags new pages once extraction is idle
     if sprint.status != Sprint.Status.PROCESSING:
         return
     still_active = sprint.extraction_jobs.filter(
