@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'apps.reports',
     'apps.dashboard',
     'apps.vector_store',
+    'apps.evidence_map',
 ]
 
 MIDDLEWARE = [
@@ -940,3 +941,14 @@ if SECOND_LAYER_JOBS_ENABLED:
 # Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
 # every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.
 CAPABILITY_EMBEDDING_CACHE_DIR = os.getenv('CAPABILITY_EMBEDDING_CACHE_DIR', '')
+
+# Evidence map (apps/evidence_map; spec: claude.ai project doc claude/ai-ready-evidence-map-spec.md): every page read once
+# against the rubric, tags stored per page. Tagging only for now; no assessment reads the map yet. The tagger uses its
+# own key and model when EVIDENCE_MAP_AI_API_KEY is set, else the scoring model (CAPABILITY_AI_*, else AI_*).
+# EVIDENCE_MAP_AI_EFFORT is Claude's effort for tagging (JSON output); EVIDENCE_MAP_MAX_COST_USD stops a pass from
+# starting new requests once its metered spend reaches it.
+EVIDENCE_MAP_AI_API_KEY = os.getenv('EVIDENCE_MAP_AI_API_KEY', '').strip()
+EVIDENCE_MAP_AI_MODEL = os.getenv('EVIDENCE_MAP_AI_MODEL', '').strip()
+EVIDENCE_MAP_AI_BASE_URL = os.getenv('EVIDENCE_MAP_AI_BASE_URL', '').strip()
+EVIDENCE_MAP_AI_EFFORT = os.getenv('EVIDENCE_MAP_AI_EFFORT', 'low').strip().lower() or None
+EVIDENCE_MAP_MAX_COST_USD = float(os.getenv('EVIDENCE_MAP_MAX_COST_USD', '').strip() or 5)
