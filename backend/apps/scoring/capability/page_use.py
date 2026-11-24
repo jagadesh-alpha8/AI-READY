@@ -110,7 +110,7 @@ def compare_packets(traced, rebuilt):
 
 
 def page_use(run, page_ids, *, indicators=None, ranker=None, recompute=True):
-    from .evaluation import _prepare
+    from .evaluation import _prepare, map_argument
     inputs = run.inputs or {}
     rubric = inputs['rubric']
     policy = inputs.get('retrieval_policy') or {}
@@ -137,7 +137,8 @@ def page_use(run, page_ids, *, indicators=None, ranker=None, recompute=True):
                       reviewed_evidence=inputs.get('reviewed_evidence'), population=inputs.get('population') or '',
                       reference_period=inputs.get('reference_period') or '', scope=inputs.get('scope'),
                       structure=structure, lane_version=policy.get('evidence_lane'), ceiling=policy.get('prompt_ceiling'),
-                      judgment=execution.get('judgment', 'conditions'), keyword_chars=policy.get('keyword_chars'))
+                      judgment=execution.get('judgment', 'conditions'), keyword_chars=policy.get('keyword_chars'),
+                      evidence_map=map_argument(policy, inputs.get('evidence_map')))
     rows = []
     for indicator in rubric['indicators']:
         code = indicator['code']
@@ -159,6 +160,10 @@ def page_use(run, page_ids, *, indicators=None, ranker=None, recompute=True):
                'rejudged_in_second_layer': code in (second_layer.get('targets') or {}) or any(
                    r in SECOND_LAYER_ROLES for r in later),
                'windows_added_after_first_judgment': later}
+        if trace.get('evidence_map'):
+            # Map mode: why the page is in the packet (the step and the tag that brought it), or that it isn't.
+            row['map_reasons'] = [r for w in trace['evidence_map'].get('windows') or [] if w.get('id') in looked_for
+                                  for r in w.get('reasons') or []]
         if recompute and trace:
             diagnostics = {}
             job = _prepare(indicator, **common, diagnostics=diagnostics)

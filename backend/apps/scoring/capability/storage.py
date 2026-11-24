@@ -123,6 +123,9 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
         from rest_framework.exceptions import ValidationError
         raise ValidationError({'code': 'retrieval_configuration_invalid', 'detail': str(exc)}) from exc
     rubric = release()
+    evidence_map = None
+    if retrieval_policy.get('mode') == 'map':
+        retrieval_policy, evidence_map = map_for_run(sprint, sources, retrieval_policy)
     from .evaluation import PROMPT_VERSION, RETRIEVAL_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA
     inputs = {'institution_id': str(sprint.institution_id), 'sprint_id': str(sprint.pk),
               'profile': profile, 'scope': scope,
@@ -136,6 +139,8 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
                                       'schema_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest()},
               'manifest': manifest, 'sources': sources, 'reviewed_evidence': reviewed,
               'execution_policy': execution_policy or {}}
+    if evidence_map is not None:
+        inputs['evidence_map'] = evidence_map   # the tags for this run's pages, frozen (apps/evidence_map/packet.py)
     from .reserve import frozen_policy
     inputs['depth_policy'] = frozen_policy()   # credit held for follow-up answers (reserve.py)
     run = CapabilityRun.objects.create(sprint=sprint, inputs=inputs, inputs_hash=digest(inputs))
@@ -270,6 +275,32 @@ def candidate_requirements(run):
     citation-only matching. Context selection still bounds each indicator's input.
     """
     return [c['id'] for i in run.inputs['rubric']['indicators'] for c in i['conditions']]
+
+
+def map_for_run(sprint, sources, policy):
+    """(retrieval policy, frozen map or None) for a map-mode run: the sprint's stored map for the current rubric and
+    the configured shape, copied for the run's pages. With no tagged page the run falls back to keyword mode at the
+    larger of the map's cap and CAPABILITY_KEYWORD_CHARS, and the policy records why."""
+    from django.conf import settings
+    from apps.evidence_map import packet, spec
+    from apps.evidence_map.models import MapJob
+    from .semantic_retrieval import keyword_chars
+    rubric, profiles, parts = spec.rubric_sources()
+    version = spec.map_version(policy['map_shape'], rubric, profiles, parts)
+    model = getattr(settings, 'EVIDENCE_MAP_AI_MODEL', '') or (MapJob.objects.filter(
+        sprint=sprint, map_version=version).order_by('-started_at').values_list('model', flat=True).first() or '')
+    frozen = packet.freeze(sources, map_version=version, model=model) if model else {
+        'pages': {}, 'coverage': {'pages': len({spec.text_hash(s['text']) for s in sources
+                                                if (s.get('text') or '').strip()}),
+                                  'tagged': 0, 'failed': 0, 'skipped': 0, 'untagged': None}}
+    coverage = frozen['coverage']
+    if not coverage['tagged']:
+        routing = {k: v for k, v in policy.items() if k in ('deduplicate', 'structure', 'repeat_skip', 'evidence_lane',
+                                                              'prompt_ceiling')}
+        return {'mode': 'bm25', **routing, 'keyword_chars': max(keyword_chars(), policy['cap_chars']),
+                'map_fallback': {'reason': 'no_map' if not model else 'no_tagged_page', 'map_version': version,
+                                 'map_model': model or None, 'coverage': coverage}}, None
+    return {**policy, 'map_version': version, 'map_model': model, 'map_coverage': coverage}, {'pages': frozen['pages']}
 
 
 def boundary_revision(sprint_id):

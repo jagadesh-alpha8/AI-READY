@@ -55,6 +55,7 @@ def run_capability_assessment(run_id, task_id):
                     judgment=policy.get('judgment', 'conditions'),
                     tie_break=policy.get('tie_break') in ('majority-of-three-v1', 'median-credit-of-three-v1'),
                     quote_repair=policy.get('part_quote_repair') == 'quote-repair-v1',
+                    evidence_map=inputs.get('evidence_map'),
                     on_indicator=lambda rows, trace: locked_progress(run_id, rows, trace))
             if evaluation.get('circuit_skipped_indicators'):
                 # The provider stopped answering partway (23 Nov: Gemini's 503s left test run 80952be2 "completed" with
