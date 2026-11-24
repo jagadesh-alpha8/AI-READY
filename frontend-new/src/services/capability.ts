@@ -1,4 +1,5 @@
 import { http, saveBlob } from './http';
+import { getVersioned } from './runCache';
 import type { CapabilityPage, CapabilityRecommendation, Job, Run } from '../types/capability';
 import type { ActionState, PlanComparison, PlanEvaluationJob } from '../types/workflow';
 
@@ -6,7 +7,11 @@ import type { ActionState, PlanComparison, PlanEvaluationJob } from '../types/wo
 const root = (sprint: string) => `/sprints/${sprint}/capability-runs`;
 
 export const listRuns = (sprint: string, page = 1) => http.get<CapabilityPage<Job>>(root(sprint), { params: { page } });
-export const getRun = (sprint: string, run: string) => http.get<Run>(`${root(sprint)}/${run}`);
+/** A run's detail, downloaded once per tab and revalidated against its version marker on every call (runCache.ts). */
+export const getRun = (sprint: string, run: string) => getVersioned<Run>(`${root(sprint)}/${run}`);
+/** How many review questions (line 1, before a run) still await an answer; its own call since issue 60. */
+export const getReviewStatus = (sprint: string) =>
+  http.get<{ review_questions_awaiting: number }>(`${root(sprint)}/review-status`);
 /** `key` is an Idempotency-Key: retrying with the same key never starts a second run. */
 export const startRun = (sprint: string, key: string) =>
   http.post<Job>(root(sprint), { scope_mode: 'default' }, { headers: { 'Idempotency-Key': key } });

@@ -300,6 +300,37 @@ class CapabilityRunEvent(models.Model):
         ordering = ['id']
 
 
+class CapabilityRunView(models.Model):
+    """A display copy of one run, derived from its frozen inputs and events (issue 60). Never history: it can be
+    rebuilt from the run at any time (capability/run_view.py), and nothing reads it to decide a score.
+
+    The run list reads only these columns, never the run's inputs (every frozen page's text) or its events. The run
+    detail reads `assessment` (the completed payload without its model traces, about 1 MB instead of 40 MB) instead
+    of the stored event.
+    """
+    run = models.OneToOneField(CapabilityRun, on_delete=models.CASCADE, primary_key=True, related_name='view')
+    stage = models.CharField(max_length=16, default='provisional')
+    provisional_run_id = models.CharField(max_length=36, blank=True, db_index=True)
+    refines_run_id = models.CharField(max_length=36, blank=True)
+    rubric_version = models.CharField(max_length=200, blank=True)
+    engine_version = models.CharField(max_length=200, blank=True)
+    prompt_version = models.CharField(max_length=200, blank=True)
+    retrieval_version = models.CharField(max_length=200, blank=True)
+    reference_period = models.TextField(blank=True)
+    indicators_done = models.PositiveIntegerField(default=0)
+    # The completed event, and the copy of its payload without traces.
+    event_id = models.BigIntegerField(null=True, blank=True)
+    assessment = models.JSONField(null=True, blank=True)
+    # digest() of the whole stored payload, and whether the run's inputs and the payload matched inputs_hash when
+    # the copy was made (checked once here instead of on every view; reports still check on every export).
+    assessment_hash = models.CharField(max_length=64, blank=True)
+    verified = models.BooleanField(default=False)
+    # diagnostics.explain() reads the traces, so it is kept, with the fingerprint of the code that wrote it.
+    diagnostics = models.JSONField(null=True, blank=True)
+    diagnostics_key = models.CharField(max_length=64, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class CapabilityExecution(models.Model):
     """Mutable dispatch/ownership ledger; evidence and events stay immutable.
 
