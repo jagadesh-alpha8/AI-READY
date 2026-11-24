@@ -36,7 +36,7 @@ def _kept(quote, page_id, packet):
 
 def check(run, *, ceiling_tokens, bytes_per_token, indicators=None, ranker=None):
     from apps.scoring.capability import prompt_ceiling
-    from apps.scoring.capability.evaluation import _prepare
+    from apps.scoring.capability.evaluation import _prepare, map_argument
     from apps.scoring.capability.page_use import _structure
     from apps.scoring.capability.semantic_retrieval import ranker_for
     inputs = run.inputs or {}
@@ -55,7 +55,8 @@ def check(run, *, ceiling_tokens, bytes_per_token, indicators=None, ranker=None)
                   population=inputs['population'], reference_period=inputs['reference_period'],
                   scope=inputs.get('scope'), structure=_structure(sources, policy),
                   lane_version=policy.get('evidence_lane'), judgment=judgment,
-                  keyword_chars=policy.get('keyword_chars'))
+                  keyword_chars=policy.get('keyword_chars'),
+                  evidence_map=map_argument(policy, inputs.get('evidence_map')))
     rows = []
     for indicator in inputs['rubric']['indicators']:
         code = indicator['code']

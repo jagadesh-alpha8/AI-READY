@@ -691,9 +691,28 @@ class KeywordLane:
         self.baseline_chars = self.context_chars = chars
 
 
+class MapLane(KeywordLane):
+    """Map mode's packet cap (retrieval_policy.cap_chars), in the shape the prompt ceiling shrinks."""
+
+
+def map_argument(retrieval_policy, evidence_map):
+    """_prepare's evidence_map argument for a run: its frozen map and the packet sizes, or None outside map mode."""
+    policy = retrieval_policy or {}
+    if policy.get('mode') != 'map':
+        return None
+    from apps.evidence_map import packet
+    if policy.get('allocation') != packet.ALLOCATION or policy.get('window_chars') != packet.WINDOW_CHARS \
+            or policy.get('fill_share') != '/'.join(map(str, packet.FILL_SHARE)) \
+            or policy.get('context_share') != '/'.join(map(str, packet.CONTEXT_SHARE)):
+        raise ValueError('Frozen evidence-map packet rules do not match this worker.')
+    if not isinstance(evidence_map, dict) or 'pages' not in evidence_map:
+        raise ValueError('A map-mode run needs its frozen evidence map.')
+    return {'pages': evidence_map['pages'], 'cap_chars': policy['cap_chars']}
+
+
 def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope,
              structure=None, fixed_context=None, lane_version=None, ceiling=None, judgment='conditions',
-             diagnostics=None, keyword_chars=None, window_cache=None):
+             diagnostics=None, keyword_chars=None, window_cache=None, evidence_map=None):
     """Build one indicator's frozen packet and request payload (local work, no model call).
 
     fixed_context: a packet given whole (the second assessment layer: a provisional packet plus new windows, see
@@ -705,13 +724,48 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
     keyword_chars: keyword mode's frozen packet size (retrieval_policy.keyword_chars); None is the default 18,000.
     Ignored with an embedding ranker, whose allocation sizes the packet.
     window_cache: keyword mode's per-run cache of window word counts (as the hybrid ranker keeps its own); read-only,
-    so packets are the same with or without it."""
+    so packets are the same with or without it.
+    evidence_map: map mode (map_argument): the run's frozen tags and packet cap. The packet is built from the map
+    (apps/evidence_map/packet.py) with the extracted-evidence lane inside it and a keyword fill."""
     from .scope import context_scope
     from .reviewed_evidence import for_context
     from django.conf import settings
     lane = KeywordLane(keyword_chars) if keyword_chars and semantic_ranker is None else None
+    if evidence_map is not None:
+        lane = MapLane(evidence_map['cap_chars'])
+    map_trace = {}
+
+    def build_from_map(cap):
+        from apps.evidence_map import packet
+        pool = structure['sources'] if structure is not None else sources
+
+        def keyword_fill(pages, max_chars):
+            return select_context(indicator, pages, max_chars=max_chars, structure=structure, window_cache=window_cache)
+
+        lane_step = None
+        if lane_version is not None:
+            from .reviewed_evidence import evidence_lane
+            aliases = None
+            if structure is not None and structure.get('dropped'):
+                from .structure import page_aliases
+                aliases = page_aliases(structure)
+            # Routing ignores review state (the packet depends only on the documents and the map); review decisions
+            # still govern what the judge may rely on, through the reviewed-evidence record.
+            ledger = reviewed_evidence and {**reviewed_evidence, 'claims': [
+                {**c, 'disposition': None} for c in reviewed_evidence.get('claims', [])]}
+
+            def lane_step(context, budget):
+                return evidence_lane(indicator, list(context), pool, ledger, budget=budget, aliases=aliases,
+                                     version=lane_version)
+        context, trace = packet.build(indicator, pool, evidence_map, cap=cap, keyword_fill=keyword_fill,
+                                      lane=lane_step)
+        map_trace.clear()
+        map_trace.update(trace)
+        return context, trace.get('evidence_lane')
 
     def build(ranker):
+        if evidence_map is not None and fixed_context is None:
+            return build_from_map(ranker.baseline_chars if isinstance(ranker, MapLane) else evidence_map['cap_chars'])
         size = {}
         if isinstance(ranker, KeywordLane):
             size, ranker = {'max_chars': ranker.baseline_chars}, None
@@ -780,6 +834,7 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
     return {'indicator': indicator, 'context': context, 'schema_sources': schema_sources,
             'schema': indicator_schema(indicator, schema_sources), 'attachment_audit': attachment_audit,
             'evidence_lane': lane_audit, **({'prompt_ceiling': ceiling_audit} if ceiling_audit else {}),
+            **({'evidence_map': dict(map_trace)} if map_trace else {}),
             'review_context': review_context, 'payload': payload, 'issue': issue, 'payload_for': payload_for,
             # The exact pages the ranker indexed, so the extra search reuses its index instead of rebuilding it.
             'retrieval_sources': ranking_sources(structure['sources'] if structure is not None else sources)}
@@ -1123,6 +1178,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources, compact=False):
             'reviewed_evidence_packet': review_context,
             'reviewed_attachment_audit': job['attachment_audit'], 'evidence_lane': job.get('evidence_lane'),
             **({'prompt_ceiling': job['prompt_ceiling']} if job.get('prompt_ceiling') else {}),
+            **({'evidence_map': job['evidence_map']} if job.get('evidence_map') else {}),
             'reviewed_context_chars': len(json.dumps(review_context)),
             'reviewed_context_claims': len((review_context or {}).get('claims', [])),
             'user_payload_chars': len(payload),
@@ -1134,7 +1190,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources, compact=False):
             'error': outcome['issue']}
 
 
-def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions', tie_break=False, fixed_contexts=None, quote_repair=False):
+def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions', tie_break=False, fixed_contexts=None, quote_repair=False, evidence_map=None):
     """Assess every indicator. Packets are built in rubric order; with concurrency > 1 the model work for up to
     that many indicators runs at once. Records, traces and on_indicator calls stay in rubric order, so results
     do not depend on concurrency; only request numbering in the billing ledger interleaves.
@@ -1218,6 +1274,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
                    population=population, reference_period=reference_period, scope=scope, structure=structure,
                    lane_version=frozen_policy.get('evidence_lane'), ceiling=ceiling, judgment=judgment,
                    keyword_chars=frozen_policy.get('keyword_chars'),
+                   # Map mode: the run's frozen tags (inputs['evidence_map']) and packet cap.
+                   evidence_map=map_argument(frozen_policy, evidence_map) if fixed_contexts is None else None,
                    # Keyword mode re-counted every window's words for each of the 36 key indicators.
                    window_cache={'windows': {}, 'pages': {}} if semantic_ranker is None else None)
     records, traces = [], []
