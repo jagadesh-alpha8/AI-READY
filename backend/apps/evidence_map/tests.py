@@ -322,6 +322,21 @@ class ServiceTests(SimpleTestCase):
     def test_its_own_key_and_model_with_json_output(self):
         service = tagging.tagger_service()
         self.assertEqual((service.model, service.json_output, service.effort), ('claude-haiku-5-5', True, 'low'))
+        # The rubric is sent as a cached system prompt.
+        sent = {}
+        from types import SimpleNamespace
+        service._client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: sent.update(kw)))
+        service._create('RUBRIC', 'pages', spec.SCHEMA, spec.SCHEMA_NAME, 10)
+        self.assertEqual(sent['system'], [{'type': 'text', 'text': 'RUBRIC', 'cache_control': {'type': 'ephemeral'}}])
+
+    def test_other_claude_requests_are_sent_as_before(self):
+        from types import SimpleNamespace
+        from apps.extraction.services.anthropic_client import AnthropicExtractionService
+        service = AnthropicExtractionService(api_key='sk-ant-test', model='claude-haiku-5-5')
+        sent = {}
+        service._client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: sent.update(kw)))
+        service._create('SYSTEM', 'text', spec.SCHEMA, spec.SCHEMA_NAME, 10)
+        self.assertEqual(sent['system'], 'SYSTEM')
 
     @override_settings(EVIDENCE_MAP_AI_API_KEY='sk-ant-test', EVIDENCE_MAP_AI_MODEL='')
     def test_a_key_without_a_model_is_refused(self):

@@ -56,6 +56,8 @@ def tagger_service():
     if hasattr(service, 'json_output'):
         service.json_output = True    # Claude 5.5 models think by default, which a forced tool call can't combine with
         service.effort = effort
+    if hasattr(service, 'cache_system'):
+        service.cache_system = True   # the rubric (about 36,000 tokens) is the same system prompt for every request
     return service
 
 
