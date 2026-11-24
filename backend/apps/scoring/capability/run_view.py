@@ -93,10 +93,42 @@ def diagnostics_key():
 
 # --- writing the copy ---------------------------------------------------------------------------------------------
 
+# These run inside the transactions that create a run, checkpoint it and publish it. Each write is a savepoint
+# with its errors caught: a failure here is logged and never aborts the run (the copy is rebuilt on first read).
+
+def _safely(what, run_id, write):
+    try:
+        with transaction.atomic():   # a savepoint, so a database error doesn't abort the caller's transaction
+            write()
+    except Exception:
+        logger.exception('run view: could not %s for run %s; it is rebuilt on first read', what, run_id)
+
+
+def _store_list_fields(run):
+    CapabilityRunView.objects.update_or_create(run_id=run.pk, defaults=list_fields(run.inputs))
+
+
+def _count_indicator(run_id):
+    CapabilityRunView.objects.filter(run_id=run_id).update(indicators_done=F('indicators_done') + 1)
+
+
+def _store_completed(event):
+    run = event.run
+    CapabilityRunView.objects.update_or_create(run_id=run.pk, defaults={
+        **list_fields(run.inputs), **_completed_fields(run, event), 'indicators_done': _indicator_count(run.pk)})
+
+
+def _indicator_count(run_id):
+    """Counted afresh from the events (once, when the run completes or is rebuilt), so a failed increment above
+    never leaves a wrong count behind."""
+    return sum(1 for kind in CapabilityRunEvent.objects.filter(run_id=run_id, state='partial')
+               .values_list('payload__kind', flat=True) if kind == 'indicator')
+
+
 @receiver(post_save, sender=CapabilityRun, dispatch_uid='capability_run_view_create')
 def _run_created(sender, instance, created, raw=False, **kwargs):
     if created and not raw:
-        CapabilityRunView.objects.update_or_create(run_id=instance.pk, defaults=list_fields(instance.inputs))
+        _safely('store the list fields', instance.pk, lambda: _store_list_fields(instance))
 
 
 @receiver(post_save, sender=CapabilityRunEvent, dispatch_uid='capability_run_view_event')
@@ -105,16 +137,9 @@ def _event_created(sender, instance, created, raw=False, **kwargs):
         return
     payload = instance.payload or {}
     if instance.state == 'partial' and payload.get('kind') == 'indicator':
-        CapabilityRunView.objects.filter(run_id=instance.run_id).update(indicators_done=F('indicators_done') + 1)
+        _safely('count an indicator checkpoint', instance.run_id, lambda: _count_indicator(instance.run_id))
     elif instance.state == 'completed' and 'result' in payload:
-        try:
-            with transaction.atomic():   # a savepoint: a failure here must never abort the publishing transaction
-                run = instance.run
-                CapabilityRunView.objects.update_or_create(run_id=run.pk, defaults={
-                    **list_fields(run.inputs), **_completed_fields(run, instance)})
-        except Exception:
-            logger.exception('run view: could not store the copy of run %s; it is rebuilt on first read',
-                             instance.run_id)
+        _safely('store the completed copy', instance.run_id, lambda: _store_completed(instance))
 
 
 def _completed_fields(run, event):
@@ -129,9 +154,7 @@ def rebuild(run_id):
     """Rebuild a run's copy from the run itself: reads the inputs and the completed payload once."""
     run = CapabilityRun.objects.get(pk=run_id)
     event = run.events.filter(state='completed', payload__result__isnull=False).last()
-    done = sum(1 for p in run.events.filter(state='partial').values_list('payload__kind', flat=True)
-               if p == 'indicator')
-    fields = {**list_fields(run.inputs), 'indicators_done': done}
+    fields = {**list_fields(run.inputs), 'indicators_done': _indicator_count(run.pk)}
     fields.update(_completed_fields(run, event) if event else
                   {'event_id': None, 'assessment': None, 'assessment_hash': '', 'verified': False, 'diagnostics': None,
                    'diagnostics_key': ''})
@@ -157,8 +180,7 @@ def ensure(run_id, *, complete=True):
                 prompt=KT('inputs__assessment_protocol__prompt_version'),
                 retrieval=KT('inputs__assessment_protocol__retrieval_version'),
                 period=KT('inputs__reference_period')).first()
-            done = sum(1 for p in CapabilityRunEvent.objects.filter(run_id=run_id, state='partial')
-                       .values_list('payload__kind', flat=True) if p == 'indicator')
+            done = _indicator_count(run_id)
             view, _ = CapabilityRunView.objects.get_or_create(run_id=run_id, defaults={
                 'stage': 'final' if row['second'] else 'provisional', 'provisional_run_id': row['second'] or '',
                 'refines_run_id': row['refines'] or '', 'rubric_version': (row['rubric'] or '')[:200],

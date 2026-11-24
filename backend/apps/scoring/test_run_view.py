@@ -173,13 +173,29 @@ class RunViewTests(APITestCase):
         self.assertEqual(_without_version(self.detail(execution).data), expected)
 
     def test_a_failing_copy_never_stops_a_run(self):
-        with patch.object(run_view, '_completed_fields', side_effect=RuntimeError('boom')):
+        # A real database error in each write (run creation, every indicator checkpoint, publishing): on PostgreSQL
+        # it would abort the run's own transaction without the savepoint.
+        def broken(*args, **kwargs):
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT * FROM no_such_table_for_this_test')
+        with patch.object(run_view, '_store_list_fields', side_effect=broken), \
+                patch.object(run_view, '_count_indicator', side_effect=broken), \
+                patch.object(run_view, '_completed_fields', side_effect=broken):
             execution = self.completed()
+        self.assertEqual(execution.run.events.filter(state='partial', payload__kind='indicator').count(), 36)
         self.assertTrue(execution.run.events.filter(state='completed').exists())
+        # The start answer built the list fields on read; the completed copy was never stored.
         self.assertIsNone(CapabilityRunView.objects.get(run_id=execution.run_id).event_id)
+        row = self.client.get(self.url).data['results'][0]
+        self.assertEqual((row['status'], row['completed_indicators']), ('completed', 36))
         detail = self.detail(execution)
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(len(detail.data['assessment']['records']), 216)
+
+    def test_a_failed_checkpoint_count_is_corrected_at_completion(self):
+        with patch.object(run_view, '_count_indicator', side_effect=RuntimeError('boom')):
+            execution = self.completed()
+        self.assertEqual(CapabilityRunView.objects.get(run_id=execution.run_id).indicators_done, 36)
 
     def test_unverified_copy_takes_the_full_path(self):
         # A copy whose integrity check failed is never served: the earlier, checked path answers instead.

@@ -45,6 +45,10 @@ def summary(execution, view=None):
     final = view.stage == 'final'
     # A final run (second layer) is published whole, without per-indicator checkpoints.
     done = 36 if final and execution.status == 'completed' else view.indicators_done
+    if execution.status == 'completed' and not final and view.event_id is None:
+        # The copy was not stored when the run completed (logged; run_view._safely): count from the events instead.
+        from .run_view import _indicator_count
+        done = _indicator_count(execution.run_id)
     return {'id': str(execution.run_id), 'status': execution.status, 'completed_indicators': done,
             'stage': 'final' if final else 'provisional',
             'provisional_run_id': view.provisional_run_id or None if final else None,
