@@ -308,6 +308,7 @@ class CommandTests(SprintMixin, TestCase):
         self.assertEqual(data['coverage']['tagged'], 6)       # the repeated cover counts for both its pages
         self.assertEqual(data['coverage']['unreadable'], 1)
         self.assertEqual(len(data['pages']), 6)
+        self.assertIn(len(SYLLABUS), [p['chars'] for p in data['pages']])
         self.assertEqual(data['prompt'], spec.PROMPT)
         self.assertTrue(any(t['indicator'] == 'AIQIF-C6.2' for p in data['pages'] for t in p['tags']))
         with self.assertRaises(CommandError):

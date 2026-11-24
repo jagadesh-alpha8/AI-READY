@@ -49,7 +49,8 @@ class Command(BaseCommand):
             for page in doc['readable']:
                 row = rows.get(hashes[page['id']])
                 pages.append({'page_id': page['id'], 'document_id': doc['document_id'], 'filename': doc['filename'],
-                              'page_number': page['number'], 'text_hash': hashes[page['id']],
+                              'page_number': page['number'], 'chars': len(page['text']),
+                              'text_hash': hashes[page['id']],
                               'status': row.status if row else 'not_tagged',
                               'page_type': row.page_type if row else '', 'tags': row.tags if row else [],
                               'error': row.error if row else ''})
