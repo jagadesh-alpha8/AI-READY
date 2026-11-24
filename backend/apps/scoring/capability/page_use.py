@@ -137,7 +137,7 @@ def page_use(run, page_ids, *, indicators=None, ranker=None, recompute=True):
                       reviewed_evidence=inputs.get('reviewed_evidence'), population=inputs.get('population') or '',
                       reference_period=inputs.get('reference_period') or '', scope=inputs.get('scope'),
                       structure=structure, lane_version=policy.get('evidence_lane'), ceiling=policy.get('prompt_ceiling'),
-                      judgment=execution.get('judgment', 'conditions'))
+                      judgment=execution.get('judgment', 'conditions'), keyword_chars=policy.get('keyword_chars'))
     rows = []
     for indicator in rubric['indicators']:
         code = indicator['code']

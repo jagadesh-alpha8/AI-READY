@@ -54,7 +54,8 @@ def check(run, *, ceiling_tokens, bytes_per_token, indicators=None, ranker=None)
     common = dict(sources=sources, semantic_ranker=ranker, gemini=True, reviewed_evidence=inputs.get('reviewed_evidence'),
                   population=inputs['population'], reference_period=inputs['reference_period'],
                   scope=inputs.get('scope'), structure=_structure(sources, policy),
-                  lane_version=policy.get('evidence_lane'), judgment=judgment)
+                  lane_version=policy.get('evidence_lane'), judgment=judgment,
+                  keyword_chars=policy.get('keyword_chars'))
     rows = []
     for indicator in inputs['rubric']['indicators']:
         code = indicator['code']

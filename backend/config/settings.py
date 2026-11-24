@@ -859,6 +859,15 @@ CAPABILITY_REPEAT_SKIP = os.getenv('CAPABILITY_REPEAT_SKIP', 'false').strip().lo
 # 90,000-character keyword lane; 'protected-baseline-then-discovery-xwide-v1' for 200,000 (hybrid mode only;
 # raise CAPABILITY_MAX_INPUT_TOKEN_BOUND to 400000).
 CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '')
+# Keyword mode only (CAPABILITY_RETRIEVAL_MODE=bm25): characters of keyword evidence per key indicator, 18,000 by
+# default. Test 13's 200,000-character lane is this same keyword search (hybrid only added 6,000 characters), so
+# keyword mode can read as widely without the embedding model. 200,000 reproduces test 13's keyword lane (its
+# embedding tail added 4 of the 127 passages test 13 credited in full). 150,000 stays under Claude Haiku 5.5's
+# 100,000-token price step but, offline on test 13's pages (24 Nov), reached 85 of those 127 against 104 at 200,000.
+# Above the default it needs CAPABILITY_MAX_INPUT_TOKEN_BOUND of at least twice the value (400000 for 200,000), and
+# test 13's page deduplication and repeat skipping (CAPABILITY_DEDUPLICATE_PAGES, CAPABILITY_REPEAT_SKIP) to match
+# its evidence. Frozen with each run (retrieval_policy.keyword_chars) when it differs from the default.
+CAPABILITY_KEYWORD_CHARS = int(os.getenv('CAPABILITY_KEYWORD_CHARS', '').strip() or 18000)
 # Targeted extra search after part judgment (apps/scoring/capability/follow_up.py): parts every pass marked
 # not found get one more search with the part's own description; only those conditions are judged again, and
 # the second judgment can only add credit. Needs hybrid retrieval and CAPABILITY_JUDGMENT=parts. Adds up to one

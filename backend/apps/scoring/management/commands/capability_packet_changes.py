@@ -38,7 +38,8 @@ def changes(run, *, indicators=None, ranker=None, lane_version=None):
     common = dict(sources=sources, semantic_ranker=ranker, gemini=True, reviewed_evidence=inputs.get('reviewed_evidence'),
                   population=inputs.get('population') or '', reference_period=inputs.get('reference_period') or '',
                   scope=inputs.get('scope'), structure=_structure(sources, policy),
-                  ceiling=policy.get('prompt_ceiling'), judgment=execution.get('judgment', 'conditions'))
+                  ceiling=policy.get('prompt_ceiling'), judgment=execution.get('judgment', 'conditions'),
+                  keyword_chars=policy.get('keyword_chars'))
     rows = []
     for indicator in inputs['rubric']['indicators']:
         code = indicator['code']
