@@ -1,4 +1,9 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useResource } from '../hooks/useResource';
+import { pathOf } from '../navigation';
+import { listSprintGapsPage } from '../services/gaps';
+import { levelFor, starText } from '../utils/levels';
 import { useAccess } from '../hooks/useAccess';
 import type { useCapability } from '../hooks/useCapability';
 import { cancelRun, startRun } from '../services/capability';
@@ -35,7 +40,7 @@ export function ScoreExplanationBlock({ explanation, placeholder = true }: { exp
   );
 }
 
-/** Score bounds, evidence resolution and Silver / Gold / Platinum eligibility of one frozen run. */
+/** Score bounds, evidence resolution and the readiness level of one frozen run. */
 export function CapabilityStanding({ result, run }: { result: Result; run: Run }) {
   const counts = stateCounts(result);
   const partCredit = isPartCredit(result);
@@ -105,12 +110,12 @@ export function CapabilityStanding({ result, run }: { result: Result; run: Run }
           const band = bandTier(result.score);
           return (
             <p>
-              <b>Tier: {band.current || 'none yet'}</b>{band.next ? ` · ${band.pointsToNext} points to ${band.next}` : ''}.{' '}
-              <span className="muted">Tiers are score bands ({TIER_BANDS_TEXT}), provisional and not yet calibrated across colleges.</span>
+              <b>Level: {band.current} ({starText(levelFor(result.score).stars)})</b>{band.next ? ` · ${band.pointsToNext} points to ${band.next}` : ''}.{' '}
+              <span className="muted">Levels are score bands ({TIER_BANDS_TEXT}), one star for every 20 points, provisional and not yet calibrated across colleges.</span>
             </p>
           );
         })() : result.badge_policy === 'not_calibrated' ? (
-          <p className="muted">Silver, Gold and Platinum standards are being calibrated. A readiness score alone does not award a maturity badge.</p>
+          <p className="muted">The readiness levels are being calibrated. A score alone does not award a level.</p>
         ) : (
           <div className="tier-grid">
             {result.tiers.map((t) => (
@@ -202,6 +207,15 @@ export function CapabilityRunControl({ sprintId, cap }: { sprintId: string; cap:
   const [key] = useState(newKey);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const newest = cap.newest;
+  // Facts whose sources disagree (23 Nov: warn, don't block). Facts are frozen when an assessment starts, so this is
+  // the moment to settle them; the run goes ahead either way.
+  const conflicts = useResource<number>(async () => {
+    const res = await listSprintGapsPage(sprintId, { gap_type: 'conflict', status: 'open', page_size: 1 });
+    return { data: res.data.count };
+  }, `conflicts:${sprintId}`);
+  const open = conflicts.data || 0;
+  const conflictText = open ? `${open} fact${open === 1 ? '' : 's'} where your documents disagree ${open === 1 ? 'is' : 'are'} not settled yet. ` +
+    'The assessment uses the documents as they are now, so settle them first if you can; you can also run it now.' : '';
 
   return (
     <Panel title="Evidence-based capability assessment" sub={newest ? `Latest run ${dateTime(newest.created_at)}` : 'No run yet'}
@@ -212,6 +226,9 @@ export function CapabilityRunControl({ sprintId, cap }: { sprintId: string; cap:
       )}
       {cap.running && <Notice tone="info">Assessment in progress. This view refreshes every few seconds.</Notice>}
       {!cap.enabled && <p className="muted">Assessment inference is disabled by the deployment administrator. Existing results stay readable.</p>}
+      {open > 0 && !cap.running && (
+        <Notice tone="info">{conflictText} <Link to={pathOf('gaps')}>Settle them</Link></Notice>
+      )}
       <div className="button-row">
         {can('sprint.manage') && (
           <button className="primary-action" disabled={!cap.enabled || cap.running} onClick={() => setConfirming(true)}>Start new assessment</button>
@@ -226,7 +243,7 @@ export function CapabilityRunControl({ sprintId, cap }: { sprintId: string; cap:
       {confirming && (
         <ActionDialog
           title="Start a new capability assessment?"
-          description="This uses model credits within the configured limits. It freezes the current verified sources; earlier assessments stay unchanged."
+          description={`${conflictText}This uses model credits within the configured limits. It freezes the current verified sources; earlier assessments stay unchanged.`}
           fields={[]}
           confirmLabel="Start (uses credits)"
           onSubmit={async () => {

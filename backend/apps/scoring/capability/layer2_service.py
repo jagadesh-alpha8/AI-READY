@@ -251,7 +251,9 @@ def next_item(run_ref):
                .select_related('question').order_by('question__rank', 'created_at').first())
     if waiting is not None:
         return {'type': 'follow_up', 'question': waiting.question, 'response': waiting, 'text': waiting.follow_up_text}
-    question = DepthQuestion.objects.filter(run_ref=run_ref, status=DepthQuestion.Status.OPEN).order_by('rank').first()
+    # Questions the college marked "I need to check" come after the unmarked ones, so it can move on.
+    question = (DepthQuestion.objects.filter(run_ref=run_ref, status=DepthQuestion.Status.OPEN)
+                .order_by('to_check', 'rank').first())
     if question is not None:
         return {'type': 'question', 'question': question, 'response': None, 'text': question.text}
     return None
@@ -270,7 +272,30 @@ def progress(run_ref):
                                                                   status=AdditionalEvidence.Status.PENDING).count(),
             'follow_ups_open': responses.filter(parent__isnull=True, status=DepthResponse.Status.CHECKED)
                                         .exclude(follow_up_text='').filter(follow_ups__isnull=True).count(),
+            # Open questions marked "I need to check": closing doesn't wait for them, but the screen warns.
+            'to_check': questions.filter(status=DepthQuestion.Status.OPEN, to_check=True).count(),
             'final_run_id': final_run_id(run_ref), 'closed': stage_closed(run_ref)}
+
+
+def mark_to_check(question, to_check=True, *, user=None):
+    """"I need to check" (Siddharth, 23 Nov): a saved mark on an open question, never a skip (a skip is final). The
+    question stays open; next_item serves it after the unmarked ones; progress counts it so closing can warn.
+    Answering the question clears the mark. Refused once the stage is closed, or for a question answered through a
+    linked question (mark the question that asks it)."""
+    from django.utils import timezone
+    with transaction.atomic():
+        CapabilityRun.objects.select_for_update().filter(pk=_uuid(question.run_ref)).first()
+        refuse_closed(question.run_ref)
+        locked = DepthQuestion.objects.select_for_update().get(pk=question.pk)
+        if locked.status == DepthQuestion.Status.LINKED:
+            raise Layer2Error('This question is answered through a linked question; mark that one instead.')
+        if locked.status != DepthQuestion.Status.OPEN:
+            raise Layer2Error('This question has already been answered.')
+        locked.to_check = bool(to_check)
+        locked.to_check_by = user if to_check else None
+        locked.to_check_at = timezone.now() if to_check else None
+        locked.save(update_fields=['to_check', 'to_check_by', 'to_check_at'])
+    return locked
 
 
 def final_run_id(run_ref):
@@ -299,13 +324,31 @@ def refuse_closed(run_ref):
         raise Layer2Error(CLOSED)
 
 
-def submit(question, *, answer='', document_ids=(), skip=False, parent=None, user=None, via='college'):
+CHOICES = {c.value for c in DepthResponse.Choice}
+
+
+def submit(question, *, answer='', document_ids=(), skip=False, parent=None, user=None, via='college', choice=''):
     """Record one response. A skip is "don't know" and needs no check; anything else waits for check_response.
     parent: the response whose follow-up this answers (at most one answer per follow-up, never followed up again).
     The question (or the follow-up's parent) is locked while the response is recorded, so two submissions at once
-    cannot both be accepted. Documents must belong to the run's sprint when the run is in this database."""
+    cannot both be accepted. Documents must belong to the run's sprint when the run is in this database.
+
+    choice: the college's answer option in Harsha's design (Siddharth, 23 Nov). 'yes' and 'partly' are answers like
+    any other: checked, and counted only when a document supports them (a typed answer alone is allowed; the screen
+    warns). 'not_yet' is recorded like "don't know": no check, nothing changes in the score (it never lowers credit
+    the documents earned), but the choice and any note are kept for the reports and the improvement plan. "I need to
+    check" is not a response at all: see mark_to_check."""
     answer = (answer or '').strip()
     documents = [str(d) for d in document_ids or []]
+    choice = (choice or '').strip()
+    if choice and choice not in CHOICES:
+        raise Layer2Error('Choose yes, partly or not_yet.')
+    if choice == DepthResponse.Choice.NOT_YET:
+        if documents:
+            raise Layer2Error('A document goes with "Yes" or "Partially in place", not "Not yet in place".')
+        skip = True
+    elif choice and skip:
+        raise Layer2Error('A skip has no answer option; send "not_yet", or an answer without skip.')
     if not skip and not answer and not documents:
         raise Layer2Error('Give an answer, attach a document, or skip.')
     if documents and not skip:
@@ -327,21 +370,24 @@ def submit(question, *, answer='', document_ids=(), skip=False, parent=None, use
         elif locked.status != DepthQuestion.Status.OPEN:
             raise Layer2Error('This question has already been answered.')
         response = DepthResponse.objects.create(
-            question=locked, parent=parent,
+            question=locked, parent=parent, choice=choice,
             kind=DepthResponse.Kind.DONT_KNOW if skip else DepthResponse.Kind.ANSWER,
-            answer='' if skip else answer, document_ids=[] if skip else documents,
+            # A "not yet" keeps its note (context for the plan); a plain skip keeps nothing.
+            answer=answer if choice == DepthResponse.Choice.NOT_YET else '' if skip else answer,
+            document_ids=[] if skip else documents,
             status=DepthResponse.Status.CHECKED if skip else DepthResponse.Status.PENDING,
             submitted_via=via, submitted_by=user)
         if parent is None:
             locked.status = DepthQuestion.Status.ANSWERED
-            locked.save(update_fields=['status'])
+            locked.to_check, locked.to_check_by, locked.to_check_at = False, None, None
+            locked.save(update_fields=['status', 'to_check', 'to_check_by', 'to_check_at'])
             question.status = locked.status
             # A linked question's answer is recorded for each question it stands for, and checked against each one's
             # own requirement; one it does not resolve gets its own follow-up (questions-0.3).
             for member in DepthQuestion.objects.select_for_update().filter(linked_to=locked,
                                                                              status=DepthQuestion.Status.LINKED):
                 DepthResponse.objects.create(
-                    question=member, parent=None, kind=response.kind, answer=response.answer,
+                    question=member, parent=None, kind=response.kind, choice=response.choice, answer=response.answer,
                     document_ids=response.document_ids, status=response.status, submitted_via='linked',
                     submitted_by=user)
                 member.status = DepthQuestion.Status.ANSWERED

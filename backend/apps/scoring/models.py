@@ -510,6 +510,12 @@ class DepthQuestion(models.Model):
     points_at_stake = models.DecimalField(max_digits=7, decimal_places=2, default=0,
                                           help_text='Headline points a full answer can earn (questions-0.2).')
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    # "I need to check" (23 Nov): the college marked an open question to come back to. It stays open, moves behind the
+    # unmarked open questions, and is counted in progress so closing can warn about it. Answering clears it.
+    to_check = models.BooleanField(default=False)
+    to_check_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+')
+    to_check_at = models.DateTimeField(null=True, blank=True)
     spec_version = models.CharField(max_length=30)
     model = models.CharField(max_length=150, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -553,11 +559,20 @@ class DepthResponse(models.Model):
         PENDING = 'pending', 'Waiting for a check'
         CHECKED = 'checked', 'Checked'
 
+    class Choice(models.TextChoices):
+        # The college's own answer to "is this in place?" in Harsha's questionnaire design (23 Nov). Recorded for the
+        # reports and the improvement plan; it never moves the score by itself: credit still comes only from documents.
+        YES = 'yes', 'Yes, with supporting evidence'
+        PARTLY = 'partly', 'Partially in place'
+        NOT_YET = 'not_yet', 'Not yet in place'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     question = models.ForeignKey(DepthQuestion, on_delete=models.CASCADE, related_name='responses')
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='follow_ups',
                                help_text='The response whose follow-up question this answers.')
     kind = models.CharField(max_length=10, choices=Kind.choices)
+    choice = models.CharField(max_length=10, choices=Choice.choices, blank=True,
+                              help_text="The college's answer option; blank for a plain answer or a skip.")
     answer = models.TextField(blank=True)
     document_ids = models.JSONField(default=list, blank=True)
     supported = models.BooleanField(default=False)

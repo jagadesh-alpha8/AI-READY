@@ -43,8 +43,25 @@ export async function downloadPlanEvaluation(sprint: string, run: string, scenar
   saveBlob(res.data, `plan-comparison-${scenario.slice(0, 8)}.${format}`);
 }
 
+/** summary and detailed: the reports for people (23 Nov); leadership and evidence: InGage's technical appendix. */
+export type ReportAudience = 'summary' | 'detailed' | 'leadership' | 'evidence';
+
+/** Opens a report's web page in a new tab. The tab is opened before the request so the browser does not block it. */
+export async function openCapabilityReport(sprint: string, run: string, audience: ReportAudience) {
+  const tab = window.open('', '_blank');
+  try {
+    const res = await http.get<Blob>(`${root(sprint)}/${run}/report`, { params: { file: 'html', audience }, responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([res.data], { type: 'text/html' }));
+    if (tab) tab.location.href = url; else window.location.href = url;
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    tab?.close();
+    throw e;
+  }
+}
+
 export async function downloadCapabilityReport(sprint: string, run: string, format: 'html' | 'json' | 'pdf',
-  audience: 'leadership' | 'evidence', advice?: string) {
+  audience: ReportAudience, advice?: string) {
   const res = await http.get<Blob>(`${root(sprint)}/${run}/report`, {
     params: { file: format, audience, recommendation_id: advice }, responseType: 'blob',
   });
@@ -62,6 +79,9 @@ export interface Layer2Question {
   /** Score points this question can earn (for a lead, its whole linked group); questions come highest first. */
   points_at_stake?: number;
   linked_to?: string | null;
+  /** "I need to check": a saved mark on an open question; it moves behind the unmarked ones. */
+  to_check?: boolean;
+  to_check_at?: string | null;
 }
 export interface Layer2Progress {
   /** Questions the college is asked; linked questions are counted separately. */
@@ -71,11 +91,15 @@ export interface Layer2Progress {
   final_run_id?: string | null;
   /** True once the follow-up stage is closed (the final result is published): answers and evidence are refused. */
   closed?: boolean;
+  /** Open questions marked "I need to check". */
+  to_check?: number;
 }
 export interface Layer2Next { type: 'question' | 'follow_up'; text: string; question: Layer2Question; response_id: string | null }
 export interface Layer2Response {
   id: string; question_id: string; parent_id: string | null; kind: 'answer' | 'upload' | 'dont_know';
   answer: string; document_ids: string[]; status: 'pending' | 'checked'; supported: boolean | null;
+  /** The answer option: yes, partly or not_yet; null for a plain answer or a skip. */
+  choice?: AnswerChoice | null;
   follow_up: string | null; dimensions: { dimension_id: string; support: string; note: string }[];
   passages_found: number; created_at: string;
   /** 'linked' when recorded through the lead question of a linked group. */
@@ -87,13 +111,23 @@ export interface AdditionalEvidenceItem {
   id: string; document_ids: string[]; note: string; picked: string[]; routed_indicators: string[]; unknown_picks: string[];
   over_cap: string[]; status: 'pending' | 'checked'; passages_found: number; created_at: string;
 }
-type Reply = { answer?: string; document_ids?: string[]; skip?: boolean };
+export type AnswerChoice = 'yes' | 'partly' | 'not_yet';
+type Reply = { answer?: string; document_ids?: string[]; skip?: boolean; choice?: AnswerChoice };
 
 /** The text shown before the follow-up questions; served by the back end so every screen uses one wording. */
 export interface QuestionnaireNotice { version: string; title: string; intro: string; rules: string[]; closed: boolean; closed_text?: string }
-export interface Layer2Questions { next: Layer2Next | null; progress: Layer2Progress; notice?: QuestionnaireNotice }
+export interface Layer2Questions {
+  next: Layer2Next | null; progress: Layer2Progress; notice?: QuestionnaireNotice;
+  /** With ?list=1: every question in order, each with its latest answer (for "Previous"). */
+  questions?: (Layer2Question & { response: Layer2Response | null })[];
+}
 export const getNextQuestion = (sprint: string, run: string) =>
   http.get<Layer2Questions>(`${root(sprint)}/${run}/questions`);
+export const getQuestions = (sprint: string, run: string) =>
+  http.get<Layer2Questions>(`${root(sprint)}/${run}/questions`, { params: { list: 1 } });
+/** "I need to check": mark (or unmark) an open question to come back to. Never a skip. */
+export const markToCheck = (sprint: string, run: string, question: string, toCheck: boolean) =>
+  http.post<Layer2Question>(`${root(sprint)}/${run}/questions/${question}/to-check`, { to_check: toCheck });
 export const answerQuestion = (sprint: string, run: string, question: string, body: Reply) =>
   http.post<Layer2Response>(`${root(sprint)}/${run}/questions/${question}/responses`, body);
 export const getResponse = (sprint: string, run: string, response: string) =>

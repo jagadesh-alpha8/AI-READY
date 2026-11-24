@@ -658,6 +658,69 @@ class ProductFlowTests(APITestCase):
         listed = self.client.get(self.base).data['results']
         self.assertEqual(next(r for r in listed if r['status'] == 'completed')['id'], str(good.pk))
 
+    # ---------------------------------------------------------------- answer options (23 Nov)
+
+    def test_answer_options_and_marking_a_question_to_check(self):
+        """Harsha's questionnaire design (Siddharth, 23 Nov): Yes / Partially are answers, checked as before; Not yet
+        is recorded like a skip and changes nothing; "I need to check" is a saved mark, never a skip."""
+        from .capability.depth_service import _exchanges
+        provisional = self.assess()
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'questions'}, key='plan', expect=202)
+        self.run_queued()
+        url = f'{self.base}/{provisional.pk}/questions'
+        listed = self.client.get(url, {'list': 1}).data
+        self.assertEqual(len(listed['questions']), listed['progress']['questions'])
+        self.assertTrue(all(q['response'] is None and q['to_check'] is False for q in listed['questions']))
+        first, second, third = (q['id'] for q in listed['questions'][:3])
+
+        # "I need to check": saved, the question stays open, and the next question comes first.
+        marked = self.post(f'{url}/{first}/to-check', {'to_check': True}, expect=200)
+        self.assertEqual((marked.data['to_check'], marked.data['status']), (True, 'open'))
+        now = self.client.get(url).data
+        self.assertNotEqual(now['next']['question']['id'], first)
+        self.assertEqual(now['progress']['to_check'], 1)
+        self.assertEqual(now['progress']['open'], listed['progress']['open'])   # still open, not skipped
+
+        # "Not yet in place": no document, recorded like a skip, its note kept but never shown to the judge.
+        self.post(f'{url}/{second}/responses', {'choice': 'not_yet', 'document_ids': [self.document(ATTACHMENT)]},
+                  expect=400)
+        made = self.post(f'{url}/{second}/responses', {'choice': 'not_yet', 'answer': 'Planned for 2027.'}, expect=201)
+        self.assertEqual((made.data['kind'], made.data['choice'], made.data['status'], made.data['answer']),
+                         ('dont_know', 'not_yet', 'checked', 'Planned for 2027.'))
+        exchange = _exchanges([DepthQuestion.objects.get(pk=second)])[0]
+        self.assertEqual((exchange['kind'], exchange['answer']), ('dont_know', ''))
+
+        # "Yes": an answer like any other, waiting for its check; the choice is kept.
+        made = self.post(f'{url}/{third}/responses', {'choice': 'yes', 'answer': 'The register is attached.',
+                                                      'document_ids': [self.document(ATTACHMENT)]}, expect=201)
+        self.assertEqual((made.data['kind'], made.data['choice'], made.data['status']), ('answer', 'yes', 'pending'))
+
+        # Bad input.
+        open_q = next(q['id'] for q in listed['questions'][3:] if q['status'] == 'open')
+        self.post(f'{url}/{open_q}/responses', {'choice': 'maybe', 'answer': 'x'}, expect=400)
+        self.post(f'{url}/{open_q}/responses', {'choice': 'yes', 'skip': True}, expect=400)
+        self.post(f'{url}/{second}/to-check', {'to_check': True}, expect=400)   # already answered
+
+        # Answering the marked question clears the mark.
+        self.post(f'{url}/{first}/responses', {'choice': 'partly', 'answer': 'Some departments only.'}, expect=201)
+        self.assertFalse(DepthQuestion.objects.get(pk=first).to_check)
+        after = self.client.get(url, {'list': 1}).data
+        self.assertEqual(after['progress']['to_check'], 0)
+        answers = {q['id']: q['response'] for q in after['questions']}
+        self.assertEqual([answers[i]['choice'] for i in (first, second, third)], ['partly', 'not_yet', 'yes'])
+
+        # Marking and unmarking; refused once the stage is closed.
+        self.post(f'{url}/{open_q}/to-check', {'to_check': True}, expect=200)
+        unmarked = self.post(f'{url}/{open_q}/to-check', {'to_check': False}, expect=200)
+        self.assertFalse(unmarked.data['to_check'])
+        self.run_queued()
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'depth'}, key='depth', expect=202)
+        self.run_queued()
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge', 'options': {'close': True}},
+                  key='close', expect=202)
+        self.assertIsNotNone(self.run_queued()[0].final_run_id)
+        self.post(f'{url}/{open_q}/to-check', {'to_check': True}, expect=400)
+
     # ---------------------------------------------------------------- score explanations
 
     def test_closing_shows_the_tier_band_and_part_credit_in_the_evidence_report(self):
@@ -692,8 +755,8 @@ class ProductFlowTests(APITestCase):
         self.assertEqual(self.client.get(f'{self.base}/{final.pk}').data['assessment']['result']['score'],
                          self.client.get(f'{self.base}/{provisional.pk}').data['assessment']['result']['score'])
         final_body = self.client.get(f'{self.base}/{final.pk}/report', {'audience': 'evidence', 'file': 'html'}).content.decode()
-        self.assertIn('Tier: none yet;', final_body)                  # the score band, not the uncalibrated table
-        self.assertIn('Silver 60, Gold 70, Platinum 80, Diamond 90', final_body)
+        self.assertIn('Level: Starting out (★☆☆☆☆);', final_body)    # the score band, not the uncalibrated table
+        self.assertIn('Starting out 0, Getting there 20, Prepared 40, Advanced 60, Leading 80', final_body)
         self.assertNotIn('Current eligibility', final_body)
         self.assertNotIn('tier pathways', final_body)
         self.assertNotIn('0.0–100.0', final_body)                     # each key indicator's part-credit score

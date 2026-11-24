@@ -1,3 +1,4 @@
+import { DEMO_MODE } from '../config/env';
 import { useState } from 'react';
 import { GapDetailDialog } from '../components/GapDetail';
 import { RequireSprint } from '../components/RequireSprint';
@@ -125,6 +126,7 @@ function GapsBody({ sprint }: { sprint: Sprint }) {
           </>
         )}
 
+      {!DEMO_MODE && (
       <Panel title="Capability, compliance and outcome gaps" sub="From the benchmark assessment's improvement plan">
         {!cycleId ? <p className="muted">No benchmark assessment cycle yet.</p> : plan.loading ? <Loading /> : plan.error ? <ErrorState error={plan.error} /> :
           !plan.data?.gaps.length ? <p className="muted">No plan gaps yet. They are generated once the assessment cycle is finalized.</p> : (
@@ -147,6 +149,7 @@ function GapsBody({ sprint }: { sprint: Sprint }) {
             </Table>
           )}
       </Panel>
+      )}
 
       {planAct?.kind === 'update' && (
         <ActionDialog title={`Update: ${planAct.gap.benchmark_title}`} confirmLabel="Save"

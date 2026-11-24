@@ -278,13 +278,14 @@ for suffix in ('', '/'):
 # Second assessment layer: follow-up questions one at a time, optional additional evidence, and its background jobs.
 from apps.scoring.capability.layer2_views import (
     AdditionalEvidenceView, FollowUpView, JobCancelView, JobsView, JobView, QuestionResponsesView, QuestionsView,
-    ResponseView,
+    ResponseView, ToCheckView,
 )
 for suffix in ('', '/'):
     prefix = '/<uuid:sprint_id>/capability-runs/<uuid:run_id>'
     urlpatterns += [
         path(prefix + '/questions' + suffix, QuestionsView.as_view()),
         path(prefix + '/questions/<uuid:question_id>/responses' + suffix, QuestionResponsesView.as_view()),
+        path(prefix + '/questions/<uuid:question_id>/to-check' + suffix, ToCheckView.as_view()),
         path(prefix + '/responses/<uuid:response_id>' + suffix, ResponseView.as_view()),
         path(prefix + '/responses/<uuid:response_id>/follow-up' + suffix, FollowUpView.as_view()),
         path(prefix + '/additional-evidence' + suffix, AdditionalEvidenceView.as_view()),

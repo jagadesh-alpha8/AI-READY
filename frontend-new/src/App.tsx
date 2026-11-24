@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SprintProvider } from './context/SprintContext';
-import { Shell } from './components/Shell';
+import { WorkspaceShell } from './workspace/WorkspaceShell';
 import { Empty, Loading, PageLink } from './components/ui';
 import { DEMO_MODE } from './config/env';
 import { canSeePage, type PageKey } from './utils/access';
@@ -10,7 +10,6 @@ import { pathOf } from './navigation';
 
 import { Login } from './pages/Login';
 import { ActivateAccount, ResetPassword } from './pages/AccountLinks';
-import { Overview } from './pages/Overview';
 import { Onboarding } from './pages/Onboarding';
 import { Profile } from './pages/Profile';
 import { SprintSetup } from './pages/SprintSetup';
@@ -21,8 +20,6 @@ import { EvidenceReview } from './pages/EvidenceReview';
 import { Assessment } from './pages/Assessment';
 import { BenchmarkComparison } from './pages/BenchmarkComparison';
 import { GapAnalysis } from './pages/GapAnalysis';
-import { CriStanding } from './pages/CriStanding';
-import { Pathway } from './pages/Pathway';
 import { TransformationPlan } from './pages/TransformationPlan';
 import { GoalsTasks } from './pages/GoalsTasks';
 import { Reports } from './pages/Reports';
@@ -43,9 +40,16 @@ import { PlanComparison } from './pages/PlanComparison';
 import { Institutions } from './pages/Institutions';
 import { AssessmentSetup } from './pages/AssessmentSetup';
 import { BenchmarkLibrary } from './pages/BenchmarkLibrary';
+import { ReadinessAreas } from './workspace/ReadinessAreas';
+import { OverviewPage } from './workspace/OverviewPage';
+import { ResultsSummary } from './workspace/ResultsSummary';
+import { PathwayPage } from './workspace/PathwayPage';
+import { AssessmentPage } from './workspace/AssessmentPage';
+import { ActionsPage } from './workspace/ActionsPage';
+import { PacePage } from './workspace/PacePage';
 
 const PAGES: Record<PageKey, () => JSX.Element> = {
-  overview: Overview,
+  overview: OverviewPage,
   onboarding: Onboarding,
   profile: Profile,
   sprint: SprintSetup,
@@ -53,12 +57,12 @@ const PAGES: Record<PageKey, () => JSX.Element> = {
   uploads: Uploads,
   evidence: EvidenceIntelligence,
   review: EvidenceReview,
-  assessment: Assessment,
+  assessment: DEMO_MODE ? AssessmentPage : Assessment,
   benchmark: BenchmarkComparison,
   gaps: GapAnalysis,
-  cri: CriStanding,
-  pathway: Pathway,
-  plan: TransformationPlan,
+  cri: ResultsSummary,
+  pathway: PathwayPage,
+  plan: DEMO_MODE ? PacePage : TransformationPlan,
   goals: GoalsTasks,
   reports: Reports,
   copilot: Advisor,
@@ -74,10 +78,11 @@ const PAGES: Record<PageKey, () => JSX.Element> = {
   aiqif: AIQIFTagging,
   baseline: BaselineApproval,
   questionnaire: Questionnaire,
-  actions: RecommendedActions,
+  actions: DEMO_MODE ? ActionsPage : RecommendedActions,
   plancompare: PlanComparison,
   institutions: Institutions,
   assessmentsetup: AssessmentSetup,
+  areas: ReadinessAreas,
 };
 
 function Protected({ page, children }: { page: PageKey; children: ReactNode }) {
@@ -85,13 +90,13 @@ function Protected({ page, children }: { page: PageKey; children: ReactNode }) {
   if (loading) return <div className="fullscreen"><Loading label="Signing in…" /></div>;
   if (!user) return <Navigate to="/login" replace />;
   return (
-    <Shell page={page}>
+    <WorkspaceShell page={page}>
       {canSeePage(user.role, page) && !(DEMO_MODE && page === 'apistatus') ? children : (
         <Empty title="No access" action={<PageLink to="overview">Back to overview</PageLink>}>
           Your role does not include this screen.
         </Empty>
       )}
-    </Shell>
+    </WorkspaceShell>
   );
 }
 

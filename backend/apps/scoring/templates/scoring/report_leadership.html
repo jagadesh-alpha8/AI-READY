@@ -1,0 +1,114 @@
+{% load report_tags %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI readiness report — {{ v.institution }}</title>{% include "scoring/report_style.html" %}</head><body><div class="sheet">
+
+<section class="page">
+  <div class="header">
+    <div><div class="eyebrow">AI readiness report</div><h1>{{ v.institution }}</h1></div>
+    <div class="meta">{{ v.stage_label }}<br>{{ exported|date:"j F Y" }}</div>
+  </div>
+
+  <div class="hero">
+    <div class="badge">
+      {{ v.level.stars|stars }}
+      <span class="name">{{ v.level.name }}</span>
+      <span class="score">{{ v.score_whole }} out of 100{% if not v.final %} · so far{% endif %}</span>
+    </div>
+    <div class="text">
+      <p><strong>{{ v.level.meaning }}</strong></p>
+      <p>{{ v.summary }}</p>
+      {% if not v.final and v.held_whole %}<p class="muted small">This is the result from your documents alone. Answering the follow-up questions can add up to {{ v.held_whole }} points.</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Your nine readiness areas</h2>
+    <div class="bars">
+      {% for a in v.areas %}<div class="bar-row">
+        <div class="bar-name">{{ a.name }}</div>
+        <div class="bar-track"><div class="track"><i class="shown {{ a.score|tone }}" style="width:{{ a.score|pct }}%"></i>{% if a.held >= 0.5 %}<i class="held" style="left:{{ a.score|pct }}%;width:{{ a.held|pct }}%"></i>{% endif %}</div></div>
+        <div class="bar-stars">{{ a.level.stars|stars }}</div>
+        <div class="bar-score">{{ a.score|whole }}</div>
+      </div>{% endfor %}
+    </div>
+    <div class="legend"><i class="shown"></i>Counts now{% if v.held_points %}<i class="held"></i>{% if v.final %}Shown in your documents, not confirmed by follow-up answers{% else %}Shown in your documents; counts once your follow-up answers confirm it{% endif %}{% endif %} · One star for every 20 points</div>
+  </div>
+
+  <div class="section next">
+    {% if v.level.next %}
+      <p><span class="big">{{ v.level.points_to_next }}</span> points to <strong>{{ v.level.next }}</strong> {{ v.level.next_stars|stars }}</p>
+      {% if v.where_points %}<p class="small muted" style="margin-top:6px">Where the points are:</p>
+      <ul class="small" style="margin:4px 0 0;padding-left:16px">{% for a in v.where_points %}<li><strong>{{ a.name }}</strong> <span class="muted">(up to {{ a.room|points }})</span></li>{% endfor %}</ul>
+      <p class="small muted" style="margin-top:4px">The next page says where to start in each.</p>{% endif %}
+    {% else %}<p>You are at the top level. Keep your evidence current as your practice grows.</p>{% endif %}
+  </div>
+</section>
+
+<section class="page">
+  <h2>Where you're strong</h2>
+  {% if v.strengths %}<div class="cards">{% for a in v.strengths %}<div class="card strong">
+    <h3>{{ a.name }} {{ a.level.stars|stars }}</h3>
+    <p>{{ a.in_place }} of {{ a.requirements }} practices shown in full{% if a.partly %}, {{ a.partly }} in part{% endif %}.</p>
+    {% if a.quote %}<p class="quote">“{{ a.quote.text }}”</p><p class="source">{{ a.quote.source }}</p>{% endif %}
+  </div>{% endfor %}</div>{% else %}<p class="muted">Nothing is shown in full yet; the focus areas below are where to start.</p>{% endif %}
+
+  <div class="section"><h2>Where to focus</h2>
+  <div class="cards">{% for a in v.focus %}<div class="card focus">
+    <h3>{{ a.name }} {{ a.level.stars|stars }}</h3>
+    <p>{% if a.score == 0 %}Nothing found in your documents yet.{% else %}{{ a.in_place|add:a.partly }} of {{ a.requirements }} practices shown so far.{% endif %}</p>
+    {% if a.missing %}<p><strong>Start with:</strong> {{ a.missing.0 }}</p>{% endif %}
+  </div>{% endfor %}</div></div>
+
+</section>
+
+<section class="page">
+  {% if v.actions %}<div><h2>What to do next</h2>
+  <p class="small muted" style="margin:-4px 0 4px">{{ v.actions|length }} first steps across the areas with the most to gain; together about {{ v.actions_points|points }}. Every step is listed in the detailed report.</p>
+  {% for x in v.actions %}<div class="action"><div class="ncell"><span class="n">{{ forloop.counter }}</span></div><div>
+    <h3>{{ x.title }}</h3>
+    <ul>{% for s in x.show %}<li><strong>{{ x.step }}:</strong> {{ s }}</li>{% endfor %}</ul>
+    <p class="meta">{{ x.area }}{% if x.lead %} · Suggested lead: {{ x.lead }}{% endif %}</p>
+  </div></div>{% endfor %}
+
+  </div>{% endif %}
+</section>
+
+<section class="page">
+  <h2>The nine areas</h2>
+  {% for a in v.started %}<div class="area">
+    <div class="area-head"><h3>{{ a.name }} {{ a.level.stars|stars }} <span class="muted small">{{ a.level.name }}</span></h3><span class="score">{{ a.score|whole }}</span></div>
+    <div class="track"><i class="shown {{ a.score|tone }}" style="width:{{ a.score|pct }}%"></i>{% if a.held >= 0.5 %}<i class="held" style="left:{{ a.score|pct }}%;width:{{ a.held|pct }}%"></i>{% endif %}</div>
+    <div class="cols">
+      <div><h3>What's in place</h3>
+        {% if a.summary_short %}<p class="small">{{ a.summary_short }}</p>{% endif %}
+        {% if a.quote %}<p class="quote">“{{ a.quote.text }}”</p><p class="source">{{ a.quote.source }}</p>{% elif not a.summary_short %}<p class="small muted">Nothing in this area was found in your documents yet.</p>{% endif %}
+      </div>
+      <div><h3>What to show next</h3>
+        {% if a.missing %}<ul>{% for m in a.missing|slice:":3" %}<li>{{ m }}</li>{% endfor %}{% if a.missing|length > 3 %}<li class="muted">and {{ a.missing|length|add:"-3" }} more in the detailed report</li>{% endif %}</ul>
+        {% else %}<p class="small muted">Everything in this area is shown. Keep the evidence current.</p>{% endif %}
+      </div>
+    </div>
+  </div>{% endfor %}
+  {% if v.not_started %}<div class="area">
+    <h3>Not found in your documents yet {{ 1|stars }}</h3>
+    <p class="small muted" style="margin-top:2px">Nothing in these {{ v.not_started|length }} area{{ v.not_started|length|pluralize }} was found yet. The first things to show in each:</p>
+    <table class="req" style="margin-top:8px">{% for a in v.not_started %}<tr><td style="width:32%"><strong>{{ a.name }}</strong></td>
+      <td>{% for m in a.missing|slice:":2" %}{{ m }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td></tr>{% endfor %}</table>
+  </div>{% endif %}
+</section>
+
+<section class="page">
+  <h2>How to read this report</h2>
+  <table class="levels">{% for l in v.levels %}<tr class="{% if l.name == v.level.name %}here{% endif %}">
+    <td style="white-space:nowrap">{{ l.stars|stars }}</td><td style="white-space:nowrap"><strong>{{ l.name }}</strong></td>
+    <td class="muted" style="white-space:nowrap">{% if l.to %}{{ l.from }}–{{ l.to }}{% else %}{{ l.from }} and above{% endif %}</td><td>{{ l.meaning }}</td></tr>{% endfor %}</table>
+  <div class="section">
+    <h3>How the assessment works</h3>
+    <p class="small" style="margin-top:6px">We read the documents your institution sent ({{ v.documents }} document{{ v.documents|pluralize }}) against {{ v.requirements }} practices in nine areas of AI readiness. Each practice earns credit when the documents show it, and part credit when they show part of it. An area's score is the share of its practices shown; the overall score combines the nine areas. Every finding in this report quotes the document it came from.</p>
+    {% if v.held_points %}<h3 style="margin-top:12px">The hatched part of a bar</h3>
+    <p class="small" style="margin-top:6px">For each practice your documents show, {{ v.held_share_text }} of its credit is held until the follow-up questions confirm how far it goes, for example how many staff, how often, with what results. {% if v.final %}Credit the answers did not confirm stays held.{% else %}Your answers, backed by documents, earn it back.{% endif %}</p>{% endif %}
+    <h3 style="margin-top:12px">Keep in mind</h3>
+    <p class="small" style="margin-top:6px">A practice we did not find in your documents may still exist; send the document and it can be counted. The levels are provisional until calibrated across colleges. Completing an action changes the score only when a new assessment reads the documents that show it.</p>
+    <p class="small muted" style="margin-top:12px">The detailed report lists all {{ v.requirements }} practices, with what was found, the quotation and its document, and the next step for each.</p>
+  </div>
+</section>
+</div></body></html>

@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { DEMO_MODE } from '../config/env';
+import { InWorkspace } from '../workspace/WorkspaceShell';
 import { PAGE_META, pathOf } from '../navigation';
 import type { PageKey } from '../utils/access';
 import { errorMessage, statusOf } from '../utils/errors';
@@ -81,7 +82,10 @@ export function SampleTable({ columns, rows }: { columns: string[]; rows: ReactN
 const MATURITY_PAGES: ReadonlySet<PageKey> = new Set<PageKey>(['cri', 'pathway', 'plan', 'gaps', 'benchmark']);
 
 export function PageHeading({ page, actions, title }: { page: PageKey; actions?: ReactNode; title?: string }) {
+  // Inside the workspace the section heading and tabs name the screen; only the screen's own actions remain.
+  const inWorkspace = useContext(InWorkspace);
   const [eyebrow, defaultTitle, text] = PAGE_META[page];
+  if (inWorkspace) return actions ? <div className="ws-page-actions">{actions}</div> : null;
   return (
     <div className={`page-heading ${MATURITY_PAGES.has(page) ? 'tier-journey' : ''}`}>
       <div>

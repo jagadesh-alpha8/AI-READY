@@ -9,8 +9,10 @@ Assumptions (12 Nov 2026, recorded for Harsha in "AI-READY second layer: decisio
 - Order follows the rubric's own levels: an activity requirement is planned only once its key indicator has some
   provision credited or planned, an outcome only once it has some activity. Within that, the largest score gain for the
   least effort comes first; completing partial credit counts as less effort than establishing.
-- Tiers are provisional score bands on the final score (CAPABILITY_PROVISIONAL_TIERS, default Silver 60, Gold 70,
-  Platinum 80, Diamond 90), not the rubric's uncalibrated badge policy, which stays untouched.
+- Readiness levels are provisional score bands with stars (CAPABILITY_PROVISIONAL_TIERS; since 23 Nov: one star per 20
+  points, Starting out / Getting there / Prepared / Advanced / Leading, replacing Silver / Gold / Platinum / Diamond,
+  which read as commercial), not the rubric's uncalibrated badge policy, which stays untouched. Every score has a
+  level, the lowest included.
 Projections use the engine's documented() arithmetic, the same as the headline score; they are projections, not
 promises, and completing an action changes no score until a reassessment finds the evidence.
 """
@@ -22,11 +24,20 @@ MAX_CONDITIONS = 24      # requirements in the plan
 STEP = 10                # the target is the next multiple of STEP above the current score
 EFFORT = {('complete', 'F'): 1, ('complete', 'A'): 1.5, ('complete', 'O'): 2,
           ('establish', 'F'): 2, ('establish', 'A'): 3, ('establish', 'O'): 4}
-DEFAULT_TIERS = (('Silver', 60), ('Gold', 70), ('Platinum', 80), ('Diamond', 90))
+DEFAULT_TIERS = (('Starting out', 0), ('Getting there', 20), ('Prepared', 40), ('Advanced', 60), ('Leading', 80))
+#: What each level means, for the reports and screens (frontend-new/src/utils/levels.ts holds the same table).
+LEVEL_MEANINGS = {
+    'Starting out': 'A few AI practices are in place. Most areas have yet to start.',
+    'Getting there': 'Foundations are in place in some areas. AI is not yet part of everyday teaching and operations.',
+    'Prepared': 'Foundations are in place in most areas, and AI is in use in several of them.',
+    'Advanced': 'AI is in regular use across most areas, with results being reviewed.',
+    'Leading': 'AI is embedded across the institution, with measured results and continuous improvement.',
+}
 
 
 def tiers():
-    """[(name, threshold)] from CAPABILITY_PROVISIONAL_TIERS ("Silver:60,Gold:70,Platinum:80,Diamond:90"), ascending."""
+    """[(name, threshold)] from CAPABILITY_PROVISIONAL_TIERS ("Starting out:0,Getting there:20,..."), ascending. The
+    lowest band starts at 0, so every score has a level; the number of stars is the band's position (1 to 5)."""
     from django.conf import settings
     raw = getattr(settings, 'CAPABILITY_PROVISIONAL_TIERS', '') or ''
     parsed = []
@@ -36,21 +47,27 @@ def tiers():
             parsed.append((name.strip(), float(value)))
         except ValueError:
             continue
-    parsed = [(n, v) for n, v in parsed if n and 0 < v <= 100]
+    parsed = [(n, v) for n, v in parsed if n and 0 <= v <= 100]
     return sorted(parsed or DEFAULT_TIERS, key=lambda t: t[1])
 
 
 def tier_for(score):
-    """The provisional tier a score reaches, the next one, and the points to it."""
+    """The readiness level a score reaches (with its stars), the next one, and the points to it."""
     bands = tiers()
     reached = [t for t in bands if score >= t[1]]
     ahead = [t for t in bands if score < t[1]]
-    return {'current': reached[-1][0] if reached else None,
+    current = reached[-1][0] if reached else None
+    return {'current': current, 'stars': len(reached),
+            'meaning': LEVEL_MEANINGS.get(current, ''),
             'next': ahead[0][0] if ahead else None,
             'next_threshold': ahead[0][1] if ahead else None,
             'points_to_next': round(ahead[0][1] - score, 2) if ahead else 0,
-            'thresholds': [{'name': n, 'score': v} for n, v in bands], 'provisional': True,
-            'note': 'Provisional score bands on the final score, pending calibration across colleges.'}
+            'thresholds': [{'name': n, 'score': v, 'stars': i + 1} for i, (n, v) in enumerate(bands)], 'provisional': True,
+            'note': 'Readiness levels are provisional score bands, pending calibration across colleges.'}
+
+
+def stars_text(stars, out_of=5):
+    return '★' * stars + '☆' * max(0, out_of - stars)
 
 
 def credit_of(record):

@@ -46,8 +46,8 @@ function Body({ sprint }: { sprint: Sprint }) {
         <button className="primary-action" disabled={!cap.enabled} onClick={() => setWriting(true)}>Compare a plan</button>
       )} />
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
-      <Panel title="Comparisons" sub={`Against run ${runId.slice(0, 8)}`}>
-        {list.loading && !list.data ? <Loading /> : list.error ? <ErrorState error={list.error} /> : !list.data?.results.length ? <p className="muted">No plans compared yet.</p> : (
+      <Panel title={DEMO_MODE ? 'Your plans, checked' : 'Comparisons'} sub={DEMO_MODE ? 'Against your latest result' : `Against run ${runId.slice(0, 8)}`}>
+        {list.loading && !list.data ? <Loading /> : list.error ? <ErrorState error={list.error} /> : !list.data?.results.length ? <p className="muted">{DEMO_MODE ? 'No plan checked yet. Upload your own AI plan or strategy and we show which foundation goals it covers, which it misses, and how far it would move your level.' : 'No plans compared yet.'}</p> : (
           <Table columns={['Comparison', 'Started', 'Status', '']}>
             {list.data.results.map((j) => (
               <tr key={j.id}>

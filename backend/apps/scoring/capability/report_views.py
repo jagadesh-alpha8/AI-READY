@@ -1,5 +1,6 @@
 """Authenticated, pinned, inference-free capability exports; no baseline approval gate."""
 import json
+import logging
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
@@ -15,6 +16,8 @@ from .report_projection import held_note
 from .recommendations import build_inputs
 from .storage import digest
 from .report_projection import build_report_view
+
+logger = logging.getLogger(__name__)
 
 
 class ReportUnavailable(APIException):
@@ -84,6 +87,19 @@ def assessment_stage(run, event):
             'up_to': up_to, 'note': note}
 
 
+def html_to_pdf(html):
+    """The PDF of a report page, made from the same HTML (WeasyPrint), or None where WeasyPrint or its system
+    libraries are not installed (a Windows machine without GTK): the caller then uses the older PDF renderer."""
+    try:
+        from weasyprint import HTML
+    except Exception:   # ImportError, or OSError when pango is missing
+        return None
+    try:
+        return HTML(string=html).write_pdf()
+    except Exception:
+        return None
+
+
 class CapabilityReportView(RunView):
     def get(self, request, sprint_id, run_id):
         execution = self.authorized(request, sprint_id, run_id)
@@ -95,8 +111,10 @@ class CapabilityReportView(RunView):
         if file_format not in {'html', 'json', 'pdf'}:
             raise serializers.ValidationError({'file': 'Choose html, json or pdf.'})
         audience = request.query_params.get('audience', 'leadership')
-        if audience not in {'leadership', 'evidence'}:
-            raise serializers.ValidationError({'audience': 'Choose leadership or evidence.'})
+        # summary and detailed: the reports designed for people (23 Nov, presentation.py); leadership and evidence:
+        # the earlier reports, kept as InGage's technical appendix.
+        if audience not in {'summary', 'detailed', 'leadership', 'evidence'}:
+            raise serializers.ValidationError({'audience': 'Choose summary, detailed, leadership or evidence.'})
         advice_id = request.query_params.get('recommendation_id')
         recommendation = None
         snapshot = completed = None
@@ -140,7 +158,7 @@ class CapabilityReportView(RunView):
         if result_view.get('score') is not None:
             # A single-score (part-credit) run: each key indicator's part-credit score and each requirement's credit
             # label, as the PDF prints them, instead of the strict ranges and states; and the tier as a score band.
-            from .action_plan import tier_for, tiers
+            from .action_plan import stars_text, tier_for, tiers
             from .report_projection import CREDIT_LABELS, credit_status
             scores = {i['code']: i['score'] for i in (result_view.get('documented') or {}).get('indicators') or []}
             for indicator in indicators:
@@ -149,14 +167,36 @@ class CapabilityReportView(RunView):
                     decision = requirement['decision']
                     requirement['credit_label'] = (f"{CREDIT_LABELS[credit_status(decision)]} "
                                                    f"(credit {decision.get('credit') or 0:g})")
-            payload['tier_band'] = {**tier_for(result_view['score']),
+            band = tier_for(result_view['score'])
+            payload['tier_band'] = {**band, 'stars_text': stars_text(band['stars']),
+                                    'points_to_next': round(band['points_to_next'], 2),
                                     'bands': ', '.join(f'{name} {value:g}' for name, value in tiers())}
         plan_actions = payload['deterministic_plan']['actions']
         enriched = {a['condition_id']: a for a in (completed.payload['advice'] if completed else [])}
         actions = [{**a, 'advice': enriched.get(a['id'])} for a in plan_actions]
         payload['report_view'] = build_report_view(payload, actions)
+        if audience in {'summary', 'detailed'}:
+            from .presentation import build
+            try:
+                view = build(payload)
+                payload['presentation'] = view
+            except Exception:   # a run shaped in a way the new reports don't expect: serve the older report instead
+                logger.exception('presentation failed for run %s; serving the older %s report', run.pk, audience)
+                audience = 'leadership' if audience == 'summary' else 'evidence'
         if file_format == 'json':
             content = json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2)
+        elif audience in {'summary', 'detailed'}:
+            template = 'scoring/report_leadership.html' if audience == 'summary' else 'scoring/report_detailed.html'
+            content = render_to_string(template, {'v': view, 'exported': payload['exported_at']})
+            if file_format == 'pdf':
+                pdf = html_to_pdf(content)
+                if pdf is None and audience == 'summary':
+                    from .leadership_pdf import render_leadership_pdf
+                    pdf = render_leadership_pdf(payload['report_view'])
+                elif pdf is None:
+                    from .pdf_report import render_pdf
+                    pdf = render_pdf(payload, indicators, actions)
+                content = pdf
         else:
             # Django autoescape handles all institution/source/model text; no raw HTML is marked safe.
             if file_format == 'pdf':

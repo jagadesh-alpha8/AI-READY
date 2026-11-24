@@ -61,8 +61,8 @@ export const tierLabel = (s: string) => TIER_ELIGIBILITY[s] || s.replace(/_/g, '
 export const capabilityTone = (s: string) =>
   s === 'demonstrated' || s === 'met' ? 'good' : s === 'requirements_unmet' || s === 'not_met' || s === 'conflicting' ? 'bad' : 'warn';
 
-/** The provisional tiers: score bands on the part-credit score (backend action_plan.DEFAULT_TIERS). */
-export const TIER_BANDS: [string, number][] = [['Silver', 60], ['Gold', 70], ['Platinum', 80], ['Diamond', 90]];
+/** The readiness levels as score bands on the part-credit score (backend action_plan.DEFAULT_TIERS; utils/levels.ts). */
+export const TIER_BANDS: [string, number][] = [['Starting out', 0], ['Getting there', 20], ['Prepared', 40], ['Advanced', 60], ['Leading', 80]];
 export const TIER_BANDS_TEXT = TIER_BANDS.map(([n, v]) => `${n} ${v}`).join(', ');
 
 /** The band a part-credit score reaches, the next one and the points to it. */

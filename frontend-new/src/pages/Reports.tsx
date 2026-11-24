@@ -4,17 +4,26 @@ import { Dummy, Empty, ErrorState, Loading, Notice, PageHeading, Pill, Table } f
 import { useAccess } from '../hooks/useAccess';
 import { useCapability } from '../hooks/useCapability';
 import { usePolling, useResource } from '../hooks/useResource';
-import { downloadCapabilityReport, getAssessmentStage, type AssessmentStage } from '../services/capability';
+import { downloadCapabilityReport, getAssessmentStage, openCapabilityReport, type AssessmentStage } from '../services/capability';
+import { Icon } from '../workspace/Icon';
 import { http, saveBlob } from '../services/http';
 import { downloadReport, generateReport, listReports } from '../services/reports';
 import { listSprintFactsPage } from '../services/facts';
 import { listSprintGapsPage } from '../services/gaps';
 import type { Fact, Gap, Report, Sprint } from '../types/api';
 import { DEMO_MODE } from '../config/env';
-import { STAGE_ONE, stageLabel } from '../utils/capability';
+import { STAGE_ONE } from '../utils/capability';
 import { toCsv } from '../utils/csv';
 import { errorMessage } from '../utils/errors';
 import { dateTime, num, pct, tidyText, valueText } from '../utils/format';
+
+/** The two reports for the institution (23 Nov): a four-page summary and the full detail. */
+const REPORTS = [
+  { audience: 'summary' as const, icon: 'file', title: 'Leadership report',
+    text: 'Your level and stars, the nine areas at a glance, where you are strong, where to focus and what to do next.', meta: 'About 4 pages · for leadership and the board' },
+  { audience: 'detailed' as const, icon: 'assessment', title: 'Detailed report',
+    text: 'Every practice in all nine areas: what your documents show, the quotation and its document, and the next step.', meta: 'Every practice · for the teams doing the work' },
+];
 
 /** Handoff outputs (6.17) and which ones the backend produces today. */
 const OUTPUTS = [
@@ -110,30 +119,48 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
           </article>
         ))}
       </div>}
-      {!DEMO_MODE && <h2 className="section-title">Capability assessment report</h2>}
-      {stage.data && (
-        <Notice tone={stage.data.stage === 'final' ? 'success' : 'info'}>
-          <Pill tone={stage.data.stage === 'final' ? 'good' : 'neutral'} label={stage.data.label || stageLabel(stage.data.stage)} /> {stage.data.note}
-        </Notice>
+      {stage.data && stage.data.stage !== 'final' && (
+        <Notice tone="info">These reports show your Stage 1 result, from your documents alone. Once the follow-up questions are answered and the result is published, the final reports appear here.</Notice>
       )}
-      {!cap.run.data?.assessment ? <Empty title="No completed capability assessment">The capability report is available once an evidence-based assessment completes.</Empty> : (
-        <Table columns={['Audience', 'Formats']}>
-          {/* After publishing, the Stage 1 result's reports stay downloadable beside the final ones. */}
-          {[{ runId: cap.run.data!.id, label: '', advice: cap.advice?.id, when: dateTime(cap.run.data!.created_at) },
-            ...(stage.data?.stage === 'final' && stage.data.provisional_run_id
-              ? [{ runId: stage.data.provisional_run_id, label: `${STAGE_ONE} · `, advice: undefined, when: `run ${stage.data.provisional_run_id.slice(0, 8)}` }] : []),
-          ].flatMap((row) => (['leadership', 'evidence'] as const).map((audience) => (
-            <tr key={`${row.runId}-${audience}`}>
-              <td><strong>{row.label}{audience === 'leadership' ? 'Leadership report' : 'Evidence report'}</strong><small className="cell-sub">{row.label ? row.when : `Run ${row.when}`}</small></td>
-              <td><div className="row-actions">
-                {(['pdf', 'html', 'json'] as const).map((format) => (
-                  <button key={format} className="secondary-button" onClick={() => void download(() => downloadCapabilityReport(sprint.id, row.runId, format, audience, row.advice))}>{format.toUpperCase()}</button>
-                ))}
-              </div></td>
-            </tr>
-          )))}
-        </Table>
-      )}
+      {!cap.run.data?.assessment ? (cap.run.loading ? <Loading /> : <Empty title="No reports yet">The reports are ready once the assessment of your documents completes.</Empty>) : (() => {
+        const rows = [{ runId: cap.run.data!.id, final: stage.data?.stage === 'final', when: dateTime(cap.run.data!.created_at), advice: cap.advice?.id },
+          ...(stage.data?.stage === 'final' && stage.data.provisional_run_id
+            ? [{ runId: stage.data.provisional_run_id, final: false, when: '', advice: undefined }] : [])];
+        return (
+          <>
+            {rows.map((row) => (
+              <section key={row.runId} className="ws-report-group">
+                <h2 className="ws-report-group-title">{row.final ? 'Final result' : STAGE_ONE}{row.when && <small>{row.when}</small>}</h2>
+                <div className="ws-cards ws-cards-2">
+                  {REPORTS.map((r) => (
+                    <article className="ws-card ws-report-card" key={r.audience}>
+                      <div className="ws-report-icon"><Icon name={r.icon} /></div>
+                      <h3>{r.title}</h3>
+                      <p>{r.text}</p>
+                      <small className="ws-source">{r.meta}</small>
+                      <div className="ws-row">
+                        <button className="primary-action" onClick={() => void download(() => openCapabilityReport(sprint.id, row.runId, r.audience))}>Open</button>
+                        <button className="secondary-button" onClick={() => void download(() => downloadCapabilityReport(sprint.id, row.runId, 'pdf', r.audience))}>Download PDF</button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <details className="ws-technical">
+                  <summary>Technical appendix (for InGage)</summary>
+                  <p className="muted">Every requirement, model decision and source page, for review and audit.</p>
+                  <div className="ws-row">
+                    {(['leadership', 'evidence'] as const).flatMap((audience) => (['pdf', 'html', 'json'] as const).map((format) => (
+                      <button key={`${audience}-${format}`} className="secondary-button" onClick={() => void download(() => downloadCapabilityReport(sprint.id, row.runId, format, audience, row.advice))}>
+                        {audience === 'leadership' ? 'Basic' : 'Evidence'} · {format.toUpperCase()}
+                      </button>
+                    )))}
+                  </div>
+                </details>
+              </section>
+            ))}
+          </>
+        );
+      })()}
       {!DEMO_MODE && <>
       <h2 className="section-title">Audit report versions</h2>
       {reports.loading && !reports.data ? <Loading /> : reports.error ? <ErrorState error={reports.error} onRetry={() => void reports.refetch()} /> :
