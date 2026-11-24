@@ -1020,4 +1020,6 @@ class FinalResultReportTests(FinalResultTests):
         stages = {row['id']: (row['stage'], row['provisional_run_id'], row['completed_indicators']) for row in listed.data['results']}
         self.assertEqual(stages[str(final.pk)], ('final', str(self.run.pk), 36))
         self.assertEqual(stages[str(self.run.pk)][0], 'provisional')
-        self.assertEqual(listed.data['review_questions_awaiting'], 0)
+        # The review questions' count is its own call (issue 60); the run list no longer builds the review queue.
+        self.assertNotIn('review_questions_awaiting', listed.data)
+        self.assertEqual(self.client.get(f'{self.base}/review-status').data['review_questions_awaiting'], 0)

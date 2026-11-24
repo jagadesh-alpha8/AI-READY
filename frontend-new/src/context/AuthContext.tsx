@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as authApi from '../services/auth';
 import { SESSION_EXPIRED_EVENT, tokens } from '../services/http';
+import { clearKeptRuns } from '../services/runCache';
 import type { User } from '../types/api';
 
 interface AuthState {
@@ -23,13 +24,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((res) => setUser(res.data))
       .catch(() => {
         tokens.clear();
+        clearKeptRuns();
         setUser(null);
       })
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
-    const onExpired = () => setUser(null);
+    const onExpired = () => { clearKeptRuns(); setUser(null); };
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
   }, []);
@@ -45,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Blacklist the refresh token first (it needs the access token), then clear locally whatever happens.
     if (refresh) await authApi.logout(refresh).catch(() => undefined);
     tokens.clear();
+    clearKeptRuns();
     setUser(null);
   }, []);
 

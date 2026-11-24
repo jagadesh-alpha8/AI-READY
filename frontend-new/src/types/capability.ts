@@ -24,8 +24,6 @@ export interface CapabilityPage<T> {
   count: number;
   /** Whether the deployment allows starting assessments (settings.CAPABILITY_ASSESSMENT_ENABLED). */
   enabled: boolean;
-  /** Run list only: line-1 review questions still awaiting an answer (finish them before starting a run). */
-  review_questions_awaiting?: number;
 }
 
 export interface Citation { source_id: string; quote: string }
@@ -247,6 +245,8 @@ export interface RecommendationPlan {
 }
 
 export interface Run extends Job {
+  /** The version marker (also the ETag): changes whenever anything in this response would. */
+  version?: string;
   error: { error_code: string; next_action: string } | null;
   profile: { name: string; institution_type: string };
   source_manifest: { document_id: string; filename: string; version: number; pages: { page_id: string; status: string }[] }[];

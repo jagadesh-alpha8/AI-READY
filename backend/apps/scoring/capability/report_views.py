@@ -132,6 +132,10 @@ class CapabilityReportView(RunView):
         from .explanations import attach, latest
         explanations = latest(run)   # beside the run, never in it: the integrity hashes above read event.payload
         stage = assessment_stage(run, event)
+        pdf_key = pdf_cache_key(run, event, audience, stage, recommendation) if file_format == 'pdf' else None
+        cached = cache_get(pdf_key)
+        if cached is not None:
+            return report_response(cached['content'], 'pdf', run, cached['audience'], cache='hit')
         payload = {'format_version': 'AIQIF-REPORT-0.2', 'exported_at': timezone.now(),
             'run_id': str(run.pk), 'assessment_event_id': event.pk, 'inputs_hash': run.inputs_hash,
             'profile': run.inputs['profile'], 'population': run.inputs['population'], 'rubric': run.inputs['rubric'],
@@ -211,10 +215,51 @@ class CapabilityReportView(RunView):
                 content = render_to_string(template, {'report': payload, 'view': payload['report_view'],
                     'result': event.payload['result'], 'indicators': indicators, 'actions': actions,
                     'held_note': held_note(event.payload['result'].get('depth_reserve'), closed=stage['closed'])})
-        response = HttpResponse(content, content_type={'json': 'application/json; charset=utf-8',
-            'html': 'text/html; charset=utf-8', 'pdf': 'application/pdf'}[file_format])
-        response['Content-Disposition'] = f'attachment; filename="capability-{run.pk}-{audience}.{file_format}"'
-        response['Cache-Control'] = 'private, no-store'
-        response['X-Content-Type-Options'] = 'nosniff'
-        response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
-        return response
+        if pdf_key:
+            cache_set(pdf_key, {'content': content, 'audience': audience})
+        return report_response(content, file_format, run, audience, cache='miss' if pdf_key else None)
+
+
+def report_response(content, file_format, run, audience, cache=None):
+    response = HttpResponse(content, content_type={'json': 'application/json; charset=utf-8',
+        'html': 'text/html; charset=utf-8', 'pdf': 'application/pdf'}[file_format])
+    response['Content-Disposition'] = f'attachment; filename="capability-{run.pk}-{audience}.{file_format}"'
+    response['Cache-Control'] = 'private, no-store'
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+    if cache:
+        response['X-Report-Cache'] = cache
+    return response
+
+
+# --- the rendered PDFs, kept per run and version (issue 60 follow-up) ----------------------------------------------
+# A report PDF took 9-11 s on live (WeasyPrint). It is kept on the server, under a key naming everything it is made
+# from that can change: the completed event, the newest stored explanations, the follow-up stage (closed, final run),
+# the chosen advice and its workflow states, and the deployed code (run_view.code_fingerprint). A change to any of them
+# makes a new PDF. The integrity check above still runs on every request. A kept PDF shows the time it was first made.
+PDF_CACHE_SECONDS = 7 * 24 * 3600
+
+
+def pdf_cache_key(run, event, audience, stage, recommendation):
+    from .run_view import _explanation_id, code_fingerprint
+    return 'capability-report-pdf:' + digest([str(run.pk), event.pk, audience, str(_explanation_id(run.pk, event.pk)),
+                                              stage, recommendation, code_fingerprint()])
+
+
+def cache_get(key):
+    if not key:
+        return None
+    from django.core.cache import cache
+    try:
+        return cache.get(key)
+    except Exception:   # the cache server is down: render as before
+        logger.warning('report cache unavailable', exc_info=True)
+        return None
+
+
+def cache_set(key, value):
+    from django.core.cache import cache
+    try:
+        cache.set(key, value, PDF_CACHE_SECONDS)
+    except Exception:
+        logger.warning('report cache unavailable', exc_info=True)

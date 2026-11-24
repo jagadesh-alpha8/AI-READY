@@ -33,7 +33,7 @@ from apps.scoring.views import (
     SprintScoreView,
 )
 
-from apps.scoring.capability.views import CapabilityRunsView, RunView, CancelRunView, RunEvidenceView
+from apps.scoring.capability.views import CapabilityRunsView, RunView, CancelRunView, RunEvidenceView, ReviewStatusView
 from .views import SprintViewSet
 
 sprint_list = SprintViewSet.as_view({'get': 'list', 'post': 'create'})
@@ -48,6 +48,7 @@ from apps.scoring.capability.recommendation_views import (
 
 urlpatterns = [
     path('/<uuid:sprint_id>/capability-runs', CapabilityRunsView.as_view(), name='capability-runs'),
+    path('/<uuid:sprint_id>/capability-runs/review-status', ReviewStatusView.as_view(), name='capability-review-status'),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>', RunView.as_view(), name='capability-run'),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/cancel', CancelRunView.as_view(), name='capability-run-cancel'),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/evidence', RunEvidenceView.as_view(), name='capability-run-evidence'),
@@ -237,6 +238,7 @@ urlpatterns = [
 # Match the existing dual registration convention for nested sprint APIs.
 urlpatterns += [
     path('/<uuid:sprint_id>/capability-runs/', CapabilityRunsView.as_view()),
+    path('/<uuid:sprint_id>/capability-runs/review-status/', ReviewStatusView.as_view()),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/', RunView.as_view()),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/cancel/', CancelRunView.as_view()),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/evidence/', RunEvidenceView.as_view()),

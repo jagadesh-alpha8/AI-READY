@@ -308,10 +308,12 @@ class ReviewJourneyTests(APITestCase):
             self.assertIn('reviewed_evidence', body)
             self.assertTrue(any('claims with their review decisions' in x for x in body['report_view']['limitations']))
             self.assertEqual(sdk.chat.completions.create.call_count, calls)
-            detail = self.client.get(f'{run_url}/{execution.run_id}').data
+            # The flag comes with the full detail (?full=1); the screens' detail leaves the reviewed evidence out.
+            self.assertNotIn('review_changes_since_assessment', self.client.get(f'{run_url}/{execution.run_id}').data)
+            detail = self.client.get(f'{run_url}/{execution.run_id}?full=1').data
             self.assertFalse(detail['review_changes_since_assessment'])
             chosen.status = 'rejected'; chosen.save()
-            self.assertTrue(self.client.get(f'{run_url}/{execution.run_id}').data['review_changes_since_assessment'])
+            self.assertTrue(self.client.get(f'{run_url}/{execution.run_id}?full=1').data['review_changes_since_assessment'])
             later = json.loads(self.client.get(f'{run_url}/{execution.run_id}/report?file=json').content)
             later.pop('exported_at'); body.pop('exported_at')
             self.assertEqual(later, body)
