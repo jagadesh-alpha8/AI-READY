@@ -7,7 +7,7 @@ import { getQuestions } from '../services/capability';
 import type { Sprint } from '../types/api';
 import { whole } from '../utils/levels';
 import { Icon, Stars } from './Icon';
-import { AreaBars, FocusCards, LevelLadder, LevelRing, NextLevel, StrengthCards } from './ResultParts';
+import { ActionCard, AreaBars, FocusCards, LevelLadder, LevelRing, NextLevel, StrengthCards } from './ResultParts';
 import { useResultView } from './useResult';
 
 /** The college's dashboard (Vijay, 23 Nov): the level, what you do well, where to focus, and the next step. */
@@ -100,6 +100,15 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
       <div className="section-head"><div><h2>Where to focus next</h2><p>The areas with the most room to grow, and where to start</p></div>
         <Link className="text-btn" to={pathOf('actions')}>All recommended actions <Icon name="chevron" size={14} /></Link></div>
       <FocusCards view={view} />
+
+      {view.actions.length > 0 && (
+        <>
+          <div className="spacer" />
+          <div className="section-head"><div><h2>What to do next</h2><p>Your first steps, the same as in your leadership report</p></div>
+            <Link className="text-btn" to={pathOf('actions')}>All recommended actions <Icon name="chevron" size={14} /></Link></div>
+          <div className="ws-action-list">{view.actions.map((a, i) => <ActionCard key={a.key} a={a} n={i + 1} compact />)}</div>
+        </>
+      )}
 
       <div className="spacer" />
       <div className="two-col">

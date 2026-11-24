@@ -1,4 +1,5 @@
 """Tenant-scoped API. Reads never create runs, dispatch work or spend model credits."""
+import logging
 from datetime import timedelta
 
 from django.conf import settings
@@ -15,6 +16,8 @@ from config.pagination import DefaultPageNumberPagination
 from .execution import finish, start
 from .engine import DEFAULT_METHODOLOGY, ENGINE_VERSION
 from .evaluation import PROMPT_VERSION, RETRIEVAL_VERSION
+
+logger = logging.getLogger(__name__)
 
 
 class StartSerializer(serializers.Serializer):
@@ -159,7 +162,9 @@ class RunView(APIView):
         else:
             partial = [r for records in run.events.filter(payload__kind='indicator').order_by('id')
                        .values_list('payload__records', flat=True) for r in records or []]
-        return {**summary(execution, view), 'deterministic_plan': deterministic,
+        steps = _next_steps(run.pk, view.event_id, assessment, parts['manifest'], parts['profile'], deterministic,
+                            view.stage == 'final', view.provisional_run_id)
+        return {**summary(execution, view), 'deterministic_plan': deterministic, 'next_steps': steps,
                 'diagnostics': view.diagnostics if view.event_id is not None else None,
                 'inputs_hash': run.inputs_hash, 'population': parts['population'], 'profile': parts['profile'],
                 'source_manifest': parts['manifest'], 'assessment': assessment, 'partial_decisions': partial,
@@ -186,7 +191,10 @@ class RunView(APIView):
         if assessment is not None and not traces:
             # The model packets (about 40 MB in test 13) are for audits and the JSON report. ?traces=1 keeps them.
             assessment = {k: v for k, v in assessment.items() if k != 'traces'}
+        steps = _next_steps(run.pk, completed.pk if completed else None, assessment, run.inputs['manifest'],
+                            run.inputs['profile'], plan, view.stage == 'final', view.provisional_run_id)
         return {**summary(execution, view), 'scope': run.inputs.get('scope'), 'deterministic_plan': plan,
+            'next_steps': steps,
             'diagnostics': explain(run.inputs, completed.payload) if completed else None,
             'reviewed_evidence': saved_review,
             'review_changes_since_assessment': digest(saved_review) != digest(current_review),
@@ -196,6 +204,19 @@ class RunView(APIView):
             'assessment': assessment,
             'partial_decisions': [] if completed else [r for event in indicators for r in event.payload['records']],
             'error': terminal.payload if terminal else None}
+
+
+def _next_steps(run_id, event_id, assessment, manifest, profile, plan, final, provisional_run_id):
+    """The written next steps and the checklist (next_steps.for_screens), or None for a run not completed. A failure
+    here leaves the screens on their own fallback and never fails the detail."""
+    if assessment is None:
+        return None
+    from .next_steps import for_screens
+    try:
+        return for_screens(run_id, event_id, assessment, manifest, profile, plan, final, provisional_run_id)
+    except Exception:
+        logger.exception('next steps could not be shaped for run %s', run_id)
+        return None
 
 
 def _etags(header):

@@ -132,7 +132,11 @@ class CapabilityReportView(RunView):
         from .explanations import attach, latest
         explanations = latest(run)   # beside the run, never in it: the integrity hashes above read event.payload
         stage = assessment_stage(run, event)
-        pdf_key = pdf_cache_key(run, event, audience, stage, recommendation) if file_format == 'pdf' else None
+        from . import next_steps
+        steps_id, steps = next_steps.stored(run.pk, event.pk)
+        not_started = sorted(next_steps.not_started(run))
+        pdf_key = (pdf_cache_key(run, event, audience, stage, recommendation, [str(steps_id), not_started])
+                   if file_format == 'pdf' else None)
         cached = cache_get(pdf_key)
         if cached is not None:
             return report_response(cached['content'], 'pdf', run, cached['audience'], cache='hit')
@@ -147,6 +151,7 @@ class CapabilityReportView(RunView):
             'assessment': attach(event.payload, explanations, closed=stage['closed']),
             'explanations_version': (explanations or {}).get('version'),
             'assessment_stage': stage, 'recommendation': recommendation,
+            'next_steps': steps, 'not_started': not_started,
             'deterministic_plan': snapshot.inputs if recommendation else build_inputs(run, event, {}),
             'notice': 'Experimental internal methodology, not an external accreditation standard. Unknown evidence is not failure. '
                       'Tier pathways are conditional sufficient scenarios, not optimal or guaranteed. Workflow completion does not change scores; reassessment is required.'}
@@ -234,16 +239,17 @@ def report_response(content, file_format, run, audience, cache=None):
 
 # --- the rendered PDFs, kept per run and version (issue 60 follow-up) ----------------------------------------------
 # A report PDF took 9-11 s on live (WeasyPrint). It is kept on the server, under a key naming everything it is made
-# from that can change: the completed event, the newest stored explanations, the follow-up stage (closed, final run),
+# from that can change: the completed event, the newest stored explanations and next steps, the follow-up stage
+# (closed, final run, the "not yet in place" answers),
 # the chosen advice and its workflow states, and the deployed code (run_view.code_fingerprint). A change to any of them
 # makes a new PDF. The integrity check above still runs on every request. A kept PDF shows the time it was first made.
 PDF_CACHE_SECONDS = 7 * 24 * 3600
 
 
-def pdf_cache_key(run, event, audience, stage, recommendation):
+def pdf_cache_key(run, event, audience, stage, recommendation, next_steps=None):
     from .run_view import _explanation_id, code_fingerprint
     return 'capability-report-pdf:' + digest([str(run.pk), event.pk, audience, str(_explanation_id(run.pk, event.pk)),
-                                              stage, recommendation, code_fingerprint()])
+                                              stage, recommendation, next_steps, code_fingerprint()])
 
 
 def cache_get(key):

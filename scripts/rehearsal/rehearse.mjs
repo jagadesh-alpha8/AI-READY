@@ -269,7 +269,10 @@ await step('the leadership and detailed reports and the technical appendix downl
 
 await step('actions, paces and pathway read in plain words', async () => {
   await open('/actions');
-  await expectText('largest gain first');
+  // The leadership report's first steps from the server (next_steps), each with its "done when" line and an owner.
+  await expectText('the ones in your leadership report');
+  await expectText('Done when');
+  await expectText('(suggested)');
   await expectNoText(OLD_WORDS, 'an old tier name or a code on Actions:');
   await open('/plan');
   await expectText('Suits most colleges');

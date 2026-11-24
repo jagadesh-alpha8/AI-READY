@@ -34,7 +34,7 @@ class PresentationRuleTests(SimpleTestCase):
         result = {'indicators': [indicator(f'AIQIF-C{a}.{i}', 10) for a in (1, 2, 3) for i in (1, 2, 3, 4)]}
         records = {f'AIQIF-C1.{i}.F{n}': {'credit': 1.0} for i in (1, 2, 3, 4) for n in (1, 2)}   # C1's foundations shown
         areas = [{'code': f'AIQIF-C{a}', 'room': r} for a, r in ((1, 5), (2, 30), (3, 20))]
-        actions = p.choose_actions(result, records, {}, {}, areas, [], 120, limit=5)
+        actions = p.choose_actions(result, records, areas, [], 120, limit=5)
         self.assertEqual(len(actions), 5)
         by_area = {}
         for a in actions:
@@ -42,5 +42,7 @@ class PresentationRuleTests(SimpleTestCase):
         self.assertLessEqual(max(by_area.values()), 2)
         c1 = [a for a in actions if a['area_code'] == 'AIQIF-C1']
         self.assertTrue(all(a['step'] == 'Put in use' for a in c1))   # the first unfinished stage
-        self.assertTrue(all(a['lead'] for a in actions))
+        # Each action names the requirements it is about (next_steps.py writes text only for these).
+        self.assertTrue(all(1 <= len(a['conditions']) <= 2 for a in actions))
+        self.assertTrue(all(c['id'].rsplit('.', 1)[-1].startswith('A') for a in c1 for c in a['conditions']))
         self.assertEqual(actions, sorted(actions, key=lambda a: -a['points']))
