@@ -49,8 +49,7 @@ def reconcile_extraction(job, seen_ids, pages):
     # when independent current alternatives still disagree in the same scope.
     from django.db.models import Q
     from apps.gaps.models import GapItem, GapEvent
-    from .verification.conflicts import disagreements, comparable_pair, refresh, refresh_for_field
-    from .verification.normalize import comparable_value
+    from .verification.conflicts import disagreements, comparable_pair, refresh, refresh_for_field, same_statement
     retired = ExtractedFact.all_objects.filter(document_id=job.document_id, retired_at__isnull=False)
     affected = GapItem.objects.filter(sprint_id=job.sprint_id).filter(
         Q(source_fact__in=retired) | Q(conflict_fact_b__in=retired)).exclude(status='resolved').select_related('source_fact')
@@ -61,7 +60,7 @@ def reconcile_extraction(job, seen_ids, pages):
             if groups:
                 group = groups[0]
                 first = group[0]
-                other = next(f for f in group if comparable_value(f.value, f.data_type) != comparable_value(first.value, first.data_type))
+                other = next(f for f in group if not same_statement(f.value, first.value, first.data_type))
                 gap.source_fact, gap.conflict_fact_b = first, other
                 gap.save(update_fields=['source_fact', 'conflict_fact_b', 'updated_at'])
                 refresh(gap)
