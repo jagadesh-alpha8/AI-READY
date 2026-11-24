@@ -4,7 +4,12 @@ from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
 
-load_dotenv()
+# `manage.py test` ignores backend/.env: the suite checks the code's own defaults, and a local .env holding a run's
+# settings (budget caps, retrieval and time limits) failed 104 tests on Jagadesh's machine on 20 Nov. Variables set in
+# the process environment still apply.
+TESTING = len(sys.argv) > 1 and sys.argv[1] == 'test'
+if not TESTING:
+    load_dotenv()
 
 # Local encoder dependencies can initialize ONNX Runtime during import. Its
 # pre-initialization switch disables the uploader as well as telemetry events.
@@ -18,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-change-me')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
+DEBUG = os.getenv('DEBUG', 'True' if TESTING else 'False') == 'True'   # the suite runs as CI does, DEBUG=True
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
@@ -786,6 +791,27 @@ CAPABILITY_AGREEMENT_PASSES = int(os.getenv('CAPABILITY_AGREEMENT_PASSES', '1'))
 CAPABILITY_JUDGMENT = os.getenv('CAPABILITY_JUDGMENT', 'parts').strip().lower()
 # Gemini thinking level for the assessor only; empty = AI_GEMINI_REASONING_EFFORT (which extraction keeps using).
 CAPABILITY_GEMINI_REASONING_EFFORT = os.getenv('CAPABILITY_GEMINI_REASONING_EFFORT', '').strip() or None
+
+# A different model for scoring only (assessment, follow-up questions and judgments, explanations, recommendations,
+# plan evaluation); extraction keeps AI_API_KEY / AI_MODEL. Off while CAPABILITY_AI_API_KEY is empty. The key's
+# format picks the provider (Anthropic "sk-ant-...", OpenAI "sk-..."); CAPABILITY_AI_BASE_URL sends it to any
+# OpenAI-compatible host instead (DeepInfra, Ollama, Together...). CAPABILITY_AI_EFFORT is the reasoning effort for
+# Claude and OpenAI models (none, low, medium, high, xhigh, max; empty = the model's default); Gemini keeps
+# CAPABILITY_GEMINI_REASONING_EFFORT. Model and effort are frozen with each run, so the settings check shows a switch.
+CAPABILITY_AI_API_KEY = os.getenv('CAPABILITY_AI_API_KEY', '').strip()
+CAPABILITY_AI_MODEL = os.getenv('CAPABILITY_AI_MODEL', '').strip()
+CAPABILITY_AI_BASE_URL = os.getenv('CAPABILITY_AI_BASE_URL', '').strip()
+CAPABILITY_AI_EFFORT = os.getenv('CAPABILITY_AI_EFFORT', '').strip().lower() or None
+# Effort for calls that write or route rather than judge (question planning and linking, answer checks, explanations,
+# recommendations, plan parsing); empty = the judging effort. Applies to Gemini too (xhigh and max become high,
+# none becomes minimal). Frozen with each run and second-layer job.
+CAPABILITY_AI_WRITING_EFFORT = os.getenv('CAPABILITY_AI_WRITING_EFFORT', '').strip().lower() or None
+# Prompt ceiling for models priced by prompt length (prompt_ceiling.py): empty = off. Each assessment request is sent
+# with short IDs and, if its estimated prompt is still over the ceiling, rebuilt with a smaller keyword lane. 95000
+# keeps Claude Haiku 5.5 under its 100,000-token price step. Estimated at CAPABILITY_PROMPT_BYTES_PER_TOKEN (2.6 is
+# conservative for Claude; Gemini measured 3.36). Frozen with each run.
+CAPABILITY_PROMPT_TOKEN_CEILING = int(os.getenv('CAPABILITY_PROMPT_TOKEN_CEILING', '').strip() or 0) or None
+CAPABILITY_PROMPT_BYTES_PER_TOKEN = float(os.getenv('CAPABILITY_PROMPT_BYTES_PER_TOKEN', '').strip() or 2.6)
 CAPABILITY_REQUEST_TIMEOUT_SECONDS = int(os.getenv('CAPABILITY_REQUEST_TIMEOUT_SECONDS', str(AI_REQUEST_TIMEOUT_SECONDS)))
 # Optional stage overrides; selected values are frozen when an execution starts.
 CAPABILITY_ASSESSMENT_OUTPUT_TOKENS = int(os.environ['CAPABILITY_ASSESSMENT_OUTPUT_TOKENS']) if os.getenv('CAPABILITY_ASSESSMENT_OUTPUT_TOKENS') else None
@@ -841,6 +867,9 @@ CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '
 # indicator). Condition judge: the majority state stands. Part judge: passes also disagree when their credits differ
 # by 0.5 or more, and the median credit of the three passes stands (part_judgment.CREDIT_GAP).
 CAPABILITY_TIE_BREAK = os.getenv('CAPABILITY_TIE_BREAK', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+# Ask once more, per pass, for requirements whose found parts all failed their quotations (quote-repair-v1, 22 Nov
+# 2026; test 13 lost full credit on two requirements in one pass to quotations alone). Frozen per run.
+CAPABILITY_PART_QUOTE_REPAIR = os.getenv('CAPABILITY_PART_QUOTE_REPAIR', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
 # Extracted-evidence lane (reviewed_evidence.evidence_lane): adds the source page of each relevant extracted AI item
 # to the indicator's packet (up to 18,000 characters), so evidence extraction found reaches the judge.
 CAPABILITY_EVIDENCE_LANE = os.getenv('CAPABILITY_EVIDENCE_LANE', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
@@ -849,14 +878,17 @@ CAPABILITY_FOLLOW_UP_SEARCH = os.getenv('CAPABILITY_FOLLOW_UP_SEARCH', 'false').
 # are printed by the depth_* commands and stored in their own tables; they do not change the headline score in reports.
 # The settings below hold the open decisions (see docs/capability/DEPTH_FOLLOW_UP_HANDOFF.md): decisions 1 and 2 are
 # still open (1 defaults to the proposal's recommendation, 2 is left undecided); decision 3 is settled.
-DEPTH_MAX_QUESTIONS = int(os.getenv('DEPTH_MAX_QUESTIONS', '25'))
-DEPTH_MISSING_QUESTION_SLOTS = int(os.getenv('DEPTH_MISSING_QUESTION_SLOTS', '10'))
+# Every key indicator is asked about (depth.plan_all, questions-0.2, 21 Nov 2026). The old default of 25 was a
+# placeholder from the 11 Nov skeleton, not a rule; 0 now means no total cap (set a number only to cut the list).
+DEPTH_MAX_QUESTIONS = int(os.getenv('DEPTH_MAX_QUESTIONS', '0'))
+DEPTH_MISSING_QUESTION_SLOTS = int(os.getenv('DEPTH_MISSING_QUESTION_SLOTS', '10'))   # unused since questions-0.2
 # Decision 1: 'on_contradiction' (an answer that contradicts the credited evidence withdraws the credit) or 'never'.
 DEPTH_ANSWERS_CAN_LOWER = os.getenv('DEPTH_ANSWERS_CAN_LOWER', 'on_contradiction').strip().lower()
-# Decision 2: '' (undecided: depth changes no credit, a depth index is reported), 'separate' (the same, decided), or
-# 'reserve' with DEPTH_CREDIT_SHARE between 0 and 1 (that share of each credited condition depends on depth).
-DEPTH_CREDIT_MODE = os.getenv('DEPTH_CREDIT_MODE', '').strip().lower()
-DEPTH_CREDIT_SHARE = os.getenv('DEPTH_CREDIT_SHARE', '')
+# Decision 2, taken 20 Nov 2026 (Siddharth deferred it to us): 'reserve'. DEPTH_CREDIT_SHARE of each credited
+# requirement's credit is held until follow-up answers show depth (evidenced earns none of it back, substantiated half,
+# strong all); frozen into each new run (capability/reserve.py). '' or 'separate': nothing held (runs for comparison).
+DEPTH_CREDIT_MODE = os.getenv('DEPTH_CREDIT_MODE', 'reserve').strip().lower()
+DEPTH_CREDIT_SHARE = os.getenv('DEPTH_CREDIT_SHARE', '0.25')
 # Decision 3, decided by Harsha (12 Nov 2026): a typed answer without a supporting document counts for nothing. 'ignore'
 # (default): such answers never reach the judge, and a level that still rests on one falls back to evidenced.
 # 'cap_one_level' and 'same' are kept only for comparison runs.
@@ -867,7 +899,7 @@ DEPTH_UNSUPPORTED_ANSWERS = os.getenv('DEPTH_UNSUPPORTED_ANSWERS', 'ignore').str
 SECOND_LAYER_CHECK_ON_SUBMIT = os.getenv('SECOND_LAYER_CHECK_ON_SUBMIT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Provisional Silver/Gold/Platinum/Diamond bands on the final part-credit score (capability/action_plan.py), pending calibration
 # across colleges. "name:score" pairs; the rubric's own badge policy stays not_calibrated.
-CAPABILITY_PROVISIONAL_TIERS = os.getenv('CAPABILITY_PROVISIONAL_TIERS', 'Silver:60,Gold:70,Platinum:80,Diamond:90')
+CAPABILITY_PROVISIONAL_TIERS = os.getenv('CAPABILITY_PROVISIONAL_TIERS', 'Starting out:0,Getting there:20,Prepared:40,Advanced:60,Leading:80')
 # Second layer, for Harsha to confirm (design doc open question 1): can an answer count because the search found support
 # in documents the institution had already submitted (or in the credited evidence itself), without a new attachment?
 # true (default): yes, a record already submitted is evidence. false: only documents attached to the reply count.
@@ -896,6 +928,10 @@ SECOND_LAYER_MAX_HTTP_CALLS = int(os.environ['SECOND_LAYER_MAX_HTTP_CALLS']) if 
 SECOND_LAYER_MAX_COST_USD = os.getenv('SECOND_LAYER_MAX_COST_USD', '').strip() or None
 SECOND_LAYER_MAX_DURATION_SECONDS = int(os.environ['SECOND_LAYER_MAX_DURATION_SECONDS']) if os.getenv('SECOND_LAYER_MAX_DURATION_SECONDS') else None
 SECOND_LAYER_SWEEP_SECONDS = int(os.getenv('SECOND_LAYER_SWEEP_SECONDS', '300'))
+# The second-layer cost cap counts finished calls at their billed cost (tokens at the configured prices) and calls in
+# flight at their worst-case reservation. Off: every call keeps its whole reservation (before 23 Nov; test 13 reserved
+# $14.34 for $3.98 of calls).
+SECOND_LAYER_SETTLE_TO_ACTUAL = os.getenv('SECOND_LAYER_SETTLE_TO_ACTUAL', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
 if SECOND_LAYER_JOBS_ENABLED:
     CELERY_BEAT_SCHEDULE['second-layer-check-sweep'] = {
         'task': 'apps.scoring.capability.second_layer_jobs.sweep_second_layer_checks',

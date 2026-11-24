@@ -144,8 +144,56 @@ class CapabilityReportTests(APITestCase):
         self.assertNotContains(response, '<script>')
         self.assertContains(response, '&lt;script&gt;profile_attack()&lt;/script&gt;')
         self.assertContains(response, '&lt;script&gt;source_attack()&lt;/script&gt;')
-        self.assertContains(response, 'priority-plan-0.1')
-        self.assertContains(response, 'provisional tier')
+        self.assertContains(response, 'priority-plan-0.2')
+        # A Stage 1 result shows no tier (23 Nov); the tier comes with the final AI-READY Score.
+        self.assertContains(response, 'the level is set on the final AI-READY Score')
+        self.assertNotContains(response, 'provisional tier')
+
+    def test_run_detail_leaves_out_the_model_packets_unless_asked(self):
+        self.prepare_run()
+        url = f'/api/v1/sprints/{self.sprint.pk}/capability-runs/{self.run.pk}'
+        self.assertIn('traces', self.run.events.filter(state='completed').last().payload)
+        self.assertNotIn('traces', self.client.get(url).data['assessment'])
+        self.assertIn('traces', self.client.get(url, {'traces': '1'}).data['assessment'])
+        self.assertIn('traces', json.loads(self.client.get(f'{url}/report', {'file': 'json'}).content)['assessment'])
+
+    def test_summary_and_detailed_reports_for_people(self):
+        """The reports designed for Vijay's review (23 Nov): levels with stars, the nine areas, plain words, escaped
+        institution text, a PDF from the same page (or the older renderer where WeasyPrint is missing)."""
+        import pymupdf
+        self.institution.name = '<script>profile_attack()</script>'
+        self.institution.save()
+        self.prepare_run()
+        url = f'/api/v1/sprints/{self.sprint.pk}/capability-runs/{self.run.pk}/report'
+        before = list(self.run.events.values_list('id', 'payload'))
+        for audience, heading in (('summary', 'Your nine readiness areas'), ('detailed', 'Detailed AI readiness report')):
+            html = self.client.get(url, {'audience': audience})
+            self.assertEqual(html.status_code, 200)
+            body = html.content.decode()
+            self.assertIn(heading, body)
+            self.assertIn('★', body)
+            self.assertIn('Starting out', body)
+            self.assertNotIn('<script>', body)
+            self.assertIn('&lt;script&gt;profile_attack()&lt;/script&gt;', body)
+            for jargon in ('AIQIF', 'Silver', 'Diamond', ' tier', 'Tier', 'Pillar', 'held_points'):
+                self.assertNotIn(jargon, body.split('</style>', 1)[1], (audience, jargon))
+            pdf = self.client.get(url, {'audience': audience, 'file': 'pdf'})
+            self.assertEqual((pdf.status_code, pdf['Content-Type']), (200, 'application/pdf'))
+            self.assertGreaterEqual(len(pymupdf.open(stream=pdf.content, filetype='pdf')), 2)
+            view = json.loads(self.client.get(url, {'audience': audience, 'file': 'json'}).content)['presentation']
+            self.assertEqual(len(view['areas']), 9)
+            self.assertEqual(view['level']['name'], 'Starting out')
+            self.assertEqual(sum(a['requirements'] for a in view['areas']), view['requirements'])
+        with patch('apps.scoring.capability.report_views.html_to_pdf', return_value=None):   # no WeasyPrint
+            pdf = self.client.get(url, {'audience': 'summary', 'file': 'pdf'})
+        self.assertEqual((pdf.status_code, pdf.content[:4]), (200, b'%PDF'))
+        self.assertEqual(self.client.get(url, {'audience': 'board'}).status_code, 400)
+        # A run the new reports can't shape still gets a report: the older one, not an error.
+        with patch('apps.scoring.capability.presentation.build', side_effect=KeyError('x')), self.assertLogs('apps.scoring.capability.report_views', level='ERROR'):
+            fallback = self.client.get(url, {'audience': 'summary'})
+        self.assertEqual(fallback.status_code, 200)
+        self.assertIn('leadership', fallback['Content-Disposition'])
+        self.assertEqual(list(self.run.events.values_list('id', 'payload')), before)
 
     def test_default_leadership_report_is_readable_without_changing_assessment(self):
         import pymupdf

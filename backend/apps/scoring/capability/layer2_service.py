@@ -251,7 +251,9 @@ def next_item(run_ref):
                .select_related('question').order_by('question__rank', 'created_at').first())
     if waiting is not None:
         return {'type': 'follow_up', 'question': waiting.question, 'response': waiting, 'text': waiting.follow_up_text}
-    question = DepthQuestion.objects.filter(run_ref=run_ref, status=DepthQuestion.Status.OPEN).order_by('rank').first()
+    # Questions the college marked "I need to check" come after the unmarked ones, so it can move on.
+    question = (DepthQuestion.objects.filter(run_ref=run_ref, status=DepthQuestion.Status.OPEN)
+                .order_by('to_check', 'rank').first())
     if question is not None:
         return {'type': 'question', 'question': question, 'response': None, 'text': question.text}
     return None
@@ -260,13 +262,40 @@ def next_item(run_ref):
 def progress(run_ref):
     questions = DepthQuestion.objects.filter(run_ref=run_ref)
     responses = DepthResponse.objects.filter(question__run_ref=run_ref)
-    return {'questions': questions.count(),
+    return {'questions': questions.exclude(status=DepthQuestion.Status.LINKED).filter(linked_to__isnull=True).count(),
             'open': questions.filter(status=DepthQuestion.Status.OPEN).count(),
-            'answered': questions.exclude(status=DepthQuestion.Status.OPEN).count(),
-            'checks_waiting': responses.filter(status=DepthResponse.Status.PENDING).count(),
+            'answered': questions.filter(linked_to__isnull=True).exclude(status=DepthQuestion.Status.OPEN).count(),
+            'linked': questions.filter(linked_to__isnull=False).count(),
+            # Additional evidence waiting for its check counts too: publishing is refused until it is checked.
+            'checks_waiting': responses.filter(status=DepthResponse.Status.PENDING).count()
+                              + AdditionalEvidence.objects.filter(run_ref=run_ref,
+                                                                  status=AdditionalEvidence.Status.PENDING).count(),
             'follow_ups_open': responses.filter(parent__isnull=True, status=DepthResponse.Status.CHECKED)
                                         .exclude(follow_up_text='').filter(follow_ups__isnull=True).count(),
-            'final_run_id': final_run_id(run_ref)}
+            # Open questions marked "I need to check": closing doesn't wait for them, but the screen warns.
+            'to_check': questions.filter(status=DepthQuestion.Status.OPEN, to_check=True).count(),
+            'final_run_id': final_run_id(run_ref), 'closed': stage_closed(run_ref)}
+
+
+def mark_to_check(question, to_check=True, *, user=None):
+    """"I need to check" (Siddharth, 23 Nov): a saved mark on an open question, never a skip (a skip is final). The
+    question stays open; next_item serves it after the unmarked ones; progress counts it so closing can warn.
+    Answering the question clears the mark. Refused once the stage is closed, or for a question answered through a
+    linked question (mark the question that asks it)."""
+    from django.utils import timezone
+    with transaction.atomic():
+        CapabilityRun.objects.select_for_update().filter(pk=_uuid(question.run_ref)).first()
+        refuse_closed(question.run_ref)
+        locked = DepthQuestion.objects.select_for_update().get(pk=question.pk)
+        if locked.status == DepthQuestion.Status.LINKED:
+            raise Layer2Error('This question is answered through a linked question; mark that one instead.')
+        if locked.status != DepthQuestion.Status.OPEN:
+            raise Layer2Error('This question has already been answered.')
+        locked.to_check = bool(to_check)
+        locked.to_check_by = user if to_check else None
+        locked.to_check_at = timezone.now() if to_check else None
+        locked.save(update_fields=['to_check', 'to_check_by', 'to_check_at'])
+    return locked
 
 
 def final_run_id(run_ref):
@@ -275,13 +304,51 @@ def final_run_id(run_ref):
     return str(final.pk) if final else None
 
 
-def submit(question, *, answer='', document_ids=(), skip=False, parent=None, user=None, via='college'):
+CLOSED = ('The follow-up stage is closed: the final AI-READY Score has been published, so answers and evidence can no '
+          'longer change it.')
+
+
+def stage_closed(run_or_ref):
+    """True once the follow-up stage is closed: the run is a final result, or a final result has been published from
+    this provisional run. A final result is published only by closing the stage (second_layer_jobs.run_rejudge with
+    close, or layer2_rejudge --publish), so a published final result is the closed state (audit, 23 Nov)."""
+    if isinstance(run_or_ref, CapabilityRun):
+        if is_final(run_or_ref):
+            return True
+        run_or_ref = run_or_ref.pk
+    return final_run_id(run_or_ref) is not None
+
+
+def refuse_closed(run_ref):
+    if stage_closed(run_ref):
+        raise Layer2Error(CLOSED)
+
+
+CHOICES = {c.value for c in DepthResponse.Choice}
+
+
+def submit(question, *, answer='', document_ids=(), skip=False, parent=None, user=None, via='college', choice=''):
     """Record one response. A skip is "don't know" and needs no check; anything else waits for check_response.
     parent: the response whose follow-up this answers (at most one answer per follow-up, never followed up again).
     The question (or the follow-up's parent) is locked while the response is recorded, so two submissions at once
-    cannot both be accepted. Documents must belong to the run's sprint when the run is in this database."""
+    cannot both be accepted. Documents must belong to the run's sprint when the run is in this database.
+
+    choice: the college's answer option in Harsha's design (Siddharth, 23 Nov). 'yes' and 'partly' are answers like
+    any other: checked, and counted only when a document supports them (a typed answer alone is allowed; the screen
+    warns). 'not_yet' is recorded like "don't know": no check, nothing changes in the score (it never lowers credit
+    the documents earned), but the choice and any note are kept for the reports and the improvement plan. "I need to
+    check" is not a response at all: see mark_to_check."""
     answer = (answer or '').strip()
     documents = [str(d) for d in document_ids or []]
+    choice = (choice or '').strip()
+    if choice and choice not in CHOICES:
+        raise Layer2Error('Choose yes, partly or not_yet.')
+    if choice == DepthResponse.Choice.NOT_YET:
+        if documents:
+            raise Layer2Error('A document goes with "Yes" or "Partially in place", not "Not yet in place".')
+        skip = True
+    elif choice and skip:
+        raise Layer2Error('A skip has no answer option; send "not_yet", or an answer without skip.')
     if not skip and not answer and not documents:
         raise Layer2Error('Give an answer, attach a document, or skip.')
     if documents and not skip:
@@ -289,6 +356,10 @@ def submit(question, *, answer='', document_ids=(), skip=False, parent=None, use
         if sprint_id is not None:
             documents = check_documents(documents, sprint_id)
     with transaction.atomic():
+        # The provisional run is locked first (as closing locks it), so an answer is either recorded before the stage
+        # closes or refused after it.
+        CapabilityRun.objects.select_for_update().filter(pk=_uuid(question.run_ref)).first()
+        refuse_closed(question.run_ref)
         locked = DepthQuestion.objects.select_for_update().get(pk=question.pk)
         if parent is not None:
             parent = DepthResponse.objects.select_for_update().get(pk=parent.pk)
@@ -299,15 +370,28 @@ def submit(question, *, answer='', document_ids=(), skip=False, parent=None, use
         elif locked.status != DepthQuestion.Status.OPEN:
             raise Layer2Error('This question has already been answered.')
         response = DepthResponse.objects.create(
-            question=locked, parent=parent,
+            question=locked, parent=parent, choice=choice,
             kind=DepthResponse.Kind.DONT_KNOW if skip else DepthResponse.Kind.ANSWER,
-            answer='' if skip else answer, document_ids=[] if skip else documents,
+            # A "not yet" keeps its note (context for the plan); a plain skip keeps nothing.
+            answer=answer if choice == DepthResponse.Choice.NOT_YET else '' if skip else answer,
+            document_ids=[] if skip else documents,
             status=DepthResponse.Status.CHECKED if skip else DepthResponse.Status.PENDING,
             submitted_via=via, submitted_by=user)
         if parent is None:
             locked.status = DepthQuestion.Status.ANSWERED
-            locked.save(update_fields=['status'])
+            locked.to_check, locked.to_check_by, locked.to_check_at = False, None, None
+            locked.save(update_fields=['status', 'to_check', 'to_check_by', 'to_check_at'])
             question.status = locked.status
+            # A linked question's answer is recorded for each question it stands for, and checked against each one's
+            # own requirement; one it does not resolve gets its own follow-up (questions-0.3).
+            for member in DepthQuestion.objects.select_for_update().filter(linked_to=locked,
+                                                                             status=DepthQuestion.Status.LINKED):
+                DepthResponse.objects.create(
+                    question=member, parent=None, kind=response.kind, choice=response.choice, answer=response.answer,
+                    document_ids=response.document_ids, status=response.status, submitted_via='linked',
+                    submitted_by=user)
+                member.status = DepthQuestion.Status.ANSWERED
+                member.save(update_fields=['status'])
     return response
 
 
@@ -339,7 +423,9 @@ def check_response(response, model, *, attached=None, corpus=None, ranker=RUN_RA
     packet = packets.get(question.indicator_code) or []
     record = records.get(question.condition_ids[0]) if question.condition_ids else None
     ranker, ranking, note = _resolve_ranker(ranker, question.run_ref)
-    asked = response.parent.follow_up_text if response.parent_id else question.text
+    # What the college was asked: the follow-up, else the question as shown (a linked question's group wording).
+    asked = (response.parent.follow_up_text if response.parent_id
+             else question.linked_to.text if question.linked_to_id else question.text)
     first = response.parent_id is None
     if question.kind == DepthQuestion.Kind.DEPTH:
         quotes = layer2.anchored_query('', record)
@@ -362,13 +448,78 @@ def check_response(response, model, *, attached=None, corpus=None, ranker=RUN_RA
     cited = {p.get('evidence_role') for p in result.get('passages') or []}
     result['search'] = {'ranking': ranking, 'note': note, 'documents_failed': failed,
                         'packet_windows_left_out': len(packet), 'support_from': sorted(r for r in cited if r)}
+    already = already_counted(attached, windows, packet)
+    if already:
+        result['search']['already_counted'] = already
+    result['follow_up'] = better_follow_up(result.get('follow_up'), asked, result, already,
+                                           dimensions_for(question, depth_spec) if question.kind == DepthQuestion.Kind.DEPTH
+                                           else [], first=first)
     response.windows = windows
     response.support_check = result
     response.supported = result['supported']
-    response.follow_up_text = result['follow_up'] or ''
+    response.follow_up_text = result.get('follow_up') or ''
     response.status = DepthResponse.Status.CHECKED
     response.save(update_fields=['windows', 'support_check', 'supported', 'follow_up_text', 'status'])
     return response
+
+
+def already_counted(attached, windows, packet):
+    """Attached documents that added nothing new because the first assessment had already read them for this key
+    indicator (every readable page is in its provisional evidence). [{'document_id', 'name'}]."""
+    in_packet = {w.get('id') for w in packet or []} | {w.get('source_id') for w in packet or []}
+    added = {w.get('document_id') for w in windows or [] if w.get('evidence_role') == 'answer_attachment'}
+    pages = {}
+    for source in attached or []:
+        if (source.get('text') or '').strip():
+            pages.setdefault(source['document_id'], set()).add(source['id'])
+    out = []
+    for document_id, ids in pages.items():
+        if document_id not in added and ids <= in_packet:
+            out.append({'document_id': document_id, 'name': _document_name(document_id)})
+    return out
+
+
+def _document_name(document_id):
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    from apps.documents.models import Document
+    from .explanations import _readable
+    try:
+        document = Document.objects.filter(pk=document_id).only('original_filename', 'title').first()
+    except (ValueError, TypeError, DjangoValidationError):
+        document = None
+    name = (document.original_filename or document.title) if document else ''
+    return _readable(name)[0] if name else 'the document you attached'
+
+
+def _same_words(a, b):
+    import re
+    words = lambda t: set(re.findall(r'[a-z0-9]+', (t or '').lower())) - {'the', 'a', 'an', 'and', 'of', 'to', 'or', 'your', 'you', 'please', 'this', 'is', 'that', 'it', 'for', 'in', 'on', 'which', 'what', 'was', 'were'}
+    x, y = words(a), words(b)
+    return len(x & y) / max(1, len(x | y))
+
+
+def better_follow_up(follow_up, asked, result, already, dimensions, *, first=True):
+    """The follow-up the college sees. A follow-up that mostly repeats the question it follows is replaced by one
+    naming what is still not shown (test 13: the follow-up repeated the question nearly word for word). When an attached
+    document had already been read for this, the college is told so, kindly, before the follow-up."""
+    if not follow_up:
+        if not (first and already and not result.get('supported')):
+            return follow_up
+        follow_up = ('If another document shows this, please upload it; if not, just tell us and we will keep what '
+                     'your documents already show.')
+    text = follow_up
+    if asked and _same_words(text, asked) >= 0.6:
+        names = {d['id']: d.get('name', d['id']).lower() for d in dimensions}
+        open_dims = [names.get(f['dimension_id'], f['dimension_id']) for f in result.get('dimensions') or []
+                     if f.get('support') != 'supported']
+        what = ', '.join(open_dims) if open_dims else 'this'
+        text = (f'Thank you. What you sent does not yet show the {what}. If another document shows it, please upload '
+                'it; if not, just tell us and we will keep what your documents already show.')
+    if already:
+        names = ' and '.join(d['name'] for d in already[:2])
+        text = (f'We had already read {names} when we scored this, so it is counted already and did not add anything '
+                f'new. ' + text)
+    return text
 
 
 def check_pending(run_ref, model, *, ranker=RUN_RANKER, max_calls=None, skip_error=None):
@@ -411,6 +562,7 @@ def add_evidence(run_ref, rubric, *, document_ids, note='', picked=(), user=None
     documents = [str(d) for d in document_ids or []]
     if not documents:
         raise Layer2Error('Attach at least one document.')
+    refuse_closed(run_ref)
     sprint_id = run_sprint_id(run_ref)
     if sprint_id is not None:
         documents = check_documents(documents, sprint_id)
@@ -525,9 +677,12 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
                 layer2.add_windows(target, layer2.page_windows(new_pages, pages), 'extraction_tag')
     targets = {code: t for code, t in targets.items() if t['windows']}
     if not targets:
-        return {**result, 'targets': {}, 'context_audit': {}, 'merge': [], 'records': records, 'contradictions': [],
-                'lowerings': [],
-                'final_score': provisional_score, 'traces': [], 'new_sources': [], 'note': 'No new evidence to re-judge.'}
+        deepened, changes = with_depth(records, run_ref)
+        return {**result, 'targets': {}, 'context_audit': {}, 'merge': [], 'records': deepened, 'contradictions': [],
+                'lowerings': [], 'depth_changes': changes,
+                'final_score': layer2.final_score(deepened, rubric), 'traces': [], 'new_sources': [],
+                'note': ('No new evidence to re-judge; follow-up answers earn back held credit.' if changes
+                         else 'No new evidence to re-judge.')}
     layer2.check_export_rule(records, traces, targets)
     contexts, context_audit = layer2.fixed_contexts(traces, targets)
     subset = layer2.subset_rubric(rubric, targets)
@@ -540,21 +695,50 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
     # The run's own retrieval policy, so page aliases for reviewed evidence and the trace match the first pass; the
     # targeted extra search is not repeated (the packet already holds what it added).
     policy = {k: v for k, v in (export.get('retrieval_policy') or {}).items() if k != 'follow_up'} or None
+    repair = run is not None and ((run.inputs or {}).get('execution_policy') or {}).get(
+        'part_quote_repair') == 'quote-repair-v1'   # the provisional run's own rule
     outcome = evaluate_fn(sources, service=service, population=export.get('population') or 'Not recorded',
                           reference_period=export.get('reference_period') or 'Not recorded', rubric=subset,
                           scope=export.get('scope'), reviewed_evidence=export.get('reviewed_evidence'),
                           retrieval_policy=policy, judgment='parts', agreement_passes=2, tie_break=True,
-                          max_calls=len(subset['indicators']), fixed_contexts=contexts, **(evaluate_options or {}))
+                          max_calls=len(subset['indicators']), fixed_contexts=contexts,
+                          **({'quote_repair': True} if repair else {}), **(evaluate_options or {}))
     packets = {t['indicator']: t.get('source_excerpts') or [] for t in traces}
     merged, merge_audit = layer2.merge_new_evidence(
         records, outcome['records'], packets, rubric=rubric, lowering=lowering,
         max_per_document=settings.SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT,
         source_documents={s['id']: s.get('document_id') for s in new_pages if s.get('id')})
+    merged, changes = with_depth(merged, run_ref)
     return {**result, 'targets': {code: t['conditions'] for code, t in targets.items()},
-            'context_audit': context_audit, 'merge': merge_audit, 'records': merged,
+            'context_audit': context_audit, 'merge': merge_audit, 'records': merged, 'depth_changes': changes,
             'contradictions': layer2.contradictions(merge_audit), 'lowerings': layer2.lowerings(merge_audit),
             'final_score': layer2.final_score(merged, rubric), 'traces': outcome.get('traces', []),
             'new_sources': new_pages, 'note': 'Publish with publish_final to make this the result reports use.'}
+
+
+def with_depth(records, run_ref, share=None):
+    """The records with the provisional run's depth judgments applied (reserve.py): a requirement whose follow-up
+    answers showed depth earns back the credit held for it. Returns (records, changes). Records of a run that holds
+    nothing come back unchanged."""
+    from fractions import Fraction
+    from .depth_service import latest_levels
+    from .reserve import run_min_credit, run_share, stamp
+    run = _run(run_ref)
+    if share is None:   # the run's frozen share; else what the records carry
+        share = run_share(run.inputs) if run is not None else next(
+            (r.get('depth_share') for r in records if r.get('depth_share')), None)
+    if not share:
+        return records, []
+    # The half-credit line too, as publish stamps it: a record the re-judge replaced carries none, and without it a
+    # replaced record below half credit counted at the held factor here but in full once published (audit, 23 Nov).
+    minimum = run_min_credit(run.inputs) if run is not None else max(
+        [Fraction(str(r.get('depth_min_credit') or 0)) for r in records] or [Fraction(0)])
+    levels = latest_levels(run_ref)
+    out = stamp([dict(r) for r in records], share, levels, min_credit=minimum or None)
+    changes = [{'condition_id': r['condition_id'], 'level': r['depth_level'], **({'review': r['depth_review']}
+                if r.get('depth_review') else {})}
+               for r in out if (r.get('credit') or 0) > 0 and (levels.get(r['condition_id']) or 'evidenced') != 'evidenced']
+    return out, changes
 
 
 def _inference(service, provisional_event):
@@ -569,7 +753,8 @@ def _inference(service, provisional_event):
 
 
 def publish_final(result, *, service=None, user=None, inference=None):
-    """Publish a rejudge_credit result as the final result: a new run refining the provisional one, with the new
+    """Publish a rejudge_credit result as the final result and so close the follow-up stage (stage_closed): a new run
+    refining the provisional one, with the new
     documents' pages added to its frozen sources and the merged records published through storage.publish (which
     revalidates every citation and trace excerpt against those sources). Re-judged key indicators take their new
     traces; the rest keep the provisional ones. Idempotent: the same result publishes once. Returns the final run."""
@@ -595,6 +780,7 @@ def publish_final(result, *, service=None, user=None, inference=None):
         existing = CapabilityExecution.objects.filter(sprint=sprint, idempotency_key=key).select_related('run').first()
         if existing:
             return existing.run
+        refuse_closed(provisional_run.pk)   # one final result per provisional run: publishing closes the stage
         inputs = dict(provisional_run.inputs)
         frozen_ids = {s['id'] for s in inputs['sources']}
         added = [s for s in new_sources if s['id'] not in frozen_ids]

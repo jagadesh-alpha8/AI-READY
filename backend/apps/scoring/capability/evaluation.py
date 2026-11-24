@@ -175,6 +175,9 @@ def response_audit(indicator, response, validated):
             'model_response_hash': hashlib.sha256(serialized.encode()).hexdigest()}
 
 
+QUOTE_REPAIR_VERSION = 'quote-repair-v1'
+
+
 def _normal(text):
     return ' '.join(text.split())
 
@@ -189,7 +192,7 @@ def ranking_sources(sources):
             for s in sources]
 
 
-def select_context(indicator, sources, max_chars=None, semantic_ranker=None, window_chars=None, diagnostics=None, structure=None):
+def select_context(indicator, sources, max_chars=None, semantic_ranker=None, window_chars=None, diagnostics=None, structure=None, window_cache=None):
     """Rank requirement-aware page windows, including evidence beyond the page prefix.
 
     Independent assertions retain distinct windows under the canonical page ID; the
@@ -204,7 +207,8 @@ def select_context(indicator, sources, max_chars=None, semantic_ranker=None, win
         bodies = ranking_sources(sources)
         allowance = 19 if max_chars >= 120 else 0
         context = select_context(indicator, bodies, max_chars=max_chars - allowance, semantic_ranker=semantic_ranker,
-                                 window_chars=window_chars, diagnostics=diagnostics, structure=structure)
+                                 window_chars=window_chars, diagnostics=diagnostics, structure=structure,
+                                 window_cache=window_cache)
         # A single companion from a selected page keeps repeated timestamps out of ranking.
         anchor = next((s for s in context if s['id'] in footers), None)
         if anchor and allowance:
@@ -221,7 +225,7 @@ def select_context(indicator, sources, max_chars=None, semantic_ranker=None, win
         return retrieve_evidence(indicator, sources, semantic_ranker, max_chars=max_chars, diagnostics=diagnostics,
                                  structure=structure)
     if indicator.get('scoring_mode') == 'independent_conditions':
-        return select_balanced_context(indicator, sources, max_chars=max_chars, semantic_ranker=semantic_ranker, window_chars=window_chars, diagnostics=diagnostics, structure=structure)
+        return select_balanced_context(indicator, sources, max_chars=max_chars, semantic_ranker=semantic_ranker, window_chars=window_chars, diagnostics=diagnostics, structure=structure, window_cache=window_cache)
     if structure is not None:
         raise ValueError('Structure routing applies only to independent-condition indicators.')
     ids = [s['id'] for s in sources]
@@ -318,7 +322,34 @@ RETRIEVAL_TERMS = {
 }
 
 
-def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker=None, window_chars=None, diagnostics=None, *, structural_seed=None, structure=None):
+# A keyword window's word counts and a page's hash depend only on their text, yet every key indicator recomputed them
+# for the whole corpus (about a third of retrieval's time on VISTAS). Hybrid retrieval passes a cache that lives with
+# the run's ranker and its corpus (evidence_retrieval.corpus_cache), so it is freed with them; without one nothing is
+# kept. Read-only wherever used. Bounded per corpus (about 10 KB a window): past the bound, windows are counted as
+# before.
+WINDOW_CACHE_LIMIT = 20_000
+
+
+def _window_words(excerpt, stop, cache):
+    words = cache['windows'].get(excerpt) if cache is not None else None
+    if words is None:
+        words = Counter(t for t in re.findall(r'[a-z0-9]{2,}', excerpt.lower()) if t not in stop)
+        if cache is not None and len(cache['windows']) < WINDOW_CACHE_LIMIT:
+            cache['windows'][excerpt] = words
+    return words
+
+
+def _page_hash(text, cache):
+    """sha256 of a page's text, the tie-break of keyword ranking (once per page, not once per window per query)."""
+    if cache is None:
+        return hashlib.sha256(text.encode()).hexdigest()
+    value = cache['pages'].get(text)
+    if value is None:
+        value = cache['pages'][text] = hashlib.sha256(text.encode()).hexdigest()
+    return value
+
+
+def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker=None, window_chars=None, diagnostics=None, *, structural_seed=None, structure=None, window_cache=None):
     """Assertion-diverse exact windows. Bounded retrieval, never a recall guarantee."""
     if len({s['id'] for s in sources}) != len(sources):
         raise ValueError('Source IDs must be unique.')
@@ -343,8 +374,7 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
         for offset in sorted(offsets):
             excerpt = source['text'][offset:offset + size]
             if excerpt.strip():
-                words = Counter(t for t in re.findall(r'[a-z0-9]{2,}', excerpt.lower()) if t not in stop)
-                windows.append((source, offset, excerpt, words))
+                windows.append((source, offset, excerpt, _window_words(excerpt, stop, window_cache)))
     if not windows:
         return []
     frequency = Counter(t for row in windows for t in row[3])
@@ -373,7 +403,7 @@ def select_balanced_context(indicator, sources, max_chars=18000, semantic_ranker
             total = total * 1.5 + 2
         return total
     def ranked(query):
-        lexical = sorted(windows, key=lambda w: (-score(w, query), hashlib.sha256(w[0]['text'].encode()).hexdigest(), w[1], w[0]['id']))
+        lexical = sorted(windows, key=lambda w: (-score(w, query), _page_hash(w[0]['text'], window_cache), w[1], w[0]['id']))
         return lexical
 
     # Selected spans per page, in rank order: [source, start, end]. Overlapping candidates merge
@@ -644,40 +674,79 @@ def _agreement_pass(indicator, validated, *, service, payload, schema_sources, c
     return validated, audit
 
 
+def _request_shape(indicator, judgment, compact):
+    """(system prompt, indicator as sent, answer format for a packet) of an indicator's full request."""
+    if judgment == 'parts':
+        from . import part_judgment
+        return (part_judgment.prompt(), part_judgment.indicator_with_parts(indicator, indicator['conditions']),
+                lambda context: part_judgment.schema(indicator, indicator['conditions']))
+    return SYSTEM_PROMPT, indicator, lambda context: indicator_schema(indicator, None if compact else context)
+
+
 def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope,
-             structure=None, fixed_context=None):
+             structure=None, fixed_context=None, lane_version=None, ceiling=None, judgment='conditions',
+             diagnostics=None):
     """Build one indicator's frozen packet and request payload (local work, no model call).
 
     fixed_context: a packet given whole (the second assessment layer: a provisional packet plus new windows, see
-    layer2.py). Retrieval and the extracted-evidence lane are skipped; the packet already holds what they added."""
+    layer2.py). Retrieval and the extracted-evidence lane are skipped; the packet already holds what they added.
+    ceiling: the run's frozen prompt ceiling (prompt_ceiling.py): the packet is rebuilt with a smaller keyword lane
+    while the request's estimated prompt tokens are over it.
+    diagnostics: a dict that retrieval fills with its ranks (select_context); with a ceiling, those of the last build.
+    Used by capability_page_use, which needs the run's exact packet and the ranks behind it."""
     from .scope import context_scope
     from .reviewed_evidence import for_context
-    if fixed_context is not None:
-        context = list(fixed_context)
-    elif structure is None:
-        context = select_context(indicator, sources, semantic_ranker=semantic_ranker)
-    else:
-        # Retrieval reads the duplicate-free pages; validation still accepts any frozen source.
-        context = select_context(indicator, structure['sources'], semantic_ranker=semantic_ranker, structure=structure)
-    lane_audit = None
     from django.conf import settings
-    if fixed_context is None and getattr(settings, 'CAPABILITY_EVIDENCE_LANE', True):
-        from .reviewed_evidence import evidence_lane
-        lane_aliases = None
+
+    def build(ranker):
+        if fixed_context is not None:
+            context = list(fixed_context)
+        elif structure is None:
+            context = select_context(indicator, sources, semantic_ranker=ranker, diagnostics=diagnostics)
+        else:
+            # Retrieval reads the duplicate-free pages; validation still accepts any frozen source.
+            context = select_context(indicator, structure['sources'], semantic_ranker=ranker, structure=structure,
+                                     diagnostics=diagnostics)
+        lane_audit = None
+        if fixed_context is None and getattr(settings, 'CAPABILITY_EVIDENCE_LANE', True):
+            from .reviewed_evidence import evidence_lane
+            lane_aliases = None
+            if structure is not None and structure.get('dropped'):
+                from .structure import page_aliases
+                lane_aliases = page_aliases(structure)
+            from .reviewed_evidence import LANE_VERSION
+            context, lane_audit = evidence_lane(indicator, list(context),
+                                                structure['sources'] if structure is not None else sources,
+                                                reviewed_evidence, aliases=lane_aliases,
+                                                version=lane_version or LANE_VERSION)
+        return context, lane_audit
+
+    def _aliases():
         if structure is not None and structure.get('dropped'):
             from .structure import page_aliases
-            lane_aliases = page_aliases(structure)
-        context, lane_audit = evidence_lane(indicator, list(context),
-                                            structure['sources'] if structure is not None else sources,
-                                            reviewed_evidence, aliases=lane_aliases)
+            return page_aliases(structure)
+        return None
+
+    ceiling_audit = None
+    if ceiling:
+        from . import prompt_ceiling
+        prompt, request_indicator, request_schema = _request_shape(indicator, judgment, gemini)
+
+        def measure(context, _lane):
+            body = json.dumps({'reviewed_evidence': for_context(reviewed_evidence, context, aliases=_aliases()),
+                               'indicator': request_indicator, 'population': population,
+                               'reference_period': reference_period, 'scope': context_scope(scope, context),
+                               'sources': context}, sort_keys=True)
+            return prompt_ceiling.estimate(ceiling, prompt, body, request_schema(context))
+        context, lane_audit, ceiling_audit = prompt_ceiling.fit(
+            ceiling, semantic_ranker if fixed_context is None else None, build, measure)
+    else:
+        context, lane_audit = build(semantic_ranker)
     # Repeating the packet ID enum in each condition can exceed Gemini's
     # schema complexity limit. validate_decisions still checks exact citations.
     schema_sources = None if gemini else context
     attachment_audit = {}
-    aliases = None
-    if structure is not None and structure.get('dropped'):
-        from .structure import page_aliases
-        aliases = page_aliases(structure)
+    aliases = _aliases()
     def payload_for(packet, diagnostics=None):
         """(payload, reviewed-evidence context) for a packet; reused by the targeted extra search."""
         reviewed = for_context(reviewed_evidence, packet, diagnostics=diagnostics, aliases=aliases)
@@ -692,17 +761,20 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
         issue = 'No readable source context. Capability is unknown.'
     return {'indicator': indicator, 'context': context, 'schema_sources': schema_sources,
             'schema': indicator_schema(indicator, schema_sources), 'attachment_audit': attachment_audit,
-            'evidence_lane': lane_audit,
+            'evidence_lane': lane_audit, **({'prompt_ceiling': ceiling_audit} if ceiling_audit else {}),
             'review_context': review_context, 'payload': payload, 'issue': issue, 'payload_for': payload_for,
             # The exact pages the ranker indexed, so the extra search reuses its index instead of rebuilding it.
             'retrieval_sources': ranking_sources(structure['sources'] if structure is not None else sources)}
 
 
 def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, strict_errors, recover_provider_errors,
-                 agreement_passes, follow_up=None, tie_break=False):
+                 agreement_passes, follow_up=None, tie_break=False, quote_repair=False):
     """Part-level judgment (part_judgment.py): request(s) with split, part validation, part-level agreement.
 
-    No correction call: a part whose quotation fails validation counts as not found."""
+    A part whose quotation fails validation counts as not found. With quote_repair (quote-repair-v1), a pass whose
+    found parts all failed their quotations is asked once more, for those requirements only, to quote exactly or mark
+    the part not found; the repaired answer replaces the requirement only when its quotations validate (test 13: two
+    requirements went from full credit to nothing in one pass on quotations alone)."""
     from . import part_judgment
     from .request_recovery import request_with_split, recoverable_failure
     from .decision_causes import NOT_EVALUATED
@@ -717,7 +789,40 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
             schema_for=lambda group: part_judgment.schema(indicator, group), rows_for=part_judgment.rows,
             prompt=part_judgment.prompt(), name='capability_parts', result_key='conditions')
 
-    response, recovery_audit, processing_errors = {}, {}, {}
+    def repaired(records, label):
+        """(records, audit or None): one repair request for the requirements whose found parts failed quotation."""
+        failing = {r['condition_id']: [i.split(':')[0] for i in r.get('part_issues') or [] if 'without a valid quotation' in i]
+                   for r in records}
+        # Only requirements whose found parts ALL failed their quotations (nothing found validated): one misquoted
+        # part beside a validated one is not repaired, since the repair re-judges every part of the requirement
+        # (audit, 23 Nov: any failed quotation triggered it, up to 72 requests a run, not the 36 budgeted).
+        validated = {r['condition_id']: any(p.get('finding') not in (None, 'not_found') for p in r.get('parts') or [])
+                     for r in records}
+        failing = {cid: parts for cid, parts in failing.items() if parts and not validated.get(cid)}
+        if not quote_repair or not failing:
+            return records, None
+        group = [c for c in indicator['conditions'] if c['id'] in failing]
+        note = ('In your previous answer these parts were marked as found, but none of their quotations matched the '
+                'supplied passages exactly. For each, quote the passage text exactly as it appears, or mark the part '
+                'not_found. Judge every part of these conditions again as usual.')
+        audit = {'version': QUOTE_REPAIR_VERSION, 'pass': label, 'parts': failing}
+        try:
+            answer, recovery, errors = one_pass(group, base={**data, 'quotation_repair': {'note': note, 'parts': failing}})
+        except Exception as exc:
+            if strict_errors and not (recover_provider_errors and recoverable_failure(exc)):
+                raise
+            audit['error'] = f'Repair request failed ({type(exc).__name__}).'
+            return records, audit
+        fixed = {r['condition_id']: r for r in part_judgment.judge_rows(
+            {**indicator, 'conditions': group}, part_judgment.rows(answer), context,
+            reviewed_evidence=reviewed_evidence, sources=sources) if r['condition_id'] not in errors}
+        use = {cid for cid, r in fixed.items()
+               if not any('without a valid quotation' in i for i in r.get('part_issues') or [])}
+        audit.update(recovery=recovery, repaired=sorted(use), kept=sorted(set(failing) - use),
+                     response_audit=response_audit({**indicator, 'conditions': group}, answer, list(fixed.values())))
+        return [fixed[r['condition_id']] if r['condition_id'] in use else r for r in records], audit
+
+    response, recovery_audit, processing_errors, repairs = {}, {}, {}, []
     if attempted:
         try:
             response, recovery_audit, processing_errors = one_pass()
@@ -727,6 +832,10 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
             issue = f'Model evaluation failed ({type(exc).__name__}). Capability is unknown.'
     validated = part_judgment.judge_rows(indicator, part_judgment.rows(response), context,
                                          reviewed_evidence=reviewed_evidence, sources=sources)
+    if attempted and not issue:
+        validated, audit = repaired(validated, 'first')
+        if audit:
+            repairs.append(audit)
     for record in validated:
         if record['condition_id'] in processing_errors:
             reason = 'Model evaluation failed (' + processing_errors[record['condition_id']] + '). Capability is unknown.'
@@ -747,10 +856,18 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
         else:
             rechecked = part_judgment.judge_rows(indicator, part_judgment.rows(second), context,
                                                  reviewed_evidence=reviewed_evidence, sources=sources)
+            raw_rechecked = rechecked
+            rechecked, audit = repaired(rechecked, 'second')
+            if audit:
+                repairs.append(audit)
             first_pass = validated
             validated, disagreements = part_judgment.combine(first_pass, rechecked)
+            # The second pass's own proposals (findings and quotations), as for the first: test 13 (20 Nov) showed
+            # three requirements whose second-pass quotations all failed validation, and only the validated records
+            # had been kept, so why they failed could not be seen.
             agreement_audit = {'passes': 2, 'disagreements': disagreements, 'second_response_recovery': second_recovery,
-                               'second_response_audit': response_audit(indicator, {'conditions': rechecked}, rechecked)}
+                               'second_response_audit': response_audit(indicator, second, raw_rechecked),
+                               'second_parts': _parts_summary(rechecked)}
             if tie_break and disagreements:
                 validated, agreement_audit['tie_break'] = _part_tie_break(
                     indicator, first_pass, rechecked, validated, disagreements, one_pass, context=context,
@@ -772,7 +889,16 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
     return {'validated': validated, 'response': {'conditions': part_judgment.rows(response)},
             'recovery_audit': recovery_audit, 'processing_errors': processing_errors, 'initial_audit': None,
             'correction_audit': None, 'agreement_audit': agreement_audit, 'issue': issue, 'attempted': attempted,
-            'repaired_call': False, 'unavailable': unavailable, 'context': sent, 'follow_up_audit': follow_up_audit}
+            'repaired_call': len(repairs), 'unavailable': unavailable, 'context': sent, 'follow_up_audit': follow_up_audit,
+            'quote_repairs': repairs}
+
+
+def _parts_summary(records):
+    """{condition id: {'credit', 'parts': [[part id, finding, credited as]], 'part_issues'}} of one pass, compactly."""
+    return {r['condition_id']: {'credit': r.get('credit'),
+                                'parts': [[p['id'], p.get('finding'), p.get('credited_as')] for p in r.get('parts') or []],
+                                **({'part_issues': r['part_issues']} if r.get('part_issues') else {})}
+            for r in records}
 
 
 def _part_tie_break(indicator, first, second, combined, disagreements, one_pass, *, context, reviewed_evidence, sources,
@@ -794,9 +920,11 @@ def _part_tie_break(indicator, first, second, combined, disagreements, one_pass,
         audit['error'] = f'Third pass failed ({type(exc).__name__}).'
         return combined, audit
     audit['recovery'] = recovery
-    third = {r['condition_id']: r for r in part_judgment.judge_rows(
-        {**indicator, 'conditions': group}, part_judgment.rows(answer), context,
-        reviewed_evidence=reviewed_evidence, sources=sources) if r['condition_id'] not in errors}
+    judged = part_judgment.judge_rows({**indicator, 'conditions': group}, part_judgment.rows(answer), context,
+                                      reviewed_evidence=reviewed_evidence, sources=sources)
+    audit['response_audit'] = response_audit({**indicator, 'conditions': group}, answer, judged)
+    audit['parts'] = _parts_summary(judged)
+    third = {r['condition_id']: r for r in judged if r['condition_id'] not in errors}
     by_first = {r['condition_id']: r for r in first}
     by_second = {r['condition_id']: r for r in second}
     resolved, out = [], []
@@ -874,12 +1002,13 @@ def _follow_up(job, validated, one_pass, *, follow_up, sources, reviewed_evidenc
 
 
 def _judge(job, attempted, issue, *, service, sources, reviewed_evidence, strict_errors, recover_provider_errors,
-           agreement_passes, judgment='conditions', follow_up=None, tie_break=False):
+           agreement_passes, judgment='conditions', follow_up=None, tie_break=False, quote_repair=False):
     """Model work for one prepared indicator: request (with split), validation, one correction, agreement pass."""
     if judgment == 'parts':
         return _judge_parts(job, attempted, issue, service=service, sources=sources, reviewed_evidence=reviewed_evidence,
                             strict_errors=strict_errors, recover_provider_errors=recover_provider_errors,
-                            agreement_passes=agreement_passes, follow_up=follow_up, tie_break=tie_break)
+                            agreement_passes=agreement_passes, follow_up=follow_up, tie_break=tie_break,
+                            quote_repair=quote_repair)
     from .request_recovery import request_with_split, recoverable_failure
     from .evidence_parts import APPROVAL_MISSING
     from .decision_causes import NOT_EVALUATED
@@ -951,7 +1080,7 @@ def _judge(job, attempted, issue, *, service, sources, reviewed_evidence, strict
             'unavailable': unavailable}
 
 
-def _trace(job, outcome, *, gemini, retrieval_policy, sources):
+def _trace(job, outcome, *, gemini, retrieval_policy, sources, compact=False):
     indicator, payload, review_context = job['indicator'], job['payload'], job['review_context']
     # Everything sent to the model, including passages added by the targeted extra search.
     context = outcome.get('context') or job['context']
@@ -962,17 +1091,20 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources):
             'schema_hash': hashlib.sha256(json.dumps(job['schema'], sort_keys=True).encode()).hexdigest(),
             'schema_template_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest(),
             'schema_binding_version': ('required-condition-properties-gemini-0.3' if gemini
+                                       else 'required-condition-properties-compact-0.3' if compact
                                        else 'required-condition-properties-0.2'),
             'response_recovery': recovery_audit, 'processing_errors': outcome['processing_errors'],
             'initial_response_audit': outcome['initial_audit'], 'correction_response_audit': correction_audit,
             'response_assembly': 'split_responses' if recovery_audit.get('split_attempted') else 'validated_initial_plus_correction' if correction_audit and 'error' not in correction_audit else 'initial_response',
             'response_audit': response_audit(indicator, outcome['response'], outcome['validated']),
             'agreement_audit': outcome['agreement_audit'],
+            **({'quote_repair_audit': outcome['quote_repairs']} if outcome.get('quote_repairs') else {}),
             'input_hash': hashlib.sha256(payload.encode()).hexdigest(),
             'source_ids': [s['id'] for s in context],
             'source_excerpts': context,
             'reviewed_evidence_packet': review_context,
             'reviewed_attachment_audit': job['attachment_audit'], 'evidence_lane': job.get('evidence_lane'),
+            **({'prompt_ceiling': job['prompt_ceiling']} if job.get('prompt_ceiling') else {}),
             'reviewed_context_chars': len(json.dumps(review_context)),
             'reviewed_context_claims': len((review_context or {}).get('claims', [])),
             'user_payload_chars': len(payload),
@@ -984,7 +1116,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources):
             'error': outcome['issue']}
 
 
-def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions', tie_break=False, fixed_contexts=None):
+def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions', tie_break=False, fixed_contexts=None, quote_repair=False):
     """Assess every indicator. Packets are built in rubric order; with concurrency > 1 the model work for up to
     that many indicators runs at once. Records, traces and on_indicator calls stay in rubric order, so results
     do not depend on concurrency; only request numbering in the billing ledger interleaves.
@@ -1018,17 +1150,27 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     gemini = getattr(service, 'provider', None) == 'gemini' or (
         isinstance(base_url, str) and direct_gemini(base_url)
     )
+    # Claude's JSON output has a grammar-size limit too: same compact binding (packet IDs not repeated per condition).
+    compact = gemini or getattr(service, 'provider', None) == 'anthropic'
     if judgment not in ('conditions', 'parts'):
         raise ValueError('judgment must be conditions or parts.')
     if judgment == 'parts':
         from . import part_judgment
         part_judgment.specification(rubric)
+    ceiling = (retrieval_policy or {}).get('prompt_ceiling')
+    if ceiling:
+        from . import prompt_ceiling
+        if ceiling.get('version') != prompt_ceiling.VERSION or ceiling.get('short_ids') not in (
+                None, prompt_ceiling.SHORT_IDS_VERSION):
+            raise ValueError('Frozen prompt ceiling version does not match this worker.')
+        if ceiling.get('short_ids'):
+            service = prompt_ceiling.ShortIds(service)   # every assessment request, re-judging included
     judge = dict(service=service, sources=sources, reviewed_evidence=reviewed_evidence, strict_errors=strict_errors,
                  recover_provider_errors=recover_provider_errors, agreement_passes=agreement_passes, judgment=judgment,
-                 tie_break=tie_break)
+                 tie_break=tie_break, quote_repair=quote_repair)
     structure = None
     frozen_policy = retrieval_policy or {}
-    state = {'calls': 0, 'repairs': 0, 'streak': 0, 'follow_up_calls': 0}
+    state = {'calls': 0, 'repairs': 0, 'streak': 0, 'follow_up_calls': 0, 'circuit_skipped': 0}
     lock = threading.Lock()
     if frozen_policy.get('follow_up') is not None:
         from . import follow_up as extra
@@ -1053,8 +1195,10 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
         structure = document_structure.build(sources, deduplicate_pages=frozen_policy.get('deduplicate') is not None,
                                              routing=frozen_policy.get('structure') is not None,
                                              repeat_skip=frozen_policy.get('repeat_skip') is not None)
-    prepare = dict(sources=sources, semantic_ranker=semantic_ranker, gemini=gemini, reviewed_evidence=reviewed_evidence,
-                   population=population, reference_period=reference_period, scope=scope, structure=structure)
+    # The run's frozen lane version (runs from before lane-2 record none and keep lane-1).
+    prepare = dict(sources=sources, semantic_ranker=semantic_ranker, gemini=compact, reviewed_evidence=reviewed_evidence,
+                   population=population, reference_period=reference_period, scope=scope, structure=structure,
+                   lane_version=frozen_policy.get('evidence_lane'), ceiling=ceiling, judgment=judgment)
     records, traces = [], []
 
     def admit(job):
@@ -1063,6 +1207,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
             if job['issue']:
                 return False, job['issue']
             if recover_provider_errors and state['streak'] >= 2:
+                state['circuit_skipped'] += 1
                 return False, 'Model evaluation failed (response circuit open). Capability is unknown; no further requests were made.'
             if state['calls'] >= max_calls:
                 return False, 'Evaluation call budget reached. Capability is unknown.'
@@ -1080,7 +1225,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
 
     def emit(job, outcome):
         records.extend(outcome['validated'])
-        trace = _trace(job, outcome, gemini=gemini, retrieval_policy=retrieval_policy, sources=sources)
+        trace = _trace(job, outcome, gemini=gemini, compact=compact, retrieval_policy=retrieval_policy, sources=sources)
         if judgment == 'parts':
             from . import part_judgment
             trace['judgment'] = part_judgment.metadata()
@@ -1123,5 +1268,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     return {'records': records, 'decisions': {r['condition_id']: r['state'] for r in records},
             'traces': traces, 'indicator_calls': calls, 'correction_calls': repair_calls,
             **({'follow_up_requests': state['follow_up_calls']} if 'follow_up' in judge else {}),
+            # Key indicators never sent because the provider kept failing (two unavailable answers in a row). The
+            # assessment task does not publish such a run: its unknowns are an outage, not missing evidence.
+            'circuit_skipped_indicators': state['circuit_skipped'],
             'note': 'Citation validation checks grounding; semantic interpretation still requires quality evaluation. '
                     'correction_calls counts additional bounded decision-correction batches. Provider retries also spend the metered SDK budget; indicator_calls is not a billing-call count.'}

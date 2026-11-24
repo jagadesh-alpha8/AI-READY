@@ -11,6 +11,7 @@ tool call whose `input_schema` *is* the requested schema (with `strict:
 True`, Anthropic's own guarantee that the tool call's `input` matches it
 exactly), then reading that tool call's `input` as the result.
 """
+import json
 import logging
 import time
 
@@ -77,6 +78,12 @@ class AnthropicExtractionService:
                 'No model is configured for AnthropicExtractionService. Set AI_MODEL in '
                 'backend/.env, or construct this service with an explicit model=.'
             )
+
+        # JSON output (output_config.format) instead of a forced tool call: scoring sets it, because a forced
+        # tool call can't be combined with thinking, which Claude 5.5 models use by default. `effort`
+        # (output_config.effort) is set by scoring's meter from the run's frozen policy; None = model default.
+        self.json_output = False
+        self.effort = None
 
         # `client` is accepted for dependency injection in tests -- normal
         # callers just get a real Anthropic client built from the settings above.
@@ -180,6 +187,15 @@ class AnthropicExtractionService:
         else:
             content_blocks = user_content
 
+        if self.json_output:
+            output_config = {'format': {'type': 'json_schema', 'schema': json_output_schema(response_schema)}}
+            if self.effort:
+                output_config['effort'] = self.effort
+            # No temperature: with thinking on, Claude accepts only its default.
+            return self._client.messages.create(
+                model=self.model, max_tokens=DEFAULT_MAX_TOKENS, system=system_prompt,
+                messages=[{'role': 'user', 'content': content_blocks}], output_config=output_config, timeout=timeout)
+
         return self._client.messages.create(
             model=self.model,
             max_tokens=DEFAULT_MAX_TOKENS,
@@ -206,9 +222,17 @@ class AnthropicExtractionService:
         if response.stop_reason == 'model_context_window_exceeded':
             raise AnthropicResponseError('The input was too large for the model\'s context window.')
 
+        texts = []
         for block in response.content or []:
             if getattr(block, 'type', None) == 'tool_use' and getattr(block, 'name', None) == schema_name:
                 return block.input
+            if getattr(block, 'type', None) == 'text':
+                texts.append(getattr(block, 'text', '') or '')
+        if texts:   # JSON output mode: the answer is the text after any thinking blocks
+            try:
+                return json.loads(''.join(texts))
+            except ValueError as exc:
+                raise AnthropicResponseError(f'Claude\'s "{schema_name}" output was not valid JSON.') from exc
 
         raise AnthropicResponseError(f'Claude response had no "{schema_name}" tool call.')
 
@@ -227,3 +251,29 @@ def _quota(exc):
     """The out-of-quota reason in an SDK error, or '' (services/provider_errors.py)."""
     from .provider_errors import quota_exhaustion
     return quota_exhaustion(getattr(exc, 'status_code', None), getattr(exc, 'body', None), getattr(exc, 'message', str(exc)))
+
+
+#: JSON Schema keywords Claude's structured output doesn't enforce (it rejects or ignores them); the caller's own
+#: validation still checks the result, so they are dropped from what is sent.
+_UNSUPPORTED = {'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'minLength', 'maxLength', 'maxItems',
+                'pattern', 'format', 'multipleOf'}
+
+
+def json_output_schema(schema):
+    """`schema` as Claude's JSON output accepts it: unsupported constraints dropped, minItems kept only at 0 or 1, and
+    every object closed (additionalProperties false)."""
+    if isinstance(schema, list):
+        return [json_output_schema(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out = {}
+    for key, value in schema.items():
+        if key in _UNSUPPORTED or (key == 'minItems' and value not in (0, 1)):
+            continue
+        if key in ('properties', '$defs', 'definitions') and isinstance(value, dict):
+            out[key] = {name: json_output_schema(sub) for name, sub in value.items()}
+        else:
+            out[key] = json_output_schema(value)
+    if out.get('type') == 'object' or 'properties' in out:
+        out['additionalProperties'] = False
+    return out

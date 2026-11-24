@@ -61,7 +61,7 @@ def decision_preflight(plan, meter):
     """
     from django.conf import settings
     from apps.extraction.services.openai_client import OpenAIExtractionService, _JSON_INSTRUCTIONS, _sampling
-    from apps.extraction.services.provider_features import direct_gemini, gemini_thinking
+    from apps.extraction.services.provider_features import direct_gemini
     if not isinstance(meter.service, OpenAIExtractionService):
         return [{'id': r['id'], 'available': False, 'eligible': True,
                  'note': 'Initial sizing unavailable for this client; runtime meter still applies.'}
@@ -78,10 +78,8 @@ def decision_preflight(plan, meter):
                         {'role':'user','content':json.dumps(request['payload'],sort_keys=True)}],
             'response_format':{'type':'json_schema','json_schema':{
                 'name':'capability_probe_condition','schema':schema,'strict':True}},
-            'max_tokens':meter.policy['output_tokens'],'timeout':meter.policy['timeout_seconds'],
             **_sampling()}
-        if gemini_thinking(base_url,meter.model) and meter.policy['gemini_reasoning_effort']!='default':
-            kwargs['reasoning_effort']=meter.policy['gemini_reasoning_effort']
+        meter.shape(kwargs,meter.policy['timeout_seconds'])   # the same request settings send() will use
         bound,_=meter.envelope(kwargs)
         rows.append({'id':request['id'],'available':True,
             'input_token_bound':bound,'input_token_bound_limit':meter.policy['input_token_bound_limit'],

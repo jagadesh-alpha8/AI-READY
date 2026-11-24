@@ -2,7 +2,12 @@
 additional evidence. Under /api/v1/sprints/{sprint}/capability-runs/{run}/:
 
     GET  questions                               next item (a follow-up first, else the next open question) + progress
-    POST questions/{question}/responses          {answer, document_ids, skip}
+                                                 ?list=1 also returns every question with its latest answer, in rank
+                                                 order (for "Previous" and an overview of the questionnaire)
+    POST questions/{question}/responses          {answer, document_ids, skip, choice}: choice = yes | partly | not_yet
+                                                 (the answer options; not_yet is recorded like a skip)
+    POST questions/{question}/to-check           {to_check: true|false}: "I need to check", a saved mark on an open
+                                                 question; it stays open and moves behind the unmarked ones
     GET  responses/{response}                    status, what the check found, the follow-up if one was asked
     POST responses/{response}/follow-up          {answer, document_ids, skip}: the one answer to that follow-up
     GET  additional-evidence                     submissions so far
@@ -48,16 +53,26 @@ def flag(value):
 
 
 def serialize_question(question):
-    return {'id': str(question.pk), 'rank': question.rank, 'kind': question.kind, 'text': question.text,
-            'indicator_code': question.indicator_code, 'condition_ids': question.condition_ids,
-            'status': question.status}
+    """A question; a group's lead also lists the questions it answers (\"Also answers: ...\" on the screen: they are
+    never served on their own, so without this list the front end could not show them; Jagadesh, 22 Nov)."""
+    out = {'id': str(question.pk), 'rank': question.rank, 'kind': question.kind, 'text': question.text,
+           'indicator_code': question.indicator_code, 'condition_ids': question.condition_ids,
+           'status': question.status, 'points_at_stake': float(question.points_at_stake),
+           'to_check': question.to_check, 'to_check_at': question.to_check_at,
+           'linked_to': str(question.linked_to_id) if question.linked_to_id else None}
+    if question.linked_to_id is None:
+        out['linked'] = [{'id': str(q.pk), 'rank': q.rank, 'indicator_code': q.indicator_code,
+                          'condition_ids': q.condition_ids, 'status': q.status,
+                          'points_at_stake': float(q.points_at_stake), 'text': q.text}
+                         for q in question.linked.order_by('rank')]
+    return out
 
 
 def serialize_response(response):
     check = response.support_check or {}
     return {'id': str(response.pk), 'question_id': str(response.question_id),
             'parent_id': str(response.parent_id) if response.parent_id else None, 'kind': response.kind,
-            'answer': response.answer, 'document_ids': response.document_ids, 'status': response.status,
+            'choice': response.choice or None, 'answer': response.answer, 'document_ids': response.document_ids, 'status': response.status,
             'supported': response.supported, 'follow_up': response.follow_up_text or None,
             'dimensions': [{'dimension_id': d['dimension_id'], 'support': d['support'], 'note': d.get('note', '')}
                            for d in check.get('dimensions', [])],
@@ -99,7 +114,8 @@ class _RunScoped(APIView):
                                        'detail.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
             response = service.submit(question, answer=request.data.get('answer') or '', document_ids=documents,
-                                      skip=flag(request.data.get('skip')), parent=parent, user=request.user)
+                                      skip=flag(request.data.get('skip')), parent=parent, user=request.user,
+                                      choice=str(request.data.get('choice') or ''))
         except Layer2Error as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         if response.status != DepthResponse.Status.PENDING:
@@ -115,6 +131,33 @@ class _RunScoped(APIView):
         return Response(serialize_response(response), status=status.HTTP_201_CREATED)
 
 
+NOTICE_VERSION = 'questionnaire-notice-3'
+
+
+def questionnaire_notice(run):
+    """The text shown before the follow-up questions (agreed 23 Nov), with the points the answers can earn back.
+    Served with the questions so the screen and the reports use one wording. Once the stage is closed (the final
+    result published), `closed` is true and `closed_text` says so; the front end shows it instead of the invitation."""
+    from .layer2_service import stage_closed
+    event = run.events.filter(state='completed', payload__result__isnull=False).last()
+    held = ((event.payload.get('result') or {}).get('depth_reserve') or {}) if event else {}
+    points = held.get('held_points') or 0
+    worth = f', up to {points:g} points in total' if points else ''
+    closed = stage_closed(run)
+    return {'version': NOTICE_VERSION, 'title': 'Before you start', 'points': points, 'closed': closed,
+            'intro': ('These questions follow up on your documents. Part of the score your documents earned is on hold '
+                      f'until your answers confirm how far the evidence goes{worth}. The questions come in order of how '
+                      'much they are worth, so the first ones matter most, and you can stop whenever you like.'),
+            'rules': ['An answer counts only when a document supports it, so attach one wherever you can.',
+                      'If something is not in place, say so: "Not yet in place" never lowers your score. '
+                      'If you are not sure, choose "I need to check" and come back to it.',
+                      'Please answer as accurately as you can. If a document you send shows something different from '
+                      'what we credited, we adjust that part of the score, up or down. Accurate answers also make '
+                      'your improvement plan more useful.'],
+            **({'closed_text': 'The follow-up stage is closed and your final AI-READY Score has been published.'}
+               if closed else {})}
+
+
 class QuestionsView(_RunScoped):
     def get(self, request, sprint_id, run_id):
         execution = self.execution(request, sprint_id, run_id)
@@ -124,7 +167,19 @@ class QuestionsView(_RunScoped):
         if item is not None:
             next_payload = {'type': item['type'], 'text': item['text'], 'question': serialize_question(item['question']),
                             'response_id': str(item['response'].pk) if item['response'] is not None else None}
-        return Response({'next': next_payload, 'progress': service.progress(run_ref)})
+        body = {'next': next_payload, 'progress': service.progress(run_ref),
+                'notice': questionnaire_notice(execution.run)}
+        if flag(request.query_params.get('list')):
+            # Every question the college sees (linked members are answered through their lead), with its latest
+            # top-level answer, so the screen can go back to an earlier question and show what was sent.
+            questions = (DepthQuestion.objects.filter(run_ref=run_ref, linked_to__isnull=True)
+                         .prefetch_related('linked').order_by('rank'))
+            latest = {}
+            for r in DepthResponse.objects.filter(question__run_ref=run_ref, parent__isnull=True).order_by('created_at'):
+                latest[r.question_id] = r
+            body['questions'] = [{**serialize_question(q), 'response': serialize_response(latest[q.pk])
+                                  if q.pk in latest else None} for q in questions]
+        return Response(body)
 
 
 class QuestionResponsesView(_RunScoped):
@@ -132,6 +187,17 @@ class QuestionResponsesView(_RunScoped):
         execution = self.execution(request, sprint_id, run_id)
         question = get_object_or_404(DepthQuestion, pk=question_id, run_ref=str(execution.run_id))
         return self.answer(request, execution, question)
+
+
+class ToCheckView(_RunScoped):
+    def post(self, request, sprint_id, run_id, question_id):
+        execution = self.execution(request, sprint_id, run_id)
+        question = get_object_or_404(DepthQuestion, pk=question_id, run_ref=str(execution.run_id))
+        try:
+            question = service.mark_to_check(question, flag(request.data.get('to_check', True)), user=request.user)
+        except Layer2Error as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serialize_question(question))
 
 
 class ResponseView(_RunScoped):

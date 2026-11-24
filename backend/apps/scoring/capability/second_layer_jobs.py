@@ -8,8 +8,11 @@ and credit):
                one model call per depth answer with passages found
     depth      judge the depth of credited evidence from checked answers (depth_service.judge_run)
     rejudge    re-judge credit on the provisional packets plus the new passages and publish the final result as a run
-               refining the provisional one (layer2_service.rejudge_credit, publish_final); options.publish=false
-               only reports what would change
+               refining the provisional one (layer2_service.rejudge_credit, publish_final), only with options.close,
+               which closes the follow-up stage: it publishes even when nothing changed (a college that answers
+               nothing, or only "don't know", still gets its final result, with the held credit still held), and
+               afterwards no answer, evidence or job but explain is accepted. Without close it only reports what
+               would change
     explain    write the score explanations for the provisional run, or with options.final for its final result
                (explanations.explain; one call per area, at most two); started on its own after a final result is
                published when SECOND_LAYER_EXPLAIN_AFTER_PUBLISH is on
@@ -38,7 +41,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.extraction.exceptions import ProviderQuotaExhausted
-from apps.extraction.services.ai_service import get_ai_service
+from apps.scoring.capability.model_choice import scoring_service as get_ai_service
 from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
 from apps.scoring.models import (AdditionalEvidence, CapabilityRun, DepthQuestion, DepthResponse, SecondLayerBudget,
@@ -90,10 +93,16 @@ def ensure_budget(run):
 
 
 def job_policy(operation, budget):
-    """The assessment's per-request settings, under this job's stage and the run's second-layer limits."""
+    """The assessment's per-request settings, under this job's stage and the run's second-layer limits.
+
+    The run's own frozen request settings (its execution_policy) when it has them, so a job started from a shell or
+    process with other settings (a command run from another window) runs at the run's concurrency, reasoning effort,
+    output allowance and timeout. A run without them takes this process's settings."""
     from .depth import PROMPT_VERSION as DEPTH_PROMPTS
     from .layer2 import VERSION as LAYER2_VERSION
-    request = policy(stage='assessment')
+    frozen = (budget.run.inputs or {}).get('execution_policy') or {}
+    request = dict(frozen) if frozen.get('indicator_concurrency') and frozen.get('max_duration_seconds') \
+        else policy(stage='assessment')
     duration = settings.SECOND_LAYER_MAX_DURATION_SECONDS or request['max_duration_seconds']
     if type(duration) is not int or not 60 <= duration <= 21600:
         raise AssessmentDisabled('SECOND_LAYER_MAX_DURATION_SECONDS is invalid.')
@@ -109,7 +118,7 @@ def clean_options(operation, options):
     options = options or {}
     if not isinstance(options, dict):
         raise ValidationError({'options': 'Must be an object.'})
-    allowed = {'questions': {'replace'}, 'rejudge': {'publish'}, 'explain': {'final'}}.get(operation, set())
+    allowed = {'questions': {'replace'}, 'rejudge': {'publish', 'close'}, 'explain': {'final'}}.get(operation, set())
     unknown = set(options) - allowed
     if unknown:
         raise ValidationError({'options': f'Unknown for {operation}: {", ".join(sorted(unknown))}.'})
@@ -119,7 +128,16 @@ def clean_options(operation, options):
             raise ValidationError({'options': f'{key} must be true or false.'})
         out[key] = value
     if operation == 'rejudge':
-        out.setdefault('publish', True)
+        # Only closing the follow-up stage publishes the final result (Siddharth, 23 Nov: the Final AI-READY Score and
+        # tier only once the stage is closed). Without close, a re-judge reports what would change and publishes
+        # nothing.
+        out.setdefault('close', False)
+        out.setdefault('publish', out['close'])
+        if out['close'] and not out['publish']:
+            raise ValidationError({'options': 'close publishes the final result, so it needs publish.'})
+        if out['publish'] and not out['close']:
+            raise ValidationError({'options': 'Publishing the final result closes the follow-up stage: send close: '
+                                              'true (answers and evidence can no longer change it afterwards).'})
     if operation == 'questions':
         out.setdefault('replace', False)
     if operation == 'explain':
@@ -158,6 +176,19 @@ def preflight(run, operation, options):
         raise ValidationError('This assessment has no follow-up questions yet.')
     elif operation == 'checks' and not waiting(run_ref):
         raise ValidationError('Nothing is waiting for a check.')
+    elif operation == 'rejudge' and options.get('close'):
+        # Closing is final, so nothing the college sent may be left out of it.
+        if waiting(run_ref):
+            raise ValidationError('Some answers or documents are still being checked; close the follow-up stage once '
+                                  'the checks have finished.')
+        latest_answer = DepthResponse.objects.filter(question__run_ref=run_ref, question__kind=DepthQuestion.Kind.DEPTH,
+                                                     status=DepthResponse.Status.CHECKED).aggregate(
+            latest=Max('created_at'))['latest']
+        judged = SecondLayerJob.objects.filter(run=run, operation='depth', status='completed').aggregate(
+            latest=Max('finished_at'))['latest']
+        if latest_answer is not None and (judged is None or judged < latest_answer):
+            raise ValidationError('Some depth answers have not been judged yet; run "Judge evidence depth" before '
+                                  'closing the follow-up stage.')
     elif operation == 'explain':
         target = explain_target(run, options)
         if not target.events.filter(state='completed', payload__result__isnull=False).exists():
@@ -202,6 +233,10 @@ def start(*, run, operation, user, key, options=None):
     _expire_stale(run)
     if SecondLayerJob.objects.filter(run=run, status__in=ACTIVE).exists():
         raise AssessmentConflict('A second-layer job is already active for this assessment.')
+    if operation != 'explain':
+        from .layer2_service import CLOSED, stage_closed
+        if stage_closed(run):
+            raise ValidationError(CLOSED)
     preflight(run, operation, options)
     budget = ensure_budget(run)
     try:
@@ -298,6 +333,11 @@ class SecondLayerMeter(MeteredService):
     execution_model = SecondLayerJob
     execution_key = 'pk'
 
+    @property
+    def settles(self):
+        """Finished calls count at their billed cost (MeteredService.settle; SECOND_LAYER_SETTLE_TO_ACTUAL)."""
+        return settings.SECOND_LAYER_SETTLE_TO_ACTUAL
+
     def __init__(self, service, job):
         super().__init__(service, job, execution_policy=job.policy, ledger_id=job.pk)
 
@@ -329,12 +369,26 @@ def metered_model(meter):
 # ------------------------------------------------------------------ operations
 
 
+def remaining_calls(run_id):
+    """Requests left in the run's second-layer budget, or None when it has no request cap."""
+    budget = SecondLayerBudget.objects.filter(run_id=run_id).first()
+    if budget is None or budget.max_http_calls is None:
+        return None
+    return max(0, budget.max_http_calls - budget.requests_reserved)
+
+
 def run_questions(job, meter):
     from .depth_service import create_questions
     from .layer2_service import export_for_run
+    # One model call per key indicator: a budget with fewer requests left gives the rest fixed wording instead of
+    # failing the whole job at the cap and saving nothing (audit, 21 Nov).
     plan = create_questions(export_for_run(job.run_id), metered_model(meter), commit=True,
-                            replace=job.options.get('replace', False), guard=lambda: commit_point(job.pk))
-    record_result(job.pk, {'questions': len(plan['questions']), 'notes': plan['notes']})
+                            replace=job.options.get('replace', False), guard=lambda: commit_point(job.pk),
+                            concurrency=max(1, int(job.policy.get('indicator_concurrency') or 1)),
+                            max_calls=remaining_calls(job.run_id))
+    record_result(job.pk, {'questions': len(plan['questions']), 'notes': plan['notes'][:40],
+                           'points_at_stake': round(sum(q['points_at_stake'] for q in plan['questions']), 2),
+                           'shown_by_evidence': len(plan['shown_by_evidence'])})
 
 
 def run_checks(job, meter):
@@ -373,27 +427,39 @@ def run_depth(job, meter):
                        guard=lambda: commit_point(job.pk))
     record_result(job.pk, {'judged': [{k: row[k] for k in ('condition_id', 'level', 'final_level', 'final_credit')}
                                       for row in result['judged']],
-                           **{k: result[k] for k in ('unanswered', 'answers_without_documents', 'awaiting_check',
+                           **{k: result[k] for k in ('kept', 'unanswered', 'answers_without_documents', 'awaiting_check',
                                                      'awaiting_reassessment', 'policy')}})
 
 
 def run_rejudge(job, meter):
     from .layer2_service import export_for_run, publish_final, rejudge_credit
+    read_at = timezone.now()
     result = rejudge_credit(export_for_run(job.run_id), meter, evaluate_options={
         'strict_errors': True, 'recover_provider_errors': True,
         'concurrency': job.policy.get('indicator_concurrency', 1)})
     summary = {k: result.get(k) for k in ('provisional_score', 'final_score', 'targets', 'merge', 'contradictions',
-                                          'lowerings', 'routes', 'note')}
+                                          'lowerings', 'depth_changes', 'routes', 'note')}
+    changed = bool(result.get('targets') or result.get('depth_changes'))   # new evidence, or depth answers that count
+    # Only closing the follow-up stage publishes the final result, and it publishes one even when nothing changed (no
+    # model calls then). A re-judge without close is a preview.
+    closing = job.options.get('close', False)
     final = None
     with transaction.atomic():
         commit_point(job.pk, lock_run=True)
+        if closing and (DepthResponse.objects.filter(question__run_ref=str(job.run_id), created_at__gte=read_at).exists()
+                        or AdditionalEvidence.objects.filter(run_ref=str(job.run_id), created_at__gte=read_at).exists()):
+            # Submissions lock the provisional run too, so this sees every answer recorded before the stage closes.
+            raise Layer2Error('An answer or document arrived while the follow-up stage was closing; it was not '
+                              'included, so nothing was published. Close the stage again to include it.')
         explain_next = None
-        if job.options.get('publish', True) and result.get('targets'):
+        if closing and job.options.get('publish', True):
             try:
                 final = publish_final(result, service=meter, user=job.requested_by)
             except ValueError as exc:   # storage.publish's own refusals (a citation or excerpt that does not match)
                 raise Layer2Error(f'The final result could not be published: {exc}')
-            summary['note'] = 'Published as the final result.'
+            summary['note'] = ('Follow-up stage closed: published as the final result.' if changed else
+                               'Follow-up stage closed: published as the final result; no answer changed the Stage 1 '
+                               'result.')
             if enabled() and settings.SECOND_LAYER_EXPLAIN_AFTER_PUBLISH:
                 options = {'final': True}
                 explain_next = SecondLayerJob.objects.create(
@@ -402,8 +468,9 @@ def run_rejudge(job, meter):
                     policy={**job.policy, 'stage': 'second_layer_explain'}, requested_by=job.requested_by)
                 summary['explain_job_id'] = str(explain_next.pk)
                 transaction.on_commit(lambda: dispatch(str(explain_next.pk), str(explain_next.task_id)))
-        elif result.get('targets'):
-            summary['note'] = 'Not published (options.publish was false).'
+        else:
+            summary['note'] = ((summary.get('note') or '') + ' Preview only: nothing was published. Closing the '
+                               'follow-up stage (close: true) publishes the final AI-READY Score.').strip()
         record_result(job.pk, {**summary, 'final_run_id': str(final.pk) if final else None}, final_run=final)
 
 
@@ -415,7 +482,9 @@ def run_explain(job, meter):
         target = build_target(target_run)
     except ValueError as exc:
         raise Layer2Error(str(exc))
-    written = explain(target, metered_model(meter))
+    # A failed request leaves its area on the plain fallback text; a spent budget or a cancelled job still stops it.
+    written = explain(target, metered_model(meter), concurrency=max(1, int(job.policy.get('indicator_concurrency') or 1)),
+                      skip_error=lambda exc: recoverable_failure(exc) and not isinstance(exc, ProviderQuotaExhausted))
     with transaction.atomic():
         commit_point(job.pk, lock_run=True)
         CapabilityExplanation.objects.create(run=target_run, event_id=target['event_id'], version=written['version'],

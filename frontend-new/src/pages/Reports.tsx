@@ -4,15 +4,26 @@ import { Dummy, Empty, ErrorState, Loading, Notice, PageHeading, Pill, Table } f
 import { useAccess } from '../hooks/useAccess';
 import { useCapability } from '../hooks/useCapability';
 import { usePolling, useResource } from '../hooks/useResource';
-import { downloadCapabilityReport, getAssessmentStage, type AssessmentStage } from '../services/capability';
+import { downloadCapabilityReport, openCapabilityReport } from '../services/capability';
+import { Icon } from '../workspace/Icon';
 import { http, saveBlob } from '../services/http';
 import { downloadReport, generateReport, listReports } from '../services/reports';
 import { listSprintFactsPage } from '../services/facts';
 import { listSprintGapsPage } from '../services/gaps';
 import type { Fact, Gap, Report, Sprint } from '../types/api';
+import { DEMO_MODE } from '../config/env';
+import { STAGE_ONE } from '../utils/capability';
 import { toCsv } from '../utils/csv';
 import { errorMessage } from '../utils/errors';
 import { dateTime, num, pct, tidyText, valueText } from '../utils/format';
+
+/** The two reports for the institution (23 Nov): a short leadership report and the full detail. */
+const REPORTS = [
+  { audience: 'summary' as const, icon: 'file', title: 'Leadership report',
+    text: 'Your level and stars, the nine areas at a glance, where you are strong, where to focus and what to do next.', meta: 'About 7 pages · for leadership and the board' },
+  { audience: 'detailed' as const, icon: 'assessment', title: 'Detailed report',
+    text: 'Every practice in all nine areas: what your documents show, the quotation and its document, and the next step.', meta: 'Every practice · for the teams doing the work' },
+];
 
 /** Handoff outputs (6.17) and which ones the backend produces today. */
 const OUTPUTS = [
@@ -33,7 +44,9 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
   const reports = useResource<Report[]>(() => listReports(sprint.id), sprint.id);
   const cap = useCapability(sprint.id);
   const capRunId = cap.run.data?.assessment ? cap.run.data.id : '';
-  const stage = useResource<AssessmentStage | null>(async () => ({ data: await getAssessmentStage(sprint.id, capRunId) }), `stage:${capRunId}`, !!capRunId);
+  // The stage comes from the run list (a final run names its Stage 1 run), not from the JSON report, which carries
+  // every model packet (73 MB for test 13) and was downloaded just to read two fields.
+  const final = cap.stage === 'final';
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -96,9 +109,9 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
 
   return (
     <>
-      <PageHeading page="reports" actions={can('sprint.manage') && <button className="primary-action" disabled={busy || generating} onClick={() => void generate()}>{generating ? 'Generating…' : 'Generate report'}</button>} />
+      <PageHeading page="reports" actions={!DEMO_MODE && can('sprint.manage') && <button className="primary-action" disabled={busy || generating} onClick={() => void generate()}>{generating ? 'Generating…' : 'Generate report'}</button>} />
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
-      <div className="feature-grid">
+      {!DEMO_MODE && <div className="feature-grid">
         {OUTPUTS.map((o, i) => (
           <article key={o.title} className={`feature-card ${o.live ? '' : 'muted-card'}`}>
             <div className="feature-icon">{String(i + 1).padStart(2, '0')}</div>
@@ -107,27 +120,50 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
             <div className="feature-meta"><span>{o.meta}</span><b>{o.live ? 'Available' : 'Sample only'}</b></div>
           </article>
         ))}
-      </div>
-      <h2 className="section-title">Capability assessment report</h2>
-      {stage.data && (
-        <Notice tone={stage.data.stage === 'final' ? 'success' : 'info'}>
-          <Pill tone={stage.data.stage === 'final' ? 'good' : 'neutral'} label={stage.data.stage === 'final' ? 'Final result' : 'Provisional result'} /> {stage.data.note}
-        </Notice>
+      </div>}
+      {capRunId && !final && (
+        <Notice tone="info">These reports show your Stage 1 result, from your documents alone. Once the follow-up questions are answered and the result is published, the final reports appear here.</Notice>
       )}
-      {!cap.run.data?.assessment ? <Empty title="No completed capability assessment">The capability report is available once an evidence-based assessment completes.</Empty> : (
-        <Table columns={['Audience', 'Formats']}>
-          {(['leadership', 'evidence'] as const).map((audience) => (
-            <tr key={audience}>
-              <td><strong>{audience === 'leadership' ? 'Leadership report' : 'Evidence report'}</strong><small className="cell-sub">Run {dateTime(cap.run.data!.created_at)}</small></td>
-              <td><div className="row-actions">
-                {(['pdf', 'html', 'json'] as const).map((format) => (
-                  <button key={format} className="secondary-button" onClick={() => void download(() => downloadCapabilityReport(sprint.id, cap.run.data!.id, format, audience, cap.advice?.id))}>{format.toUpperCase()}</button>
-                ))}
-              </div></td>
-            </tr>
-          ))}
-        </Table>
-      )}
+      {!cap.run.data?.assessment ? (cap.run.loading ? <Loading /> : <Empty title="No reports yet">The reports are ready once the assessment of your documents completes.</Empty>) : (() => {
+        const rows = [{ runId: cap.run.data!.id, final, when: dateTime(cap.run.data!.created_at), advice: cap.advice?.id },
+          ...(final && cap.provisionalId
+            ? [{ runId: cap.provisionalId, final: false, when: '', advice: undefined }] : [])];
+        return (
+          <>
+            {rows.map((row) => (
+              <section key={row.runId} className="ws-report-group">
+                <h2 className="ws-report-group-title">{row.final ? 'Final result' : STAGE_ONE}{row.when && <small>{row.when}</small>}</h2>
+                <div className="ws-cards ws-cards-2">
+                  {REPORTS.map((r) => (
+                    <article className="ws-card ws-report-card" key={r.audience}>
+                      <div className="ws-report-icon"><Icon name={r.icon} /></div>
+                      <h3>{r.title}</h3>
+                      <p>{r.text}</p>
+                      <small className="ws-source">{r.meta}</small>
+                      <div className="ws-row">
+                        <button className="primary-action" onClick={() => void download(() => openCapabilityReport(sprint.id, row.runId, r.audience))}>Open</button>
+                        <button className="secondary-button" onClick={() => void download(() => downloadCapabilityReport(sprint.id, row.runId, 'pdf', r.audience))}>Download PDF</button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <details className="ws-technical">
+                  <summary>Technical appendix (for InGage)</summary>
+                  <p className="muted">Every requirement, model decision and source page, for review and audit.</p>
+                  <div className="ws-row">
+                    {(['leadership', 'evidence'] as const).flatMap((audience) => (['pdf', 'html', 'json'] as const).map((format) => (
+                      <button key={`${audience}-${format}`} className="secondary-button" onClick={() => void download(() => downloadCapabilityReport(sprint.id, row.runId, format, audience, row.advice))}>
+                        {audience === 'leadership' ? 'Basic' : 'Evidence'} · {format.toUpperCase()}
+                      </button>
+                    )))}
+                  </div>
+                </details>
+              </section>
+            ))}
+          </>
+        );
+      })()}
+      {!DEMO_MODE && <>
       <h2 className="section-title">Audit report versions</h2>
       {reports.loading && !reports.data ? <Loading /> : reports.error ? <ErrorState error={reports.error} onRetry={() => void reports.refetch()} /> :
         !reports.data?.length ? <Empty title="No reports yet">Generate the first report once the assessment has run.</Empty> : (
@@ -163,6 +199,7 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
           <button className="secondary-button" disabled>Board presentation · PPTX</button>
         </div>
       </Dummy>
+      </>}
     </>
   );
 }

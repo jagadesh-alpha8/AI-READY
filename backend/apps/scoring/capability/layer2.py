@@ -40,6 +40,7 @@ SHINGLE = 5                 # words per shingle for the repeated-text check
 RESTATES = 0.6              # share of a passage's shingles already sent that marks it a restatement
 PICKS = 6                   # windows taken per search
 MIN_PIECE = 120             # characters; a smaller uncovered remainder is not worth sending
+MIN_WHOLE = 40              # characters; a short window sent whole (a one-line certificate page) is still evidence
 CANDIDATES = 60             # ranks per route that enter fusion, as in evidence_retrieval
 ROUTE_CAP = 8               # key indicators one additional-evidence submission can reach
 SUPPORT = ('supported', 'partly', 'not_supported')
@@ -111,20 +112,27 @@ def _lexical(query, texts):
     return scores
 
 
-def _ranked(query, sources, ranker, covered, limit, picks=PICKS, kept=None):
+def _ranked(query, sources, ranker, covered, limit, picks=PICKS, kept=None, exclude=()):
     """[(source, start, end)]: the best uncovered pieces for the query, keyword and (with a ranker) embedding ranks
     fused. Without a ranker only keyword matches are taken. kept: shingle sets of text already taken; a piece that
-    mostly repeats one of them is skipped, and each piece taken is added."""
+    mostly repeats one of them is skipped, and each piece taken is added. exclude: source ids left out of the ranking.
+    They are dropped after the ranker has indexed `sources`, so the ranker's corpus index (keyed on the sources it is
+    given) is the same for every answer; passages are built per source, so the result is the same as ranking the
+    remaining sources alone. Leaving them out first rebuilt and re-embedded the whole corpus for each answer that
+    attached an already-submitted document (about 10 minutes each in test 13)."""
     kept = [] if kept is None else kept
+    exclude = set(exclude)
     from .follow_up import _uncovered
-    if not sources or limit < MIN_PIECE or not query.strip():
+    if not sources or limit < MIN_WHOLE or not query.strip():
         return []
     if ranker is not None:
         passages = ranker.passages(sources)
-        candidates = [(p.source, p.start, p.end, p.embedding_text) for p in passages]
         similarity = list(ranker.similarities(passages, [query])[0]) if passages else []
+        keep = [n for n, p in enumerate(passages) if p.source['id'] not in exclude]
+        candidates = [(passages[n].source, passages[n].start, passages[n].end, passages[n].embedding_text) for n in keep]
+        similarity = [similarity[n] for n in keep] if similarity else []
     else:
-        candidates = [(s, a, b, s['text'][a:b]) for s, a, b in _chunks(sources)]
+        candidates = [(s, a, b, s['text'][a:b]) for s, a, b in _chunks([s for s in sources if s['id'] not in exclude])]
         similarity = []
     if not candidates:
         return []
@@ -143,12 +151,16 @@ def _ranked(query, sources, ranker, covered, limit, picks=PICKS, kept=None):
         if len(chosen) >= picks:
             break
         source, start, end, _ = candidates[n]
-        pieces = [(a, b) for a, b in _uncovered(start, end, covered.get(source['id'], [])) if b - a >= MIN_PIECE]
+        page = (0, len(source['text']))
+
+        def enough(a, b):   # a short page taken whole is evidence; a short remainder is not (53)
+            return b - a >= (MIN_WHOLE if (a, b) == page and len(source['text'].strip()) >= MIN_WHOLE else MIN_PIECE)
+        pieces = [(a, b) for a, b in _uncovered(start, end, covered.get(source['id'], [])) if enough(a, b)]
         if not pieces:
             continue
         a, b = max(pieces, key=lambda span: span[1] - span[0])
         b = min(b, a + (limit - used))
-        if b - a < MIN_PIECE:
+        if not enough(a, b):
             continue
         shingles = _shingles(source['text'][a:b])
         if _restates(shingles, kept):
@@ -192,8 +204,8 @@ def search_with_answer(query, attached, corpus, *, packet=(), attachment_limit=A
         for source, a, b in _ranked(query if query.strip() else fallback_query, attached, _attachment_ranker(ranker),
                                     covered, attachment_limit, kept=kept):
             windows.append(_window(source, a, b, 'answer_attachment'))
-    rest = [s for s in corpus if s['id'] not in attached_ids and (s.get('text') or '').strip()]
-    for source, a, b in _ranked(query, rest, ranker, covered, corpus_limit, kept=kept):
+    rest = [s for s in corpus if (s.get('text') or '').strip()]
+    for source, a, b in _ranked(query, rest, ranker, covered, corpus_limit, kept=kept, exclude=attached_ids):
         windows.append(_window(source, a, b, 'answer_search'))
     return windows
 
@@ -486,10 +498,14 @@ def fixed_contexts(traces, targets, limit=NEW_CHARS):
             if limit - used < MIN_PIECE:
                 break
             start = window.get('text_offset', 0)
-            for a, b in _uncovered(start, start + len(window['text']), covered.get(window['id'], [])):
+            whole = (start, start + len(window['text']))
+            for a, b in _uncovered(*whole, covered.get(window['id'], [])):
                 b = min(b, a + (limit - used))
                 text = window['text'][a - start:b - start]
-                if b - a < MIN_PIECE or not text.strip():
+                # A remainder under MIN_PIECE is not worth a place, but a short window sent whole is: a one-line
+                # certificate page the answer check found supporting would otherwise never reach the re-judge (53).
+                minimum = MIN_WHOLE if (a, b) == whole else MIN_PIECE
+                if b - a < minimum or len(text.strip()) < MIN_WHOLE:
                     continue
                 shingles = _shingles(text)
                 if _restates(shingles, kept):
@@ -766,7 +782,10 @@ def check_export_rule(records, traces, targets=None):
         if wanted is not None and trace.get('indicator') not in wanted:
             continue
         recorded = trace.get('judgment') or {}
-        different = [k for k in ('parts_version', 'parts_hash', 'related_credit') if recorded.get(k) != current[k]]
+        from .part_judgment import parts_hash_matches
+        different = [k for k in ('parts_version', 'related_credit', 'credit_rule') if recorded.get(k) != current[k]]
+        if not parts_hash_matches(recorded.get('parts_hash')):   # either line-ending form of the same file
+            different.append('parts_hash')
         if different:
             raise Layer2Error(f"The export for {trace.get('indicator', 'a key indicator')} was scored with a different "
                               f"part rule ({', '.join(different)} differ from this worker). Use an export from a run "
@@ -800,4 +819,5 @@ def lowerings(audit):
 
 def final_score(records, rubric):
     from .engine import documented
-    return documented({r['condition_id']: r.get('credit') or 0 for r in records}, rubric)['overall']
+    from .reserve import scored_credits
+    return documented(scored_credits(records), rubric)['overall']

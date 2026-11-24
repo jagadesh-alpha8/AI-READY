@@ -9,7 +9,8 @@ export.json is the provisional run's assessment export; --run-id builds it from 
 model calls (two passes and the tie-break per key indicator re-judged; unmetered; the API's rejudge
 job is the metered path, second_layer_jobs.py).
 --publish (needs the run in this database) publishes the final result as a new run refining the provisional one, which
-reports, recommendations and plan evaluations then use.
+reports, recommendations and plan evaluations then use. Publishing closes the follow-up stage (as the API's close does):
+afterwards no answer or evidence is accepted, and a closed stage refuses a second final result.
 """
 import json
 
@@ -51,7 +52,7 @@ class Command(BaseCommand):
             if not options['run']:
                 self.stdout.write('Dry run: no model calls (use --run).')
                 return
-            from apps.extraction.services.ai_service import get_ai_service
+            from apps.scoring.capability.model_choice import scoring_service as get_ai_service
             service = get_ai_service()
             result = rejudge_credit(export, service, routes=routes, max_calls=options['max_calls'])
             final_run = publish_final(result, service=service) if options['publish'] else None

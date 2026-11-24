@@ -10,7 +10,7 @@ WORKDIR /app
 # scanned PDF pages). Without them PaddleOCR fails to load and scanned pages
 # are left flagged "needs OCR".
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq5 libgl1 libglib2.0-0 libgomp1 \
+    && apt-get install -y --no-install-recommends libpq5 libgl1 libglib2.0-0 libgomp1 libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libfontconfig1 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # PaddleOCR first, in its own layer (>1 GB). It only changes when

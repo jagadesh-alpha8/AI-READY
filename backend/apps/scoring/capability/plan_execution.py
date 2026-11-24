@@ -7,12 +7,13 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.extraction.exceptions import ProviderQuotaExhausted
-from apps.extraction.services.ai_service import get_ai_service
+from apps.scoring.capability.model_choice import scoring_service as get_ai_service
 from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
 from apps.scoring.models import (CapabilityRun, InstitutionalPlanVersion, PlanScenario,
                                   PlanScenarioEvent, PlanScenarioExecution)
-from . import action_plan
+from . import action_plan, reserve
+from .reserve import scored_credits
 from .engine import ENGINE_VERSION, LEGACY_ENGINE_VERSION, assess, documented, validate_release
 from .evaluation import select_context
 from .execution import policy, AssessmentConflict, AssessmentDisabled, BudgetExceeded, ExecutionStopped
@@ -42,8 +43,7 @@ def validate_baseline(run, event):
     strict = assess(decisions, inputs['rubric'])
     if (len(records) != len(expected) or set(decisions) != expected
             or any(stored.get(k) != v for k, v in strict.items())
-            or ('documented' in stored and documented({r['condition_id']: r.get('credit', 0) for r in records},
-                                                      inputs['rubric']) != stored['documented'])):
+            or ('documented' in stored and documented(scored_credits(records), inputs['rubric']) != stored['documented'])):
         raise AssessmentConflict('The saved baseline does not replay under its recorded method.')
     return decisions
 
@@ -60,7 +60,12 @@ def baseline_view(run, event):
     if rubric.get('aggregation') != 'independent_conditions':
         return {}
     credits = baseline_credits(event)
-    return {'baseline_credits': credits, 'baseline_score': documented(credits, rubric)['overall'],
+    held = reserve.factors(records)
+    return {'baseline_credits': credits, 'baseline_score': documented(reserve.apply(credits, held), rubric)['overall'],
+            # Credit held for follow-up answers (reserve.py): a plan's projected credit counts at the same factor.
+            'baseline_factors': {cid: str(f) for cid, f in held.items() if f != 1},
+            # ... and a requirement the plan would show in full counts at its factor then (reserve.factors_at_full).
+            'baseline_factors_at_full': {cid: str(f) for cid, f in reserve.factors_at_full(records).items() if f != 1},
             'strengths': sorted(c for c, v in credits.items() if v >= 1),
             'partly_shown': [{'condition_id': r['condition_id'], 'credit': action_plan.credit_of(r),
                               'missing_parts': action_plan.missing_parts(r)}

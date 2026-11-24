@@ -1,3 +1,4 @@
+import { DEMO_MODE } from './config/env';
 import type { PageKey } from './utils/access';
 
 /** Sidebar groups and page headings, as in the handoff prototype (app.js navGroups / pageMeta). */
@@ -54,6 +55,22 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   ] },
 ];
 
+/** Demo mode's sidebar: the workspace design's seven sections (Harsha's preview, 23 Nov), each on the working screen
+ * that carries it today. The full menu stays for everyone else. */
+export const DEMO_NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+  { label: 'Workspace', items: [
+    { key: 'overview', icon: '⌂', label: 'Overview' },
+    { key: 'profile', icon: '▦', label: 'Institution' },
+    { key: 'uploads', icon: '⇧', label: 'Evidence' },
+    { key: 'assessment', icon: '◉', label: 'Assessment' },
+    { key: 'questionnaire', icon: '?', label: 'Questionnaire' },
+    { key: 'cri', icon: '◌', label: 'Results' },
+    { key: 'reports', icon: '▧', label: 'Reports' },
+    { key: 'pathway', icon: '⇢', label: 'Transformation' },
+    { key: 'plancompare', icon: '⇄', label: 'Plan evaluation' },
+  ] },
+];
+
 export const PAGE_META: Record<PageKey, [eyebrow: string, title: string, text: string]> = {
   overview: ['Leadership view', 'AI readiness at a glance', "See the institution's current standing, urgent decisions and next best actions."],
   onboarding: ['Getting started', 'Institution onboarding', 'Create the customer workspace, confirm scope and assign the people who will participate.'],
@@ -66,8 +83,8 @@ export const PAGE_META: Record<PageKey, [eyebrow: string, title: string, text: s
   assessment: ['Assessment', 'AI readiness assessment', 'Compare verified evidence with the versioned capability rubric and calculate the current standing.'],
   benchmark: ['Report', 'Benchmark comparison', 'Compare the institution with mandatory requirements, good practice and AI-readiness targets.'],
   gaps: ['Report', 'Gap analysis', 'Understand what is missing, why it matters and what prevents movement to the next level.'],
-  cri: ['Report', 'CRI and maturity standing', 'Explain the score, evidence confidence, outcomes and current Silver, Gold or Platinum eligibility.'],
-  pathway: ['Report', 'Silver to Platinum pathway', 'See the complete progression route, stage requirements and estimated achievement periods.'],
+  cri: ['Report', 'CRI and maturity standing', 'Explain the score, the readiness level and its stars, and how each area scored.'],
+  pathway: ['Report', 'Pathway to the next level', 'See the five levels, what the next one takes, and the pace that suits you.'],
   plan: ['Recommendations', 'Choose a transformation pace', 'Select an immediate, progressive or gradual route based on ambition, capacity and investment.'],
   goals: ['Recommendations', 'Goals and tasks', 'Turn the approved transformation plan into owned, time-bound work with closure evidence.'],
   reports: ['Report', 'Reports and exports', 'Present the audit, score, evidence, gaps and transformation roadmap in customer-ready formats.'],
@@ -82,13 +99,28 @@ export const PAGE_META: Record<PageKey, [eyebrow: string, title: string, text: s
   verification: ['Evidence intelligence', 'Verification and corrections', 'See what the rules verified, answer the guided review questions and decide proposed corrections.'],
   aiqif: ['Evidence intelligence', 'AI-QIF tagging', 'Confirm which AI-QIF indicators each fact supports, and settle the expert queue.'],
   baseline: ['Assessment', 'Baseline approval', 'Approve, provisionally approve or return the baseline score that the transformation is measured from.'],
-  questionnaire: ['Assessment', 'Questionnaire', 'One item at a time: first the review items on the evidence, then, after the provisional score, follow-up questions and any evidence we may have missed.'],
+  questionnaire: ['Assessment', 'Questionnaire', 'One item at a time: first the review items on the evidence, then, after the Stage 1 result, follow-up questions and any evidence we may have missed.'],
   actions: ['Recommendations', 'Recommended actions', 'Grounded advice for the latest assessment, with an owner, feasibility and status for every action.'],
   plancompare: ['Recommendations', 'Plan comparison', "Compare the institution's own written plan with what the assessment found, and see what to change."],
   apistatus: ['Review', 'Backend status', 'Which screens are fully live, which show sample data waiting for an API, and which wait for a backend decision.'],
   institutions: ['Administration', 'Institutions', 'Manage colleges, their coordinators, departments, systems and leaders, and archive or delete them.'],
   assessmentsetup: ['Benchmark governance', 'Assessment setup', 'Plan templates, benchmark score weights and the college profiles that decide which benchmarks apply.'],
+  areas: ['Results', 'Readiness areas', 'The nine readiness areas: what is in place, what is missing, and the next step in each.'],
 };
+
+// Demo mode: plainer page headings for the screens the demo walks through.
+if (DEMO_MODE) {
+  Object.assign(PAGE_META, {
+    cri: ['Results', 'Your result', 'What the documents show, area by area, and how each score was reached.'],
+    reports: ['Results', 'Reports', 'The leadership and evidence reports for the Stage 1 result and the Final AI-READY Score.'],
+    questionnaire: ['Assessment', 'Follow-up questions', 'Answer with a document wherever you can: answers backed by documents earn back held credit, and documents we missed can add to the score. Publish the final result when you finish.'],
+    assessment: ['Assessment', 'Assessment', 'Run the assessment on the documents submitted, and see its result.'],
+    pathway: ['Transformation', 'Your pathway', 'The tier bands, and the requirements that would move the score most.'],
+    uploads: ['Evidence', 'Evidence', 'The documents submitted for the assessment.'],
+    profile: ['Institution', 'Institution', 'The institution being assessed.'],
+    plancompare: ['Transformation', 'Plan evaluation', "Paste the institution's own plan: see what it would add to the score if its actions were done and shown, and what to change."],
+  } as Partial<typeof PAGE_META>);
+}
 
 export const pathOf = (key: PageKey) => (key === 'overview' ? '/' : `/${key}`);
 

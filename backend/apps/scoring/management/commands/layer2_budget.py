@@ -60,8 +60,11 @@ class Command(BaseCommand):
         if budget is None:
             self.stdout.write('No second-layer job has started for this run yet; no budget is frozen.')
             return
+        from django.conf import settings
+        label = ('Cost committed (billed cost of finished calls, reservations of calls in flight)'
+                 if settings.SECOND_LAYER_SETTLE_TO_ACTUAL else 'Cost reserved')
         self.stdout.write(f'Requests: {budget.requests_reserved} of {budget.max_http_calls}. '
-                          f'Cost reserved: ${budget.usd_reserved} of ${budget.max_cost_usd}.')
+                          f'{label}: ${budget.usd_reserved} of ${budget.max_cost_usd}.')
         for job in SecondLayerJob.objects.filter(run=run):
             self.stdout.write(f'  {job.created_at:%Y-%m-%d %H:%M} {job.operation:<9} {job.status:<9} '
                               f'{job.requests_reserved} requests, ${job.usd_reserved} {job.error_code}')

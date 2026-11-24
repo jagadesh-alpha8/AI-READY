@@ -9,24 +9,35 @@ Assumptions (12 Nov 2026, recorded for Harsha in "AI-READY second layer: decisio
 - Order follows the rubric's own levels: an activity requirement is planned only once its key indicator has some
   provision credited or planned, an outcome only once it has some activity. Within that, the largest score gain for the
   least effort comes first; completing partial credit counts as less effort than establishing.
-- Tiers are provisional score bands on the final score (CAPABILITY_PROVISIONAL_TIERS, default Silver 60, Gold 70,
-  Platinum 80, Diamond 90), not the rubric's uncalibrated badge policy, which stays untouched.
+- Readiness levels are provisional score bands with stars (CAPABILITY_PROVISIONAL_TIERS; since 23 Nov: one star per 20
+  points, Starting out / Getting there / Prepared / Advanced / Leading, replacing Silver / Gold / Platinum / Diamond,
+  which read as commercial), not the rubric's uncalibrated badge policy, which stays untouched. Every score has a
+  level, the lowest included.
 Projections use the engine's documented() arithmetic, the same as the headline score; they are projections, not
 promises, and completing an action changes no score until a reassessment finds the evidence.
 """
 from .engine import LEVELS, documented
 
-VERSION = 'priority-plan-0.1'
+VERSION = 'priority-plan-0.2'   # 0.2 (22 Nov 2026): credit held for depth; follow_up gains
 MAX_ACTIONS = 8          # key indicators in the plan
 MAX_CONDITIONS = 24      # requirements in the plan
 STEP = 10                # the target is the next multiple of STEP above the current score
 EFFORT = {('complete', 'F'): 1, ('complete', 'A'): 1.5, ('complete', 'O'): 2,
           ('establish', 'F'): 2, ('establish', 'A'): 3, ('establish', 'O'): 4}
-DEFAULT_TIERS = (('Silver', 60), ('Gold', 70), ('Platinum', 80), ('Diamond', 90))
+DEFAULT_TIERS = (('Starting out', 0), ('Getting there', 20), ('Prepared', 40), ('Advanced', 60), ('Leading', 80))
+#: What each level means, for the reports and screens (frontend-new/src/utils/levels.ts holds the same table).
+LEVEL_MEANINGS = {
+    'Starting out': 'A few AI practices are in place. Most areas have yet to start.',
+    'Getting there': 'Foundations are in place in some areas. AI is not yet part of everyday teaching and operations.',
+    'Prepared': 'Foundations are in place in most areas, and AI is in use in several of them.',
+    'Advanced': 'AI is in regular use across most areas, with results being reviewed.',
+    'Leading': 'AI is embedded across the institution, with measured results and continuous improvement.',
+}
 
 
 def tiers():
-    """[(name, threshold)] from CAPABILITY_PROVISIONAL_TIERS ("Silver:60,Gold:70,Platinum:80,Diamond:90"), ascending."""
+    """[(name, threshold)] from CAPABILITY_PROVISIONAL_TIERS ("Starting out:0,Getting there:20,..."), ascending. The
+    lowest band starts at 0, so every score has a level; the number of stars is the band's position (1 to 5)."""
     from django.conf import settings
     raw = getattr(settings, 'CAPABILITY_PROVISIONAL_TIERS', '') or ''
     parsed = []
@@ -36,21 +47,27 @@ def tiers():
             parsed.append((name.strip(), float(value)))
         except ValueError:
             continue
-    parsed = [(n, v) for n, v in parsed if n and 0 < v <= 100]
+    parsed = [(n, v) for n, v in parsed if n and 0 <= v <= 100]
     return sorted(parsed or DEFAULT_TIERS, key=lambda t: t[1])
 
 
 def tier_for(score):
-    """The provisional tier a score reaches, the next one, and the points to it."""
+    """The readiness level a score reaches (with its stars), the next one, and the points to it."""
     bands = tiers()
     reached = [t for t in bands if score >= t[1]]
     ahead = [t for t in bands if score < t[1]]
-    return {'current': reached[-1][0] if reached else None,
+    current = reached[-1][0] if reached else None
+    return {'current': current, 'stars': len(reached),
+            'meaning': LEVEL_MEANINGS.get(current, ''),
             'next': ahead[0][0] if ahead else None,
             'next_threshold': ahead[0][1] if ahead else None,
             'points_to_next': round(ahead[0][1] - score, 2) if ahead else 0,
-            'thresholds': [{'name': n, 'score': v} for n, v in bands], 'provisional': True,
-            'note': 'Provisional score bands on the final score, pending calibration across colleges.'}
+            'thresholds': [{'name': n, 'score': v, 'stars': i + 1} for i, (n, v) in enumerate(bands)], 'provisional': True,
+            'note': 'Readiness levels are provisional score bands, pending calibration across colleges.'}
+
+
+def stars_text(stars, out_of=5):
+    return '★' * stars + '☆' * max(0, out_of - stars)
 
 
 def credit_of(record):
@@ -86,7 +103,40 @@ def missing_parts(record):
     return missing
 
 
-def _score(credits, rubric):
+def follow_up_gains(rubric, records, top=8):
+    """Credit still held for depth (reserve.py) that follow-up answers can earn back, by key indicator. Usually the
+    cheapest points available: the evidence exists already; only its depth is still to be shown. None when nothing is
+    held."""
+    from fractions import Fraction
+    from .reserve import record_factor
+    weight = {c['id']: Fraction(str(i['weight_units'])) / 60 for i in rubric['indicators'] for c in i['conditions']}
+    names = {i['code']: i['name'] for i in rubric['indicators']}
+    by_indicator = {}
+    for r in records:
+        credit = Fraction(str(r.get('credit') or 0))
+        if credit <= 0 or not r.get('depth_share') or r['condition_id'] not in weight:
+            continue
+        gain = credit * (1 - record_factor(r)) * weight[r['condition_id']]
+        if gain > 0:
+            code = r['condition_id'].rsplit('.', 1)[0]
+            entry = by_indicator.setdefault(code, {'indicator': code, 'name': names.get(code, code), 'points': 0,
+                                                   'requirements': 0})
+            entry['points'] += gain
+            entry['requirements'] += 1
+    if not by_indicator:
+        return None
+    total = sum(e['points'] for e in by_indicator.values())
+    ranked = sorted(by_indicator.values(), key=lambda e: (-e['points'], e['indicator']))
+    return {'points': float(round(total, 2)),
+            'indicators': [{**e, 'points': float(round(e['points'], 2))} for e in ranked[:top]],
+            'note': ('Credit held until your follow-up answers show how far the evidence goes. The evidence is already '
+                     'in your documents, so answering these questions is usually the quickest way to raise the score.')}
+
+
+def _score(credits, rubric, factors=None):
+    if factors:
+        from .reserve import apply
+        credits = apply(credits, factors)
     return documented(credits, rubric)['overall']
 
 
@@ -97,7 +147,10 @@ def build(rubric, records):
     by_id = {r['condition_id']: r for r in records}
     credits = {cid: credit_of(by_id[cid]) if cid in by_id else 0.0 for cid in conditions}
     gaps = {cid: gap_of(by_id[cid]) if cid in by_id else 'establish' for cid in conditions}
-    score = _score(credits, rubric)
+    from .reserve import factors as held_factors, factors_at_full
+    held = {cid: f for cid, f in held_factors(records).items() if cid in conditions}   # credit held for follow-up
+    at_full = {cid: f for cid, f in factors_at_full(records).items() if cid in conditions}   # once shown in full
+    score = _score(credits, rubric, held)
     target = min(100, (int(score // STEP) + 1) * STEP) if score < 100 else None
     planned, chosen, indicators = dict(credits), [], []
 
@@ -111,8 +164,10 @@ def build(rubric, records):
 
     def gain_of(cid):
         # The overall score is linear in credits: raising one requirement by d adds d x weight_units / 60
-        # (documented(): 100/3 x (sum of credits / 2) x weight / 1000 per key indicator).
-        return (1 - min(1.0, credits[cid])) * float(conditions[cid][0]['weight_units']) / 60
+        # (documented(): 100/3 x (sum of credits / 2) x weight / 1000 per key indicator). Shown in full, it counts at
+        # its factor at full credit, which can differ from its present one (reserve.factors_at_full).
+        counted = float(at_full.get(cid, 1)) - min(1.0, credits[cid]) * float(held.get(cid, 1))
+        return counted * float(conditions[cid][0]['weight_units']) / 60
 
     current = score
     while target is not None and current < target and len(chosen) < MAX_CONDITIONS:
@@ -164,12 +219,13 @@ def build(rubric, records):
         pillar = conditions[cid][0].get('pillar') or conditions[cid][0]['code']
         remaining.setdefault(pillar, {'pillar': pillar, 'establish': 0, 'complete': 0, 'reconcile': 0, 'rerun': 0})
         remaining[pillar][gap] += 1
-    projected = _score(planned, rubric)
+    projected = _score(planned, rubric, {**held, **{cid: at_full.get(cid, 1) for cid in chosen}})
     return {'version': VERSION, 'score': round(score, 2), 'tier': tier_for(score), 'target': target,
             'projected_score': round(projected, 2), 'projected_tier': tier_for(projected)['current'],
             'reaches_target': target is not None and projected >= target,
             'actions': actions, 'condition_ids': chosen, 'strengths': strengths,
             'remaining': [remaining[p] for p in sorted(remaining)],
+            'follow_up': follow_up_gains(rubric, records),
             'note': ('A projection, not a promise: completing an action changes no score until a reassessment finds '
                      'the evidence. Effort weights are assumptions (completing partial credit counts as less effort '
                      'than establishing; provision before activity before outcomes).')}

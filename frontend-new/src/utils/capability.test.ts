@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { achievedTier, capabilityTone, isActive, scoreLabel, stateCounts, stateLabel, tierLabel } from './capability.ts';
+import {
+  achievedTier, bandTier, capabilityTone, countedShare, creditLabel, fraction, heldLine, isActive, scoreLabel, stageLabel, stateCounts,
+  stateLabel, tierLabel, tierShown,
+} from './capability.ts';
 
 const tier = (name: string, eligibility: string) => ({ name, eligibility, threshold: null, pillar_floor: null, gates: {} });
 
@@ -27,4 +30,61 @@ test('labels, tones, counts and job state', () => {
   assert.equal(isActive({ status: 'running' }), true);
   assert.equal(isActive({ status: 'completed' }), false);
   assert.equal(isActive(null), false);
+});
+
+const rec = (credit: number, extra: Record<string, unknown> = {}) =>
+  ({ condition_id: 'X.1.F1', state: 'met' as const, reason: '', citations: [], credit, ...extra });
+
+test('fractions arrive as "1/4", "0.25" or numbers', () => {
+  assert.equal(fraction('1/4'), 0.25);
+  assert.equal(fraction('0.25'), 0.25);
+  assert.equal(fraction(0.5), 0.5);
+  assert.equal(fraction(null), 0);
+  assert.equal(fraction('x'), 0);
+});
+
+test('held credit follows reserve.record_factor', () => {
+  assert.equal(countedShare(rec(1)), 1);                                                     // no reserve: counts in full
+  assert.equal(countedShare(rec(1, { depth_share: '1/4' })), 0.75);                          // provisional: evidenced
+  assert.equal(countedShare(rec(1, { depth_share: '1/4', depth_level: 'substantiated' })), 0.875);
+  assert.equal(countedShare(rec(1, { depth_share: '1/4', depth_level: 'strong' })), 1);
+  assert.equal(countedShare(rec(0.25, { depth_share: '1/4', depth_min_credit: '1/2' })), 1); // related only: not held (v2)
+  assert.equal(countedShare(rec(0.5, { depth_share: '1/4', depth_min_credit: '1/2' })), 0.75);
+  assert.equal(countedShare(rec(0.25, { depth_share: '1/4' })), 0.75);                       // v1 record: no minimum
+  assert.equal(countedShare(rec(0, { depth_share: '1/4' })), 1);
+});
+
+test('credit label says what is counted while credit is held', () => {
+  assert.equal(creditLabel(rec(1)), 'credit 100%');
+  assert.equal(creditLabel(rec(1, { depth_share: '1/4' })), 'credit 100% (75% counted until follow-up answers show depth)');
+  assert.equal(creditLabel(rec(1, { depth_share: '1/4', depth_level: 'strong' })), 'credit 100%');
+});
+
+test('held line beside the headline score', () => {
+  const held = { share: 0.25, evidence_score: 26.14, held_points: 5.16, earned_back_points: 0, still_held_points: 5.16 };
+  assert.equal(heldLine(null), null);
+  assert.equal(heldLine({ ...held, held_points: 0, still_held_points: 0 }), null);
+  assert.equal(heldLine(held), '5.16 points held until you answer the follow-up questions');
+  assert.equal(heldLine({ ...held, earned_back_points: 2, still_held_points: 3.16 }),
+    '3.16 points held until you answer the follow-up questions · 2 points earned back by your follow-up answers');
+});
+
+test('Stage 1 and final labels; the tier only on the final score (23 Nov)', () => {
+  assert.equal(stageLabel('provisional'), 'Stage 1 result: Document Review');
+  assert.equal(stageLabel(null), 'Stage 1 result: Document Review');
+  assert.equal(stageLabel('final'), 'Final AI-READY Score');
+  assert.equal(tierShown('provisional'), false);
+  assert.equal(tierShown(undefined), false);
+  assert.equal(tierShown('final'), true);
+});
+
+test("a part-credit run's level is its score band, whatever the rubric's badge policy says", () => {
+  // Five levels, one star for every 20 points (23 Nov); every score has a level.
+  assert.deepEqual(bandTier(25.36), { current: 'Getting there', next: 'Prepared', pointsToNext: 14.64 });
+  assert.deepEqual(bandTier(14.06), { current: 'Starting out', next: 'Getting there', pointsToNext: 5.94 });
+  assert.deepEqual(bandTier(72), { current: 'Advanced', next: 'Leading', pointsToNext: 8 });
+  assert.equal(bandTier(95).next, null);
+  assert.equal(achievedTier({ tiers: [], badge_policy: 'not_calibrated', score: 61 }), 'Advanced');
+  assert.equal(achievedTier({ tiers: [], badge_policy: 'not_calibrated', score: 0 }), 'Starting out');
+  assert.equal(achievedTier({ tiers: [tier('Silver', 'demonstrated')], badge_policy: 'not_calibrated' }), null);
 });

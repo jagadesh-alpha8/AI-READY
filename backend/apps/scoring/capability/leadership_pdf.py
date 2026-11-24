@@ -50,6 +50,18 @@ def _bar(pdf, label, value, width=96):
     pdf.cell(0, 6, f'{round(value)}', new_x='LMARGIN', new_y='NEXT')
 
 
+def _explained(pdf, explanation):
+    """An explanation in the leadership PDF: what was found and how it scored, then the next step on its own line, each
+    shortened on its own so the next step is never the part cut off."""
+    if not explanation:
+        return
+    body = ' '.join(explanation[k] for k in ('found', 'text') if explanation.get(k))
+    if body:
+        pdf.paragraph(brief(body, 420), small=True)
+    if explanation.get('next_step'):
+        pdf.paragraph('Next: ' + brief(explanation['next_step'], 240), small=True)
+
+
 def render_single_score_pdf(view):
     """Leadership report for part-credit runs: one score, strengths, gaps, next steps. No ranges, no badge talk."""
     pdf = LeadershipReport('leadership')
@@ -62,7 +74,9 @@ def render_single_score_pdf(view):
     pdf.set_fill_color(235, 245, 245)
     pdf.rect(16, panel_y, pdf.w - 32, 30, style='F')
     pdf.set_y(panel_y + 3)
-    pdf.display(f"AI readiness: {view['score']}", 24)
+    pdf.display(f"{view.get('stage_label') or 'AI readiness'}: {view['score']}", 24)
+    if view.get('score_up_to'):
+        pdf.paragraph(view['score_up_to'][0].upper() + view['score_up_to'][1:] + '.', heading=True)
     pdf.paragraph(view['condition_summary'])
     pdf.set_y(max(pdf.get_y(), panel_y + 33))
     pdf.paragraph(view['score_explanation'], small=True)
@@ -103,11 +117,15 @@ def render_single_score_pdf(view):
         if pdf.get_y() > 240:
             pdf.add_page()
         pdf.paragraph(f"{pillar['title']}: {pillar['score']}", heading=True)
+        _explained(pdf, pillar.get('explanation_detail'))   # the area's explanation (explanations.py)
         for area in pillar['areas']:
             pdf.set_font('Evidence', 'B', 9)
             pdf.set_text_color(30, 55, 65)
             pdf.multi_cell(0, 4.5, f"{area['title']}: {area['score']}", new_x='LMARGIN', new_y='NEXT')
-            pdf.paragraph(area['finding'] + ' Next: ' + brief(area['next_step'], 170), small=True)
+            if area.get('explanation_detail'):   # the key indicator's explanation, in place of the generated finding
+                _explained(pdf, area['explanation_detail'])
+            else:
+                pdf.paragraph(area['finding'] + ' Next: ' + brief(area['next_step'], 170), small=True)
 
     pdf.section('How to read this report')
     for limitation in view['limitations']:

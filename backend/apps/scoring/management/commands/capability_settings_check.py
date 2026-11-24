@@ -31,14 +31,17 @@ from apps.scoring.models import CapabilityRun
 
 LIMIT_KEYS = {'max_http_calls', 'max_cost_usd', 'max_duration_seconds', 'timeout_seconds', 'indicator_concurrency',
               'cost_policy'}
-RULE_KEYS = {'parts_version', 'parts_hash', 'parts_prompt_hash', 'related_credit'}
+RULE_KEYS = {'parts_version', 'parts_hash', 'parts_prompt_hash', 'related_credit', 'credit_rule'}
 MISSING = '(not set)'
 #: The setting that decides each frozen value, so a difference says what to change. Output tokens and the timeout are
 #: raised automatically at high reasoning effort when their stage-specific settings are unset (execution.policy).
 SETTING = {
+    ('depth_policy', 'mode'): 'DEPTH_CREDIT_MODE', ('depth_policy', 'share'): 'DEPTH_CREDIT_SHARE',
     ('execution_policy', 'agreement_passes'): 'CAPABILITY_AGREEMENT_PASSES',
     ('execution_policy', 'gemini_reasoning_effort'): 'CAPABILITY_GEMINI_REASONING_EFFORT (else AI_GEMINI_REASONING_EFFORT)',
     ('execution_policy', 'tie_break'): 'CAPABILITY_TIE_BREAK',
+    ('execution_policy', 'part_quote_repair'): 'CAPABILITY_PART_QUOTE_REPAIR',
+    ('retrieval_policy', 'evidence_lane'): 'CAPABILITY_EVIDENCE_LANE',
     ('execution_policy', 'judgment'): 'CAPABILITY_JUDGMENT',
     ('execution_policy', 'input_token_bound_limit'): 'CAPABILITY_MAX_INPUT_TOKEN_BOUND',
     ('execution_policy', 'output_tokens'): 'CAPABILITY_ASSESSMENT_OUTPUT_TOKENS (else CAPABILITY_OUTPUT_TOKENS)',
@@ -56,6 +59,9 @@ SETTING = {
     ('retrieval_policy', 'repeat_skip'): 'CAPABILITY_REPEAT_SKIP',
     ('retrieval_policy', 'follow_up'): 'CAPABILITY_FOLLOW_UP_SEARCH',
     ('model', 'AI_MODEL'): 'AI_MODEL',
+    ('execution_policy', 'model_effort'): 'CAPABILITY_AI_EFFORT',
+    ('execution_policy', 'writing_effort'): 'CAPABILITY_AI_WRITING_EFFORT',
+    ('retrieval_policy', 'prompt_ceiling'): 'CAPABILITY_PROMPT_TOKEN_CEILING (and CAPABILITY_PROMPT_BYTES_PER_TOKEN)',
 }
 
 
@@ -76,7 +82,14 @@ def _current_protocol():
             'schema_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest()}
 
 
+def _current_depth():
+    from apps.scoring.capability.reserve import frozen_policy
+    return frozen_policy()
+
+
 def _kind(section, key):
+    if section == 'depth_policy':
+        return 'credit rule'   # how much credit is held for follow-up answers; the judging is unchanged
     if section == 'execution_policy' and key in LIMIT_KEYS:
         return 'limits only'
     if section == 'execution_policy' and key in RULE_KEYS:
@@ -84,11 +97,22 @@ def _kind(section, key):
     return 'scoring'
 
 
+def _same_file(key, recorded):
+    """A specification hash recorded from a checkout with other line endings is the same file."""
+    if key == 'parts_hash':
+        from apps.scoring.capability.part_judgment import parts_hash_matches
+        return parts_hash_matches(recorded)
+    if key == 'query_profiles_hash':
+        from apps.scoring.capability.query_profiles import profiles_hash_matches
+        return profiles_hash_matches(recorded)
+    return False
+
+
 def _compare(section, frozen, current):
     rows = []
     for key in sorted(set(frozen) | set(current)):
         before, after = frozen.get(key, MISSING), current.get(key, MISSING)
-        if before != after:
+        if before != after and not _same_file(key, before):
             rows.append({'section': section, 'setting': key, 'run': before, 'now': after, 'kind': _kind(section, key),
                          'set_with': SETTING.get((section, key), 'code version (not a setting)')})
     return rows
@@ -108,14 +132,16 @@ def check(run):
     inputs = run.inputs or {}
     differences, errors = [], []
     _, model = run_model(run)
-    if model and model != settings.AI_MODEL:
-        differences.append({'section': 'model', 'setting': 'AI_MODEL', 'run': model, 'now': settings.AI_MODEL or MISSING,
-                            'kind': 'scoring', 'set_with': 'AI_MODEL'})
+    from apps.scoring.capability.model_choice import scoring_model, switched_on
+    current, model_setting = scoring_model(), ('CAPABILITY_AI_MODEL' if switched_on() else 'AI_MODEL')
+    if model and model != current:
+        differences.append({'section': 'model', 'setting': model_setting, 'run': model, 'now': current or MISSING,
+                            'kind': 'scoring', 'set_with': model_setting})
     elif not model:
         errors.append('The run records no model (no completed assessment, or an export from before models were '
-                      'recorded): check AI_MODEL by hand.')
+                      'recorded): check the scoring model (AI_MODEL, or CAPABILITY_AI_MODEL when switched on) by hand.')
     for section, build in (('execution_policy', _current_execution), ('retrieval_policy', _current_retrieval),
-                           ('assessment_protocol', _current_protocol)):
+                           ('assessment_protocol', _current_protocol), ('depth_policy', _current_depth)):
         try:
             current = build()
         except Exception as exc:   # an invalid budget, or hybrid retrieval with its model missing

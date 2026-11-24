@@ -70,7 +70,14 @@ class SecondLayerJobTests(APITestCase):
         payload = json.loads(kwargs['messages'][1]['content'])
         if self.on_call:
             self.on_call()
-        if 'max_questions' in payload:
+        if 'questions' in payload and 'credited_requirements' not in payload:   # depth.link_repeats
+            content = {'groups': []}
+        elif 'credited_requirements' in payload:   # depth.plan_indicator: one call per key indicator
+            content = {'answered': [], 'missing_items': [],
+                       'questions': [{'condition_id': r['condition_id'], 'dimension_ids': [r['dimensions'][0]['id']],
+                                      'text': 'How many hours did the programme run?'}
+                                     for r in payload['credited_requirements']]}
+        elif 'max_questions' in payload:
             ids = [d['id'] for d in payload['dimensions']]
             content = {'dimensions': [{'dimension_id': i, 'answered_by_evidence': False, 'evidence_quote': ''}
                                       for i in ids],
@@ -108,42 +115,111 @@ class SecondLayerJobTests(APITestCase):
 
     # ---------------------------------------------------------------- questions
 
+    def test_finished_calls_count_at_their_billed_cost(self):
+        """23 Nov: the cap counted reservations (test 13: $14.34 reserved for $3.98 of calls). Each call is now settled
+        to its tokens at the configured prices: 200 in at $0.1/M and 150 out at $0.2/M is $0.00005."""
+        from decimal import Decimal
+        job = self.execute(self.post_job('questions'))
+        self.assertEqual(job.status, 'completed', job.detail)
+        budget = SecondLayerBudget.objects.get(run=self.run)
+        events = [e.payload for e in job.events.all()]
+        reserved = sum(Decimal(p['reserved_usd']) for p in events if p.get('kind') == 'request_reserved')
+        settled = [p for p in events if p.get('kind') == 'request_settled']
+        self.assertEqual(len(settled), 37)
+        self.assertTrue(all(Decimal(p['actual_usd']) == Decimal('0.000050') for p in settled))
+        self.assertEqual(sum(Decimal(p['reserved_usd']) - Decimal(p['released_usd']) for p in settled),
+                         Decimal('0.001850'))
+        self.assertGreater(reserved, Decimal('0.001850'))
+        self.assertEqual((job.usd_reserved, budget.usd_reserved), (Decimal('0.001850'), Decimal('0.001850')))
+        self.assertEqual(budget.requests_reserved, 37)   # the request cap still counts every request
+
+    @override_settings(SECOND_LAYER_SETTLE_TO_ACTUAL=False)
+    def test_without_settling_every_call_keeps_its_reservation(self):
+        from decimal import Decimal
+        job = self.execute(self.post_job('questions'))
+        events = [e.payload for e in job.events.all()]
+        reserved = sum(Decimal(p['reserved_usd']) for p in events if p.get('kind') == 'request_reserved')
+        self.assertFalse([p for p in events if p.get('kind') == 'request_settled'])
+        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).usd_reserved, reserved)
+    def test_the_explain_command_can_queue_the_metered_job(self):
+        out = StringIO()
+        with patch(f'{JOBS}.dispatch') as dispatch, self.captureOnCommitCallbacks(execute=True):
+            call_command('capability_explain', str(self.run.pk), '--job', stdout=out)
+        job = SecondLayerJob.objects.get(run=self.run)
+        self.assertEqual((job.operation, job.options, job.requested_by), ('explain', {'final': False}, None))
+        dispatch.assert_called_once()
+        self.assertIn(f'Queued explanation job {job.pk}', out.getvalue())
+        from django.core.management.base import CommandError
+        with self.assertRaisesRegex(CommandError, 'already active'):
+            call_command('capability_explain', str(self.run.pk), '--job', stdout=StringIO())
+
+    def test_a_job_runs_at_the_runs_frozen_settings_whatever_shell_started_it(self):
+        """Audit A1: a command run from a window with other settings froze that window's concurrency for the job."""
+        frozen = self.run.inputs['execution_policy']
+        out = StringIO()
+        with override_settings(CAPABILITY_INDICATOR_CONCURRENCY=frozen['indicator_concurrency'] % 8 + 1,
+                               CAPABILITY_GEMINI_REASONING_EFFORT='minimal'):
+            with patch(f'{JOBS}.dispatch'), self.captureOnCommitCallbacks(execute=True):
+                call_command('capability_explain', str(self.run.pk), '--job', stdout=out)
+        job = SecondLayerJob.objects.get(run=self.run)
+        self.assertEqual((job.policy['indicator_concurrency'], job.policy['gemini_reasoning_effort']),
+                         (frozen['indicator_concurrency'], frozen['gemini_reasoning_effort']))
+        self.assertEqual(job.policy['stage'], 'second_layer_explain')
+        self.assertIn(f"({frozen['indicator_concurrency']} area(s) at a time)", out.getvalue())
+
+    def test_the_explain_command_wants_a_published_result_for_final(self):
+        from django.core.management.base import CommandError
+        with self.assertRaisesRegex(CommandError, 'no published final result'):
+            call_command('capability_explain', str(self.run.pk), '--job', '--final', stdout=StringIO())
+        with self.assertRaisesRegex(CommandError, '--final goes with --job'):
+            call_command('capability_explain', str(self.run.pk), '--final', stdout=StringIO())
+
     def test_questions_job_is_metered_against_the_run_budget_and_saves_the_questions(self):
         from apps.extraction.models import AIUsage
         job = self.execute(self.post_job('questions'))
         self.assertEqual(job.status, 'completed', job.detail)
-        self.assertEqual(self.calls(), 2)   # one per credited condition
+        self.assertEqual(self.calls(), 37)   # one per key indicator (questions-0.2), and one linking repeats (0.3)
         budget = SecondLayerBudget.objects.get(run=self.run)
-        self.assertEqual((job.requests_reserved, budget.requests_reserved), (2, 2))
+        self.assertEqual((job.requests_reserved, budget.requests_reserved), (37, 37))
         self.assertEqual(budget.max_http_calls, 72)   # the run's own assessment limit, settings unset
         self.assertGreater(budget.usd_reserved, 0)
         depth_questions = DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='depth')
-        self.assertEqual(depth_questions.count(), 2)
+        # Both credited requirements are asked about; dimensions the model left out get fixed wording, and a fact
+        # asked once counts for both requirements, so there is no fixed count.
+        self.assertEqual({q.condition_ids[0] for q in depth_questions}, set(self.credited))
+        self.assertEqual(DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='missing').count(), 36)
         self.assertEqual(job.result['questions'], DepthQuestion.objects.filter(run_ref=str(self.run.pk)).count())
         kinds = list(job.events.values_list('payload__kind', flat=True))
-        self.assertEqual(kinds.count('request_reserved'), 2)
+        self.assertEqual(kinds.count('request_reserved'), 37)
         self.assertEqual(kinds[-1], 'terminal')
         self.assertTrue(AIUsage.objects.filter(capability_run=self.run, stage='capability_second_layer').exists())
         shown = self.client.get(f'{self.url}/second-layer/jobs')
-        self.assertEqual(shown.data['budget']['requests_reserved'], 2)
+        self.assertEqual(shown.data['budget']['requests_reserved'], 37)
         self.assertEqual(shown.data['results'][0]['status'], 'completed')
         # Planning again is refused unless replace is asked for.
         self.post_job('questions', key='job-2', expect=400)
 
     @override_settings(SECOND_LAYER_MAX_HTTP_CALLS=1)
+    def test_questions_past_the_request_cap_get_fixed_wording_instead_of_failing(self):
+        # One model call per key indicator: with fewer requests left than key indicators, the rest are asked in fixed
+        # wording and the job completes (audit, 21 Nov), instead of failing at the cap and saving nothing.
+        job = self.execute(self.post_job('questions'))
+        self.assertEqual(job.status, 'completed', job.detail)
+        self.assertEqual(self.calls(), 1)
+        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).requests_reserved, 1)
+        self.assertEqual(DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='missing').count(), 36)
+        self.assertTrue(any('past the limit of 1 model calls' in n for n in job.result['notes']))
+
+    @override_settings(SECOND_LAYER_MAX_COST_USD='0.000001')
     def test_a_spent_budget_saves_nothing_and_a_raised_budget_is_shared_across_jobs(self):
         job = self.execute(self.post_job('questions'))
         self.assertEqual((job.status, job.error_code), ('failed', 'budget_exhausted'))
         self.assertFalse(DepthQuestion.objects.filter(run_ref=str(self.run.pk)).exists())
-        self.assertEqual(self.calls(), 1)
         out = StringIO()
-        call_command('layer2_budget', str(self.run.pk), '--max-calls', '5', stdout=out)
-        self.assertIn('Requests: 1 of 5', out.getvalue())
+        call_command('layer2_budget', str(self.run.pk), '--max-cost', '50', stdout=out)
         second = self.execute(self.post_job('questions', key='job-2'))
         self.assertEqual(second.status, 'completed', second.detail)
-        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).requests_reserved, 3)
-        with self.assertRaises(Exception):
-            call_command('layer2_budget', str(self.run.pk), '--max-calls', '2', stdout=StringIO())
+        self.assertEqual(SecondLayerBudget.objects.get(run=self.run).requests_reserved, 37)
 
     def test_cancelling_during_the_calls_saves_nothing(self):
         job = self.post_job('questions')
@@ -291,6 +367,15 @@ class SecondLayerJobTests(APITestCase):
         self.assertEqual(follow_on.status, 'completed')
         self.assertFalse(DepthResponse.objects.filter(question__run_ref=str(self.run.pk), status='pending').exists())
 
+    def test_additional_evidence_waiting_for_its_check_counts_as_waiting(self):
+        """The questionnaire offers publishing only when nothing waits; publishing refuses waiting evidence."""
+        from .capability.layer2_service import progress
+        self.assertEqual(progress(str(self.run.pk))['checks_waiting'], 0)
+        AdditionalEvidence.objects.create(run_ref=str(self.run.pk), document_ids=[str(self.doc.pk)],
+                                          picked=[self.rubric['indicators'][1]['code']],
+                                          routing={'indicators': [self.rubric['indicators'][1]['code']]})
+        self.assertEqual(progress(str(self.run.pk))['checks_waiting'], 1)
+
     def test_the_sweep_checks_answers_once_their_documents_are_extracted(self):
         from apps.documents.models import Document
         from apps.extraction.models import DocumentPage
@@ -384,7 +469,7 @@ class SecondLayerJobTests(APITestCase):
                 'contradictions': [], 'context_audit': {}, 'routes': 1, 'note': ''}
 
     def test_rejudge_job_publishes_the_final_result_with_its_metered_calls(self):
-        job = self.post_job('rejudge')
+        job = self.post_job('rejudge', options={'close': True})
         with patch('apps.scoring.capability.layer2_service.rejudge_credit',
                    side_effect=lambda export, service, **kw: self.rejudge_result(export, service)) as fake:
             job = self.execute(job)
@@ -417,7 +502,7 @@ class SecondLayerJobTests(APITestCase):
         self.assertEqual(job.status, 'completed', job.detail)
         self.assertIsNone(job.final_run_id)
         self.assertEqual(self.calls(), 0)
-        self.assertEqual(job.result['note'], 'No new evidence to re-judge.')
+        self.assertTrue(job.result['note'].startswith('No new evidence to re-judge. Preview only'), job.result['note'])
 
     def test_export_still_reads_the_provisional_run(self):
         self.assertEqual(export_for_run(self.run.pk)['run_id'], str(self.run.pk))

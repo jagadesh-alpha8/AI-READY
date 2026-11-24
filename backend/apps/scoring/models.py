@@ -492,9 +492,13 @@ class DepthQuestion(models.Model):
         OPEN = 'open', 'Open'
         ANSWERED = 'answered', 'Answered'
         CLOSED = 'closed', 'Closed'
+        LINKED = 'linked', 'Asked through a linked question'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run_ref = models.CharField(max_length=64, db_index=True, help_text='The assessment run id the questions are about.')
+    linked_to = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, related_name='linked',
+                                  help_text='The question that asks this one for the college (questions-0.3).')
+    own_text = models.TextField(blank=True, help_text="A group's lead: its own wording before the group's.")
     kind = models.CharField(max_length=10, choices=Kind.choices)
     indicator_code = models.CharField(max_length=30)
     condition_ids = models.JSONField(default=list)
@@ -503,7 +507,15 @@ class DepthQuestion(models.Model):
     rank = models.PositiveIntegerField()
     answered_by_evidence = models.JSONField(default=list, blank=True,
                                             help_text='Dimensions the credited evidence already answered (no question).')
+    points_at_stake = models.DecimalField(max_digits=7, decimal_places=2, default=0,
+                                          help_text='Headline points a full answer can earn (questions-0.2).')
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    # "I need to check" (23 Nov): the college marked an open question to come back to. It stays open, moves behind the
+    # unmarked open questions, and is counted in progress so closing can warn about it. Answering clears it.
+    to_check = models.BooleanField(default=False)
+    to_check_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+')
+    to_check_at = models.DateTimeField(null=True, blank=True)
     spec_version = models.CharField(max_length=30)
     model = models.CharField(max_length=150, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -514,6 +526,21 @@ class DepthQuestion(models.Model):
 
     def __str__(self):
         return f'{self.run_ref[:8]} #{self.rank} {self.kind}'
+
+
+class DepthPlan(models.Model):
+    """How a run's follow-up questions were planned (depth.plan_all): the planner version, its notes, and the credited
+    requirements whose own quotes already show every quality dimension. Those get no question; the depth judge places
+    them on their quotes, so the credit held for depth (reserve.py) can be earned back without asking."""
+    run_ref = models.CharField(max_length=64, unique=True)
+    version = models.CharField(max_length=30)
+    shown_by_evidence = models.JSONField(default=list, blank=True)
+    notes = models.JSONField(default=list, blank=True)
+    model = models.CharField(max_length=150, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.run_ref} {self.version}'
 
 
 class DepthResponse(models.Model):
@@ -532,11 +559,20 @@ class DepthResponse(models.Model):
         PENDING = 'pending', 'Waiting for a check'
         CHECKED = 'checked', 'Checked'
 
+    class Choice(models.TextChoices):
+        # The college's own answer to "is this in place?" in Harsha's questionnaire design (23 Nov). Recorded for the
+        # reports and the improvement plan; it never moves the score by itself: credit still comes only from documents.
+        YES = 'yes', 'Yes, with supporting evidence'
+        PARTLY = 'partly', 'Partially in place'
+        NOT_YET = 'not_yet', 'Not yet in place'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     question = models.ForeignKey(DepthQuestion, on_delete=models.CASCADE, related_name='responses')
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='follow_ups',
                                help_text='The response whose follow-up question this answers.')
     kind = models.CharField(max_length=10, choices=Kind.choices)
+    choice = models.CharField(max_length=10, choices=Choice.choices, blank=True,
+                              help_text="The college's answer option; blank for a plain answer or a skip.")
     answer = models.TextField(blank=True)
     document_ids = models.JSONField(default=list, blank=True)
     supported = models.BooleanField(default=False)

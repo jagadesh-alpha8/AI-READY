@@ -76,6 +76,47 @@ def expansion_exclusion(passage):
     return None if meaningful else 'instruction_or_heading_only'
 
 
+def corpus_statistics(ranker, passages):
+    """(exclusions, words, lengths, average length, term frequency, tie keys) of a corpus's passages.
+
+    None of these depends on the key indicator, yet they were rebuilt for every one: on VISTAS about two thirds of
+    retrieval's time (test 13's capability_page_use, 22 Nov: over 2 minutes for 36 key indicators). Kept on the ranker
+    beside the passage list they describe; the ranker rebuilds that list (a new object) when the corpus changes, so a
+    kept copy is used only for the very list it was computed from. The values are built exactly as before, so ranks
+    and packets do not change."""
+    kept = getattr(ranker, '_corpus_statistics', None)
+    if kept is not None and kept[0] is passages:
+        return kept[1]
+    corpus_cache(ranker, passages)   # a new corpus: the keyword baseline's cache starts empty too
+    exclusions = {n: reason for n, p in enumerate(passages) if (reason := expansion_exclusion(p))}
+    words = [terms(p.embedding_text) for p in passages]
+    lengths = [sum(w.values()) for w in words]
+    average = sum(lengths) / len(lengths) or 1
+    frequency = Counter(t for w in words for t in w)
+    ties = [(hashlib.sha256(p.embedding_text.encode()).hexdigest(), p.source['id'], p.start) for p in passages]
+    statistics = (exclusions, words, lengths, average, frequency, ties)
+    try:
+        ranker._corpus_statistics = (passages, statistics)
+    except AttributeError:   # a ranker that takes no attributes simply recomputes
+        pass
+    return statistics
+
+
+def corpus_cache(ranker, passages):
+    """The keyword baseline's cache (window word counts, page hashes; evaluation.select_balanced_context) for this
+    ranker's current corpus, or None for a ranker that takes no attributes. Replaced when the corpus changes, so it
+    never holds more than one corpus and goes when the ranker does."""
+    kept = getattr(ranker, '_corpus_cache', None)
+    if kept is not None and kept[0] is passages:
+        return kept[1]
+    cache = {'windows': {}, 'pages': {}}
+    try:
+        ranker._corpus_cache = (passages, cache)
+    except AttributeError:
+        return None
+    return cache
+
+
 def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=None,
                       include_semantic=True, protect_baseline=None, comparison_route=None, structure=None):
     if comparison_route is not None:
@@ -92,14 +133,9 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
             diagnostics.update(passages=passages, requirements=[], selected=[], packing_attempts=[], elapsed_seconds=0)
         return []
     protect_baseline = include_semantic if protect_baseline is None else protect_baseline
-    exclusions = {n: reason for n, p in enumerate(passages) if (reason := expansion_exclusion(p))}
+    exclusions, words, lengths, average, frequency, ties = corpus_statistics(ranker, passages)
     from .evaluation import RETRIEVAL_TERMS
-    words = [terms(p.embedding_text) for p in passages]
-    lengths = [sum(w.values()) for w in words]
-    average = sum(lengths) / len(lengths) or 1
-    frequency = Counter(t for w in words for t in w)
     topic = terms(RETRIEVAL_TERMS.get(indicator['code'], ''))
-    ties = [(hashlib.sha256(p.embedding_text.encode()).hexdigest(), p.source['id'], p.start) for p in passages]
 
     def bm25(query):
         scores = []
@@ -148,7 +184,8 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
     if protect_baseline:
         from .evaluation import select_context
         baseline = select_context(indicator, sources,
-            max_chars=min(max_chars, getattr(ranker, 'baseline_chars', 18000)), structure=structure)
+            max_chars=min(max_chars, getattr(ranker, 'baseline_chars', 18000)), structure=structure,
+            window_cache=corpus_cache(ranker, passages))
         for source in baseline:
             sid, start = source['id'], source['text_offset']
             source_spans[sid] = merged_spans(source_spans.get(sid, []) + [(start, start + len(source['text']))])
@@ -217,7 +254,7 @@ def retrieve_evidence(indicator, sources, ranker, max_chars=18000, diagnostics=N
         diagnostics.update(passages=passages, requirements=requirements, selected=selected,
                            baseline_selected=baseline, baseline_chars=baseline_used,
                            expansion_chars=used - baseline_used if protect_baseline else 0,
-                           expansion_exclusions=exclusions,
+                           expansion_exclusions=dict(exclusions),   # a copy: the corpus statistics are kept
                            packing_attempts=attempts, used_chars=used,
                            elapsed_seconds=round(perf_counter() - started, 4), cache=dict(ranker.stats))
     return selected

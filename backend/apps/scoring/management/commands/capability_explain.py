@@ -3,6 +3,14 @@
     python manage.py capability_explain RUN_ID                 # print what would be written
     python manage.py capability_explain RUN_ID --save          # store them for the run's reports and API
     python manage.py capability_explain RUN_ID --out file.json
+    python manage.py capability_explain RUN_ID --job           # queue the metered background job instead
+    python manage.py capability_explain RUN_ID --job --final   # the same for the published final result (to restart
+                                                               # its explanations); RUN_ID may be either run
+
+--job queues the same job the API starts (operation 'explain'): metered against the run's second-layer budget,
+written areas side by side at the run's indicator concurrency (about 15 minutes at 4 on VISTAS, against about 55 one
+at a time), and stored when it finishes. It needs the second-layer jobs on and a worker running. Use it for a Stage 1
+result: publishing the final result starts the final run's explanations by itself.
 
 One model call per area (9), at most two each. The background job (second-layer operation 'explain') is the metered
 route for the product; this is for consultants and for checking the wording on a real run.
@@ -22,6 +30,10 @@ class Command(BaseCommand):
         parser.add_argument('--max-calls', type=int, default=18)
         parser.add_argument('--save', action='store_true')
         parser.add_argument('--out')
+        parser.add_argument('--job', action='store_true',
+                            help='Queue the metered background job (as the API does) instead of writing here.')
+        parser.add_argument('--final', action='store_true',
+                            help="With --job: write the published final result's explanations.")
 
     def handle(self, *args, **options):
         from apps.scoring.capability.depth import default_model
@@ -29,6 +41,10 @@ class Command(BaseCommand):
         run = CapabilityRun.objects.filter(pk=options['run_id']).first()
         if run is None:
             raise CommandError('Run not found.')
+        if options['job']:
+            return self.queue(run, final=options['final'])
+        if options['final']:
+            raise CommandError('--final goes with --job; without it, pass the final run id itself.')
         try:
             target = build_target(run)
         except ValueError as exc:
@@ -46,3 +62,23 @@ class Command(BaseCommand):
         if options['out']:
             with open(options['out'], 'w') as handle:
                 json.dump(written, handle, indent=2, ensure_ascii=False)
+
+    def queue(self, run, final=False):
+        import uuid
+        from django.db import transaction
+        from rest_framework.exceptions import APIException
+        from apps.scoring.capability import second_layer_jobs as jobs
+        from apps.scoring.capability.layer2_service import is_final
+        if is_final(run):
+            if not final:
+                raise CommandError('This run is a published final result: add --final (or pass its Stage 1 run id).')
+            run = CapabilityRun.objects.get(pk=run.inputs['second_layer']['provisional_run_id'])
+        try:
+            with transaction.atomic():
+                job, _ = jobs.start(run=run, operation='explain', user=None, key=f'explain-cli-{uuid.uuid4().hex[:16]}',
+                                    options={'final': True} if final else None)
+        except APIException as exc:
+            raise CommandError(str(getattr(exc, 'detail', exc)))
+        self.stdout.write(f'Queued explanation job {job.pk} for run {run.pk} '
+                          f'({job.policy.get("indicator_concurrency", 1)} area(s) at a time). '
+                          'The reports show the explanations once it completes.')

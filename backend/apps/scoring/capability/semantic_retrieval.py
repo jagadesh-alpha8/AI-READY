@@ -70,11 +70,18 @@ def configured_policy(mode=None):
         routing['structure'] = structure.VERSION
     if getattr(settings, 'CAPABILITY_REPEAT_SKIP', False):
         routing['repeat_skip'] = structure.REPEAT_SKIP_VERSION
+    if getattr(settings, 'CAPABILITY_EVIDENCE_LANE', True):
+        from .reviewed_evidence import LANE_VERSION_2
+        routing['evidence_lane'] = LANE_VERSION_2   # frozen per run (reviewed_evidence.evidence_lane)
     if getattr(settings, 'CAPABILITY_FOLLOW_UP_SEARCH', False):
         from .follow_up import VERSION as FOLLOW_UP_VERSION
         if mode != 'hybrid' or getattr(settings, 'CAPABILITY_JUDGMENT', 'conditions') != 'parts':
             raise SemanticRetrievalUnavailable('CAPABILITY_FOLLOW_UP_SEARCH needs hybrid retrieval and CAPABILITY_JUDGMENT=parts.')
         routing['follow_up'] = FOLLOW_UP_VERSION
+    from .prompt_ceiling import configured as prompt_ceiling
+    ceiling = prompt_ceiling()
+    if ceiling:
+        routing['prompt_ceiling'] = ceiling   # frozen per run (prompt_ceiling.py)
     allocation = settings.CAPABILITY_RETRIEVAL_ALLOCATION or ALLOCATION
     if allocation not in (ALLOCATION, WIDE_ALLOCATION, XWIDE_ALLOCATION):
         raise SemanticRetrievalUnavailable(
@@ -127,6 +134,25 @@ class EmbeddingCache:
         self.connection = sqlite3.connect(str(self.path), check_same_thread=False)
         self.connection.execute('CREATE TABLE IF NOT EXISTS vectors (text_hash TEXT PRIMARY KEY, vector BLOB NOT NULL)')
         self.connection.commit()
+
+    def close(self):
+        """Release the file. Windows will not delete or replace an SQLite file that is still open (test 13's
+        Windows suite, 20 Nov: the cache test's temporary folder could not be removed)."""
+        connection, self.connection = getattr(self, 'connection', None), None
+        if connection is not None:
+            connection.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
     @staticmethod
     def key(text):
@@ -280,13 +306,14 @@ def ranker_for(policy):
         return None
     from django.conf import settings
     from importlib.metadata import version
-    from .query_profiles import profile_metadata
+    from .query_profiles import profile_metadata, profiles_hash_matches
     profiles = profile_metadata()
     budgets = (policy.get('baseline_chars'), policy.get('expansion_chars'))
     if (policy.get('mode') != 'hybrid' or policy.get('fusion') != FUSION
             or policy.get('representation') != 'token-source-spans-v1' or policy.get('target_tokens') != 240
             or policy.get('query_policy') != 'evidence-record-profiles-1'
-            or any(policy.get(key) != value for key, value in profiles.items())
+            or any(policy.get(key) != value for key, value in profiles.items() if key != 'query_profiles_hash')
+            or not profiles_hash_matches(policy.get('query_profiles_hash'))
             or policy.get('query_instruction') != query_instruction(settings.CAPABILITY_EMBEDDING_MODEL)
             or policy.get('lexical_weight') != 2
             or policy.get('semantic_weight') != 1

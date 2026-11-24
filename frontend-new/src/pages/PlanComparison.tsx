@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DEMO_MODE } from '../config/env';
 import { RequireSprint } from '../components/RequireSprint';
 import { ActionDialog, Empty, ErrorState, Loading, Notice, PageHeading, PageLink, Panel, Pill, Table } from '../components/ui';
 import { useAccess } from '../hooks/useAccess';
@@ -45,8 +46,8 @@ function Body({ sprint }: { sprint: Sprint }) {
         <button className="primary-action" disabled={!cap.enabled} onClick={() => setWriting(true)}>Compare a plan</button>
       )} />
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
-      <Panel title="Comparisons" sub={`Against run ${runId.slice(0, 8)}`}>
-        {list.loading && !list.data ? <Loading /> : list.error ? <ErrorState error={list.error} /> : !list.data?.results.length ? <p className="muted">No plans compared yet.</p> : (
+      <Panel title={DEMO_MODE ? 'Your plans, checked' : 'Comparisons'} sub={DEMO_MODE ? 'Against your latest result' : `Against run ${runId.slice(0, 8)}`}>
+        {list.loading && !list.data ? <Loading /> : list.error ? <ErrorState error={list.error} /> : !list.data?.results.length ? <p className="muted">{DEMO_MODE ? 'No plan checked yet. Upload your own AI plan or strategy and we show which foundation goals it covers, which it misses, and how far it would move your level.' : 'No plans compared yet.'}</p> : (
           <Table columns={['Comparison', 'Started', 'Status', '']}>
             {list.data.results.map((j) => (
               <tr key={j.id}>
@@ -122,8 +123,10 @@ function PlanScores({ original, improved }: { original?: PlanEvaluationScores; i
       </Table>
       {cov && (
         <div className="check-list">
-          {cov.missed.length > 0 && <p><b>Priority requirements the plan misses:</b> {cov.missed.join(', ')}</p>}
-          {cov.outside_priority_plan.length > 0 && <p className="muted">Also targets, outside the priority plan: {cov.outside_priority_plan.join(', ')}</p>}
+          {cov.missed.length > 0 && (DEMO_MODE
+            ? <p><b>The plan leaves {cov.missed.length} of the {cov.covered.length + cov.missed.length} priority requirements uncovered.</b> The pathway lists them.</p>
+            : <p><b>Priority requirements the plan misses:</b> {cov.missed.join(', ')}</p>)}
+          {!DEMO_MODE && cov.outside_priority_plan.length > 0 && <p className="muted">Also targets, outside the priority plan: {cov.outside_priority_plan.join(', ')}</p>}
           {cov.priority_projected_score != null && <p className="muted">The priority plan alone projects {num(cov.priority_projected_score, 1)}{cov.target != null ? ` against a target of ${cov.target}` : ''}.</p>}
         </div>
       )}

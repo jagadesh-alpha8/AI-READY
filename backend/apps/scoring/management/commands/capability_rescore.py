@@ -29,12 +29,19 @@ def rescore(report):
         if abs(credit - float(record['credit'])) > 1e-9:
             changes.append({'condition_id': record['condition_id'], 'before': record['credit'], 'after': credit})
             record['credit'] = credit
-    credits = {r['condition_id']: float(r.get('credit', 1.0 if r.get('state') == 'met' else 0.0))
-               for r in out['assessment']['records']}
+    from apps.scoring.capability.reserve import scored_credits
+    credits = scored_credits([{**r, 'credit': float(r.get('credit', 1.0 if r.get('state') == 'met' else 0.0))}
+                              for r in out['assessment']['records']])   # less any credit held for follow-up
     scores = documented(credits, out['rubric'])
     result = out['assessment'].setdefault('result', {})
     before = result.get('score')
     result['score'] = round(scores['overall'], 2)
+    if 'documented' in result:   # keep the result consistent with its score (areas, held credit)
+        result['documented'] = scores
+    from apps.scoring.capability.reserve import summary
+    held = summary(out['assessment']['records'], out['rubric'])
+    if held:
+        result['depth_reserve'] = held
     out['rescored'] = {'rule': metadata(), 'score_before': before, 'score_after': result['score'],
                        'changed_requirements': len(changes)}
     return out, changes

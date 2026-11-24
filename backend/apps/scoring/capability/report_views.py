@@ -1,5 +1,6 @@
 """Authenticated, pinned, inference-free capability exports; no baseline approval gate."""
 import json
+import logging
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import HttpResponse
@@ -11,9 +12,12 @@ from rest_framework.exceptions import APIException
 
 from apps.scoring.models import RecommendationExecution
 from .views import RunView
+from .report_projection import held_note
 from .recommendations import build_inputs
 from .storage import digest
 from .report_projection import build_report_view
+
+logger = logging.getLogger(__name__)
 
 
 class ReportUnavailable(APIException):
@@ -40,27 +44,60 @@ def validate_report_identity(run, event, snapshot=None, completed=None):
             raise ReportIntegrityError()
 
 
+STAGE_ONE = 'Stage 1 result: Document Review'
+FINAL = 'Final AI-READY Score'
+
+
 def assessment_stage(run, event):
-    """Whether this report shows the provisional result (before follow-up questions and additional evidence) or the
-    final one published after them (layer2_service.publish_final)."""
+    """Whether this report shows the Stage 1 result (the provisional run: what the documents show before follow-up
+    questions and additional evidence) or the final AI-READY Score published after them (layer2_service.publish_final).
+    A college sees its tier only on the final score (Siddharth, 23 Nov): before the follow-ups part of the credit is
+    held on purpose, so a tier on it would understate the college."""
     second = (run.inputs or {}).get('second_layer')
-    score = event.payload.get('result', {}).get('score')
+    result = event.payload.get('result', {})
+    score = result.get('score')
     if second:
         lowered = [row['condition_id'] for row in second.get('lowerings') or []]
-        note = (f"Final result: includes the evidence the institution sent after the provisional score "
-                f"({second.get('provisional_score')} provisional, {score} final).")
+        unchanged = not second.get('targets') and second.get('provisional_score') == score
+        if unchanged:
+            note = (f"{FINAL}: the follow-up stage is closed and no answer changed the Stage 1 result "
+                    f"({second.get('provisional_score')}). Credit still held for depth stays held.")
+        else:
+            note = (f"{FINAL}: includes the follow-up answers and evidence the institution sent after the Stage 1 "
+                    f"result ({second.get('provisional_score')} at Stage 1, {score} final).")
         if lowered:
             note += (f" {len(lowered)} requirement{'s' if len(lowered) != 1 else ''} went down because documents the "
                      'institution sent show otherwise.')
-        return {'stage': 'final', 'provisional_run_id': second['provisional_run_id'],
+        return {'stage': 'final', 'label': FINAL, 'tier_shown': True, 'closed': True,
+                'provisional_run_id': second['provisional_run_id'],
                 'provisional_score': second.get('provisional_score'), 'score': score, 'lowered': lowered,
-                'note': note}
+                'unchanged': unchanged, 'note': note}
     from .layer2_service import final_run_id
     final = final_run_id(str(run.pk))
-    return {'stage': 'provisional', 'final_run_id': final, 'score': score,
-            'note': ('Provisional result: a final result that includes later evidence has been published (run '
-                     f'{final}).') if final else
-                    'Provisional result: follow-up questions and any additional evidence may still change it.'}
+    held = result.get('depth_reserve') or {}
+    up_to = held.get('evidence_score') if held.get('held_points') else None
+    if final:
+        note = f'{STAGE_ONE}. The final AI-READY Score has been published (run {final}).'
+    else:
+        note = (f'{STAGE_ONE}: what the documents show before the follow-up questions.'
+                + (f' Follow-up answers backed by documents can raise it to {up_to:g}.' if up_to else '')
+                + ' The final AI-READY Score and tier are published once the follow-up questions are complete.')
+    return {'stage': 'provisional', 'label': STAGE_ONE, 'tier_shown': False, 'closed': bool(final),
+            'final_run_id': final, 'score': score,
+            'up_to': up_to, 'note': note}
+
+
+def html_to_pdf(html):
+    """The PDF of a report page, made from the same HTML (WeasyPrint), or None where WeasyPrint or its system
+    libraries are not installed (a Windows machine without GTK): the caller then uses the older PDF renderer."""
+    try:
+        from weasyprint import HTML
+    except Exception:   # ImportError, or OSError when pango is missing
+        return None
+    try:
+        return HTML(string=html).write_pdf()
+    except Exception:
+        return None
 
 
 class CapabilityReportView(RunView):
@@ -74,8 +111,10 @@ class CapabilityReportView(RunView):
         if file_format not in {'html', 'json', 'pdf'}:
             raise serializers.ValidationError({'file': 'Choose html, json or pdf.'})
         audience = request.query_params.get('audience', 'leadership')
-        if audience not in {'leadership', 'evidence'}:
-            raise serializers.ValidationError({'audience': 'Choose leadership or evidence.'})
+        # summary and detailed: the reports designed for people (23 Nov, presentation.py); leadership and evidence:
+        # the earlier reports, kept as InGage's technical appendix.
+        if audience not in {'summary', 'detailed', 'leadership', 'evidence'}:
+            raise serializers.ValidationError({'audience': 'Choose summary, detailed, leadership or evidence.'})
         advice_id = request.query_params.get('recommendation_id')
         recommendation = None
         snapshot = completed = None
@@ -92,6 +131,7 @@ class CapabilityReportView(RunView):
         validate_report_identity(run, event, snapshot, completed)
         from .explanations import attach, latest
         explanations = latest(run)   # beside the run, never in it: the integrity hashes above read event.payload
+        stage = assessment_stage(run, event)
         payload = {'format_version': 'AIQIF-REPORT-0.2', 'exported_at': timezone.now(),
             'run_id': str(run.pk), 'assessment_event_id': event.pk, 'inputs_hash': run.inputs_hash,
             'profile': run.inputs['profile'], 'population': run.inputs['population'], 'rubric': run.inputs['rubric'],
@@ -100,22 +140,63 @@ class CapabilityReportView(RunView):
             'refines_run_id': run.inputs.get('refines_run_id'), 'source_manifest': run.inputs['manifest'],
             'assessment_protocol': run.inputs.get('assessment_protocol'),
             'retrieval_policy': run.inputs.get('retrieval_policy'),
-            'assessment': attach(event.payload, explanations), 'explanations_version': (explanations or {}).get('version'),
-            'assessment_stage': assessment_stage(run, event), 'recommendation': recommendation,
+            'assessment': attach(event.payload, explanations, closed=stage['closed']),
+            'explanations_version': (explanations or {}).get('version'),
+            'assessment_stage': stage, 'recommendation': recommendation,
             'deterministic_plan': snapshot.inputs if recommendation else build_inputs(run, event, {}),
             'notice': 'Experimental internal methodology, not an external accreditation standard. Unknown evidence is not failure. '
                       'Tier pathways are conditional sufficient scenarios, not optimal or guaranteed. Workflow completion does not change scores; reassessment is required.'}
         from .diagnostics import explain
         payload['diagnostics'] = explain(run.inputs, event.payload)
-        records = {r['condition_id']: r for r in event.payload['records']}
+        # From the copy with the explanations attached (payload['assessment']), so the evidence report can print each
+        # requirement's and key indicator's explanation; the stored event is unchanged.
+        attached = payload['assessment']
+        records = {r['condition_id']: r for r in attached['records']}
         indicators = [{**i, 'requirements': [{**c, 'decision': records[c['id']]} for c in i['conditions']]}
-                      for i in event.payload['result']['indicators']]
+                      for i in attached['result']['indicators']]
+        result_view = event.payload['result']
+        if result_view.get('score') is not None:
+            # A single-score (part-credit) run: each key indicator's part-credit score and each requirement's credit
+            # label, as the PDF prints them, instead of the strict ranges and states; and the tier as a score band.
+            from .action_plan import stars_text, tier_for, tiers
+            from .report_projection import CREDIT_LABELS, credit_status
+            scores = {i['code']: i['score'] for i in (result_view.get('documented') or {}).get('indicators') or []}
+            for indicator in indicators:
+                indicator['part_score'] = scores.get(indicator['code'])
+                for requirement in indicator['requirements']:
+                    decision = requirement['decision']
+                    requirement['credit_label'] = (f"{CREDIT_LABELS[credit_status(decision)]} "
+                                                   f"(credit {decision.get('credit') or 0:g})")
+            band = tier_for(result_view['score'])
+            payload['tier_band'] = {**band, 'stars_text': stars_text(band['stars']),
+                                    'points_to_next': round(band['points_to_next'], 2),
+                                    'bands': ', '.join(f'{name} {value:g}' for name, value in tiers())}
         plan_actions = payload['deterministic_plan']['actions']
         enriched = {a['condition_id']: a for a in (completed.payload['advice'] if completed else [])}
         actions = [{**a, 'advice': enriched.get(a['id'])} for a in plan_actions]
         payload['report_view'] = build_report_view(payload, actions)
+        if audience in {'summary', 'detailed'}:
+            from .presentation import build
+            try:
+                view = build(payload)
+                payload['presentation'] = view
+            except Exception:   # a run shaped in a way the new reports don't expect: serve the older report instead
+                logger.exception('presentation failed for run %s; serving the older %s report', run.pk, audience)
+                audience = 'leadership' if audience == 'summary' else 'evidence'
         if file_format == 'json':
             content = json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2)
+        elif audience in {'summary', 'detailed'}:
+            template = 'scoring/report_leadership.html' if audience == 'summary' else 'scoring/report_detailed.html'
+            content = render_to_string(template, {'v': view, 'exported': payload['exported_at']})
+            if file_format == 'pdf':
+                pdf = html_to_pdf(content)
+                if pdf is None and audience == 'summary':
+                    from .leadership_pdf import render_leadership_pdf
+                    pdf = render_leadership_pdf(payload['report_view'])
+                elif pdf is None:
+                    from .pdf_report import render_pdf
+                    pdf = render_pdf(payload, indicators, actions)
+                content = pdf
         else:
             # Django autoescape handles all institution/source/model text; no raw HTML is marked safe.
             if file_format == 'pdf':
@@ -128,7 +209,8 @@ class CapabilityReportView(RunView):
             else:
                 template = 'scoring/leadership_report.html' if audience == 'leadership' else 'scoring/capability_report.html'
                 content = render_to_string(template, {'report': payload, 'view': payload['report_view'],
-                    'result': event.payload['result'], 'indicators': indicators, 'actions': actions})
+                    'result': event.payload['result'], 'indicators': indicators, 'actions': actions,
+                    'held_note': held_note(event.payload['result'].get('depth_reserve'), closed=stage['closed'])})
         response = HttpResponse(content, content_type={'json': 'application/json; charset=utf-8',
             'html': 'text/html; charset=utf-8', 'pdf': 'application/pdf'}[file_format])
         response['Content-Disposition'] = f'attachment; filename="capability-{run.pk}-{audience}.{file_format}"'

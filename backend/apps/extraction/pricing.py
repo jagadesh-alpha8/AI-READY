@@ -4,7 +4,9 @@ recorded AI call (apps.extraction.models.AIUsage).
 The cost is worked out and stored at the moment of the call, so a later price
 change never rewrites what an earlier sprint cost.
 
-Defaults are Anthropic's published API list prices (as of 2026-09). Models not
+Defaults are Anthropic's and OpenAI's published API list prices (as of 2026-11). A `long_context` entry gives the
+rates a request pays for its whole prompt once the prompt (cache reads and writes included) is over `threshold`
+tokens. Models not
 listed -- an OpenAI-compatible router combo, a self-hosted model -- still have
 their tokens recorded, with cost left empty until a price is configured.
 Override or add prices without a code change via AI_PRICING_JSON in .env, e.g.:
@@ -31,10 +33,20 @@ DEFAULT_PRICES = {
     'claude-opus-4-8': {'input': 5, 'output': 25},
     'claude-opus-4-7': {'input': 5, 'output': 25},
     'claude-opus-4-6': {'input': 5, 'output': 25},
-    'claude-sonnet-5-5': {'input': 2, 'output': 10, 'cache_read': 0.20},
+    'claude-sonnet-5-5': {'input': 2, 'output': 10, 'cache_read': 0.10},
     'claude-sonnet-5': {'input': 2, 'output': 10},
     'claude-sonnet-4-6': {'input': 3, 'output': 15},
+    'claude-haiku-5-5': {'input': 0.10, 'output': 0.50, 'cache_read': 0.01, 'cache_write': 0.125,
+                         'long_context': {'threshold': 100000, 'input': 0.50, 'output': 2.50, 'cache_read': 0.05,
+                                          'cache_write': 0.625}},
     'claude-haiku-4-5': {'input': 1, 'output': 5},
+    # OpenAI (2026-11 list prices). Prompts over 272,000 tokens: 2x input and cache, 1.5x output, whole request.
+    'gpt-6-luna': {'input': 0.10, 'output': 0.50, 'cache_read': 0.01, 'cache_write': 0.125,
+                   'long_context': {'threshold': 272000, 'input': 0.20, 'output': 0.75, 'cache_read': 0.02,
+                                    'cache_write': 0.25}},
+    'gpt-6.1-sol': {'input': 2, 'output': 10, 'cache_read': 0.10, 'cache_write': 2.50,
+                    'long_context': {'threshold': 272000, 'input': 4, 'output': 15, 'cache_read': 0.20,
+                                     'cache_write': 5}},
 }
 
 _PER_MILLION = Decimal(1_000_000)
@@ -76,6 +88,9 @@ def cost_usd(model, *, input_tokens=0, output_tokens=0, cache_read_tokens=0, cac
     prices = prices_for(model)
     if prices is None:
         return None
+    long = prices.get('long_context') or {}
+    if long.get('threshold') and input_tokens + cache_read_tokens + cache_write_tokens > long['threshold']:
+        prices = {**prices, **{k: v for k, v in long.items() if k != 'threshold'}}
     p_in = Decimal(str(prices.get('input', 0)))
     p_out = Decimal(str(prices.get('output', 0)))
     p_read = Decimal(str(prices['cache_read'])) if 'cache_read' in prices else p_in * Decimal('0.1')

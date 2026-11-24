@@ -42,6 +42,8 @@ export interface Indicator {
   code: string;
   name: string;
   pillar: string;
+  /** Share of the overall score (all key indicators sum to 1000). */
+  weight_units?: number;
   lower: number;
   upper: number;
   conditions: Condition[];
@@ -61,7 +63,27 @@ export interface Tier {
  * How a score was reached (report step, announced 12 Nov 2026; not yet sent by the backend): what was found and
  * credited, where the assessment looked for what it did not find, and the next step.
  */
-export interface ScoreExplanation { found?: string; looked?: string; next_step?: string; text?: string }
+export interface ScoreExplanation {
+  found?: string; looked?: string; next_step?: string; text?: string;
+  /** One sentence about the credit held for follow-up answers (reserve.follow_up_note), when any is held. */
+  follow_up?: string | null;
+}
+
+/**
+ * Credit held until the follow-up answers show how deep the evidence goes (reserve.py, depth-reserve-v2).
+ * evidence_score is the documents' score before anything is held; the headline `score` already counts the hold.
+ */
+export interface DepthReserve {
+  version?: string;
+  share: number;
+  evidence_score: number;
+  score?: number;
+  held_points: number;
+  earned_back_points: number;
+  still_held_points: number;
+  credited_requirements_by_level?: Partial<Record<'evidenced' | 'substantiated' | 'strong', number>>;
+  held_for_review?: string[];
+}
 
 export interface Documented {
   method?: string;
@@ -83,6 +105,8 @@ export interface Result {
   /** A2 part-credit runs: score per readiness area and per indicator. `lower`/`upper` stay for audit only. */
   documented?: Documented;
   documented_with_digital?: Documented;
+  /** Set when part of each credited requirement's credit is held for the follow-up answers; null/absent otherwise. */
+  depth_reserve?: DepthReserve | null;
   assessment_coverage: number;
   condition_decision_coverage: number;
   methodology: string;
@@ -117,7 +141,7 @@ export interface CapabilityAction {
   priority_action?: string | null;
 }
 
-/** Provisional score bands (Silver 60, Gold 70, Platinum 80, Diamond 90) until calibration (D-01). */
+/** Provisional readiness levels, one star for every 20 points, until calibration (D-01). */
 export interface PriorityTier {
   current: string | null;
   next: string | null;
@@ -145,6 +169,14 @@ export interface PriorityPlan {
   strengths: { condition_id: string; indicator: string; requirement: string }[];
   remaining: { pillar: string; establish: number; complete: number; reconcile: number; rerun: number }[];
   note: string;
+  /** Points the follow-up answers can earn back (priority-plan-0.2); null when nothing is held. */
+  follow_up?: PriorityFollowUp | null;
+}
+
+export interface PriorityFollowUp {
+  points: number;
+  indicators: { indicator: string; name: string; points: number; requirements: number }[];
+  note: string;
 }
 
 /** A2 part judgment: how each part of a condition was evidenced (part_judgment.py `credited_as`). */
@@ -162,8 +194,14 @@ export interface ConditionRecord {
   parts?: { id: string; finding: string; credited_as: PartCredit; citations: Citation[] }[];
   /** Why an unknown is unknown: evidence, review guard, or processing (decision_causes.py). */
   cause?: string;
-  /** Per-requirement explanation (report step; not yet sent by the backend). */
+  /** Per-requirement explanation (report step). */
   explanation?: ScoreExplanation;
+  /** Depth reserve: the held share as a fraction string ("1/4"), the depth shown so far, and the credit below which
+   * nothing is held (v2; absent on v1 records). */
+  depth_share?: string | number | null;
+  depth_level?: 'evidenced' | 'substantiated' | 'strong' | string;
+  depth_min_credit?: string | number | null;
+  depth_review?: string | null;
 }
 
 /** decision_causes.summary(): reads "unknown" as missing evidence, a review hold, or a processing problem. */

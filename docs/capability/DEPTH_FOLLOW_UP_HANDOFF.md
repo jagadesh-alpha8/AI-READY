@@ -7,6 +7,57 @@ before handing the project over. The proposal behind it, with the decisions stil
 **Nothing in this branch changes an assessment, its score or its reports.** The stage runs only through the four
 `depth_*` commands below and writes only to its own four tables.
 
+## 21 Nov 2026: depth counts, every indicator is asked about (questions-0.2, depth-reserve-v1)
+
+From the test 13 audit (project doc "AI-READY: follow-up questions audit"). Decisions taken by us on Siddharth's
+instruction; all are settings and can be changed back.
+
+- **Depth decision 2 = reserve, share 0.25** (`DEPTH_CREDIT_MODE=reserve`, `DEPTH_CREDIT_SHARE=0.25`,
+  `capability/reserve.py`). The headline counts each credited requirement at credit x (0.75 + 0.25 x depth): evidenced
+  (also "don't know" and no answer) 0.75, substantiated 0.875, strong 1. The judge's credit on the record is unchanged.
+  The share is frozen into each new run (`inputs.depth_policy`) and stamped on each record (`depth_share`,
+  `depth_level`); runs from before keep their scores. `result.depth_reserve` gives the evidence score, what is held,
+  what was earned back. Reports say so in one sentence; each requirement's explanation gets a `follow_up` line.
+- **A depth answer that contradicts the evidence no longer withdraws credit** (it did under `reserve` before, on one
+  judge call): it is held at evidenced and listed (`depth_review`). Lowering credit stays with the re-judging path
+  (two passes, each quoting the new document; #58).
+- **Every key indicator is asked about** (`depth.plan_all`): one model call per key indicator; one or more depth
+  questions per credited requirement (a fact two requirements need is asked once and counts for both); one
+  missing-evidence question per key indicator with plain items for requirements with no or part credit, in the order
+  starting capability, repeated use, results. Whatever the model leaves out or gets wrong gets fixed wording.
+  `DEPTH_MAX_QUESTIONS` is 0 (no cap): the old 25 was a placeholder from the 11 Nov skeleton.
+- **Ranked by points at stake** (`DepthQuestion.points_at_stake`, in the API): highest first; among equal ones,
+  areas take turns (test 13 put all 15 depth questions in one area).
+- **Audit, 21 Nov:** sharing is explicit: a question counts for another requirement only when the model declares it
+  (`also_for`; stored as `condition_ids[1:]`), never by dimension overlap alone. Judgments use the run's own frozen
+  share, not the deployment's. The questions job plans within the requests left in the budget (key indicators past
+  it get fixed wording) instead of failing at the cap. The plain-wording check is word-level ("test scores" is fine;
+  "your score", "2 points", rubric codes are not); an "answered" quote must say something (15+ characters).
+- **Judging:** "don't know" needs no model call; requirements whose own quotes show every dimension are judged on them
+  (`DepthPlan.shown_by_evidence`, migration 0017). The re-judge job publishes a final result when depth answers
+  earned anything back, even with no new evidence.
+- **Answers:** a document the first assessment had already read for that key indicator is reported
+  (`search.already_counted`) and the college is told, kindly; a follow-up that mostly repeats its question is replaced
+  by one naming what is still not shown.
+
+Test 13 replayed offline under these rules (no model calls): provisional 26.14 becomes 19.60 with 6.54 points held;
+131 questions (95 depth, 36 missing-evidence) worth 61.9 points in all; the first 15 depth questions span 8 areas.
+All substantiated would give 22.87, all strong 26.14.
+
+## 22 Nov 2026: fewer, linked questions (questions-0.3, depth-reserve-v2)
+
+- **Depth questions only from half credit.** Requirements credited on related evidence alone (0.125 or 0.25; 51 of
+  95 in test 13) are not asked how deep their evidence goes; they are asked to complete it in the key indicator's
+  missing-evidence question, and hold no credit (`reserve.MIN_CREDIT`, frozen as `depth_policy.min_credit`, stamped
+  as `depth_min_credit`). Test 13: 80 questions instead of 131; provisional 20.98, up to 26.14.
+- **Repeated questions linked.** After planning, one model call groups depth questions that one honest answer, with
+  one document, would answer (2 to 6 each; checked). The college sees the group's lead, with one wording and the
+  group's points; members wait (`status='linked'`, `linked_to`). An answer to the lead is recorded for every member
+  (`submitted_via='linked'`) and checked against each member's own requirement; a member it does not resolve gets
+  its own follow-up, shown next. Members can't be answered separately. `progress.linked` counts them. A served
+  lead lists its members in `question.linked` (id, rank, indicator, requirement ids, status, points, wording), for
+  the screen's "Also answers: ..."; a member carries `linked_to` and no list.
+
 ## What problem it solves
 
 The part judge decides whether evidence for a condition exists. It cannot tell a three-session workshop at a local

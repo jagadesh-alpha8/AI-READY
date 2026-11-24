@@ -37,13 +37,14 @@ class ExecutionDeadlineExceeded(BudgetExceeded):
     pass
 
 
+
 def _parts_metadata():
     from .part_judgment import metadata
     return {k: v for k, v in metadata().items() if k != 'judgment'}
 
 
 def policy(stage='assessment'):
-    from .evaluation import PROMPT_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA
+    from .evaluation import PROMPT_VERSION, SYSTEM_PROMPT, DECISION_SCHEMA, QUOTE_REPAIR_VERSION
     calls = settings.CAPABILITY_MAX_HTTP_CALLS
     cost = Decimal(str(settings.CAPABILITY_MAX_COST_USD))
     prefix = 'CAPABILITY_RECOMMENDATION' if stage == 'recommendation' else 'CAPABILITY_ASSESSMENT'
@@ -61,7 +62,10 @@ def policy(stage='assessment'):
     follow_up = bool(getattr(settings, 'CAPABILITY_FOLLOW_UP_SEARCH', False))
     # A tie-break pass adds at most one request per indicator (36), only where the two passes disagree.
     tie_break = bool(getattr(settings, 'CAPABILITY_TIE_BREAK', False))
-    call_limit = 108 + (108 if follow_up else 0) + (36 if tie_break else 0)
+    # A quotation repair asks again, once per pass, only for requirements whose found parts all failed their
+    # quotations (rare: 2 key indicators in test 13); at worst one more request per key indicator per pass (72).
+    quote_repair = judgment == 'parts' and bool(getattr(settings, 'CAPABILITY_PART_QUOTE_REPAIR', False))
+    call_limit = 108 + (108 if follow_up else 0) + (36 if tie_break else 0) + (36 * passes if quote_repair else 0)
     call_floor = 74 if passes == 2 else 1
     if follow_up and stage == 'assessment':
         call_floor = 146 if passes == 2 else 74
@@ -80,6 +84,8 @@ def policy(stage='assessment'):
     if duration is None and type(calls) is int and type(timeout) is int and type(concurrency) is int and concurrency >= 1:
         # A safety stop, not a pace target: every request could use its full timeout, plus packet building.
         duration = min(21600, max(1800, -(-calls // concurrency) * timeout + 600))
+    from .model_choice import effort as model_effort, writing_effort
+    model_effort, writing = model_effort(), writing_effort()
     if (type(calls) is not int or not call_floor <= calls <= call_limit or not cost.is_finite() or not 0 < cost <= 100
             or type(output) is not int or not 256 <= output <= 65536
             or type(timeout) is not int or not 1 <= timeout <= 600
@@ -91,10 +97,13 @@ def policy(stage='assessment'):
             or judgment not in ('conditions', 'parts')):
         raise AssessmentDisabled('Assessment budget configuration is invalid.')
     return {'request_policy_version': 'bounded-stage-1', 'stage': stage, 'input_token_bound_limit': input_limit, 'max_duration_seconds': duration,
-            'gemini_reasoning_effort': effort, 'response_recovery_requests': 2, 'agreement_passes': passes, 'indicator_concurrency': concurrency,
+            'gemini_reasoning_effort': effort, **({'model_effort': model_effort} if model_effort else {}),
+            **({'writing_effort': writing} if writing else {}),
+            'response_recovery_requests': 2, 'agreement_passes': passes, 'indicator_concurrency': concurrency,
             **({'tie_break': 'median-credit-of-three-v1' if judgment == 'parts' else 'majority-of-three-v1'}
                if tie_break and stage == 'assessment' else {}),
             **({'judgment': 'parts', **_parts_metadata()} if judgment == 'parts' else {}),
+            **({'part_quote_repair': QUOTE_REPAIR_VERSION} if quote_repair and stage == 'assessment' else {}),
             'prompt_version': PROMPT_VERSION, 'prompt_hash': digest(SYSTEM_PROMPT),
             'schema_hash': digest(DECISION_SCHEMA), 'max_http_calls': calls, 'max_cost_usd': str(cost), 'output_tokens': output,
             'timeout_seconds': timeout, 'sdk_retries': 0, 'transient_retries_per_indicator': 1,
@@ -180,6 +189,8 @@ def finish(run_id, state, error_code):
         'budget_exhausted': 'Review partial decisions and request/cost limits before starting a new assessment.',
         'usage_telemetry_missing': 'Configure the provider to report token usage before starting a new assessment.',
         'provider_quota_exhausted': 'Restore provider credit or quota before starting a new assessment.',
+        'model_unavailable': ('The AI provider stopped answering partway through (repeated server errors), so this run '
+                              'was not published. Start a new assessment once the provider is answering again.'),
     }
     CapabilityRunEvent.objects.create(run_id=run_id, state=state, payload={
         'error_code': error_code, 'next_action': actions.get(error_code,

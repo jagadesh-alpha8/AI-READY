@@ -102,10 +102,17 @@ class RunView(APIView):
         plan = build_inputs(execution.run, completed, {}) if completed else None
         from .diagnostics import explain
         from .explanations import attach, latest
+        from .layer2_service import stage_closed
         from .reviewed_evidence import snapshot
         from .storage import digest
         saved_review = execution.run.inputs.get('reviewed_evidence')
         current_review = snapshot(execution.sprint)
+        assessment = (attach(completed.payload, latest(execution.run), closed=stage_closed(execution.run))
+                      if completed else None)
+        if assessment is not None and request.query_params.get('traces') not in ('1', 'true'):
+            # The model packets (about 40 MB in test 13) are for audits and the JSON report; every screen loaded them
+            # on every page. ?traces=1 keeps them.
+            assessment = {k: v for k, v in assessment.items() if k != 'traces'}
         return Response({**summary(execution), 'deterministic_plan': plan,
             'diagnostics': explain(execution.run.inputs, completed.payload) if completed else None,
             'reviewed_evidence': saved_review,
@@ -113,7 +120,7 @@ class RunView(APIView):
             'inputs_hash': execution.run.inputs_hash,
             'population': execution.run.inputs['population'], 'profile': execution.run.inputs['profile'],
             'source_manifest': execution.run.inputs['manifest'],
-            'assessment': attach(completed.payload, latest(execution.run)) if completed else None,
+            'assessment': assessment,
             'partial_decisions': [] if completed else [r for event in indicators for r in event.payload['records']],
             'error': terminal.payload if terminal else None})
 

@@ -7,6 +7,7 @@ docs/capability/depth_fixtures/.
 """
 import io
 import json
+from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 
@@ -55,6 +56,28 @@ class FakeModel:
     def __call__(self, system_prompt, user_content, response_schema, schema_name):
         payload = json.loads(user_content)
         self.calls.append((schema_name, payload))
+        if schema_name == 'depth_question_links':
+            return {'groups': []}
+        if schema_name == 'depth_question_plan':
+            # Per key indicator: the first dimension of each credited requirement is answered by its quote; every
+            # other dimension gets a question, asked once across the indicator; plus a question about an unknown
+            # dimension (dropped). Each missing requirement gets a plain item.
+            answered, questions, asked = [], [], {}
+            for req in payload['credited_requirements']:
+                dims = [d['id'] for d in req['dimensions']]
+                answered.append({'condition_id': req['condition_id'], 'dimension_id': dims[0], 'evidence_quote': WEAK})
+                for d in dims[1:]:
+                    if d in asked:   # the same fact: declared on the question that already asks it
+                        asked[d]['also_for'].append(req['condition_id'])
+                        continue
+                    asked[d] = {'condition_id': req['condition_id'], 'dimension_ids': [d], 'also_for': [],
+                                'text': f'About the workshop: {d}?'}
+                    questions.append(asked[d])
+                questions.append({'condition_id': req['condition_id'], 'dimension_ids': ['bogus'],
+                                  'text': 'Unknown dimension question'})
+            items = [{'condition_id': r['condition_id'], 'text': 'A plain record that would show this one'}
+                     for r in payload['requirements_not_yet_shown']]
+            return {'answered': answered, 'questions': questions, 'missing_items': items}
         if schema_name == 'depth_questions':
             dims = [d['id'] for d in payload['dimensions']]
             return {'dimensions': [{'dimension_id': d, 'answered_by_evidence': d == dims[0], 'evidence_quote': WEAK}
@@ -111,6 +134,15 @@ class SelectionTests(SimpleTestCase):
         self.assertIn('An AI-focused faculty learning activity has defined content.', text)
         self.assertIn('attendance list or participation certificates', text)
         self.assertIn('If you do not have them, please say so.', text)
+
+    def test_missing_question_lists_foundations_before_adoption_and_optimisation(self):
+        ids = ['AIQIF-C2.1.A1', 'AIQIF-C2.1.O1', 'AIQIF-C2.1.F2', 'AIQIF-C2.1.F1', 'AIQIF-C2.1.A2']
+        text = depth.missing_question({'indicator': 'AIQIF-C2.1', 'condition_ids': ids})
+        entries = depth.spec()['indicators']['AIQIF-C2.1']['conditions']
+        positions = [text.index(entries[cid]['assertion']) for cid in
+                     ['AIQIF-C2.1.F1', 'AIQIF-C2.1.F2', 'AIQIF-C2.1.A1', 'AIQIF-C2.1.A2', 'AIQIF-C2.1.O1']]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('1. ' + entries['AIQIF-C2.1.F1']['assertion'], text)
 
 
 class QuestionTests(SimpleTestCase):
@@ -192,7 +224,9 @@ class PolicyTests(SimpleTestCase):
         self.assertEqual(depth.depth_credit(1, 'evidenced', mode='reserve', share='0.4'), Fraction(3, 5))
         self.assertEqual(depth.depth_credit(1, 'substantiated', mode='reserve', share='0.4'), Fraction(4, 5))
         self.assertEqual(depth.depth_credit(1, 'strong', mode='reserve', share='0.4'), 1)
-        self.assertEqual(depth.depth_credit(1, 'withdrawn', mode='reserve', share='0.4'), 0)
+        # A depth answer that contradicts the evidence is held at evidenced for review, not zeroed: lowering credit
+        # on what a college sends is the re-judging path's job (two passes, quoting the new document).
+        self.assertEqual(depth.depth_credit(1, 'withdrawn', mode='reserve', share='0.4'), Fraction(3, 5))
         with self.assertRaises(ValueError):
             depth.depth_credit(1, 'strong', mode='reserve', share='2')
 
@@ -207,7 +241,7 @@ class PolicyTests(SimpleTestCase):
 DOCUMENT = '00000000-0000-0000-0000-00000000d0c1'
 
 
-@override_settings(DEPTH_MAX_QUESTIONS=8, DEPTH_MISSING_QUESTION_SLOTS=2)
+@override_settings(DEPTH_MAX_QUESTIONS=0)
 class FlowTests(TestCase):
     def setUp(self):
         self.data = export(credited={F1: 1, F2: 1})
@@ -226,7 +260,8 @@ class FlowTests(TestCase):
 
     def test_strong_answers_with_documents_reach_strong(self):
         create_questions(self.data, FakeModel(), commit=True)
-        self.assertEqual(DepthQuestion.objects.filter(kind='missing').count(), 2)
+        # questions-0.2: every key indicator with something not yet shown gets its missing-evidence question.
+        self.assertEqual(DepthQuestion.objects.filter(kind='missing').count(), 36)
         self.answer_all('A 300-hour accredited programme; certificates attached.')
         result = judge_run(self.data, FakeModel(), commit=True)
         self.assertEqual({r['final_level'] for r in result['judged']}, {'strong'})
@@ -256,11 +291,19 @@ class FlowTests(TestCase):
 
     def test_dont_know_leaves_it_evidenced_and_unanswered_is_listed(self):
         create_questions(self.data, FakeModel(), commit=True)
-        question = [q for q in DepthQuestion.objects.filter(kind='depth') if q.condition_ids == [F1]][0]
-        load_responses([{'question_id': str(question.pk), 'kind': 'dont_know'}], commit=True)
-        result = judge_run(self.data, FakeModel())
-        self.assertEqual([r['final_level'] for r in result['judged']], ['evidenced'])
-        self.assertEqual(result['unanswered'], [F2])
+        self.assertEqual(judge_run(self.data, FakeModel())['unanswered'], sorted([F1, F2]))
+        # F1's questions all answered "don't know". F2 shares F1's question about intensity (asked once for both),
+        # so it reads that answer too; "don't know" places both at evidenced without a model call.
+        rows = [{'question_id': str(q.pk), 'kind': 'dont_know'}
+                for q in DepthQuestion.objects.filter(kind='depth') if q.condition_ids[0] == F1]
+        load_responses(rows, commit=True)
+        model = FakeModel()
+        result = judge_run(self.data, model, commit=True)
+        self.assertEqual({r['condition_id']: r['final_level'] for r in result['judged']},
+                         {F1: 'evidenced', F2: 'evidenced'})
+        self.assertFalse([n for n, _ in model.calls if n == 'depth_judgment'])
+        self.assertEqual(result['unanswered'], [])
+        self.assertFalse(DepthPastCase.objects.exists())   # nothing to learn from
 
     def test_approved_past_cases_reach_the_next_judgment(self):
         create_questions(self.data, FakeModel(), commit=True)
@@ -281,9 +324,15 @@ class FlowTests(TestCase):
     def test_proposed_past_cases_do_not_guide_judgments(self):
         create_questions(self.data, FakeModel(), commit=True)
         self.answer_all('About 40 hours.')
-        judge_run(self.data, FakeModel(), commit=True)
+        judge_run(self.data, FakeModel(), commit=True)   # files proposed past cases for both conditions
+        # Another run's judgments of the same conditions (this run's are kept until it has a new answer).
+        later = export('run-2', credited={F1: 1, F2: 1})
+        create_questions(later, FakeModel(), commit=True)
+        load_responses([{'question_id': str(q.pk), 'kind': 'answer', 'answer': 'About 40 hours.', 'supported': True,
+                         'document_ids': [DOCUMENT]} for q in DepthQuestion.objects.filter(run_ref='run-2', kind='depth')],
+                       commit=True)
         model = FakeModel()
-        judge_run(self.data, model)
+        judge_run(later, model)
         self.assertEqual([p['approved_past_cases'] for n, p in model.calls if n == 'depth_judgment'], [[], []])
 
     def test_uploads_for_missing_evidence_await_reassessment(self):
@@ -327,6 +376,7 @@ class FlowTests(TestCase):
         with self.assertRaises(DepthError):
             create_questions(self.data, FakeModel(), commit=True, replace=True)
 
+    @override_settings(DEPTH_CREDIT_MODE='')
     def test_report_without_decision_two_changes_no_credit(self):
         create_questions(self.data, FakeModel(), commit=True)
         self.answer_all('A 300-hour accredited programme.')
@@ -337,17 +387,35 @@ class FlowTests(TestCase):
         self.assertEqual(report['credited_conditions_by_level']['strong'], 2)
 
     @override_settings(DEPTH_CREDIT_MODE='reserve', DEPTH_CREDIT_SHARE='0.4')
-    def test_report_with_reserved_credit(self):
+    def test_a_run_from_before_the_reserve_holds_nothing_in_its_judgments(self):
+        # The fixture's records carry no depth_share (a run published before the reserve): its judgments' credit
+        # must match its headline, which holds nothing, whatever the deployment's setting.
         create_questions(self.data, FakeModel(), commit=True)
-        question = [q for q in DepthQuestion.objects.filter(kind='depth') if q.condition_ids == [F1]][0]
+        rows = [{'question_id': str(q.pk), 'kind': 'dont_know'}
+                for q in DepthQuestion.objects.filter(kind='depth') if q.condition_ids[0] == F1]
+        load_responses(rows, commit=True)
+        judged = judge_run(self.data, FakeModel(), commit=True)
+        self.assertEqual(judged['policy']['credit_mode'], '')
+        self.assertEqual({j.final_credit for j in DepthJudgment.objects.all()}, {Decimal('1')})
+
+    @override_settings(DEPTH_CREDIT_MODE='reserve', DEPTH_CREDIT_SHARE='0.4')
+    def test_report_with_reserved_credit(self):
+        # The share is the run's own, frozen when it was published (reserve.py), not the deployment's.
+        from .capability.reserve import stamp
+        stamp(self.data['assessment']['records'], '2/5')
+        create_questions(self.data, FakeModel(), commit=True)
+        question = [q for q in DepthQuestion.objects.filter(kind='depth') if q.condition_ids[0] == F1][0]
         load_responses([{'question_id': str(question.pk), 'kind': 'answer', 'answer': 'accredited', 'supported': True,
                          'document_ids': [DOCUMENT]}],
                        commit=True)
         judge_run(self.data, FakeModel(), commit=True)
         report = depth_report(self.data)
-        # F1 strong keeps its full credit; F2 has no judgment, stays evidenced and keeps 60% of its credit.
-        self.assertLess(report['score_with_depth'], report['provisional_score'])
-        self.assertGreater(report['score_with_depth'], 0)
+        # The provisional score holds 40% of both credits. The answered question was asked for F1 and, declared as
+        # the same fact, for F2 too: both reach strong and earn their share back.
+        levels = {j.condition_id: j.final_level for j in DepthJudgment.objects.all()}
+        self.assertEqual(levels, {F1: 'strong', F2: 'strong'})
+        self.assertGreater(report['score_with_depth'], report['provisional_score'])
+        self.assertAlmostEqual(report['score_with_depth'], report['provisional_score'] / 0.6, delta=0.02)
 
     @override_settings(DEPTH_CREDIT_MODE='reserve', DEPTH_CREDIT_SHARE='')
     def test_reserve_needs_a_share(self):

@@ -160,14 +160,18 @@ class EvaluateTests(SimpleTestCase):
 
 
 class PolicyTests(SimpleTestCase):
-    @override_settings(CAPABILITY_STRUCTURE_ROUTING=False, CAPABILITY_DEDUPLICATE_PAGES=False, CAPABILITY_RETRIEVAL_ALLOCATION='')
+    @override_settings(CAPABILITY_STRUCTURE_ROUTING=False, CAPABILITY_DEDUPLICATE_PAGES=False, CAPABILITY_RETRIEVAL_ALLOCATION='',
+                       CAPABILITY_EVIDENCE_LANE=False)
     def test_off_by_default_policy_has_no_structure(self):
         self.assertEqual(configured_policy('bm25'), {'mode': 'bm25'})
 
     @override_settings(CAPABILITY_STRUCTURE_ROUTING=True, CAPABILITY_DEDUPLICATE_PAGES=True, CAPABILITY_RETRIEVAL_ALLOCATION='')
     def test_on_policy_freezes_the_versions(self):
+        from apps.scoring.capability.reviewed_evidence import LANE_VERSION_2
+        # The extracted-evidence lane version is frozen too (on by default).
         self.assertEqual(configured_policy('bm25'), {'mode': 'bm25', 'structure': st.VERSION,
-                                                     'deduplicate': st.DEDUPLICATE_VERSION})
+                                                     'deduplicate': st.DEDUPLICATE_VERSION,
+                                                     'evidence_lane': LANE_VERSION_2})
 
     @override_settings(CAPABILITY_RETRIEVAL_ALLOCATION='protected-baseline-then-discovery-wide-v1')
     def test_wide_allocation_needs_hybrid(self):
@@ -206,19 +210,27 @@ class EmbeddingCacheTests(SimpleTestCase):
                 self.embedding_text, self.text = text, text
 
         with tempfile.TemporaryDirectory() as tmp:
-            cache = EmbeddingCache(tmp, 'a' * 64)
-            cache.put_many([('alpha passage text', [1.0, 2.0, 3.0])])
-            self.assertEqual(cache.get_many(['alpha passage text', 'missing'])['alpha passage text'].tolist(), [1.0, 2.0, 3.0])
-            passages = [Passage('Students use the ERP portal for admission records.'),
-                        Passage('The library has twenty thousand titles on open shelves.')]
-            first_model, second_model = Model(), Model()
-            first = SemanticRanker(first_model, cache=EmbeddingCache(tmp, 'a' * 64)).similarities(passages, ['erp'])
-            second = SemanticRanker(second_model, cache=EmbeddingCache(tmp, 'a' * 64)).similarities(passages, ['erp'])
-            self.assertEqual(len(first_model.embedded), 2)
-            self.assertEqual(second_model.embedded, [])  # every passage came from the cache
-            self.assertTrue(np.array_equal(first[0], second[0]))
-            # A different model artifact never reads these vectors.
-            self.assertEqual(EmbeddingCache(tmp, 'b' * 64).get_many(['alpha passage text']), {})
+            caches = [EmbeddingCache(tmp, 'a' * 64), EmbeddingCache(tmp, 'a' * 64), EmbeddingCache(tmp, 'a' * 64),
+                      EmbeddingCache(tmp, 'b' * 64)]
+            try:
+                cache = caches[0]
+                cache.put_many([('alpha passage text', [1.0, 2.0, 3.0])])
+                self.assertEqual(cache.get_many(['alpha passage text', 'missing'])['alpha passage text'].tolist(),
+                                 [1.0, 2.0, 3.0])
+                passages = [Passage('Students use the ERP portal for admission records.'),
+                            Passage('The library has twenty thousand titles on open shelves.')]
+                first_model, second_model = Model(), Model()
+                first = SemanticRanker(first_model, cache=caches[1]).similarities(passages, ['erp'])
+                second = SemanticRanker(second_model, cache=caches[2]).similarities(passages, ['erp'])
+                self.assertEqual(len(first_model.embedded), 2)
+                self.assertEqual(second_model.embedded, [])  # every passage came from the cache
+                self.assertTrue(np.array_equal(first[0], second[0]))
+                # A different model artifact never reads these vectors.
+                self.assertEqual(caches[3].get_many(['alpha passage text']), {})
+            finally:   # Windows cannot remove the folder while the files are open
+                for c in caches:
+                    c.close()
+            caches[0].close()   # closing twice is harmless
 
 
 class RepeatSkipTests(SimpleTestCase):

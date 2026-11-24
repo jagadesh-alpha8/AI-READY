@@ -29,7 +29,7 @@ def writer(area, *, spoil=None):
             if spoil:
                 spoil(entry, requirement)
             requirements.append(entry)
-    return {'area': {'found': 'Good foundations.', 'text': 'A solid start.', 'looked': '', 'next_step': ''},
+    return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '', 'next_step': ''},
             'indicators': indicators, 'requirements': requirements}
 
 
@@ -159,6 +159,47 @@ class ExplanationTests(SimpleTestCase):
         self.assertIn('shows otherwise', fallback['text'])
         self.assertTrue(fallback['found'])   # what is still credited is still said
 
+    def test_wording_found_in_test_13_is_sent_back(self):
+        # Test 13 (20 Nov): third person, eight documents in "where we looked", no "you" in a summary.
+        cases = {
+            'third person': (self.partial, {'text': 'The institution has partly shown this.'}),
+            'credit not spoken to the college': (self.full, {'found': 'The Strategic Plan shows this.'}),
+            'more than three documents named': (self.partial, {'looked': 'We read Strategic Plan, SSR 2024, the '
+                                                                         'Criteria 3 files and the AICTE files.'}),
+        }
+        self.area['documents_searched']['names'] += ['the Criteria 3 files', 'the AICTE files']
+        for name, (cid, change) in cases.items():
+            with self.subTest(name):
+                answer = writer(self.area, spoil=lambda e, r: e.update(change) if e['condition_id'] == cid else None)
+                passed, errors = explanations.validate(self.area, answer)
+                self.assertNotIn(cid, passed['requirements'], name)
+        answer = writer(self.area)
+        for entry in answer['indicators']:
+            entry.update(found='A clear start here.', text='Some requirements are shown.', next_step='See below.')
+        passed, errors = explanations.validate(self.area, answer)
+        self.assertEqual(passed['indicators'], {})
+        answer = writer(self.area, spoil=lambda e, r: e.update(looked='We searched every document you uploaded; the '
+                                                                     'closest passages were in Strategic Plan and SSR 2024.')
+                        if e['condition_id'] == self.partial else None)
+        self.assertIn(self.partial, explanations.validate(self.area, answer)[0]['requirements'])   # three or fewer is fine
+
+    def test_document_names_and_groups(self):
+        self.assertEqual(explanations._readable('criteria 3 - 3.2.1 (1).pdf'), ('Criteria 3 (3.2.1)', 'Criteria 3'))
+        self.assertEqual(explanations._readable('NAAC SSR  Latest Self-Study Report.pdf'),
+                         ('NAAC SSR Latest Self-Study Report', None))
+        self.assertEqual(explanations._readable(''), ('an uploaded document', None))
+        manifest = [{'document_id': f'c{n}', 'filename': f'criteria 3 - 3.{n}.pdf'} for n in range(5)]
+        manifest += [{'document_id': 'ssr', 'filename': 'SSR.pdf'}, {'document_id': 'aq', 'filename': 'AQAR.pdf'},
+                     {'document_id': 'bp', 'filename': 'Best Practice.pdf'}]
+        names, groups = explanations.document_names(manifest), explanations.document_groups(manifest)
+        sources = {f's{n}': {'document_id': f'c{n}', 'page_number': 1} for n in range(5)}
+        sources.update({'t1': {'document_id': 'ssr'}, 't2': {'document_id': 'aq'}, 't3': {'document_id': 'bp'},
+                        't4': {'document_id': 'ssr'}})
+        trace = {'source_ids': [f's{n}' for n in range(5)] + ['t1', 't4', 't2', 't3']}
+        looked = [d['document'] for d in explanations._looked(trace, sources, names, groups)]
+        self.assertEqual(looked[:2], ['the Criteria 3 files', 'SSR'])   # five files read as one source, most first
+        self.assertEqual(len(looked), explanations.MAX_LOOKED)
+
     def test_quoting_exact_words_from_a_quotation_passes(self):
         answer = writer(self.area, spoil=lambda e, r: e.update(found='Your plan sets "an AI-enabled campus" as a goal.')
                         if e['condition_id'] == self.full else None)
@@ -190,8 +231,43 @@ class ExplanationTests(SimpleTestCase):
         self.assertEqual(len(written['requirements']), 24)
         self.assertEqual(len(written['fallbacks']), 24 + 4 + 1)
         partial = written['requirements'][self.partial]
-        self.assertTrue(partial['next_step'].startswith('Next step: show '))
+        self.assertTrue(partial['next_step'].startswith('Show '))
         self.assertIn('Strategic Plan', partial['looked'])
+
+    def test_a_failed_request_leaves_its_area_on_the_fallback_when_told_to(self):
+        """One timeout used to fail the whole explanation job with nothing stored (audit B4)."""
+        from apps.extraction.exceptions import RecoverableExtractionError
+        target = {**self.target, 'rubric': release()}   # all nine areas
+
+        def model(system, content, schema, name):
+            import json as _json
+            payload = _json.loads(content)
+            if payload.get('area') == 'AIQIF-C2':
+                raise RecoverableExtractionError('timed out')
+            return writer(payload)
+        with self.assertRaises(RecoverableExtractionError):
+            explanations.explain(target, model)
+        written = explanations.explain(target, model, concurrency=4,
+                                       skip_error=lambda exc: isinstance(exc, RecoverableExtractionError))
+        self.assertEqual(len(written['requirements']), 216)
+        self.assertIn('AIQIF-C2', written['errors'])
+        self.assertIn('AIQIF-C2', written['fallbacks'])
+        c1 = [r['condition_id'] for r in target['records'] if r['condition_id'].startswith('AIQIF-C1.')]
+        self.assertFalse(set(c1) & set(written['fallbacks']))
+
+    def test_areas_written_side_by_side_give_the_same_result_and_respect_the_call_cap(self):
+        target = {**self.target, 'rubric': release()}   # all nine areas
+        def model(system, content, schema, name):
+            import json as _json
+            return writer(_json.loads(content))
+        one = explanations.explain(target, model)
+        four = explanations.explain(target, model, concurrency=4)
+        self.assertEqual((one['calls'], four['calls']), (9, 9))
+        self.assertEqual(one['requirements'], four['requirements'])
+        self.assertEqual(list(one['areas']), list(four['areas']))   # assembled in area order
+        capped = explanations.explain(target, model, concurrency=4, max_calls=5)
+        self.assertEqual(capped['calls'], 5)
+        self.assertEqual(len(capped['requirements']), 216)   # the rest fall back, still complete
 
     def test_attach_puts_explanations_where_the_front_end_reads_them(self):
         written = explanations.explain(self.target, self.model(writer))
@@ -204,6 +280,6 @@ class ExplanationTests(SimpleTestCase):
         self.assertEqual(out['records'][0]['explanation']['found'], written['requirements'][self.full]['found'])
         self.assertIsNone(out['records'][0]['explanation']['next_step'])   # empty fields read as absent
         self.assertIn('text', out['result']['indicators'][0]['explanation'])
-        self.assertEqual(out['result']['documented']['pillars'][0]['explanation']['text'], 'A solid start.')
+        self.assertEqual(out['result']['documented']['pillars'][0]['explanation']['text'], 'You have made a solid start.')
         self.assertNotIn('explanation', assessment['records'][0])   # the stored payload is never changed
         self.assertIs(explanations.attach(assessment, None), assessment)

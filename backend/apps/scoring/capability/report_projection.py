@@ -196,6 +196,7 @@ def build_report_view(report, actions):
                     'score': f"{documented_areas[indicator['code']]:g} / 100",
                     'score_explanation': explanation_text(explained.get(indicator['code'])),
                     'explanation': explanation_text(explained.get(indicator['code'])),
+                    'explanation_detail': explained.get(indicator['code']) or None,
                     'finding': credit_finding([credit_status(r) for r in rows]), 'stages': stage_results,
                     'strengths': [readable(c['text']) for c in indicator['conditions']
                                   if credit_status(decisions[c['id']]) == 'demonstrated'],
@@ -242,7 +243,8 @@ def build_report_view(report, actions):
         pillars.append({'title': PILLARS.get(pillar['code'], 'Assessment area'),
                         **({'score': f"{documented_pillars[pillar['code']]:g} / 100", 'score_value': documented_pillars[pillar['code']],
                             'score_explanation': explanation_text(explained_pillars.get(pillar['code'])),
-                            'explanation': explanation_text(explained_pillars.get(pillar['code']))} if single else
+                            'explanation': explanation_text(explained_pillars.get(pillar['code'])),
+                            'explanation_detail': explained_pillars.get(pillar['code']) or None} if single else
                            {'score': score_label(pillar['lower'], pillar['upper']),
                             'score_explanation': bounds_note(pillar['lower'], pillar['upper']),
                             **({'documented_score': documented_label(documented_pillars[pillar['code']])} if documented else {})}),
@@ -294,7 +296,9 @@ def build_report_view(report, actions):
         'scope_notices': scope_notices,
         'methodology': result['methodology'], 'methodology_status': result['methodology_status'],
         'stage_notice': (report.get('assessment_stage') or {}).get('note', ''),
-        'methodology_notice': (((report.get('assessment_stage') or {}).get('note', '') + ' ') if single and report.get('assessment_stage') else '') + ('Readiness method ' + result['methodology'] + ', scored with part credit. Achievement levels (' + ', '.join(f'{n} {v:g}' for n, v in tiers()) + ' on this score) are provisional and not yet calibrated across colleges.') if single else ('This report uses independent assertion credit under the experimental readiness method. Source-period findings do not prove current operation. Achievement levels are not calibrated.' if result.get('aggregation') == 'independent_conditions' else 'This report uses its recorded historical capability method. Start a new assessment to use the revised readiness method. Experimental results do not constitute accreditation.'),
+        'stage_label': (report.get('assessment_stage') or {}).get('label', ''),
+        'tier_shown': (report.get('assessment_stage') or {}).get('tier_shown', True),
+        'methodology_notice': (((report.get('assessment_stage') or {}).get('note', '') + ' ') if single and report.get('assessment_stage') else '') + ('Readiness method ' + result['methodology'] + ', scored with part credit. ' + (('Achievement levels (' + ', '.join(f'{n} {v:g}' for n, v in tiers()) + ' on this score) are provisional and not yet calibrated across colleges.') if (report.get('assessment_stage') or {}).get('tier_shown', True) else ('Achievement levels (' + ', '.join(f'{n} {v:g}' for n, v in tiers()) + ') are awarded on the final AI-READY Score, after the follow-up questions, and are provisional and not yet calibrated across colleges.'))) if single else ('This report uses independent assertion credit under the experimental readiness method. Source-period findings do not prove current operation. Achievement levels are not calibrated.' if result.get('aggregation') == 'independent_conditions' else 'This report uses its recorded historical capability method. Start a new assessment to use the revised readiness method. Experimental results do not constitute accreditation.'),
         **(single_headline(result, decisions, report) if single else {
             'score': score_label(result['lower'], result['upper']),
             'score_explanation': bounds_note(result['lower'], result['upper']),
@@ -368,6 +372,28 @@ def unconfirmed_reliance(report, decisions):
     return unconfirmed, in_conflict
 
 
+def held_note(held, closed=False):
+    """One or two sentences on the credit held for follow-up answers (reserve.py), or ''. closed: the follow-up stage
+    is closed (layer2_service.stage_closed), so nothing invites more answers (audit, 23 Nov)."""
+    if not held or not held.get('held_points'):
+        return ''
+    share = f"{held['share'] * 100:g}%"
+    if held.get('earned_back_points'):
+        text = (f" Your follow-up answers earned back {held['earned_back_points']:g} of the {held['held_points']:g} "
+                f"points held for depth of evidence.")
+        if held.get('still_held_points'):
+            text += (f" {held['still_held_points']:g} stay held for requirements whose depth the follow-up answers did "
+                     "not show." if closed else
+                     f" {held['still_held_points']:g} remain held for requirements whose depth is not yet shown.")
+        return text
+    if closed:
+        return (f" {share} of each credited requirement's credit, {held['held_points']:g} points in all, stays held: "
+                f"the follow-up stage is closed and no answer showed how far the evidence goes.")
+    return (f" {share} of each credited requirement's credit, {held['held_points']:g} points in all, is held until "
+            f"your follow-up answers show how far the evidence goes. Answering them can raise this score to "
+            f"{held['evidence_score']:g}.")
+
+
 def single_headline(result, decisions, report=None):
     statuses = Counter(credit_status(r) for r in decisions.values())
     total = len(decisions)
@@ -378,7 +404,12 @@ def single_headline(result, decisions, report=None):
                           + (f" ({in_conflict} of them with a disputed value)" if in_conflict else '')
                           + '. They are credited on the source text; confirming or correcting those facts in the review '
                             'queue can change them.') if unconfirmed else '',
-        'score': f"{result['score']:g} / 100", 'score_value': result['score'], 'score_explanation': SCORE_NOTE,
+        'score': f"{result['score']:g} / 100", 'score_value': result['score'],
+        'score_up_to': (f"up to {(report or {})['assessment_stage']['up_to']:g} with your follow-up answers"
+                        if ((report or {}).get('assessment_stage') or {}).get('up_to') else ''),
+        'score_explanation': SCORE_NOTE + held_note(result.get('depth_reserve'),
+                                                    closed=((report or {}).get('assessment_stage') or {}).get('closed', False)),
+        'depth_reserve': result.get('depth_reserve'),
         'condition_summary': (f"{statuses['demonstrated']} of {total} requirements demonstrated, {statuses['partly']} partly "
                               f"demonstrated, {statuses['not_found']} not found in the documents"
                               + (f", {statuses['shortfall']} with a documented shortfall" if statuses['shortfall'] else '')

@@ -195,6 +195,16 @@ class CreditPathTests(SimpleTestCase):
         self.assertEqual(tiny[self.code], self.packet)  # pieces under MIN_PIECE are not worth a place
         with self.assertRaises(Layer2Error):
             layer2.fixed_contexts([], targets)
+        # A short page sent whole (a one-line certificate) still reaches the re-judge; a short remainder does not.
+        line = {'id': 'cert-line', 'document_id': 'doc-cert', 'page_number': 1, 'text_offset': 0,
+                'text': 'Certificate: 85 of 120 faculty completed the AI programme in 2025.'}
+        self.assertLess(len(line['text']), layer2.MIN_PIECE)
+        short, _ = layer2.fixed_contexts([{'indicator': self.code, 'source_excerpts': self.packet}],
+                                         {self.code: {'conditions': self.ids[:1], 'windows': [line]}})
+        self.assertEqual([w['id'] for w in short[self.code][1:]], ['cert-line'])
+        cut, _ = layer2.fixed_contexts([{'indicator': self.code, 'source_excerpts': self.packet}],
+                                       {self.code: {'conditions': self.ids[:1], 'windows': [line]}}, limit=50)
+        self.assertEqual(cut[self.code], self.packet)
 
     def test_credit_rises_only_on_evidence_new_to_the_packet(self):
         cid = self.ids[0]
@@ -715,10 +725,28 @@ class AuditFixTests(SimpleTestCase):
         layer2.check_export_rule([{**shared, 'credit': 0.0}],
                                  [{'indicator': self.code, 'judgment': part_judgment.metadata()}], targets)
 
+    def test_a_windows_checkout_of_the_same_part_rule_is_the_same_rule(self):
+        # Test 13 (20 Nov) ran on Windows, where core.autocrlf gives the specification CRLF endings: its recorded
+        # parts_hash was the CRLF file's, and the whole-run check refused it on Linux as "a different part rule".
+        import hashlib
+        from pathlib import Path
+        raw = (Path(part_judgment.__file__).with_name('rubric_parts_v1.json')).read_bytes().replace(b'\r\n', b'\n')
+        windows = hashlib.sha256(raw.replace(b'\n', b'\r\n')).hexdigest()
+        self.assertEqual(part_judgment.metadata()['parts_hash'], hashlib.sha256(raw).hexdigest())   # LF, everywhere
+        recorded = {**part_judgment.metadata(), 'parts_hash': windows}
+        layer2.check_export_rule([], [{'indicator': self.code, 'judgment': recorded}])   # accepted
+        self.assertEqual(part_judgment.file_hashes(raw.replace(b'\n', b'\r\n'))[0], hashlib.sha256(raw).hexdigest())
+        with self.assertRaises(Layer2Error):   # a genuinely different file is still a different rule
+            layer2.check_export_rule([], [{'indicator': self.code, 'judgment': {**recorded, 'parts_hash': 'f' * 64}}])
+
     def test_the_whole_export_check_covers_every_indicator_and_requirement(self):
         # Question planning and additional evidence check the whole run (targets None), not only what is re-judged.
         old_rule = {**part_judgment.metadata(), 'related_credit': 0.5}
         current = part_judgment.metadata()
+        # A run from before subject-cap-v1 records no credit_rule: a different rule, refused.
+        before_cap = {k: v for k, v in current.items() if k != 'credit_rule'}
+        with self.assertRaises(Layer2Error):
+            layer2.check_export_rule([], [{'indicator': self.code, 'judgment': before_cap}])
         with self.assertRaises(Layer2Error):
             layer2.check_export_rule([], [{'indicator': 'any-other-indicator', 'judgment': old_rule}])
         with self.assertRaises(Layer2Error):
@@ -820,6 +848,41 @@ class RankerAndRouteTests(SimpleTestCase):
         self.assertIs(layer2._attachment_ranker(ranker), twin)
         self.assertIs(twin.model, ranker.model)
 
+    def test_answers_attaching_submitted_documents_keep_one_corpus_index(self):
+        """Each answer attaching a different already-submitted document used to rank the corpus minus that document,
+        which changed the ranker's corpus key and rebuilt (and re-embedded) the whole corpus each time."""
+        import hashlib
+        from types import SimpleNamespace
+
+        class Ranker:
+            def __init__(self):
+                self.builds, self.key, self.items = 0, None, []
+
+            def passages(self, sources):
+                key = tuple(s['id'] for s in sources)
+                if key != self.key:
+                    self.builds += 1
+                    self.key = key
+                    self.items = [SimpleNamespace(source=s, start=0, end=len(s['text']), embedding_text=s['text'])
+                                  for s in sources]
+                return self.items
+
+            def similarities(self, passages, queries):
+                return [[int(hashlib.sha256((queries[0] + p.embedding_text).encode()).hexdigest()[:4], 16) / 65536 + .01
+                         for p in passages]]
+
+        corpus = [{'id': f'p{n}', 'document_id': f'd{n}', 'text': f'AI policy record number {n}. ' * 30}
+                  for n in range(6)]
+        ranker = Ranker()
+        first = layer2.search_with_answer('AI policy record', [corpus[0]], corpus, ranker=ranker)
+        second = layer2.search_with_answer('AI policy record', [corpus[1]], corpus, ranker=ranker)
+        self.assertEqual(ranker.builds, 1)
+        self.assertNotIn('p0', {w['id'] for w in first if w['evidence_role'] == 'answer_search'})
+        self.assertNotIn('p1', {w['id'] for w in second if w['evidence_role'] == 'answer_search'})
+        # The same as ranking the rest of the corpus alone (what the search did before).
+        alone = layer2.search_with_answer('AI policy record', [corpus[1]], corpus[:1] + corpus[2:], ranker=Ranker())
+        self.assertEqual(second, alone)
+
     def test_a_route_with_documents_but_nothing_found_reaches_no_judge_without_tagged_pages(self):
         rubric = release()
         indicator = rubric['indicators'][0]
@@ -877,8 +940,13 @@ class FinalResultTests(TestCase):
         self.assertIn(self.new_sources[0]['id'], {s['id'] for s in final.inputs['sources']})
         self.assertEqual(final.inputs['manifest'][-1]['added_by'], 'second_layer')
         completed = final.events.filter(state='completed').last()
-        credits = {r['condition_id']: r.get('credit', 0) for r in result['records']}
-        self.assertEqual(completed.payload['result']['score'], documented(credits, final.inputs['rubric'])['overall'])
+        from .capability.reserve import scored_credits
+        # The headline counts each credit less the share held for follow-up answers (reserve.py).
+        self.assertEqual(completed.payload['result']['score'],
+                         documented(scored_credits(completed.payload['records']), final.inputs['rubric'])['overall'])
+        self.assertEqual(completed.payload['result']['depth_reserve']['evidence_score'],
+                         documented({r['condition_id']: r.get('credit', 0) for r in result['records']},
+                                    final.inputs['rubric'])['overall'])
         self.assertGreater(completed.payload['result']['score'], 0)
         self.assertIn(self.new_sources[0]['id'], {sid for t in completed.payload['traces'] for sid in t['source_ids']})
         self.assertEqual(final.execution.status, 'completed')
@@ -944,7 +1012,7 @@ class FinalResultReportTests(FinalResultTests):
                 self.assertEqual(response.status_code, 200, (audience, fmt))
         data = json.loads(self.client.get(f'{self.base}/{final.pk}/report', {'file': 'json'}).content)
         self.assertEqual(data['assessment_stage']['stage'], 'final')
-        self.assertIn('Final result', data['report_view']['stage_notice'])
+        self.assertIn('Final AI-READY Score', data['report_view']['stage_notice'])   # Stage 1 / final labels, 23 Nov
         old = json.loads(self.client.get(f'{self.base}/{self.run.pk}/report', {'file': 'json'}).content)
         self.assertEqual((old['assessment_stage']['stage'], old['assessment_stage']['final_run_id']), ('provisional', str(final.pk)))
         listed = self.client.get(self.base)

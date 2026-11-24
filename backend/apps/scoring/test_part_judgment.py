@@ -121,6 +121,19 @@ class JudgeTests(SimpleTestCase):
         r = judged(response(F2=condition({'p1': part('related', QUOTE_OWNER), 'p2': part('not_found')})))['F2']
         self.assertEqual(r['credit'], 0.0)
 
+    def test_related_subject_caps_the_condition_at_related_credit(self):
+        # subject-cap-v1: "attendance only" for "an assessment is recorded" is not an assessment, however fully the
+        # other parts are shown (f5919156 rescored gave such requirements full credit).
+        from apps.scoring.capability.part_judgment import RELATED_CREDIT, credit
+        spec = [{'id': 'p1', 'gate': 'subject'}, {'id': 'p2', 'gate': None}, {'id': 'p3', 'gate': None}]
+        found = lambda *levels: [{'id': f'p{i + 1}', 'credited_as': level} for i, level in enumerate(levels)]
+        self.assertEqual(credit(found('related', 'full', 'full'), spec), RELATED_CREDIT)
+        self.assertEqual(credit(found('related', 'related', 'not_found'), spec), round(RELATED_CREDIT / 2, 4))
+        self.assertEqual(credit(found('full', 'full', 'full'), spec), 1.0)
+        self.assertEqual(credit(found('full', 'related', 'full'), spec), round((RELATED_CREDIT + 1) / 2, 4))
+        r = judged(response(F2=condition({'p1': part('related', QUOTE_OWNER), 'p2': part('full', QUOTE_OWNER)})))['F2']
+        self.assertEqual(r['credit'], RELATED_CREDIT)
+
     def test_digital_system_on_an_ai_part_is_groundwork_not_ai_credit(self):
         r = judged(response(A1=condition({'p1': part('digital_only', QUOTE_PLAN), 'p2': part('full', QUOTE_PLAN),
                                           'p3': part('full', QUOTE_PLAN)})))['A1']

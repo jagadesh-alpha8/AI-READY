@@ -34,7 +34,7 @@ export const PENDING: Record<string, string> = {
   'R-10': 'Second layer: question planning, checks, depth judgment and the final result run as jobs; the depth report endpoint and past-case approval are still to build',
   'R-11': 'Benchmark Studio stays read-only for now (Harsha to confirm)',
   'R-12': 'How each score was reached (found and credited, where we looked, next step): coming with the report step',
-  'D-01': 'Tiers are provisional score bands (Silver 60, Gold 70, Platinum 80, Diamond 90) until Harsha and Vijay calibrate them',
+  'D-01': 'Readiness levels are provisional score bands (one star for every 20 points) until Harsha and Vijay calibrate them',
   'D-02': 'Level pathway now shows the priority plan (provisional bands); its final name and place wait for D-01',
 };
 
@@ -72,6 +72,7 @@ export const PAGE_API_STATUS: Record<PageKey, { status: ApiStatus; pending: Pend
   benchmarkstudio: { status: 'partial', pending: p('R-11') },
   institutions: { status: 'live', pending: [] },
   assessmentsetup: { status: 'live', pending: [] },
+  areas: { status: 'live', pending: [] },
   admin: { status: 'live', pending: [] },
   help: { status: 'live', pending: [] },
   apistatus: { status: 'live', pending: [] },

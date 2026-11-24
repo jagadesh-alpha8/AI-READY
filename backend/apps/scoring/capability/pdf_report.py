@@ -50,6 +50,18 @@ class Report(FPDF):
         self.paragraph(title, heading=True)
 
 
+def _explanation(pdf, explanation, labelled=True):
+    """A score explanation (explanations.py), when the run has one: found, how it scored, where we looked, next step."""
+    if not explanation:
+        return
+    rows = [('What we found', explanation.get('found')), ('How it scored', explanation.get('text')),
+            ('Where we looked', explanation.get('looked') if labelled else None),
+            ('Next step', explanation.get('next_step')), ('Follow-up', explanation.get('follow_up'))]
+    for label, value in rows:
+        if value:
+            pdf.paragraph(f'{label}: {value}' if labelled or label in ('Next step', 'Follow-up') else value)
+
+
 def render_pdf(report, indicators, actions):
     pdf = Report(report['run_id'])
     result = report['assessment']['result']
@@ -62,10 +74,15 @@ def render_pdf(report, indicators, actions):
     pdf.paragraph(report['notice'])
     pdf.section('Current standing')
     single = result.get('score') is not None
+    stage = report.get('assessment_stage') or {}
     if single:
-        pdf.paragraph(f"{result['score']:g} / 100", heading=True)
+        pdf.paragraph((f"{stage['label']}: " if stage.get('label') else '') + f"{result['score']:g} / 100"
+                      + (f" (up to {stage['up_to']:g} with the follow-up answers)" if stage.get('up_to') else ''),
+                      heading=True)
+        from .report_projection import held_note
         pdf.paragraph('What the supplied documents show, with partial credit where only some parts of a requirement '
-                      'are evidenced. A requirement the documents do not show earns no credit.')
+                      'are evidenced. A requirement the documents do not show earns no credit.'
+                      + held_note(result.get('depth_reserve'), closed=stage.get('closed', False)))
     else:
         score = (f"{result['exact_score']:.2f}" if result['exact_score'] is not None else
                  f"{result['lower']:.2f} - {result['upper']:.2f}")
@@ -74,7 +91,15 @@ def render_pdf(report, indicators, actions):
             pdf.paragraph('The lower bound is demonstrated capability. The upper bound is not demonstrated capability.')
         pdf.paragraph(f"Resolved indicator weight: {result['assessment_coverage']}%. "
                       f"Decided conditions: {result['condition_decision_coverage']}%. These are evidence-resolution measures.")
-    for tier in result['tiers']:
+    band = report.get('tier_band')
+    if not stage.get('tier_shown', True):
+        pdf.paragraph('The level is set on the final AI-READY Score, once the follow-up questions are complete.')
+    elif band:
+        pdf.paragraph(f"Level: {band['current']} ({band['stars']} of 5 stars)"
+                      + (f"; {band['points_to_next']} points to {band['next']}" if band['next'] else '')
+                      + f". Levels are score bands ({band['bands']}), one star for every 20 points, provisional and "
+                        "not yet calibrated across colleges.")
+    for tier in (result['tiers'] if stage.get('tier_shown', True) and not band else []):
         if tier['threshold'] is None:
             pdf.paragraph(f"{tier['name']}: achievement requirements are not calibrated; no badge awarded.")
             continue
@@ -106,6 +131,7 @@ def render_pdf(report, indicators, actions):
             units = "Credit units" if result.get("aggregation") == "independent_conditions" else "Level"
             pdf.paragraph(f"{units} {indicator['lower_level']} - {indicator['upper_level']} | "
                           f"{indicator['lower']} - {indicator['upper']} / 100")
+        _explanation(pdf, indicator.get('explanation'), labelled=False)
         for condition in indicator['requirements']:
             decision = condition['decision']
             if single:
@@ -115,14 +141,16 @@ def render_pdf(report, indicators, actions):
                 label = LABELS[decision['state']]
             pdf.paragraph(f"{condition['id']} | {label}", heading=True)
             pdf.paragraph(condition['text'])
+            _explanation(pdf, decision.get('explanation'))
             pdf.paragraph('Decision: ' + decision['reason'])
             pdf.paragraph('Completion evidence: ' + condition['completion_evidence'])
             for cite in decision['citations']:
                 pdf.paragraph('Source quote: ' + cite['quote'])
                 pdf.paragraph(source_labels.get(cite['source_id'], 'Frozen source') + ' | Page ID: ' + cite['source_id'], small=True)
     pdf.add_page()
-    pdf.section('Next improvements and conditional tier pathways')
-    for path in report['assessment']['pathways']:
+    if not band:
+        pdf.section('Next improvements and conditional tier pathways')
+    for path in ([] if band else report['assessment']['pathways']):
         pdf.paragraph(path['target'], heading=True)
         pdf.paragraph(path['note'])
         pdf.paragraph(f"Scenario sufficient: {path['scenario_sufficient']}. Already demonstrated: {path['already_demonstrated']}.")
@@ -134,9 +162,17 @@ def render_pdf(report, indicators, actions):
     priority = report['deterministic_plan'].get('priority_plan')
     if priority:
         tier = priority['tier']
-        pdf.paragraph(f"Score {priority['score']}; provisional tier: {tier['current'] or 'none yet'}"
-                      + (f"; {tier['points_to_next']} points to {tier['next']}." if tier['next'] else '.'))
+        if stage.get('tier_shown', True):
+            pdf.paragraph(f"Score {priority['score']}; tier: {tier['current'] or 'none yet'}"
+                          + (f"; {tier['points_to_next']} points to {tier['next']}." if tier['next'] else '.'))
+        else:
+            pdf.paragraph(f"Score {priority['score']} at Stage 1; the level is set on the final AI-READY Score.")
         pdf.paragraph(f"Projected score after the priority plan: {priority['projected_score']}. {priority['note']}")
+        held = priority.get('follow_up')
+        if held:
+            pdf.paragraph(f"Follow-up answers: up to {held['points']:g} points can be earned back. "
+                          + '; '.join(f"{e['name']} ({e['points']:g})" for e in held['indicators'][:5]) + '. '
+                          + held['note'])
     if report['recommendation']:
         pdf.paragraph(f"Recommendation version: {report['recommendation']['id']} | {report['recommendation']['status']}")
     for action in actions:

@@ -136,6 +136,8 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
                                       'schema_hash': hashlib.sha256(json.dumps(DECISION_SCHEMA, sort_keys=True).encode()).hexdigest()},
               'manifest': manifest, 'sources': sources, 'reviewed_evidence': reviewed,
               'execution_policy': execution_policy or {}}
+    from .reserve import frozen_policy
+    inputs['depth_policy'] = frozen_policy()   # credit held for follow-up answers (reserve.py)
     run = CapabilityRun.objects.create(sprint=sprint, inputs=inputs, inputs_hash=digest(inputs))
     CapabilityRunEvent.objects.create(run=run, state='queued')
     return run
@@ -231,16 +233,23 @@ def publish(*, institution_id, run_id, evaluation, inference):
             row['digital_credit'] = 0.0 if newly_withheld else prior.get('digital_credit', row['credit'])
             # Per-pass credits and the agreement note feed assessment_consistency; without them the export cannot
             # show how far the passes were apart.
-            for key in ('follow_up', 'pass_credits', 'agreement'):
+            for key in ('follow_up', 'pass_credits', 'agreement', 'depth_level', 'depth_review'):
                 if key in prior:
                     row[key] = prior[key]
+        from .reserve import run_min_credit, run_share, stamp
+        stamp(validated, run_share(run.inputs), min_credit=run_min_credit(run.inputs))
     decisions = {r['condition_id']: r['state'] for r in validated}
     result = assess(decisions, rubric)
     if any('credit' in r for r in validated):
         from .engine import documented
-        result['documented'] = documented({r['condition_id']: r['credit'] for r in validated}, rubric)
-        result['documented_with_digital'] = documented(
-            {r['condition_id']: r.get('digital_credit', r['credit']) for r in validated}, rubric)
+        from .reserve import scored_credits, summary as reserve_summary
+        # With a depth reserve, the headline counts each credit less the share still held for follow-up answers;
+        # the judge's credit stays on the record (reserve.py).
+        result['documented'] = documented(scored_credits(validated), rubric)
+        result['documented_with_digital'] = documented(scored_credits(validated, 'digital_credit'), rubric)
+        held = reserve_summary(validated, rubric)
+        if held:
+            result['depth_reserve'] = held
         # The one headline number: what the supplied documents show, with partial credit. A condition the documents
         # do not show earns 0; there is no upper bound. `lower`/`upper` stay in the payload for audit only.
         result['score'] = result['documented']['overall']

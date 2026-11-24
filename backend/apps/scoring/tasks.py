@@ -4,7 +4,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.extraction.exceptions import ProviderQuotaExhausted
-from apps.extraction.services.ai_service import get_ai_service
+from apps.scoring.capability.model_choice import scoring_service as get_ai_service
 from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
 from .capability.evaluation import evaluate, SYSTEM_PROMPT, DECISION_SCHEMA, RETRIEVAL_VERSION
@@ -54,7 +54,14 @@ def run_capability_assessment(run_id, task_id):
                     concurrency=policy.get('indicator_concurrency', 1),
                     judgment=policy.get('judgment', 'conditions'),
                     tie_break=policy.get('tie_break') in ('majority-of-three-v1', 'median-credit-of-three-v1'),
+                    quote_repair=policy.get('part_quote_repair') == 'quote-repair-v1',
                     on_indicator=lambda rows, trace: locked_progress(run_id, rows, trace))
+            if evaluation.get('circuit_skipped_indicators'):
+                # The provider stopped answering partway (23 Nov: Gemini's 503s left test run 80952be2 "completed" with
+                # all 36 key indicators unknown, and the screens showed it as the latest result). Such a run is not a
+                # result: it fails, so the screens keep the last real one, and a new assessment can be started.
+                finish(run_id, 'failed', 'model_unavailable')
+                return
             # Same lock order as cancellation; completion and ledger become visible atomically.
             with transaction.atomic():
                 locked = CapabilityExecution.objects.select_for_update().get(run_id=run_id)
