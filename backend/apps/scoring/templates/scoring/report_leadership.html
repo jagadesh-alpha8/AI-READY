@@ -55,7 +55,7 @@
   <div class="cards">{% for a in v.focus %}<div class="card focus">
     <h3>{{ a.name }} {{ a.level.stars|stars }}</h3>
     <p>{% if a.score == 0 %}Nothing found in your documents yet.{% else %}{{ a.in_place|add:a.partly }} of {{ a.requirements }} practices shown so far.{% endif %}</p>
-    {% if a.missing %}<p><strong>Start with:</strong> {{ a.missing.0 }}</p>{% endif %}
+    {% if a.missing %}<p><strong>Start with</strong> ({{ a.missing.0.label|lower }}): done when {{ a.missing.0.done_when }}</p>{% endif %}
   </div>{% endfor %}</div></div>
 
 </section>
@@ -65,8 +65,13 @@
   <p class="small muted" style="margin:-4px 0 4px">{{ v.actions|length }} first steps across the areas with the most to gain; together about {{ v.actions_points|points }}. Every step is listed in the detailed report.</p>
   {% for x in v.actions %}<div class="action"><div class="ncell"><span class="n">{{ forloop.counter }}</span></div><div>
     <h3>{{ x.title }}</h3>
-    <ul>{% for s in x.show %}<li><strong>{{ x.step }}:</strong> {{ s }}</li>{% endfor %}</ul>
-    <p class="meta">{{ x.area }}{% if x.lead %} · Suggested lead: {{ x.lead }}{% endif %}</p>
+    {% if x.action %}<p class="step-text">{{ x.action }}</p>{% endif %}
+    <ul>{% for r in x.requirements %}<li><span class="tag">{{ r.label }}</span> <strong>Done when:</strong> {{ r.done_when }}</li>{% endfor %}</ul>
+    {% for h in x.have %}<p class="small"><strong>{% if forloop.first %}What you have:{% endif %}</strong> {{ h.text }} <span class="muted">({{ h.sources|join:"; " }})</span></p>{% endfor %}
+    {% for h in x.related %}<p class="small"><strong>{% if forloop.first %}To build on:{% endif %}</strong> {{ h.text }} <span class="muted">({{ h.sources|join:"; " }})</span></p>{% endfor %}
+    {% if x.not_found %}<p class="small">{{ x.not_found }}</p>{% endif %}
+    {% if x.first_step %}<p class="small"><strong>First step:</strong> {{ x.first_step }}</p>{% endif %}
+    <p class="meta">{{ x.area }} · Owner: {{ x.owner.name|capfirst }}{% if x.owner.suggested %} (suggested){% endif %} · {{ x.points|points }} at stake</p>
   </div></div>{% endfor %}
 
   </div>{% endif %}
@@ -83,7 +88,7 @@
         {% if a.quote %}<p class="quote">“{{ a.quote.text }}”</p><p class="source">{{ a.quote.source }}</p>{% elif not a.summary_short %}<p class="small muted">Nothing in this area was found in your documents yet.</p>{% endif %}
       </div>
       <div><h3>What to show next</h3>
-        {% if a.missing %}<ul>{% for m in a.missing|slice:":3" %}<li>{{ m }}</li>{% endfor %}{% if a.missing|length > 3 %}<li class="muted">and {{ a.missing|length|add:"-3" }} more in the detailed report</li>{% endif %}</ul>
+        {% if a.missing %}<ul>{% for m in a.missing|slice:":3" %}<li><span class="tag">{{ m.label }}</span> Done when {{ m.done_when }}</li>{% endfor %}{% if a.missing|length > 3 %}<li class="muted">and {{ a.missing|length|add:"-3" }} more in the detailed report</li>{% endif %}</ul>
         {% else %}<p class="small muted">Everything in this area is shown. Keep the evidence current.</p>{% endif %}
       </div>
     </div>
@@ -92,7 +97,7 @@
     <h3>Not found in your documents yet {{ 1|stars }}</h3>
     <p class="small muted" style="margin-top:2px">Nothing in these {{ v.not_started|length }} area{{ v.not_started|length|pluralize }} was found yet. The first things to show in each:</p>
     <table class="req" style="margin-top:8px">{% for a in v.not_started %}<tr><td style="width:32%"><strong>{{ a.name }}</strong></td>
-      <td>{% for m in a.missing|slice:":2" %}{{ m }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td></tr>{% endfor %}</table>
+      <td>{% for m in a.missing|slice:":2" %}Done when {{ m.done_when }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td></tr>{% endfor %}</table>
   </div>{% endif %}
 </section>
 

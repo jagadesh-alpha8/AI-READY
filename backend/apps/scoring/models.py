@@ -719,6 +719,7 @@ class SecondLayerJob(models.Model):
         DEPTH = 'depth', 'Judge the depth of credited evidence'
         REJUDGE = 'rejudge', 'Re-judge credit and publish the final result'
         EXPLAIN = 'explain', 'Write the score explanations'
+        NEXT_STEPS = 'next_steps', 'Write the next steps'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='second_layer_jobs')
@@ -758,6 +759,25 @@ class SecondLayerEvent(models.Model):
 
     class Meta:
         ordering = ['id']
+
+
+class CapabilityNextSteps(models.Model):
+    """The written next steps for one completed assessment of a run (capability/next_steps.py): the text of the actions
+    the code chose, each checked against the passages the run saw. Written once per run by a metered job, never on a
+    reload. Stored beside the run, never in it, so they cannot change a score or a report's integrity hashes. The
+    screens and reports fall back to the plain checklist wherever this has nothing for an action."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='next_steps')
+    event_id = models.BigIntegerField(help_text='The completed CapabilityRunEvent the steps were written for.')
+    version = models.CharField(max_length=32)
+    model = models.CharField(max_length=100, blank=True)
+    payload = models.JSONField(default=dict)
+    job = models.ForeignKey(SecondLayerJob, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+        indexes = [models.Index(fields=['run', 'event_id'])]
 
 
 class CapabilityExplanation(models.Model):

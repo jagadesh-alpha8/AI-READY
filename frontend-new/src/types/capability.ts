@@ -244,9 +244,31 @@ export interface RecommendationPlan {
   note: string;
 }
 
+/** One requirement in an action or the checklist: the code's label and the plain "done when" line. */
+export interface ChecklistItem { id: string; label: string; done_when: string; stage?: string; indicator?: string }
+export interface StepSource { text: string; sources: string[] }
+/** One action as the server finished it (capability/next_steps.py): chosen, labelled and pointed by the code;
+ * written text (action, have, related, not_found, first_step, owner) from the next-steps job, else the fallback. */
+export interface NextStepAction {
+  key: string; code: string; title: string; area: string; area_code: string; points: number; step: string;
+  generated: boolean; action: string | null; have: StepSource[]; related: StepSource[]; not_found: string | null;
+  first_step: string | null; owner: { name: string; suggested: boolean; source: string | null };
+  requirements: ChecklistItem[];
+}
+export interface NextSteps {
+  version: string | null;
+  written: boolean;
+  /** The leadership report's first steps (4 to 6), the same everywhere. */
+  actions: NextStepAction[];
+  /** Every requirement not yet done, by area code, foundations first. */
+  checklist: Record<string, ChecklistItem[]>;
+}
+
 export interface Run extends Job {
   /** The version marker (also the ETag): changes whenever anything in this response would. */
   version?: string;
+  /** The next steps and checklist, finished on the server; null for a run not completed. */
+  next_steps?: NextSteps | null;
   error: { error_code: string; next_action: string } | null;
   profile: { name: string; institution_type: string };
   source_manifest: { document_id: string; filename: string; version: number; pages: { page_id: string; status: string }[] }[];

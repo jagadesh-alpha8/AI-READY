@@ -147,7 +147,7 @@ export const addAdditionalEvidence = (sprint: string, run: string, body: { docum
   http.post<AdditionalEvidenceItem>(`${root(sprint)}/${run}/additional-evidence`, body);
 
 // --- second-layer background jobs (PR #52/#54): always on the provisional run ------------------------------------
-export type SecondLayerOperation = 'questions' | 'checks' | 'depth' | 'rejudge' | 'explain';
+export type SecondLayerOperation = 'questions' | 'checks' | 'depth' | 'rejudge' | 'explain' | 'next_steps';
 export type SecondLayerJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 export interface SecondLayerJob {
   id: string; run_id: string; operation: SecondLayerOperation; options: Record<string, boolean>;

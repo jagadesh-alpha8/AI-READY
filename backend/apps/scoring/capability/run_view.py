@@ -13,8 +13,8 @@ A failure here never stops a run: the event is saved first, and the copy is rebu
 
 The version marker (`marker`) names everything a detail response depends on that can change after the run is
 written: the newest event, the newest stored explanations, whether the follow-up stage is closed, the execution
-ledger (status, heartbeat, reservations), and the code and settings that shape the response. The front end reuses
-its copy of a run only while the marker is unchanged.
+ledger (status, heartbeat, reservations), the newest written next steps, and the code and settings that shape the
+response. The front end reuses its copy of a run only while the marker is unchanged.
 """
 import hashlib
 import logging
@@ -226,6 +226,14 @@ def _explanation_id(run_id, event_id):
             .values_list('pk', flat=True).first())
 
 
+def _next_steps_id(run_id, event_id):
+    from apps.scoring.models import CapabilityNextSteps
+    if event_id is None:
+        return None
+    return (CapabilityNextSteps.objects.filter(run_id=run_id, event_id=event_id).order_by('-created_at')
+            .values_list('pk', flat=True).first())
+
+
 def closed(view):
     if view.stage == 'final':
         return True
@@ -239,7 +247,8 @@ def marker(execution, view, stalled, mode):
     final = None if view.stage == 'final' else final_run_id(view.run_id)
     return digest([str(execution.run_id), execution.status, execution.heartbeat_at.isoformat(),
                    execution.requests_reserved, str(execution.usd_reserved), bool(stalled), last_event,
-                   str(_explanation_id(execution.run_id, view.event_id)), view.stage, str(final),
+                   str(_explanation_id(execution.run_id, view.event_id)), str(_next_steps_id(execution.run_id, view.event_id)),
+                   view.stage, str(final),
                    view.event_id, code_fingerprint(), mode])[:32]
 
 

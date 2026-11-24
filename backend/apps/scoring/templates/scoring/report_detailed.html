@@ -31,6 +31,7 @@
       <td class="mark"><span class="dot {{ r.status }}"></span></td>
       <td><strong>{{ r.text }}</strong>
         {% if r.quote %}<p class="quote">“{{ r.quote }}”</p>{% if r.source %}<p class="source">{{ r.source }}</p>{% endif %}{% endif %}
+        {% if r.done_when %}<p class="small" style="margin-top:3px"><span class="tag">{{ r.label }}</span> <strong>Done when:</strong> {{ r.done_when }}</p>{% endif %}
         {% if r.status != 'shown' and r.next_step %}<p class="small" style="margin-top:3px"><strong>Next step:</strong> {{ r.next_step }}</p>{% endif %}
         {% if r.follow_up %}<p class="small muted" style="margin-top:3px">{{ r.follow_up }}</p>{% endif %}
       </td>

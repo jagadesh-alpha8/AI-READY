@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { areaTitle } from '../utils/areaTitles';
 import { useCapability } from '../hooks/useCapability';
-import type { ConditionRecord, FoundationPlan, PriorityPlan, Result, Run } from '../types/capability';
-import { chooseActions, cleanText, displayQuote, docLabel, quoteQuality, type FirstStep } from './plain';
+import type { ChecklistItem, ConditionRecord, FoundationPlan, NextStepAction, PriorityPlan, Result, Run } from '../types/capability';
+import { cleanText, displayQuote, docLabel, quoteQuality } from './plain';
 import { countedShare, headlineScore, pillarName } from '../utils/capability';
 import { levelFor, type Level } from '../utils/levels';
 
@@ -20,8 +20,8 @@ export interface AreaView {
   partly: number;
   /** One line from the college's own documents that earned credit here, with where it came from. */
   quote: { text: string; source: string } | null;
-  /** Requirements not yet shown, foundations first, in plain words. */
-  missing: string[];
+  /** Requirements not yet done, foundations first: the server's label and plain "done when" line for each. */
+  missing: ChecklistItem[];
   explanation: string | null;
   /** Points the priority plan's actions in this area would add. */
   pointsAvailable: number;
@@ -44,10 +44,10 @@ export interface ResultView {
   toNextLevel: { name: string; area: string; points: number }[];
   /** The three areas with the most overall points still to gain. */
   wherePoints: AreaView[];
-  /** The first steps (at most six): the leadership report's "What to do next". */
-  actions: FirstStep[];
-  /** Suggested leads by requirement, from the foundation goals. */
-  leads: Record<string, string>;
+  /** The first steps (4 to 6): the leadership report's "What to do next", finished on the server. */
+  actions: NextStepAction[];
+  /** True when the steps' text was written for this college (else the plain checklist wording). */
+  stepsWritten: boolean;
   plan: PriorityPlan | null;
   summary: string;
 }
@@ -71,8 +71,8 @@ export function buildResultView(run: Run, plan: PriorityPlan | null, foundation:
   }
   const names = Array.from(new Set((run.source_manifest || []).map((d) => docLabel(d.filename)).filter((n) => n.length >= 8)))
     .sort((a, b) => b.length - a.length);
-  const leads: Record<string, string> = {};
-  for (const g of foundation?.goals || []) for (const id of g.target_condition_ids) leads[id] ||= g.suggested_role.replace(/ \(suggested\)$/, '');
+  void foundation;   // the foundation plan's roles are no longer used for the first steps (next_steps.py)
+  const checklist = run.next_steps?.checklist || {};
   const usedQuotes = new Set<string>();
   const gains = new Map<string, number>();
   for (const a of plan?.actions || []) {
@@ -91,15 +91,13 @@ export function buildResultView(run: Run, plan: PriorityPlan | null, foundation:
     let inPlace = 0;
     let partly = 0;
     const candidates: { q: number; stage: number; text: string; source: string }[] = [];
-    const missing: { text: string; order: number }[] = [];
     for (const c of conditions) {
       const r = records.get(c.id);
       const cr = r?.credit ?? (r?.state === 'met' ? 1 : 0);
       credit += cr;
       counted += r ? cr * countedShare(r) : cr;
       if (cr >= 1) inPlace += 1;
-      else if (cr > 0) { partly += 1; missing.push({ text: `${c.text} (partly shown)`, order: levelOf(c.id) + 0.5 }); }
-      else missing.push({ text: c.text, order: levelOf(c.id) });
+      else if (cr > 0) partly += 1;
       if (cr >= 0.5) {
         const cites = r?.citations?.length ? r.citations : (r?.parts || []).flatMap((x) => x.citations || []);
         for (const cite of cites) {
@@ -119,7 +117,7 @@ export function buildResultView(run: Run, plan: PriorityPlan | null, foundation:
     return {
       code: p.code, name: pillarName(p.code), score: p.score, shown, level: levelFor(p.score),
       requirements: conditions.length, inPlace, partly, quote,
-      missing: missing.sort((a, b) => a.order - b.order).map((m) => m.text),
+      missing: checklist[p.code] || [],
       explanation: exp ? cleanText([exp.found, exp.text].filter(Boolean).join(' '), names) || null : null,
       pointsAvailable: gains.get(p.code) || 0, room,
     };
@@ -138,14 +136,14 @@ export function buildResultView(run: Run, plan: PriorityPlan | null, foundation:
     gathered += a.score_gain;
   }
   const wherePoints = [...areas].sort((a, b) => b.room - a.room).slice(0, 3);
-  const actions = chooseActions(result, records, leads, [...wherePoints, ...focus].map((a) => a.code));
+  const actions = run.next_steps?.actions || [];
   const heldPoints = reserve?.still_held_points ?? 0;
   const summary = strengths.length
     ? `Your documents show the most in ${strengths[0].name}${strengths[1] ? `, followed by ${strengths[1].name}` : ''}.${focus.length ? ` Focus next on ${focus[0].name}${focus[1] ? `, then ${focus[1].name}` : ''}.` : ''}`
     : 'Your documents show little AI-specific practice so far. The areas below show where to start.';
   return {
     run, result, final, score, shownScore: Math.min(100, score + heldPoints), heldPoints, level, areas, strengths, focus,
-    toNextLevel, wherePoints, actions, leads, plan, summary,
+    toNextLevel, wherePoints, actions, stepsWritten: !!run.next_steps?.written, plan, summary,
   };
 }
 
