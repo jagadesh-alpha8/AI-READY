@@ -84,6 +84,9 @@ class AnthropicExtractionService:
         # (output_config.effort) is set by scoring's meter from the run's frozen policy; None = model default.
         self.json_output = False
         self.effort = None
+        # Mark the system prompt for Claude's prompt cache (callers that send one long, unchanging system prompt with
+        # many requests: the evidence map's rubric). Off by default, so every other request is sent as before.
+        self.cache_system = False
 
         # `client` is accepted for dependency injection in tests -- normal
         # callers just get a real Anthropic client built from the settings above.
@@ -171,6 +174,11 @@ class AnthropicExtractionService:
         self._log_outcome(started, success=True)
         return result
 
+    def _system(self, system_prompt):
+        if not self.cache_system:
+            return system_prompt
+        return [{'type': 'text', 'text': system_prompt, 'cache_control': {'type': 'ephemeral'}}]
+
     def _create(self, system_prompt, user_content, response_schema, schema_name, timeout, image_b64=None):
         if image_b64:
             content_blocks = [
@@ -193,13 +201,13 @@ class AnthropicExtractionService:
                 output_config['effort'] = self.effort
             # No temperature: with thinking on, Claude accepts only its default.
             return self._client.messages.create(
-                model=self.model, max_tokens=DEFAULT_MAX_TOKENS, system=system_prompt,
+                model=self.model, max_tokens=DEFAULT_MAX_TOKENS, system=self._system(system_prompt),
                 messages=[{'role': 'user', 'content': content_blocks}], output_config=output_config, timeout=timeout)
 
         return self._client.messages.create(
             model=self.model,
             max_tokens=DEFAULT_MAX_TOKENS,
-            system=system_prompt,
+            system=self._system(system_prompt),
             messages=[{'role': 'user', 'content': content_blocks}],
             tools=[{
                 'name': schema_name,

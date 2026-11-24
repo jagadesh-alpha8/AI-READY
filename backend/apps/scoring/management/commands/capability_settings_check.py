@@ -40,6 +40,7 @@ SETTING = {
     ('execution_policy', 'agreement_passes'): 'CAPABILITY_AGREEMENT_PASSES',
     ('execution_policy', 'gemini_reasoning_effort'): 'CAPABILITY_GEMINI_REASONING_EFFORT (else AI_GEMINI_REASONING_EFFORT)',
     ('execution_policy', 'tie_break'): 'CAPABILITY_TIE_BREAK',
+    ('execution_policy', 'stored_judgments'): 'CAPABILITY_STORED_JUDGMENTS',
     ('execution_policy', 'part_quote_repair'): 'CAPABILITY_PART_QUOTE_REPAIR',
     ('retrieval_policy', 'evidence_lane'): 'CAPABILITY_EVIDENCE_LANE',
     ('execution_policy', 'judgment'): 'CAPABILITY_JUDGMENT',
@@ -54,6 +55,7 @@ SETTING = {
     ('retrieval_policy', 'model'): 'CAPABILITY_EMBEDDING_MODEL',
     ('retrieval_policy', 'artifact_hash'): 'CAPABILITY_EMBEDDING_PATH (the embedding model files)',
     ('retrieval_policy', 'allocation'): 'CAPABILITY_RETRIEVAL_ALLOCATION',
+    ('retrieval_policy', 'keyword_chars'): 'CAPABILITY_KEYWORD_CHARS (keyword mode; missing means the default 18,000)',
     ('retrieval_policy', 'deduplicate'): 'CAPABILITY_DEDUPLICATE_PAGES',
     ('retrieval_policy', 'structure'): 'CAPABILITY_STRUCTURE_ROUTING',
     ('retrieval_policy', 'repeat_skip'): 'CAPABILITY_REPEAT_SKIP',
@@ -62,7 +64,11 @@ SETTING = {
     ('execution_policy', 'model_effort'): 'CAPABILITY_AI_EFFORT',
     ('execution_policy', 'writing_effort'): 'CAPABILITY_AI_WRITING_EFFORT',
     ('retrieval_policy', 'prompt_ceiling'): 'CAPABILITY_PROMPT_TOKEN_CEILING (and CAPABILITY_PROMPT_BYTES_PER_TOKEN)',
+    ('retrieval_policy', 'cap_chars'): 'CAPABILITY_MAP_CAP_CHARS (map mode)',
+    ('retrieval_policy', 'map_shape'): 'EVIDENCE_MAP_SHAPE (map mode)',
 }
+#: Recorded from the sprint when a run starts (its evidence map and how much of it was tagged), not set by a setting.
+PER_SPRINT = {('retrieval_policy', key) for key in ('map_version', 'map_model', 'map_coverage', 'map_fallback')}
 
 
 def _current_execution():
@@ -111,6 +117,8 @@ def _same_file(key, recorded):
 def _compare(section, frozen, current):
     rows = []
     for key in sorted(set(frozen) | set(current)):
+        if (section, key) in PER_SPRINT:
+            continue
         before, after = frozen.get(key, MISSING), current.get(key, MISSING)
         if before != after and not _same_file(key, before):
             rows.append({'section': section, 'setting': key, 'run': before, 'now': after, 'kind': _kind(section, key),

@@ -65,6 +65,8 @@ INSTALLED_APPS = [
     'apps.reports',
     'apps.dashboard',
     'apps.vector_store',
+    'apps.evidence_map',
+    'apps.stored_judgments',
 ]
 
 MIDDLEWARE = [
@@ -859,6 +861,22 @@ CAPABILITY_REPEAT_SKIP = os.getenv('CAPABILITY_REPEAT_SKIP', 'false').strip().lo
 # 90,000-character keyword lane; 'protected-baseline-then-discovery-xwide-v1' for 200,000 (hybrid mode only;
 # raise CAPABILITY_MAX_INPUT_TOKEN_BOUND to 400000).
 CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '')
+# Evidence-map mode (CAPABILITY_RETRIEVAL_MODE=map; apps/evidence_map/packet.py): each key indicator's packet is built
+# from the pages the evidence map tagged for it, then a keyword fill (at least a third of the cap). Needs the sprint
+# tagged with evidence_map_tag; without a map the run falls back to keyword mode at the larger of the cap and
+# CAPABILITY_KEYWORD_CHARS, and records that it did. CAPABILITY_MAX_INPUT_TOKEN_BOUND must be at least twice the cap.
+CAPABILITY_MAP_CAP_CHARS = int(os.getenv('CAPABILITY_MAP_CAP_CHARS', '').strip() or 60000)
+# The prompt shape whose map a run uses (one: all areas in one request per chunk; areas: one request per area).
+EVIDENCE_MAP_SHAPE = os.getenv('EVIDENCE_MAP_SHAPE', 'one').strip() or 'one'
+# Keyword mode only (CAPABILITY_RETRIEVAL_MODE=bm25): characters of keyword evidence per key indicator, 18,000 by
+# default. Test 13's 200,000-character lane is this same keyword search (hybrid only added 6,000 characters), so
+# keyword mode can read as widely without the embedding model. 200,000 reproduces test 13's keyword lane (its
+# embedding tail added 4 of the 127 passages test 13 credited in full). 150,000 stays under Claude Haiku 5.5's
+# 100,000-token price step but, offline on test 13's pages (24 Nov), reached 85 of those 127 against 104 at 200,000.
+# Above the default it needs CAPABILITY_MAX_INPUT_TOKEN_BOUND of at least twice the value (400000 for 200,000), and
+# test 13's page deduplication and repeat skipping (CAPABILITY_DEDUPLICATE_PAGES, CAPABILITY_REPEAT_SKIP) to match
+# its evidence. Frozen with each run (retrieval_policy.keyword_chars) when it differs from the default.
+CAPABILITY_KEYWORD_CHARS = int(os.getenv('CAPABILITY_KEYWORD_CHARS', '').strip() or 18000)
 # Targeted extra search after part judgment (apps/scoring/capability/follow_up.py): parts every pass marked
 # not found get one more search with the part's own description; only those conditions are judged again, and
 # the second judgment can only add credit. Needs hybrid retrieval and CAPABILITY_JUDGMENT=parts. Adds up to one
@@ -870,6 +888,11 @@ CAPABILITY_TIE_BREAK = os.getenv('CAPABILITY_TIE_BREAK', 'false').strip().lower(
 # Ask once more, per pass, for requirements whose found parts all failed their quotations (quote-repair-v1, 22 Nov
 # 2026; test 13 lost full credit on two requirements in one pass to quotations alone). Frozen per run.
 CAPABILITY_PART_QUOTE_REPAIR = os.getenv('CAPABILITY_PART_QUOTE_REPAIR', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+# Stored judgments (apps/stored_judgments; a stopgap against judge noise, approved 24 Nov 2026): a Stage 1 request
+# identical to one an earlier run sent (same model, settings, prompt, schema and packet) reuses that run's answer
+# instead of asking again, so re-running an unchanged college gives the same judgments. Everything after the answer
+# runs again. Never the second layer. Frozen per run; the run lists the answers it reused.
+CAPABILITY_STORED_JUDGMENTS = os.getenv('CAPABILITY_STORED_JUDGMENTS', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Extracted-evidence lane (reviewed_evidence.evidence_lane): adds the source page of each relevant extracted AI item
 # to the indicator's packet (up to 18,000 characters), so evidence extraction found reaches the judge.
 CAPABILITY_EVIDENCE_LANE = os.getenv('CAPABILITY_EVIDENCE_LANE', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
@@ -940,3 +963,14 @@ if SECOND_LAYER_JOBS_ENABLED:
 # Directory for cached passage embeddings (keyed by model artifact and exact passage text). Empty = no cache,
 # every run embeds its corpus again. Cached vectors are identical to fresh ones, so packets do not change.
 CAPABILITY_EMBEDDING_CACHE_DIR = os.getenv('CAPABILITY_EMBEDDING_CACHE_DIR', '')
+
+# Evidence map (apps/evidence_map; spec: claude.ai project doc claude/ai-ready-evidence-map-spec.md): every page read once
+# against the rubric, tags stored per page. Tagging only for now; no assessment reads the map yet. The tagger uses its
+# own key and model when EVIDENCE_MAP_AI_API_KEY is set, else the scoring model (CAPABILITY_AI_*, else AI_*).
+# EVIDENCE_MAP_AI_EFFORT is Claude's effort for tagging (JSON output); EVIDENCE_MAP_MAX_COST_USD stops a pass from
+# starting new requests once its metered spend reaches it.
+EVIDENCE_MAP_AI_API_KEY = os.getenv('EVIDENCE_MAP_AI_API_KEY', '').strip()
+EVIDENCE_MAP_AI_MODEL = os.getenv('EVIDENCE_MAP_AI_MODEL', '').strip()
+EVIDENCE_MAP_AI_BASE_URL = os.getenv('EVIDENCE_MAP_AI_BASE_URL', '').strip()
+EVIDENCE_MAP_AI_EFFORT = os.getenv('EVIDENCE_MAP_AI_EFFORT', 'low').strip().lower() or None
+EVIDENCE_MAP_MAX_COST_USD = float(os.getenv('EVIDENCE_MAP_MAX_COST_USD', '').strip() or 5)

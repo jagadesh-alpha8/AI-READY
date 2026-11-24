@@ -336,6 +336,7 @@ class SecondLayerMeter(MeteredService):
     """Reserves each request against the job (its status and deadline) and the run's shared second-layer budget."""
     execution_model = SecondLayerJob
     execution_key = 'pk'
+    reuses_answers = False   # stored answers are a Stage 1 stopgap only
 
     @property
     def settles(self):

@@ -48,7 +48,22 @@ ALLOCATION_BUDGETS = {
     # Full-corpus sprints where 90,000 still crowds out evidence. Needs CAPABILITY_MAX_INPUT_TOKEN_BOUND >= 400000.
     XWIDE_ALLOCATION: (200000, EXPANSION_CHARS),
 }
+#: Keyword mode's evidence per key indicator (CAPABILITY_KEYWORD_CHARS): the default, and the range a run may freeze.
+#: A run frozen at the default records nothing, so runs from before the setting compare as equal.
+KEYWORD_CHARS = 18000
+KEYWORD_CHARS_RANGE = (6000, 200000)
 BGE_QUERY_INSTRUCTION = 'Represent this sentence for searching relevant passages: '
+
+
+def keyword_chars():
+    """CAPABILITY_KEYWORD_CHARS, checked: an integer in KEYWORD_CHARS_RANGE."""
+    from django.conf import settings
+    value = getattr(settings, 'CAPABILITY_KEYWORD_CHARS', KEYWORD_CHARS)
+    if type(value) is not int or not KEYWORD_CHARS_RANGE[0] <= value <= KEYWORD_CHARS_RANGE[1]:
+        raise SemanticRetrievalUnavailable(
+            f'CAPABILITY_KEYWORD_CHARS must be a whole number from {KEYWORD_CHARS_RANGE[0]:,} to '
+            f'{KEYWORD_CHARS_RANGE[1]:,}.')
+    return value
 
 
 def query_instruction(model_name):
@@ -60,8 +75,8 @@ def configured_policy(mode=None):
     from django.conf import settings
     path = settings.CAPABILITY_EMBEDDING_PATH
     mode = mode or settings.CAPABILITY_RETRIEVAL_MODE
-    if mode not in ('bm25', 'hybrid'):
-        raise SemanticRetrievalUnavailable('CAPABILITY_RETRIEVAL_MODE must be bm25 or hybrid.')
+    if mode not in ('bm25', 'hybrid', 'map'):
+        raise SemanticRetrievalUnavailable('CAPABILITY_RETRIEVAL_MODE must be bm25, hybrid or map.')
     from . import structure
     routing = {}
     if settings.CAPABILITY_DEDUPLICATE_PAGES:
@@ -86,10 +101,29 @@ def configured_policy(mode=None):
     if allocation not in (ALLOCATION, WIDE_ALLOCATION, XWIDE_ALLOCATION):
         raise SemanticRetrievalUnavailable(
             f'CAPABILITY_RETRIEVAL_ALLOCATION must be {ALLOCATION}, {WIDE_ALLOCATION} or {XWIDE_ALLOCATION}.')
+    keyword = keyword_chars()
+    if mode == 'map':
+        if allocation != ALLOCATION:
+            raise SemanticRetrievalUnavailable('CAPABILITY_RETRIEVAL_ALLOCATION applies to hybrid mode only; map mode '
+                                               'sizes its packet with CAPABILITY_MAP_CAP_CHARS.')
+        return map_policy(routing)
     if mode == 'bm25':
         if allocation != ALLOCATION:
-            raise SemanticRetrievalUnavailable('The wide allocations need hybrid retrieval.')
+            raise SemanticRetrievalUnavailable('The wide allocations need hybrid retrieval; in keyword mode set '
+                                               'CAPABILITY_KEYWORD_CHARS instead.')
+        if keyword != KEYWORD_CHARS:
+            # The request carries the packet plus the extracted-evidence lane, reviewed evidence, rubric and prompt:
+            # test 13's 200,000-character packets made requests of about 290,000 bytes.
+            bound = getattr(settings, 'CAPABILITY_MAX_INPUT_TOKEN_BOUND', 0)
+            if bound < 2 * keyword:
+                raise SemanticRetrievalUnavailable(
+                    f'CAPABILITY_KEYWORD_CHARS={keyword:,} needs CAPABILITY_MAX_INPUT_TOKEN_BOUND of at least '
+                    f'{2 * keyword:,} (it is {bound:,}); otherwise the wider requests are refused before sending.')
+            routing['keyword_chars'] = keyword
         return {'mode': 'bm25', **routing}
+    if keyword != KEYWORD_CHARS:
+        raise SemanticRetrievalUnavailable('CAPABILITY_KEYWORD_CHARS applies to keyword mode only; hybrid mode sizes '
+                                           'its keyword lane with CAPABILITY_RETRIEVAL_ALLOCATION.')
     from .query_profiles import profile_metadata
     profiles = profile_metadata()
     from importlib.metadata import version, PackageNotFoundError
@@ -106,6 +140,31 @@ def configured_policy(mode=None):
             'allocation': allocation,
             'baseline_chars': ALLOCATION_BUDGETS[allocation][0], 'expansion_chars': ALLOCATION_BUDGETS[allocation][1],
             'expansion_filter': 'instruction-heading-only-v2', **routing}
+
+
+MAP_CAP_RANGE = (12000, 200000)
+
+
+def map_policy(routing):
+    """Map mode's frozen retrieval policy (apps/evidence_map/packet.py). The map version, its model and its coverage
+    are added when a run starts (storage.create_run), from the sprint's stored map."""
+    from django.conf import settings
+    from apps.evidence_map import packet, spec
+    cap = getattr(settings, 'CAPABILITY_MAP_CAP_CHARS', packet.CAP_CHARS)
+    if type(cap) is not int or not MAP_CAP_RANGE[0] <= cap <= MAP_CAP_RANGE[1]:
+        raise SemanticRetrievalUnavailable(
+            f'CAPABILITY_MAP_CAP_CHARS must be a whole number from {MAP_CAP_RANGE[0]:,} to {MAP_CAP_RANGE[1]:,}.')
+    bound = getattr(settings, 'CAPABILITY_MAX_INPUT_TOKEN_BOUND', 0)
+    if bound < 2 * cap:
+        raise SemanticRetrievalUnavailable(
+            f'CAPABILITY_MAP_CAP_CHARS={cap:,} needs CAPABILITY_MAX_INPUT_TOKEN_BOUND of at least {2 * cap:,} '
+            f'(it is {bound:,}); otherwise the requests are refused before sending.')
+    shape = getattr(settings, 'EVIDENCE_MAP_SHAPE', 'one')
+    if shape not in spec.SHAPES:
+        raise SemanticRetrievalUnavailable(f'EVIDENCE_MAP_SHAPE must be one of {", ".join(spec.SHAPES)}.')
+    return {'mode': 'map', 'allocation': packet.ALLOCATION, 'cap_chars': cap,
+            'fill_share': '/'.join(map(str, packet.FILL_SHARE)), 'context_share': '/'.join(map(str, packet.CONTEXT_SHARE)),
+            'window_chars': packet.WINDOW_CHARS, 'map_shape': shape, **routing}
 
 
 @lru_cache(maxsize=2)
@@ -302,7 +361,7 @@ class SemanticRanker:
 
 
 def ranker_for(policy):
-    if not policy or policy.get('mode') == 'bm25':
+    if not policy or policy.get('mode') in ('bm25', 'map'):
         return None
     from django.conf import settings
     from importlib.metadata import version
