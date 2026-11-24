@@ -75,7 +75,9 @@ def policy(stage='assessment'):
         # tokens, so the 90,000 and 200,000 packets (3 to 7 times the input) get the full output allowance and
         # twice the time. Gemini 3.8 Flash allows 65,536 output tokens.
         from .semantic_retrieval import WIDE_ALLOCATION, XWIDE_ALLOCATION
-        wide = getattr(settings, 'CAPABILITY_RETRIEVAL_ALLOCATION', '') in (WIDE_ALLOCATION, XWIDE_ALLOCATION)
+        # Keyword mode's own wide packet (CAPABILITY_KEYWORD_CHARS) counts from the 90,000 the wide lane holds.
+        wide = (getattr(settings, 'CAPABILITY_RETRIEVAL_ALLOCATION', '') in (WIDE_ALLOCATION, XWIDE_ALLOCATION)
+                or getattr(settings, 'CAPABILITY_KEYWORD_CHARS', 0) >= 90000)
         if getattr(settings, prefix + '_TIMEOUT_SECONDS') is None and type(timeout) is int:
             timeout = max(timeout, 600 if wide else 300)
         if getattr(settings, prefix + '_OUTPUT_TOKENS') is None and type(output) is int:

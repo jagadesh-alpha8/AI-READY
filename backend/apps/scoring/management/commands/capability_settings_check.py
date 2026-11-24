@@ -54,6 +54,7 @@ SETTING = {
     ('retrieval_policy', 'model'): 'CAPABILITY_EMBEDDING_MODEL',
     ('retrieval_policy', 'artifact_hash'): 'CAPABILITY_EMBEDDING_PATH (the embedding model files)',
     ('retrieval_policy', 'allocation'): 'CAPABILITY_RETRIEVAL_ALLOCATION',
+    ('retrieval_policy', 'keyword_chars'): 'CAPABILITY_KEYWORD_CHARS (keyword mode; missing means the default 18,000)',
     ('retrieval_policy', 'deduplicate'): 'CAPABILITY_DEDUPLICATE_PAGES',
     ('retrieval_policy', 'structure'): 'CAPABILITY_STRUCTURE_ROUTING',
     ('retrieval_policy', 'repeat_skip'): 'CAPABILITY_REPEAT_SKIP',
