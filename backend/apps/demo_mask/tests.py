@@ -46,12 +46,22 @@ class VistasTermListTests(SimpleTestCase):
             'VELAN NAGAR, P.V.VAITHIYALINGAM ROAD, PALLAVARAM, CHENNAI': '[campus address], [campus address], Campus A, CHENNAI',
             'Ishari VELAN Mission Hospital': 'ABC Mission Hospital',
             'Thalambur and Periyapalayam': 'Campus B and Campus C',
+            '[campus address],\\nPallavaram, Chennai - 600117': '[campus address],\\nCampus A, Chennai - 600 000',
+            'VELS INSTITUTE OF SCIENCE, TECHNOLOGY AND ADVANCED STUDIES(VISTA: Examination': 'ABC University: Examination',
+            'www.vistas.ac.in': 'www.abc-university.example',
+            'Founder Chairman Dr. Ishari\\nK Ganesh, is': 'Founder Chairman Dr. the founder, is',
+            'Shri. Isari Velan Mission Hospital': 'Shri. ABC Mission Hospital',
+            'The Velan Arangam open auditorium': 'The ABC Arangam open auditorium',
+            '(Near Navalur) Chennai - 600 130.': '(Near [campus area]) Chennai - 600 000.',
+            'Vel Nursing College (VNC)': 'ABC Nursing College (VNC)',
+            'research, VISTASVISTAS narrows': 'research, ABC University narrows',
         }
         for given, expected in cases.items():
             self.assertEqual(mask.text(given), expected, given)
 
     def test_words_that_only_contain_a_term_are_left_alone(self):
-        for word in ('Velachery', 'Velraj', 'Velmurugan', 'VISTASPHERE', 'television', 'Velan'):
+        for word in ('Velachery', 'Velraj', 'Velmurugan', 'VISTASPHERE', 'television', 'Ishwariya Ganesh', 'Ms. Pallavi',
+                     'Tel: 6001170', 'level.'):
             self.assertEqual(mask.text(word), word)
 
     def test_json_escapes_and_html_entities(self):

@@ -25,6 +25,7 @@ from pathlib import Path
 from django.conf import settings
 
 TERMS_DIR = Path(__file__).resolve().parent / 'terms'
+SPACE = r'(?:\s|\\[nrt])+'   # whitespace, or the "\n" / "\t" a JSON body writes inside a string
 _WORD = r'[0-9A-Za-zÀ-ɏ]'
 
 
@@ -38,7 +39,7 @@ def _name():
 
 def _piece(char):
     if char.isspace():
-        return r'\s+'
+        return SPACE   # whitespace, or a JSON body's escaped line break inside a string ("\n")
     if char in "'’`":
         return r"(?:'|’|`|\\u2019)?"   # the raw "’" is how an ASCII-only JSON body spells it
     if char == '&':
@@ -56,12 +57,17 @@ def pattern(find):
     """The compiled pattern for one find text (see the module notes)."""
     words = find.strip()
     body = ''.join(_piece(c) for c in words)
-    body = body.replace(r'\s+(?:&amp;|&|\\u0026|and)\s+', r'\s*(?:&amp;|&|\\u0026|and)\s*')
-    body = body.replace(r'\s+and\s+', r'\s*(?:&amp;|&|\\u0026|and)\s*')   # "and" in a find text also matches "&"
-    body = body.replace(r',?\s+', r',?\s*')
-    body = body.replace(r'\s+\s*\(', r'\s*\(')
-    body = body.replace(r'\.?\s*\s+', r'\.?\s*')   # "P.V. Road" also matches "P.V.Road"
-    return re.compile(rf'(?<!{_WORD}){body}(?!{_WORD})', re.IGNORECASE)
+    gap, gaps = SPACE, SPACE[:-1] + '*'
+    body = body.replace(gap + r'(?:&amp;|&|\\u0026|and)' + gap, gaps + r'(?:&amp;|&|\\u0026|and)' + gaps)
+    body = body.replace(gap + 'and' + gap, gaps + r'(?:&amp;|&|\\u0026|and)' + gaps)   # "and" also matches "&"
+    body = body.replace(r',?' + gap, r',?' + gaps)
+    body = body.replace(gap + r'\s*\(', r'\s*\(')
+    body = body.replace(r'\.?\s*' + gap, r'\.?' + gaps)   # "P.V. Road" also matches "P.V.Road"
+    # Whole words: not inside a longer word, but a term right after a JSON "\n" still counts. A find text that starts or
+    # ends with punctuation ("(VISTA") needs no boundary on that side.
+    before = rf'(?:(?<!{_WORD})|(?<=\\[nrt]))' if re.match(r'\w', words) else ''
+    after = rf'(?!{_WORD})' if re.search(r'\w$', words) else ''
+    return re.compile(before + body + after, re.IGNORECASE)
 
 
 @lru_cache(maxsize=4)
