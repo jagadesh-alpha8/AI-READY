@@ -171,6 +171,8 @@ class PlanAPITests(APITestCase):
         self.user = User.objects.create_user(username='planner', email='planner@example.com',
             role=User.Role.IQAC_COORDINATOR, institution=self.institution)
         self.client.force_authenticate(self.user)
+        from .publication_fixtures import every_result_published
+        every_result_published(self)
         self.run = create_run(institution_id=self.institution.pk, sprint_id=self.sprint.pk)
         checkpoint(institution_id=self.institution.pk, run_id=self.run.pk, state='running')
         self.event = publish(institution_id=self.institution.pk, run_id=self.run.pk,

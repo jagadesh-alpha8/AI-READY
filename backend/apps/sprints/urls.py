@@ -34,7 +34,9 @@ from apps.scoring.views import (
     SprintScoreView,
 )
 
-from apps.scoring.capability.views import CapabilityRunsView, RunView, CancelRunView, RunEvidenceView, ReviewStatusView
+from apps.scoring.capability.views import (
+    CapabilityRunsView, RunView, CancelRunView, RunEvidenceView, ReviewStatusView, PublicationView, ReportReadinessView,
+)
 from .views import SprintViewSet
 
 sprint_list = SprintViewSet.as_view({'get': 'list', 'post': 'create'})
@@ -50,10 +52,13 @@ from apps.scoring.capability.recommendation_views import (
 urlpatterns = [
     path('/<uuid:sprint_id>/capability-runs', CapabilityRunsView.as_view(), name='capability-runs'),
     path('/<uuid:sprint_id>/capability-runs/review-status', ReviewStatusView.as_view(), name='capability-review-status'),
+    path('/<uuid:sprint_id>/capability-runs/publication', PublicationView.as_view(), name='capability-publication'),
     path('/<uuid:sprint_id>/evidence-map/status', MapStatusView.as_view(), name='evidence-map-status'),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>', RunView.as_view(), name='capability-run'),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/cancel', CancelRunView.as_view(), name='capability-run-cancel'),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/evidence', RunEvidenceView.as_view(), name='capability-run-evidence'),
+    path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/report-readiness', ReportReadinessView.as_view(),
+         name='capability-run-report-readiness'),
     # Registered with and without a trailing slash for the same reason as
     # apps.institutions.urls: the task spec documents .../sprints/, while
     # APPEND_SLASH=False and this project's existing frontend calls
@@ -241,10 +246,12 @@ urlpatterns = [
 urlpatterns += [
     path('/<uuid:sprint_id>/capability-runs/', CapabilityRunsView.as_view()),
     path('/<uuid:sprint_id>/capability-runs/review-status/', ReviewStatusView.as_view()),
+    path('/<uuid:sprint_id>/capability-runs/publication/', PublicationView.as_view()),
     path('/<uuid:sprint_id>/evidence-map/status/', MapStatusView.as_view()),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/', RunView.as_view()),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/cancel/', CancelRunView.as_view()),
     path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/evidence/', RunEvidenceView.as_view()),
+    path('/<uuid:sprint_id>/capability-runs/<uuid:run_id>/report-readiness/', ReportReadinessView.as_view()),
 ]
 
 # Grounded advice is additive to the completed assessment; both slash forms are accepted.

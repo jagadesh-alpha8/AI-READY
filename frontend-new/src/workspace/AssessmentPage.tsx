@@ -15,6 +15,7 @@ import { errorMessage } from '../utils/errors';
 import { dateTime } from '../utils/format';
 import { levelFor, whole } from '../utils/levels';
 import { Icon, Stars } from './Icon';
+import { PublishPanel } from './PublishPanel';
 
 /**
  * The assessment for a college (23 Nov, Harsha's design): four steps from the documents to the final result, where
@@ -27,7 +28,7 @@ export function AssessmentPage() {
 type StepState = 'done' | 'current' | 'waiting';
 
 function AssessmentBody({ sprint }: { sprint: Sprint }) {
-  const { can } = useAccess();
+  const { can, staff } = useAccess();
   const cap = useCapability(sprint.id);
   const overview = useResource(() => getSprintOverview(sprint.id), `ws-ov:${sprint.id}`);
   const questions = useResource(() => getQuestions(sprint.id, cap.provisionalId), `ws-aq:${cap.provisionalId}`, !!cap.provisionalId);
@@ -53,6 +54,8 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
   const toCheck = progress?.to_check ?? 0;
   const disagree = conflicts.data || 0;
   const hasResult = score != null;
+  const preparing = cap.shown.preparing;   // a college: a result exists, InGage hasn't published it yet
+  const finalWaiting = !final && !!progress?.final_run_id;   // the final result exists, not published yet
   const failed = cap.newest?.status === 'failed' && !cap.running;
 
   const steps: { title: string; text: string; state: StepState; link?: { to: string; label: string } }[] = [
@@ -63,8 +66,9 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
       link: { to: pathOf(processed > 0 && disagree ? 'gaps' : 'uploads'), label: processed > 0 && disagree ? 'Settle facts' : 'Documents' },
     },
     {
-      title: 'Stage 1 result', state: hasResult ? 'done' : cap.running ? 'current' : processed > 0 ? 'current' : 'waiting',
+      title: 'Stage 1 result', state: hasResult ? 'done' : cap.running || preparing || processed > 0 ? 'current' : 'waiting',
       text: cap.running ? 'Reading your documents now. This takes a while; you can leave this page.'
+        : preparing ? 'Your result is being prepared. InGage checks it before it is shown to you.'
         : hasResult ? (final ? 'Done: your documents were read and scored.' : `From your documents: ${whole(score)} out of 100.`) : 'We read your documents against 216 practices in nine areas.',
     },
     {
@@ -75,7 +79,8 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
     },
     {
       title: 'Final result', state: final ? 'done' : 'waiting',
-      text: final ? `Published: ${whole(score)} out of 100.` : 'Published when you finish the follow-up questions.',
+      text: final ? `Published: ${whole(score)} out of 100.` : finalWaiting ? 'Being prepared: InGage checks your final result before it is shown to you.'
+        : 'Published when you finish the follow-up questions.',
       link: final ? { to: pathOf('cri'), label: 'See result' } : undefined,
     },
   ];
@@ -114,6 +119,11 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
                   catch (e) { setMsg({ tone: 'error', text: errorMessage(e) }); }
                 }}>Stop the assessment</button>
               )}
+            </>
+          ) : preparing ? (
+            <>
+              <h2>Your result is being prepared</h2>
+              <p className="muted" style={{ marginTop: 8 }}>Your documents have been read. InGage checks every result before it is shown to you; it appears on your Overview as soon as it is published.</p>
             </>
           ) : hasResult && level ? (
             <>
@@ -154,6 +164,8 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
           </ol>
         </aside>
       </div>
+
+      {staff && <PublishPanel sprintId={sprint.id} cap={cap} />}
 
       {confirming && (
         <ActionDialog

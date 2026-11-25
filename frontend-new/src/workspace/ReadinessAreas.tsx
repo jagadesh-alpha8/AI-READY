@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { RequireSprint } from '../components/RequireSprint';
-import { Empty, ErrorState, Loading } from '../components/ui';
-import { pathOf } from '../navigation';
+import { ErrorState, Loading } from '../components/ui';
 import type { Sprint } from '../types/api';
 import { whole } from '../utils/levels';
 import { Stars } from './Icon';
 import { ChecklistLine, pts } from './ResultParts';
+import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
 
 /** Results › Readiness areas: one card per area, what's in place, what's missing, and the next step. */
@@ -22,7 +22,7 @@ function Body({ sprint }: { sprint: Sprint }) {
   }, [hash, view]);
   if (cap.loading) return <Loading label="Loading the areas…" />;
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
-  if (!view) return <Empty title="No result yet" action={<Link className="btn primary" to={pathOf('assessment')}>Go to the assessment</Link>}>Run the assessment to see the nine areas.</Empty>;
+  if (!view) return <NoResult cap={cap}>Run the assessment to see the nine areas.</NoResult>;
 
   return (
     <div style={{ display: 'grid', gap: 18 }}>

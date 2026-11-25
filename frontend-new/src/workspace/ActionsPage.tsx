@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { RequireSprint } from '../components/RequireSprint';
 import { Empty, ErrorState, Loading } from '../components/ui';
-import { pathOf } from '../navigation';
 import type { Sprint } from '../types/api';
 import { Icon } from './Icon';
 import { ActionCard, ChecklistLine, pts } from './ResultParts';
+import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
 
 /**
@@ -21,7 +20,7 @@ function Body({ sprint }: { sprint: Sprint }) {
   const [area, setArea] = useState('all');
   if (cap.loading) return <Loading label="Loading your actions…" />;
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
-  if (!view) return <Empty title="No result yet" action={<Link className="btn primary" to={pathOf('assessment')}>Go to the assessment</Link>}>Your actions appear once the assessment has run.</Empty>;
+  if (!view) return <NoResult cap={cap}>Your actions appear once the assessment has run.</NoResult>;
 
   const inSteps = new Set(view.actions.flatMap((a) => a.requirements.map((r) => r.id)));
   // The rest of the checklist, area by area, leaving out what the first steps already cover.

@@ -999,6 +999,8 @@ class FinalResultReportTests(FinalResultTests):
                                         role=User.Role.IQAC_COORDINATOR, institution=self.institution)
         self.client = APIClient()
         self.client.force_authenticate(user)
+        from .publication_fixtures import every_result_published
+        every_result_published(self)
         self.base = f'/api/v1/sprints/{self.sprint.pk}/capability-runs'
 
     def test_reports_on_the_final_run_and_the_run_list(self):

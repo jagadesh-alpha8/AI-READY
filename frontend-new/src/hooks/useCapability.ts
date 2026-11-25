@@ -1,21 +1,24 @@
 import { useMemo } from 'react';
 import { getAdvice, getRun, listAdvice, listRuns } from '../services/capability';
 import type { CapabilityPage, CapabilityRecommendation, Job, Run } from '../types/capability';
-import { isActive } from '../utils/capability';
+import { isActive, shownRun } from '../utils/capability';
+import { useAccess } from './useAccess';
 import { usePolling, useResource } from './useResource';
 
 /**
- * The sprint's capability assessment: run history, the latest completed run in detail (the one a score comes
- * from), the newest run's progress, and the latest completed recommendation for that run. Polls while a job runs.
+ * The sprint's capability assessment: run history, the result shown in detail (the published run; for staff, the
+ * newest completed run while nothing is published), the newest run's progress, and the latest completed
+ * recommendation for the shown run. Polls while a job runs.
  */
 export function useCapability(sprintId: string) {
+  const { staff } = useAccess();
   const runs = useResource<CapabilityPage<Job>>(() => listRuns(sprintId), `cap-runs:${sprintId}`);
   const list = useMemo(() => runs.data?.results || [], [runs.data]);
   const newest = list[0] || null;
-  const completed = list.find((r) => r.status === 'completed') || null;
-  const runId = completed?.id || '';
+  const shown = useMemo(() => shownRun(list, runs.data?.published, staff), [list, runs.data?.published, staff]);
+  const runId = shown.id;
   // Questions, responses and second-layer jobs always belong to the provisional run; a final run names it.
-  const provisionalId = (completed?.stage === 'final' ? completed.provisional_run_id : completed?.id) || '';
+  const provisionalId = shown.provisionalId;
 
   const run = useResource<Run>(() => getRun(sprintId, runId), `cap-run:${runId}`, !!runId);
   const adviceList = useResource<CapabilityPage<Job>>(() => listAdvice(sprintId, runId), `cap-advice:${runId}`, !!runId);
@@ -33,7 +36,10 @@ export function useCapability(sprintId: string) {
     running: isActive(newest),
     run,
     provisionalId,
-    stage: completed?.stage || null,
+    stage: shown.stage,
+    /** Which run is shown and why (utils/capability.shownRun); `published` is the run list's publication. */
+    shown,
+    published: runs.data?.published || null,
     assessment,
     advice: advice.data,
     plan,

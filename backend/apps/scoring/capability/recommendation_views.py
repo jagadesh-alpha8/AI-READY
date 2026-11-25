@@ -16,7 +16,14 @@ class RecommendationBase(APIView):
 
     def run(self, request, sprint_id, run_id):
         sprint = get_authorized_sprint(request.user, sprint_id)
-        return get_object_or_404(CapabilityRun, pk=run_id, sprint=sprint)
+        run = get_object_or_404(CapabilityRun, pk=run_id, sprint=sprint)
+        # Advice is about a result: a college login reads it only for a published result (publication.py).
+        from apps.scoring.models import CapabilityExecution
+        from .publication import require_visible
+        execution = CapabilityExecution.objects.filter(run_id=run.pk).first()
+        if execution is not None:
+            require_visible(request.user, execution)
+        return run
 
     def execution(self, request, sprint_id, run_id, snapshot_id):
         run = self.run(request, sprint_id, run_id)
