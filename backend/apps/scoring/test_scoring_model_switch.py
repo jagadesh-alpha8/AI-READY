@@ -54,7 +54,7 @@ class SwitchTests(SimpleTestCase):
         service = AnthropicExtractionService(api_key='sk-ant-scoring', model='claude-haiku-5-5', client=MagicMock())
         with patch('apps.extraction.services.ai_service.get_ai_service', return_value=service) as get:
             self.assertIs(model_choice.scoring_service(), service)
-        get.assert_called_once_with(api_key='sk-ant-scoring', model='claude-haiku-5-5', base_url=None)
+        get.assert_called_once_with(api_key='sk-ant-scoring', model='claude-haiku-5-5', base_url='')
         self.assertTrue(service.json_output)
         self.assertEqual((model_choice.scoring_model(), model_choice.effort()), ('claude-haiku-5-5', 'max'))
 

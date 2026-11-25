@@ -57,7 +57,7 @@ def scoring_service():
     if not settings.CAPABILITY_AI_MODEL:
         raise ImproperlyConfigured('CAPABILITY_AI_API_KEY is set but CAPABILITY_AI_MODEL is not: name the scoring model.')
     service = get_ai_service(api_key=settings.CAPABILITY_AI_API_KEY, model=settings.CAPABILITY_AI_MODEL,
-                             base_url=settings.CAPABILITY_AI_BASE_URL or None)
+                             base_url=settings.CAPABILITY_AI_BASE_URL or '')   # never AI_BASE_URL (extraction's)
     if hasattr(service, 'json_output'):
         service.json_output = True   # Claude: JSON output (works with thinking) instead of a forced tool call
     return service

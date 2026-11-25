@@ -46,7 +46,7 @@ def tagger_service():
         if not model:
             raise ImproperlyConfigured('EVIDENCE_MAP_AI_API_KEY is set but EVIDENCE_MAP_AI_MODEL is not.')
         service = get_ai_service(api_key=key, model=model, base_url=getattr(settings, 'EVIDENCE_MAP_AI_BASE_URL', '')
-                                 or None)
+                                 or '')   # its own key never goes to extraction's AI_BASE_URL
     else:
         from apps.scoring.capability.model_choice import scoring_service
         service = scoring_service()
