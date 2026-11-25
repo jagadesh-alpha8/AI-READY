@@ -143,6 +143,13 @@ def configured_policy(mode=None):
 
 
 MAP_CAP_RANGE = (12000, 200000)
+#: A map-mode run on a sprint with no tagged page falls back to keyword mode at this size (the spec's "wide budget":
+#: test 13's 200,000-character keyword lane), or at CAPABILITY_KEYWORD_CHARS / the map cap if either is larger.
+MAP_FALLBACK_CHARS = 200000
+
+
+def map_fallback_chars(cap):
+    return max(MAP_FALLBACK_CHARS, keyword_chars(), cap)
 
 
 def map_policy(routing):
@@ -159,6 +166,13 @@ def map_policy(routing):
         raise SemanticRetrievalUnavailable(
             f'CAPABILITY_MAP_CAP_CHARS={cap:,} needs CAPABILITY_MAX_INPUT_TOKEN_BOUND of at least {2 * cap:,} '
             f'(it is {bound:,}); otherwise the requests are refused before sending.')
+    # The same check for the keyword fallback a sprint without a map gets (storage.map_for_run), so that run is
+    # refused here, before any model credit, rather than having every request refused before sending.
+    fallback = map_fallback_chars(cap)
+    if bound < 2 * fallback:
+        raise SemanticRetrievalUnavailable(
+            f'Map mode falls back to {fallback:,} characters of keyword search when a sprint has no map, which needs '
+            f'CAPABILITY_MAX_INPUT_TOKEN_BOUND of at least {2 * fallback:,} (it is {bound:,}).')
     shape = getattr(settings, 'EVIDENCE_MAP_SHAPE', 'one')
     if shape not in spec.SHAPES:
         raise SemanticRetrievalUnavailable(f'EVIDENCE_MAP_SHAPE must be one of {", ".join(spec.SHAPES)}.')

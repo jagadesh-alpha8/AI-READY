@@ -122,7 +122,7 @@ class OpenAIConflictChecker(ConflictChecker):
                     continue
                 if rules.same_statement(fact_a.value, fact_b.value, fact_a.data_type):
                     continue  # the same value once printing differences, name forms and initials are removed
-                if rules.bounds_agree([fact_a.value, fact_b.value]):
+                if rules.bounds_agree([fact_a.value, fact_b.value], misread=rules.misread_allowed([fact_a, fact_b])):
                     continue  # a number and a stated bound it satisfies
                 if not rules.comparable_pair(fact_a, fact_b)[0]:
                     continue  # different period / population / unit / categories: not the same metric

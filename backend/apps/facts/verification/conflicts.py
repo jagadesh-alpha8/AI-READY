@@ -96,7 +96,8 @@ def disagreements(facts):
             groups.append([fact])
     out = []
     for group in groups:
-        if len(distinct_values(group)) > 1 and not bounds_agree([f.value for f in group]):
+        if len(distinct_values(group)) > 1 and not bounds_agree([f.value for f in group],
+                                                                misread=misread_allowed(group)):
             out.append(group)
     return out
 
@@ -105,17 +106,39 @@ _BOUND = re.compile(r'(more than|greater than|over|above|exceeding|in excess of|
                     r'less than|fewer than|below|under|up to|at most|maximum of|not more than|>=|<=|>|<|\u2265|\u2264)'
                     r'\s*([\d][\d,]*(?:\.\d+)?)', re.I)
 _MISREAD_AT_LEAST = re.compile(r'^\s*\?\s*(?=\d)')   # "? 50": a "≥" the text layer could not encode
+# In Indian PDFs a lost glyph before an amount is far more often the rupee sign than "≥" ("? 2,00,000" is ₹2,00,000).
+# So "?" is read as "≥" only for facts that show no sign of being money (misread_allowed); otherwise the "?" is
+# dropped and the number compared as stated, which keeps a real money disagreement visible.
+_MONEY = re.compile(r'\u20b9|\brs\.?\s*\d|\binr\b|\brupees?\b|\blakhs?\b|\blacs?\b|\bcrores?\b|\bfees?\b|'
+                    r'\bamount\b|\bbudget|\bexpenditure|\bspent\b|\bsalar|\bincome\b|\brevenue\b|\bgrants?\b|'
+                    r'\bfund|\bcost|\bprice|\bpaid\b|\bpayment|\bscholarship|\bdonation|\bcash\b|\bstipend|'
+                    r'\bhonorari|\bremuneration|\bsponsor|\bprize money|\bturnover|\bprofit|\bloan|\bdeposit|'
+                    r'\b\d{1,2},\d{2},\d{3}\b', re.I)
+
+
+def misread_allowed(facts):
+    """True when none of the facts looks like money (data type, field name, value or source snippet), so a "?" before
+    a number may be read as a lost "≥". One currency-like fact in the group is enough to say no."""
+    for fact in facts:
+        if getattr(fact, 'data_type', '') == 'currency':
+            return False
+        text = ' '.join(str(getattr(fact, name, '') or '') for name in ('field_name', 'field_key', 'source_snippet'))
+        if _MONEY.search(text.replace('_', ' ')) or _MONEY.search(str(getattr(fact, 'value', '') or '')):
+            return False
+    return True
+
+
 _PLAIN = re.compile(r'^\s*([\d][\d,]*(?:\.\d+)?)\s*(?:%|percent)?\s*$', re.I)
 _LOWER = ('more than', 'greater than', 'over', 'above', 'exceeding', 'in excess of', '>')
 _LOWER_EQ = ('at least', 'minimum of', 'not less than', '>=', '\u2265')
 _UPPER = ('less than', 'fewer than', 'below', 'under', '<')
 
 
-def _interval(value):
+def _interval(value, misread=False):
     """(low, low_inclusive, high, high_inclusive) for a plain number or a stated bound ("more than 15000"),
-    None when the value is neither."""
+    None when the value is neither. misread: read a "?" before the number as "≥" (else it is dropped)."""
     from decimal import Decimal
-    text = _MISREAD_AT_LEAST.sub('>= ', str(value if value is not None else ''))
+    text = _MISREAD_AT_LEAST.sub('>= ' if misread else '', str(value if value is not None else ''))
     plain = _PLAIN.match(text)
     if plain:
         n = Decimal(plain.group(1).replace(',', ''))
@@ -133,10 +156,10 @@ def _interval(value):
     return None, False, n, True
 
 
-def bounds_agree(values):
+def bounds_agree(values, misread=False):
     """True when every value is a number or a stated bound and one number satisfies all of them, as with
     17224 and "more than 15000". Such facts state the same thing at different precision, not a conflict."""
-    intervals = [_interval(v) for v in values]
+    intervals = [_interval(v, misread) for v in values]
     if any(i is None for i in intervals) or all(i[0] == i[2] and i[0] is not None for i in intervals):
         return False  # not all numeric-or-bound, or only exact numbers (those differ: a real conflict)
     low, low_inc, high, high_inc = None, True, None, True

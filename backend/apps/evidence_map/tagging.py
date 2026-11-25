@@ -135,18 +135,41 @@ def _model_name():
     return scoring_model()
 
 
+def _spend_cap(max_cost_usd=None):
+    return Decimal(str(max_cost_usd if max_cost_usd is not None else getattr(settings, 'EVIDENCE_MAP_MAX_COST_USD', 5)))
+
+
+def start_job(sprint, *, shape='one', max_cost_usd=None):
+    """A running MapJob row for a pass that is about to start, before any page is read. tasks.tag_sprint creates it
+    while holding the sprint's row lock, so a second pass queued at the same time sees it and does not start."""
+    rubric, profiles, parts = spec.rubric_sources()
+    return MapJob.objects.create(sprint=sprint, map_version=spec.map_version(shape, rubric, profiles, parts),
+                                 model=_model_name(), shape=shape, spend_cap_usd=_spend_cap(max_cost_usd))
+
+
 def run(sprint, *, shape='one', concurrency=4, max_cost_usd=None, documents=None, limit_pages=None, service=None,
-        log=None):
-    """Tag the sprint's untagged pages. Returns the MapJob."""
-    service = service or tagger_service()
-    work = plan(sprint, shape=shape, service=service, documents=documents, limit_pages=limit_pages)
-    cap = Decimal(str(max_cost_usd if max_cost_usd is not None else getattr(settings, 'EVIDENCE_MAP_MAX_COST_USD', 5)))
+        log=None, job=None):
+    """Tag the sprint's untagged pages. Returns the MapJob (`job`, from start_job, when given)."""
     if type(concurrency) is not int or not 1 <= concurrency <= 16:
         raise ValueError('concurrency must be a whole number from 1 to 16.')
-    job = MapJob.objects.create(sprint=sprint, map_version=work['version'], model=work['model'], shape=shape,
-                                pages_total=work['pages_total'], pages_to_tag=work['pages_to_tag'],
-                                pages_skipped=work['pages_unreadable'], chunks_total=len(work['chunks']),
-                                spend_cap_usd=cap)
+    cap = _spend_cap(max_cost_usd)
+    try:
+        service = service or tagger_service()
+        work = plan(sprint, shape=shape, service=service, documents=documents, limit_pages=limit_pages)
+    except Exception as exc:
+        if job is not None:   # never leave a placeholder running: it would block passes until it goes stale
+            MapJob.objects.filter(pk=job.pk).update(status=MapJob.Status.FAILED, finished_at=timezone.now(),
+                                                    error=f'{type(exc).__name__}: {exc}'[:2000])
+        raise
+    counts = dict(map_version=work['version'], model=work['model'], shape=shape, pages_total=work['pages_total'],
+                  pages_unique=work['pages_unique'], pages_done_before=work['pages_done'],
+                  pages_to_tag=work['pages_to_tag'], pages_skipped=work['pages_unreadable'],
+                  chunks_total=len(work['chunks']), spend_cap_usd=cap)
+    if job is None:
+        job = MapJob.objects.create(sprint=sprint, **counts)
+    else:
+        MapJob.objects.filter(pk=job.pk).update(**counts)
+        job.refresh_from_db()
     state = {'stop': False, 'checks': Counter()}
     lock = threading.Lock()
     say = log or (lambda message: None)

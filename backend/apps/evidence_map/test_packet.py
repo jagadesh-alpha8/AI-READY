@@ -222,7 +222,7 @@ class FreezeTests(TestCase):
         from apps.scoring.capability.storage import map_for_run
         policy, frozen = map_for_run(self.sprint, self.sources, configured_policy())
         self.assertIsNone(frozen)
-        self.assertEqual((policy['mode'], policy['keyword_chars']), ('bm25', 60000))
+        self.assertEqual((policy['mode'], policy['keyword_chars']), ('bm25', 200000))   # the spec's wide budget
         self.assertEqual(policy['map_fallback']['reason'], 'no_map')
 
 

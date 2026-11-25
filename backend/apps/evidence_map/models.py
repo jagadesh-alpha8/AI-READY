@@ -61,6 +61,11 @@ class MapJob(models.Model):
     shape = models.CharField(max_length=16)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.RUNNING)
     pages_total = models.PositiveIntegerField(default=0)
+    #: Distinct page texts among the readable pages (identical pages are tagged once), and how many of those already
+    #: had a tagged row when the pass started. The tagged share is measured on these, not on pages_total. Null on
+    #: jobs from before they were recorded.
+    pages_unique = models.PositiveIntegerField(null=True, blank=True)
+    pages_done_before = models.PositiveIntegerField(null=True, blank=True)
     pages_to_tag = models.PositiveIntegerField(default=0)
     pages_tagged = models.PositiveIntegerField(default=0)
     pages_failed = models.PositiveIntegerField(default=0)
