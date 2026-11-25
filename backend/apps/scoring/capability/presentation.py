@@ -152,13 +152,18 @@ def _join(names):
     return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
-def choose_actions(result, records, areas, focus, total_weight, limit=6, per_area=2):
-    """What to do next: for each key indicator, the practices at its first unfinished stage (at most two), with the
-    overall points they would add when shown in full. The areas with the most to gain and the focus areas get their
-    best action first; then the largest gains, at most two per area and six in all. The code's choice, never the
-    model's: next_steps.py writes text only for the actions chosen here."""
-    candidates = []
-    for indicator in result['indicators']:
+def choose_actions(result, records, areas, focus=None, total_weight=None, start_here=3):
+    """What to do next: one step in every area (build brief, part B). In each key indicator the candidate is its
+    first unfinished stage (at most two practices), worth the overall points they would add when shown in full. An
+    area's step is its candidate at the earliest stage (the basics first), then worth the most points; on a tie, the
+    key indicator with more already in place (more to build on), then rubric order. Steps run weakest area first; the first `start_here` are "Where to start". The code's
+    choice, never the model's: next_steps.py writes text only for the steps chosen here."""
+    if total_weight is None:
+        total_weight = sum(float(i.get('weight_units') or 0) for i in result['indicators'])
+    scores = {i['code']: float(i.get('score') or 0)
+              for i in ((result.get('documented') or {}).get('indicators') or [])}
+    best = {}
+    for order, indicator in enumerate(result['indicators']):
         conditions = indicator['conditions']
         if not conditions:
             continue
@@ -171,25 +176,20 @@ def choose_actions(result, records, areas, focus, total_weight, limit=6, per_are
         weight = (float(indicator.get('weight_units') or 0) / total_weight) if total_weight else 1 / max(1, len(result['indicators']))
         points = sum((1 - cr) / len(conditions) * 100 * weight for _, cr in chosen)
         area = indicator.get('pillar') or indicator['code'].rsplit('.', 1)[0]
-        candidates.append({'title': AREA_TITLES.get(indicator['code'], indicator.get('name', '')), 'code': indicator['code'],
-                           'area_code': area, 'area': PILLARS.get(area, area), 'points': points,
-                           'step': STAGE_STEP.get(first, 'Show'),
-                           'conditions': [{'id': c['id'], 'text': c['text']} for c, _ in chosen]})
-    candidates.sort(key=lambda a: -a['points'])
-    picked, count = [], {}
-    priority = [a['code'] for a in sorted(areas, key=lambda a: -a['room'])[:3]] + [a['code'] for a in focus]
-    for code in dict.fromkeys(priority):
-        best = next((a for a in candidates if a['area_code'] == code and a not in picked), None)
-        if best and len(picked) < limit:
-            picked.append(best)
-            count[code] = count.get(code, 0) + 1
-    for a in candidates:
-        if len(picked) >= limit:
-            break
-        if a not in picked and count.get(a['area_code'], 0) < per_area:
-            picked.append(a)
-            count[a['area_code']] = count.get(a['area_code'], 0) + 1
-    return sorted(picked, key=lambda a: -a['points'])
+        candidate = {'title': AREA_TITLES.get(indicator['code'], indicator.get('name', '')), 'code': indicator['code'],
+                     'area_code': area, 'area': PILLARS.get(area, area), 'points': points,
+                     'step': STAGE_STEP.get(first, 'Show'),
+                     'conditions': [{'id': c['id'], 'text': c['text']} for c, _ in chosen]}
+        # The basics first (Siddharth, 26 Nov: "finishing the basics in every area"), then the most points, then
+        # the key indicator with more already in place, then rubric order.
+        rank = (-first, round(points, 6), scores.get(indicator['code'], 0.0), -order)
+        if area not in best or rank > best[area][0]:
+            best[area] = (rank, candidate)
+    area_score = {a['code']: a['score'] for a in areas}
+    picked = sorted((c for _, c in best.values()), key=lambda a: (area_score.get(a['area_code'], 0.0), a['area_code']))
+    for n, action in enumerate(picked):
+        action['start_here'] = n < start_here
+    return picked
 
 
 def level(score):

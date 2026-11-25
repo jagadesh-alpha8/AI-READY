@@ -5,8 +5,10 @@
     python manage.py capability_next_steps RUN_ID --out file.json
     python manage.py capability_next_steps RUN_ID --job           # queue the metered background job instead
     python manage.py capability_next_steps RUN_ID --job --final   # the same for the published final result
+    python manage.py capability_next_steps --export run.json --packets   # what each step is given; no model call
+    python manage.py capability_next_steps --export run.json --out steps.json   # write them from a report's JSON export
 
-One model call per chosen first step (at most six), a second only to fix the first's problems; through the scoring-
+One model call per chosen step (one in each area, nine at most), a second only to fix the first's problems; through the scoring-
 model switch (CAPABILITY_AI_*) at the writing effort. The background job (second-layer operation 'next_steps') is the
 metered route for the product; this is for consultants and for checking the wording on a real run.
 
@@ -24,8 +26,12 @@ class Command(BaseCommand):
     help = 'Write the next steps for a completed run (model calls, unmetered, capped).'
 
     def add_arguments(self, parser):
-        parser.add_argument('run_id')
-        parser.add_argument('--max-calls', type=int, default=12)
+        parser.add_argument('run_id', nargs='?')
+        parser.add_argument('--export', help="A report's JSON export (file=json) to write from, instead of a run in "
+                                             'this database. Never saved.')
+        parser.add_argument('--packets', action='store_true',
+                            help='Print each chosen step and the passages it would be given; no model call.')
+        parser.add_argument('--max-calls', type=int, default=18)
         parser.add_argument('--save', action='store_true')
         parser.add_argument('--out')
         parser.add_argument('--job', action='store_true',
@@ -35,8 +41,14 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         from apps.scoring.capability.depth import default_model
-        from apps.scoring.capability.next_steps import build_target, write
-        run = CapabilityRun.objects.filter(pk=options['run_id']).first()
+        from apps.scoring.capability.next_steps import build_target, packet, target_from_export, write
+        if options['export']:
+            if options['run_id'] or options['save'] or options['job']:
+                raise CommandError('--export reads a file: give no run id, and it is never saved or queued.')
+            with open(options['export']) as handle:
+                target = target_from_export(json.load(handle))
+            return self.write(target, options, packets=packet)
+        run = CapabilityRun.objects.filter(pk=options['run_id']).first() if options['run_id'] else None
         if run is None:
             raise CommandError('Run not found.')
         if options['job']:
@@ -47,6 +59,8 @@ class Command(BaseCommand):
             target = build_target(run)
         except ValueError as exc:
             raise CommandError(str(exc))
+        if options['packets']:
+            return self.write(target, options, packets=packet)
         model = default_model()
         written = write(target, model, max_calls=options['max_calls'])
         self.stdout.write(f"{written['calls']} calls; {len(written['actions'])} steps written; "
@@ -62,6 +76,30 @@ class Command(BaseCommand):
                 json.dump(written, handle, indent=2, ensure_ascii=False)
         elif not options['save']:
             self.stdout.write(json.dumps(written['actions'], indent=2, ensure_ascii=False))
+
+    def write(self, target, options, packets):
+        from apps.scoring.capability.depth import default_model
+        from apps.scoring.capability.next_steps import write
+        if options['packets']:
+            out = []
+            for action in target['actions']:
+                given = packets(action, target)
+                out.append({'area': action['area'], 'topic': action['title'], 'start_here': action.get('start_here'),
+                            'practices': [r['done_when'] for r in given['requirements']],
+                            'passages': [{k: p[k] for k in ('id', 'role', 'where', 'text')} for p in given['passages']]})
+            text = json.dumps(out, indent=2, ensure_ascii=False)
+        else:
+            written = write(target, default_model(), max_calls=options['max_calls'])
+            self.stdout.write(f"{written['calls']} calls; {len(written['actions'])} steps written; "
+                              f"{len(written['fallbacks'])} on the plain checklist.")
+            for key, errors in written['errors'].items():
+                self.stdout.write(f'  {key}: {len(errors)} problems left after the retry, e.g. {errors[0]}')
+            text = json.dumps(written, indent=2, ensure_ascii=False)
+        if options['out']:
+            with open(options['out'], 'w') as handle:
+                handle.write(text)
+        else:
+            self.stdout.write(text)
 
     def queue(self, run, final=False):
         import uuid

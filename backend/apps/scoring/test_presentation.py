@@ -27,22 +27,33 @@ class PresentationRuleTests(SimpleTestCase):
         self.assertIn('the NAAC criterion files', out)
         self.assertEqual(p.doc_label('NAAC SSR  Latest Self-Study Report.pdf'), 'NAAC SSR Latest Self-Study Report')
 
-    def test_actions_cover_the_areas_with_most_to_gain_first_at_most_two_per_area(self):
+    def test_one_step_per_area_the_basics_first_weakest_area_first(self):
         def indicator(code, weight):
             return {'code': code, 'pillar': code.split('.')[0], 'name': code, 'weight_units': weight,
                     'conditions': [{'id': f'{code}.{s}', 'text': f'practice {s}'} for s in ('F1', 'F2', 'A1', 'A2', 'O1', 'O2')]}
-        result = {'indicators': [indicator(f'AIQIF-C{a}.{i}', 10) for a in (1, 2, 3) for i in (1, 2, 3, 4)]}
-        records = {f'AIQIF-C1.{i}.F{n}': {'credit': 1.0} for i in (1, 2, 3, 4) for n in (1, 2)}   # C1's foundations shown
-        areas = [{'code': f'AIQIF-C{a}', 'room': r} for a, r in ((1, 5), (2, 30), (3, 20))]
-        actions = p.choose_actions(result, records, areas, [], 120, limit=5)
-        self.assertEqual(len(actions), 5)
-        by_area = {}
-        for a in actions:
-            by_area[a['area_code']] = by_area.get(a['area_code'], 0) + 1
-        self.assertLessEqual(max(by_area.values()), 2)
-        c1 = [a for a in actions if a['area_code'] == 'AIQIF-C1']
-        self.assertTrue(all(a['step'] == 'Put in use' for a in c1))   # the first unfinished stage
-        # Each action names the requirements it is about (next_steps.py writes text only for these).
+        result = {'indicators': [indicator(f'AIQIF-C{a}.{i}', 20 if i == 4 else 10) for a in (1, 2, 3, 4) for i in (1, 2, 3, 4)],
+                  'documented': {'indicators': [{'code': 'AIQIF-C3.2', 'score': 10.0}]}}
+        records = {f'AIQIF-C1.{i}.F{n}': {'credit': 1.0} for i in (1, 2, 3, 4) for n in (1, 2)}   # C1's basics shown
+        records['AIQIF-C2.4.F1'] = {'credit': 1.0}                    # C2.4: one basic left, double weight
+        records.update({f'AIQIF-C4.{i}.{s}': {'credit': 1.0} for i in (1, 2, 3, 4)
+                        for s in ('F1', 'F2', 'A1', 'A2', 'O1', 'O2')})  # C4 complete: no step
+        areas = [{'code': f'AIQIF-C{a}', 'score': s, 'room': 0} for a, s in ((1, 40), (2, 3), (3, 20), (4, 100))]
+        actions = p.choose_actions(result, records, areas)
+        self.assertEqual([a['area_code'] for a in actions], ['AIQIF-C2', 'AIQIF-C3', 'AIQIF-C1'])   # weakest first
+        self.assertEqual([a['start_here'] for a in actions], [True, True, True])
+        by = {a['area_code']: a for a in actions}
+        # C1: every basic is shown, so its step is the next stage.
+        self.assertEqual(by['AIQIF-C1']['step'], 'Put in use')
+        self.assertTrue(all(c['id'].rsplit('.', 1)[-1].startswith('A') for c in by['AIQIF-C1']['conditions']))
+        # C2: the basics first, then the most points: C2.4's one basic at double weight ties the others' two; on a tie
+        # rubric order decides.
+        self.assertEqual((by['AIQIF-C2']['code'], by['AIQIF-C2']['step']), ('AIQIF-C2.1', 'Set up'))
+        # C3: at the same stage, the most points (C3.4 has double weight).
+        self.assertEqual(by['AIQIF-C3']['code'], 'AIQIF-C3.4')
         self.assertTrue(all(1 <= len(a['conditions']) <= 2 for a in actions))
-        self.assertTrue(all(c['id'].rsplit('.', 1)[-1].startswith('A') for a in c1 for c in a['conditions']))
-        self.assertEqual(actions, sorted(actions, key=lambda a: -a['points']))
+        self.assertEqual([a['start_here'] for a in p.choose_actions(result, records, areas, start_here=1)],
+                         [True, False, False])
+        # A tie on points and stage goes to the key indicator with more already in place.
+        result['indicators'] = [i for i in result['indicators'] if i['code'] != 'AIQIF-C3.4']
+        self.assertEqual({a['area_code']: a['code'] for a in p.choose_actions(result, records, areas)}['AIQIF-C3'],
+                         'AIQIF-C3.2')

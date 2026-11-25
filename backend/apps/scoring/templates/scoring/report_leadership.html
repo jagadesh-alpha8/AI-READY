@@ -62,7 +62,7 @@
 
 <section class="page">
   {% if v.actions %}<div><h2>What to do next</h2>
-  <p class="small muted" style="margin:-4px 0 4px">{{ v.actions|length }} first steps across the areas with the most to gain; together about {{ v.actions_points|points }}. Every step is listed in the detailed report.</p>
+  <p class="small muted" style="margin:-4px 0 4px">One step in each area, weakest area first. Every practice still to do is listed in the detailed report.</p>
   {% for x in v.actions %}<div class="action"><div class="ncell"><span class="n">{{ forloop.counter }}</span></div><div>
     <h3>{{ x.title }}</h3>
     {% if x.action %}<p class="step-text">{{ x.action }}</p>{% endif %}

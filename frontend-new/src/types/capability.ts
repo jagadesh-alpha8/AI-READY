@@ -277,6 +277,10 @@ export interface StepSource { text: string; sources: string[] }
  * written text (action, have, related, not_found, first_step, owner) from the next-steps job, else the fallback. */
 export interface NextStepAction {
   key: string; code: string; title: string; area: string; area_code: string; points: number; step: string;
+  /** One of the three weakest areas' steps: "Where to start". */
+  start_here?: boolean;
+  /** How the step starts (written steps only): extend something the college has, name an owner or record, or start. */
+  kind?: 'extend' | 'name' | 'start' | null;
   generated: boolean; action: string | null; have: StepSource[]; related: StepSource[]; not_found: string | null;
   first_step: string | null; owner: { name: string; suggested: boolean; source: string | null };
   requirements: ChecklistItem[];
@@ -284,7 +288,7 @@ export interface NextStepAction {
 export interface NextSteps {
   version: string | null;
   written: boolean;
-  /** The leadership report's first steps (4 to 6), the same everywhere. */
+  /** One step in every area, weakest area first, the same everywhere; the first three are "Where to start". */
   actions: NextStepAction[];
   /** Every requirement not yet done, by area code, foundations first. */
   checklist: Record<string, ChecklistItem[]>;

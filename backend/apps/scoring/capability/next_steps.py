@@ -1,8 +1,8 @@
 """Next steps written for the college (issue 61): less generic than the rubric's own sentences.
 
 What the code decides, never the model:
-- which actions, their order and their points (presentation.choose_actions: foundations first, the areas with the most
-  to gain, at most two per area and six in all);
+- which actions, their order and their points (presentation.choose_actions: one in every area, the basics first,
+  weakest area first; the first three are "Where to start");
 - each requirement's label: at Stage 1 "Partly in place" (some credit) or "Not found in your documents"; in the final
   result also "Not started" where the college answered "Not yet in place" (a supported answer has already moved the
   credit, so it shows as partly in place or done);
@@ -15,7 +15,9 @@ as related and never as evidence of the practice; what we did not find; a first 
 should own it, named in the college's own passages, or a generic role marked "suggested".
 
 Passages come only from the run's saved record: the credited citations and the packets in its traces (what the judge
-saw). Never a fresh search. Every claim is checked against those passages; anything that fails twice falls back to the
+saw), for every key indicator, ranked by closeness to the gap in the records' own words (builds_on_v1.json), so a step
+can build on something the college has that earned no credit anywhere. Never a fresh search. The model also says how
+the step starts: extend something the college has, name an owner or record for it, or start it. Every claim is checked against those passages; anything that fails twice falls back to the
 plain checklist (fallback()), which is also what every run without written steps shows.
 """
 import hashlib
@@ -28,8 +30,10 @@ from pathlib import Path
 from .explanations import MACHINERY, NUMBER, NUMBER_WORDS, PERCENT, WIDENING, _norm, _spans
 
 logger = logging.getLogger(__name__)
-VERSION = 'next-steps-0.1'
+VERSION = 'next-steps-0.2'
 DONE_WHEN_FILE = Path(__file__).with_name('done_when_v1.json')
+BUILDS_ON_FILE = Path(__file__).with_name('builds_on_v1.json')
+KINDS = ('extend', 'name', 'start')
 
 PARTLY, NOT_FOUND, NOT_STARTED = 'Partly in place', 'Not found in your documents', 'Not started'
 
@@ -62,9 +66,10 @@ COMMON_CAPITALS = {'AI', 'I', 'We', 'You', 'Your', 'Our', 'This', 'That', 'These
 MAX_FIELD_CHARS = 420
 MAX_ITEMS = 3
 PASSAGE_CHARS = 1500      # one passage as the model sees it (starting value)
-PACKET_PASSAGES = 10      # from the indicator's own packet, beyond the cited ones (starting value)
+PACKET_PASSAGES = 6       # from the indicator's own packet, beyond the cited ones, closest first (starting value)
 PACKET_CHARS = 14000      # all passages of one action together (starting value)
-RELATED = 4               # credited quotations from other key indicators (starting value)
+RELATED = 6               # from everything else the assessment read, closest to the gap first (starting value)
+MIN_CLOSENESS = 0.35      # a passage below this share of the closest passage's closeness is left out (starting value)
 
 
 # ------------------------------------------------------------------ the checklist (no model)
@@ -72,6 +77,16 @@ RELATED = 4               # credited quotations from other key indicators (start
 @lru_cache(maxsize=1)
 def _done_when_file():
     return json.loads(DONE_WHEN_FILE.read_text())['conditions']
+
+
+@lru_cache(maxsize=1)
+def _builds_on_file():
+    return json.loads(BUILDS_ON_FILE.read_text())['indicators']
+
+
+def builds_on(code):
+    """What a college may already have that a step in this key indicator can build on, in its records' words."""
+    return _builds_on_file().get(code, [])
 
 
 def sentence_hash(text):
@@ -178,7 +193,8 @@ def fallback(action, records, pages, not_started_ids=frozenset()):
             if cite:
                 found.append({'text': f'“{_quote(cite["quote"], 220)}”',
                               'sources': [_page_label(pages, cite.get('source_id'))]})
-    return {'key': action_key(action), 'generated': False, 'action': None, 'have': found[:MAX_ITEMS], 'related': [],
+    return {'key': action_key(action), 'generated': False, 'kind': None, 'action': None, 'have': found[:MAX_ITEMS],
+            'related': [],
             'not_found': _fallback_not_found(requirements), 'first_step': None,
             'owner': {'name': GENERIC_OWNERS.get(action['area_code'], 'the office responsible for this area'),
                       'suggested': True, 'source': None},
@@ -204,10 +220,11 @@ def finish(actions, records, pages, stored=None, not_started_ids=frozenset()):
         base = fallback(action, records, pages, not_started_ids)
         text = written.get(base['key'])
         if text:
-            base.update({'generated': True, 'action': text['action'], 'have': text['have'],
+            base.update({'generated': True, 'kind': text.get('kind'), 'action': text['action'], 'have': text['have'],
                          'related': text['related'], 'not_found': text['not_found'] or None,
                          'first_step': text['first_step'], 'owner': text['owner']})
-        out.append({**{k: action[k] for k in ('code', 'title', 'area', 'area_code', 'points', 'step')}, **base})
+        out.append({**{k: action[k] for k in ('code', 'title', 'area', 'area_code', 'points', 'step')},
+                    'start_here': bool(action.get('start_here')), **base})
     return out
 
 
@@ -241,9 +258,13 @@ SYSTEM_PROMPT = """You write the next steps in an AI-readiness report for a coll
 You are given ONE action that has already been chosen, the requirement(s) it is about, and passages from the college's own documents. Each passage has an id (P1, P2, ...), the document and page it comes from, and a role:
 - "credited": the assessment found this passage shows part of this requirement.
 - "seen": the reviewer read this passage for this area; it may or may not bear on the requirement.
-- "related": credited for a different practice. It may be something the college can build on, but it is never evidence that this practice exists.
+- "related": from elsewhere in the college's documents, chosen because it is close to what this step is about (a policy, office, system, programme or record nearby). Some were credited for a different practice ("credited_elsewhere": true), some were not credited at all. It may be something the college can build on, but it is never evidence that this practice exists.
 
 Write these fields:
+- kind: how the step starts.
+  "extend": something the college already has (a "credited", "seen" or "related" passage) can be extended or adapted to this practice. Prefer this whenever a passage names a real starting point, for example extending an existing plagiarism policy to cover AI use.
+  "name": the thing exists, but no owner, record or decision about it is named; the step names one.
+  "start": nothing in the passages is a fair starting point; the step starts it, and says so plainly. have and related are then empty.
 - action: one sentence, at most 30 words, saying what the college should do, in its own terms (its own offices, programmes, systems and documents where the passages name them). Not a copy of the requirement.
 - have: at most three things the college already has towards THIS requirement, each one sentence citing the "credited" passages it rests on in passage_ids. Empty when no passage is "credited".
 - related: at most three things the college has that it can build on, each citing "seen" or "related" passages. Say plainly that they are a starting point, not the practice itself.
@@ -264,8 +285,9 @@ def schema(passage_ids):
     item = {'type': 'object', 'additionalProperties': False, 'required': ['text', 'passage_ids'],
             'properties': {'text': {'type': 'string'}, 'passage_ids': ids}}
     return {'type': 'object', 'additionalProperties': False,
-            'required': ['action', 'have', 'related', 'not_found', 'first_step', 'owner'],
+            'required': ['kind', 'action', 'have', 'related', 'not_found', 'first_step', 'owner'],
             'properties': {
+                'kind': {'type': 'string', 'enum': list(KINDS)},
                 'action': {'type': 'string'}, 'have': {'type': 'array', 'items': item},
                 'related': {'type': 'array', 'items': item}, 'not_found': {'type': 'string'},
                 'first_step': {'type': 'string'},
@@ -275,38 +297,120 @@ def schema(passage_ids):
                                          'passage_id': {'type': 'string'}}}}}
 
 
+STOP = frozenset(['about', 'across', 'after', 'also', 'among', 'and', 'any', 'been', 'before', 'being', 'between', 'college', 'could', 'each', 'every', 'for', 'from', 'had', 'has', 'have', 'include', 'includes', 'including', 'institution', 'institutional', 'into', 'more', 'most', 'only', 'other', 'ours', 'over', 'shall', 'should', 'some', 'such', 'than', 'that', 'the', 'their', 'them', 'then', 'there', 'these', 'they', 'this', 'those', 'under', 'university', 'upon', 'used', 'using', 'were', 'what', 'when', 'where', 'which', 'while', 'whom', 'whose', 'will', 'with', 'within', 'without', 'would', 'your', 'yours'])
+
+
 def _words(text):
     return set(re.findall(r'[a-z]{4,}', (text or '').lower()))
 
 
-def _excerpt(text, quote=None, limit=PASSAGE_CHARS):
+def _terms(text):
+    return [w for w in re.findall(r'[a-z0-9]+', (text or '').lower()) if len(w) >= 3 and w not in STOP]
+
+
+class Closeness:
+    """How close a passage is to a gap: BM25 over every passage the assessment read, with the gap described in the
+    rubric's words (what is asked, what counts) and, weighted double, in its records' words (builds_on_v1.json). A
+    phrase of several words counts only where it appears whole. Search only; never a score."""
+    K1, B = 1.2, 0.75
+
+    def __init__(self, texts):
+        import math
+        self.docs = [_terms(t) for t in texts]
+        self.lower = [re.sub(r'\s+', ' ', (t or '').lower()) for t in texts]
+        self.length = sum(len(d) for d in self.docs) / max(1, len(self.docs))
+        df = {}
+        for d in self.docs:
+            for w in set(d):
+                df[w] = df.get(w, 0) + 1
+        n = len(self.docs)
+        self.idf = {w: math.log(1 + (n - k + 0.5) / (k + 0.5)) for w, k in df.items()}
+        self.tf = [{} for _ in self.docs]
+        for d, tf in zip(self.docs, self.tf):
+            for w in d:
+                tf[w] = tf.get(w, 0) + 1
+
+    def _term(self, i, w):
+        f = self.tf[i].get(w, 0)
+        if not f:
+            return 0.0
+        norm = f * (self.K1 + 1) / (f + self.K1 * (1 - self.B + self.B * len(self.docs[i]) / max(1, self.length)))
+        return self.idf.get(w, 0.0) * norm
+
+    def score(self, i, asked, phrases):
+        """asked: the rubric's words (weight 1). phrases: the records' words (weight 2; several words only whole)."""
+        total = sum(self._term(i, w) for w in set(asked))
+        for phrase in phrases:
+            words = _terms(phrase)
+            if not words:
+                continue
+            if len(words) > 1 and phrase.lower() not in self.lower[i]:
+                continue
+            total += 2 * max(self._term(i, w) for w in words)
+        return total
+
+
+def _excerpt(text, quote=None, limit=PASSAGE_CHARS, near=()):
     text = re.sub(r'\s+', ' ', str(text or '')).strip()
     if len(text) <= limit:
         return text
     start = 0
-    if quote:
-        at = _norm(text).find(_norm(quote)[:80])
-        if at >= 0:
-            start = max(0, at - limit // 3)
+    at = _norm(text).find(_norm(quote)[:80]) if quote else -1
+    if at < 0 and near:
+        # The window holding the most of the records' words (Turnitin and DrillBit, not the page's first "policy").
+        lowered = text.lower()
+        hits = sorted((m.start(), n) for n in near for m in re.finditer(re.escape(n.lower()), lowered))
+        best = None
+        for pos, _ in hits:
+            lo = max(0, pos - limit // 3)
+            inside = {n for p2, n in hits if lo <= p2 < lo + limit}
+            if best is None or len(inside) > best[0]:
+                best = (len(inside), pos)
+        at = best[1] if best else -1
+    if at >= 0:
+        start = max(0, at - limit // 3)
     cut = text[start:start + limit]
     return ('…' if start else '') + cut + '…'
 
 
+def pool(traces):
+    """Every passage the assessment read, once (a page window read for several key indicators is one passage), with
+    the key indicators whose packets held it."""
+    seen, out = {}, []
+    for trace in traces or []:
+        for excerpt in trace.get('source_excerpts') or []:
+            key = (str(excerpt.get('id')), _norm(excerpt.get('text'))[:300])
+            if key in seen:
+                out[seen[key]]['indicators'].add(trace.get('indicator'))
+                continue
+            seen[key] = len(out)
+            out.append({'id': str(excerpt.get('id')), 'text': excerpt.get('text') or '',
+                        'indicators': {trace.get('indicator')}})
+    return out
+
+
 def packet(action, target):
-    """What the model is given for one action: the requirement(s), and passages from the run's saved record only."""
+    """What the model is given for one action: the requirement(s), and passages from the run's saved record only:
+    the credited quotations; the closest passages of this key indicator's own packet ("seen"); and the closest
+    passages from everything else the assessment read, credited or not ("related"), so a step can build on what the
+    college has wherever it was found (a plagiarism policy for responsible-use guidance)."""
     records, pages = target['records'], target['pages']
     code = action['code']
     trace = target['packets'].get(code) or []
+    phrases = builds_on(code)
     passages, seen_text = [], set()
 
-    def add(role, source_id, text, quote=None):
-        body = _excerpt(text, quote)
-        key = (str(source_id), _norm(body)[:200])
+    def add(role, source_id, text, quote=None, **extra):
+        body = _excerpt(text, quote, near=phrases)
+        # The same text filed under several documents (one criterion's attachment uploaded more than once) is one
+        # passage.
+        key = _norm(body)[:200]
         if not body or key in seen_text or sum(len(p['text']) for p in passages) + len(body) > PACKET_CHARS:
-            return
+            return False
         seen_text.add(key)
         passages.append({'id': f'P{len(passages) + 1}', 'role': role, 'where': _page_label(pages, source_id),
-                         'source_id': str(source_id), 'text': body})
+                         'source_id': str(source_id), 'text': body, **extra})
+        return True
 
     def around(source_id, quote):
         """The excerpt of the judge's packet that holds a quotation, else the quotation itself."""
@@ -321,7 +425,7 @@ def packet(action, target):
         record = records.get(c['id']) or {}
         credit = credit_of(record)
         parts = (target['parts'].get(c['id']) or {}).get('parts') or []
-        asks += [c['text']] + [p.get('full') or '' for p in parts]
+        asks += [c['text'], done_when(c)] + [p.get('full') or '' for p in parts]
         requirements.append({'what_it_asks': c['text'], 'done_when': 'Done when: ' + done_when(c),
                              'label': label(c['id'], credit, target['not_started']),
                              'what_counts': [p.get('full') for p in parts if p.get('full')],
@@ -331,26 +435,29 @@ def packet(action, target):
             for cite in cites:
                 if cite.get('quote'):
                     add('credited', cite.get('source_id'), around(cite.get('source_id'), cite['quote']), cite['quote'])
-    # The rest of this indicator's packet (what the judge read), the passages closest to what is asked first.
-    want = _words(' '.join(asks))
-    ranked = sorted(trace, key=lambda e: (-len(want & _words(e.get('text'))), str(e.get('id')), e.get('text_offset', 0)))
-    for excerpt in ranked[:PACKET_PASSAGES * 2]:
-        if sum(1 for p in passages if p['role'] == 'seen') >= PACKET_PASSAGES:
+
+    everything = target.get('pool') or pool([{'indicator': code, 'source_excerpts': trace}])
+    closeness = target.get('closeness') or Closeness([p['text'] for p in everything])
+    asked = _terms(' '.join(asks))
+    ranked = sorted(range(len(everything)), key=lambda i: (-closeness.score(i, asked, phrases), i))
+    # Credited elsewhere: the requirements credited at half or more, by their source pages.
+    credited_pages = {str(x.get('source_id')) for cid, r in records.items() if credit_of(r) >= 0.5
+                      for x in (r.get('citations') or [y for p in r.get('parts') or [] for y in p.get('citations') or []])}
+    own = [i for i in ranked if code in everything[i]['indicators']]
+    other = [i for i in ranked if code not in everything[i]['indicators']]
+    # Passages far weaker than the closest one are noise, not something to build on.
+    floor = MIN_CLOSENESS * (closeness.score(ranked[0], asked, phrases) if ranked else 0)
+    taken = 0
+    for i in own:
+        if taken >= PACKET_PASSAGES or closeness.score(i, asked, phrases) <= max(0.0, floor):
             break
-        if want & _words(excerpt.get('text')):
-            add('seen', excerpt.get('id'), excerpt.get('text'))
-    # Credited elsewhere: things the college can build on, same area first.
-    from .presentation import quote_quality
-    others = []
-    for cid, record in records.items():
-        if cid.startswith(code + '.') or credit_of(record) < 0.5:
-            continue
-        for cite in record.get('citations') or [x for p in record.get('parts') or [] for x in p.get('citations') or []]:
-            if cite.get('quote') and quote_quality(cite['quote'], credit_of(record)) > 0:
-                same = cid.startswith(action['area_code'] + '.')
-                others.append((not same, -quote_quality(cite['quote'], credit_of(record)), cid, cite))
-    for *_, cite in sorted(others, key=lambda x: x[:3])[:RELATED]:
-        add('related', cite.get('source_id'), cite['quote'])
+        taken += add('seen', everything[i]['id'], everything[i]['text'])
+    taken = 0
+    for i in other:
+        if taken >= RELATED or closeness.score(i, asked, phrases) <= max(0.0, floor):
+            break
+        taken += add('related', everything[i]['id'], everything[i]['text'],
+                     credited_elsewhere=everything[i]['id'] in credited_pages)
     return {'college': target['college'], 'area': action['area'], 'topic': action['title'], 'stage': action['step'],
             'requirements': requirements, 'passages': passages}
 
@@ -386,6 +493,15 @@ def validate(given, output):
     owner = out.get('owner') or {}
     owner = {'name': _clean(owner.get('name')), 'kind': owner.get('kind'), 'passage_id': _clean(owner.get('passage_id'))}
 
+    kind = out.get('kind')
+    if kind not in KINDS:
+        problems.append('kind must be extend, name or start.')
+    elif kind == 'start' and (lists['have'] or lists['related']):
+        problems.append('kind "start" means nothing is a fair starting point: have and related must then be empty '
+                        '(or choose "extend").')
+    elif kind in ('extend', 'name') and not (lists['have'] or lists['related']):
+        problems.append(f'kind "{kind}" builds on something the college has: cite it under have or related '
+                        '(or choose "start").')
     if not text['action']:
         problems.append('action is empty.')
     if not text['first_step']:
@@ -464,7 +580,7 @@ def validate(given, output):
     if problems:
         return None, sorted(set(problems), key=problems.index)
     where = {p['id']: p['where'] for p in given['passages']}
-    return {'action': text['action'], 'not_found': text['not_found'], 'first_step': text['first_step'],
+    return {'kind': kind, 'action': text['action'], 'not_found': text['not_found'], 'first_step': text['first_step'],
             'have': [{'text': i['text'], 'sources': [where[x] for x in i['passage_ids']]} for i in lists['have']],
             'related': [{'text': i['text'], 'sources': [where[x] for x in i['passage_ids']]} for i in lists['related']],
             'owner': {'name': owner['name'], 'suggested': owner['kind'] == 'suggested_role',
@@ -524,26 +640,41 @@ def write(target, model, *, max_calls=None, skip_error=None):
 
 def build_target(run):
     """What the writer reads for a completed run (provisional or final), from its stored record only."""
-    from .presentation import build as present, doc_label
-    from .part_judgment import _load as load_parts
     event = run.events.filter(state='completed', payload__result__isnull=False).last()
     if event is None:
         raise ValueError(f'Run {run.pk} has no completed assessment.')
-    inputs = run.inputs or {}
-    payload = event.payload
+    return _target(str(run.pk), event.pk, run.inputs or {}, event.payload, not_started(run))
+
+
+def target_from_export(export):
+    """The same, from a report's JSON export (`file=json`, staff only): to check the wording on a real run away from
+    its database. The export carries the frozen inputs the writer reads and the assessment with its traces."""
+    inputs = {'manifest': export.get('source_manifest') or [], 'profile': export.get('profile') or {},
+              'scope': export.get('scope'), 'population': export.get('population'),
+              'second_layer': (export.get('assessment_stage') or {}).get('stage') == 'final' or None}
+    return _target(export['run_id'], export['assessment_event_id'], inputs, export['assessment'],
+                   frozenset(export.get('not_started') or ()))
+
+
+def _target(run_id, event_id, inputs, payload, not_started_ids):
+    from .presentation import build as present, doc_label
+    from .part_judgment import _load as load_parts
     manifest = inputs.get('manifest') or []
     pages = {str(p['page_id']): f"{doc_label(d['filename'])}, page {p.get('number', '?')}"
              for d in manifest for p in d.get('pages', [])}
     view = present({'assessment': {k: v for k, v in payload.items() if k != 'traces'}, 'source_manifest': manifest,
                     'profile': inputs.get('profile') or {}, 'scope': inputs.get('scope'),
-                    'assessment_stage': {'stage': 'final' if inputs.get('second_layer') else 'provisional'}})
+                    'assessment_stage': {'stage': 'final' if inputs.get('second_layer') else 'provisional'},
+                    'not_started': sorted(not_started_ids)})
     profile = inputs.get('profile') or {}
     population = inputs.get('population') or {}
     college = {'name': (inputs.get('scope') or {}).get('institution', {}).get('assessed_name') or profile.get('name'),
                'type': profile.get('institution_type') or profile.get('type'),
                'size': {k: v for k, v in population.items() if isinstance(v, (int, float, str)) and k != 'label'}
                if isinstance(population, dict) else {}}
-    return {'run_id': str(run.pk), 'event_id': event.pk, 'records': {r['condition_id']: r for r in payload['records']},
+    everything = pool(payload.get('traces'))
+    return {'run_id': run_id, 'event_id': event_id, 'records': {r['condition_id']: r for r in payload['records']},
             'packets': {t['indicator']: t.get('source_excerpts') or [] for t in payload.get('traces') or []},
+            'pool': everything, 'closeness': Closeness([p['text'] for p in everything]),
             'pages': pages, 'parts': load_parts()[0]['conditions'], 'actions': view['raw_actions'], 'college': college,
-            'not_started': not_started(run)}
+            'not_started': not_started_ids}

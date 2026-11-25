@@ -30,6 +30,8 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
       </NoResult>
     );
   }
+  // "Where to start": the steps of the three weakest areas (all nine are on the actions page).
+  const startHere = view.actions.filter((a) => a.start_here).length ? view.actions.filter((a) => a.start_here) : view.actions.slice(0, 3);
   const progress = questions.data?.progress;
   const left = progress?.open ?? 0;
   const closed = !!progress?.final_run_id || view.final;
@@ -107,12 +109,12 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
         <Link className="text-btn" to={pathOf('actions')}>All recommended actions <Icon name="chevron" size={14} /></Link></div>
       <FocusCards view={view} />
 
-      {view.actions.length > 0 && (
+      {startHere.length > 0 && (
         <>
           <div className="spacer" />
-          <div className="section-head"><div><h2>What to do next</h2><p>Your first steps, the same as in your leadership report</p></div>
+          <div className="section-head"><div><h2>Where to start</h2><p>A step in each of your three weakest areas</p></div>
             <Link className="text-btn" to={pathOf('actions')}>All recommended actions <Icon name="chevron" size={14} /></Link></div>
-          <div className="ws-action-list">{view.actions.map((a, i) => <ActionCard key={a.key} a={a} n={i + 1} compact />)}</div>
+          <div className="ws-action-list">{startHere.map((a, i) => <ActionCard key={a.key} a={a} n={i + 1} compact />)}</div>
         </>
       )}
 

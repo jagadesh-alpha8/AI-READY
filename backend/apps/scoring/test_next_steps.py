@@ -67,7 +67,7 @@ def given(credited=True):
 
 
 def good(credited=True):
-    return {'action': 'Turn your e-Varsity ERP records into a register of the data your offices hold.',
+    return {'kind': 'extend', 'action': 'Turn your e-Varsity ERP records into a register of the data your offices hold.',
             'have': [{'text': 'Your "e-Varsity ERP digitises student, faculty and staff data".', 'passage_ids': ['P1']}]
             if credited else [],
             'related': [{'text': 'The Internal Quality Assurance Cell already reviews feedback; a starting point, '
@@ -115,12 +115,24 @@ class ValidationTests(SimpleTestCase):
             (lambda o: o['owner'].update(kind='suggested_role', name='Prof. K. Rao', passage_id=''), 'never name a person'),
             (lambda o: o.update(action=''), 'action is empty'),
             (lambda o: o.update(action='Improve all departments.'), 'wider than the passages'),
+            (lambda o: o.pop('kind'), 'kind must be'),
+            (lambda o: o.update(kind='begin'), 'kind must be'),
+            (lambda o: o.update(kind='start'), 'have and related must then be empty'),
+            (lambda o: o.update(kind='name', have=[], related=[]), 'cite it under have or related'),
         ]
         for change, words in cases:
             with self.subTest(words=words):
                 self.assert_rejected(change, words)
         # Nothing credited: "have" stays empty; what they can build on goes under related.
         self.assert_rejected(lambda o: None, 'have must be empty', given(credited=False))
+
+    def test_the_three_kinds(self):
+        for kind in ('extend', 'name'):
+            text, problems = self.check(dict(good(), kind=kind))
+            self.assertEqual((problems, text['kind']), ([], kind))
+        start = dict(good(credited=False), kind='start', related=[])
+        text, problems = self.check(start, given(credited=False))
+        self.assertEqual((problems, text['kind']), ([], 'start'))
 
     def test_a_suggested_generic_role_passes(self):
         output = good()
@@ -130,6 +142,45 @@ class ValidationTests(SimpleTestCase):
         self.assertEqual(problems, [])
         self.assertEqual(text['owner'], {'name': 'the office responsible for quality assurance', 'suggested': True,
                                          'source': None})
+
+
+class PacketTests(SimpleTestCase):
+    """What the writer is given: the closest passages from everything the assessment read, credited or not."""
+
+    def test_a_step_builds_on_what_another_area_read_even_uncredited(self):
+        filler = [{'id': f'f{n}', 'text': f'The library holds {n} journals and a reading room for students.'}
+                  for n in range(20)]
+        traces = [
+            {'indicator': 'AIQIF-C2.1', 'source_excerpts': [
+                {'id': 'own', 'text': 'Students sign an undertaking at admission.'}, *filler[:10]]},
+            {'indicator': 'AIQIF-C9.2', 'source_excerpts': [
+                {'id': 'lib', 'text': 'Plagiarism Detection Software: 1. Turnitin 2. DrillBit'},
+                {'id': 'pol', 'text': 'Policies: Mentor-Mentee Policy, Plagiarism Policy, IT Infrastructure Policy.'},
+                {'id': 'dup', 'text': 'Policies: Mentor-Mentee Policy, Plagiarism Policy, IT Infrastructure Policy.'},
+                *filler[10:]]},
+        ]
+        everything = ns.pool(traces)
+        target = {'records': {}, 'pages': {e['id']: f'page {e["id"]}' for t in traces for e in t['source_excerpts']},
+                  'packets': {t['indicator']: t['source_excerpts'] for t in traces}, 'pool': everything,
+                  'closeness': ns.Closeness([e['text'] for e in everything]), 'parts': {}, 'not_started': frozenset(),
+                  'college': {'name': 'College'}}
+        action = {'code': 'AIQIF-C2.1', 'title': 'Responsible-use guidance', 'area': 'Responsible and safe AI',
+                  'area_code': 'AIQIF-C2', 'step': 'Set up',
+                  'conditions': [{'id': 'AIQIF-C2.1.F1', 'text': 'Effective institutional guidance explicitly addresses AI use.'}]}
+        given = ns.packet(action, target)
+        related = [p['source_id'] for p in given['passages'] if p['role'] == 'related']
+        # Neither page earned credit and both sat in another key indicator's packet; the same text twice is one.
+        self.assertEqual(sorted(related[:2]), ['lib', 'pol'])
+        self.assertNotIn('dup', related)
+        self.assertFalse(any(p.get('credited_elsewhere') for p in given['passages']))
+        # The library's journals are far from the gap and are left out.
+        self.assertFalse(any(p['source_id'].startswith('f') for p in given['passages']))
+
+    def test_every_key_indicator_has_its_records_words(self):
+        from .capability.engine import release
+        codes = {i['code'] for i in release()['indicators']}
+        self.assertEqual(set(ns._builds_on_file()), codes)
+        self.assertTrue(all(len(ns.builds_on(c)) >= 8 for c in codes))
 
 
 class WriteTests(SimpleTestCase):
@@ -178,7 +229,8 @@ class NextStepsFlowTests(APITestCase):
         self.packets = getattr(self, 'packets', []) + [payload]
         credited = [p['id'] for p in payload['passages'] if p['role'] == 'credited']
         others = [p['id'] for p in payload['passages'] if p['role'] != 'credited']
-        return {'action': f"Put this in place in your {payload['topic'].lower()} work, building on what you have.",
+        return {'kind': 'extend' if credited or others else 'start',
+                'action': f"Put this in place in your {payload['topic'].lower()} work, building on what you have.",
                 'have': [{'text': 'You already have part of this on record.', 'passage_ids': credited[:1]}] if credited else [],
                 'related': [{'text': 'This is a starting point, not the practice itself.', 'passage_ids': others[:1]}]
                 if others else [],
@@ -190,15 +242,33 @@ class NextStepsFlowTests(APITestCase):
     def detail(self, run):
         return self.client.get(f'{self.base}/{run.pk}').data
 
+    def test_the_command_reads_a_report_export_without_the_database_run(self):
+        import io, tempfile
+        from django.core.management import call_command
+        run = self.assess()
+        export = self.client.get(f'{self.base}/{run.pk}/report', {'file': 'json'}).content
+        with tempfile.NamedTemporaryFile('wb', suffix='.json') as handle:
+            handle.write(export)
+            handle.flush()
+            out = io.StringIO()
+            call_command('capability_next_steps', '--export', handle.name, '--packets', stdout=out)
+        steps = json.loads(out.getvalue())
+        shown = [a['area'] for a in self.detail(run)['next_steps']['actions']]
+        self.assertEqual([s['area'] for s in steps], shown)   # the same nine-at-most choice as the screens
+        self.assertTrue(all(s['practices'] and s['passages'] for s in steps))
+        self.assertEqual(CapabilityNextSteps.objects.count(), 0)   # nothing written, nothing saved
+
     def test_written_once_shown_everywhere_and_never_regenerated(self):
         run = self.assess()
         before = self.detail(run)
         steps = before['next_steps']
         # Without written steps: the code's choice with the plain checklist wording.
         self.assertFalse(steps['written'])
-        self.assertTrue(4 <= len(steps['actions']) <= 6 or len(steps['actions']) == len(
-            [k for k in {a['code'] for a in steps['actions']}]), steps['actions'])
-        self.assertLessEqual(len(steps['actions']), 6)
+        # One step in every area with something still open, weakest area first; the first three are "Where to start".
+        areas = [a['area_code'] for a in steps['actions']]
+        self.assertEqual(len(areas), len(set(areas)))
+        self.assertLessEqual(len(areas), 9)
+        self.assertEqual([a['start_here'] for a in steps['actions']], [n < 3 for n in range(len(areas))])
         for a in steps['actions']:
             self.assertFalse(a['generated'])
             self.assertTrue(a['owner']['suggested'])
