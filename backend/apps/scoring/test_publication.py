@@ -69,6 +69,12 @@ class PublicationTests(APITestCase):
 
         self.assertEqual(self.client.get(f'{self.base}/{run.pk}').status_code, 200)
         self.assertEqual(self.client.get(self.base).data['published']['run_id'], str(run.pk))
+        # The full detail and the model traces stay with staff (audit, 26 Nov): a college gets the screens' detail.
+        staff_full = self.staff_client.get(f'{self.base}/{run.pk}', {'traces': 1}).data
+        college_full = self.client.get(f'{self.base}/{run.pk}', {'traces': 1}).data
+        self.assertIn('traces', staff_full['assessment'])
+        self.assertNotIn('traces', college_full['assessment'])
+        self.assertEqual(college_full['version'], self.client.get(f'{self.base}/{run.pk}').data['version'])
 
         # Withdrawn: the coordinator is refused again; the history keeps both choices, newest first.
         withdrawn = self.publish(None).data
@@ -82,6 +88,19 @@ class PublicationTests(APITestCase):
             row.save()
         with self.assertRaises(ValueError):
             row.delete()
+
+    def test_a_run_in_progress_shows_a_college_no_judgments(self):
+        from unittest import mock
+        from .capability import views
+        run = self.assess()
+        self.publish(run)
+        light = views.RunView.light
+
+        def going(view, execution, run_view):   # the detail of a run still assessing: judgments so far
+            return {**light(view, execution, run_view), 'partial_decisions': [{'condition_id': 'AIQIF-C1.1.F1', 'credit': 1}]}
+        with mock.patch.object(views.RunView, 'light', going):
+            self.assertTrue(self.staff_client.get(f'{self.base}/{run.pk}').data['partial_decisions'])
+            self.assertEqual(self.client.get(f'{self.base}/{run.pk}').data['partial_decisions'], [])
 
     def test_only_a_completed_run_of_this_assessment_can_be_published(self):
         from .capability.storage import create_run

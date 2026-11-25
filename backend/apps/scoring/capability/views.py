@@ -136,10 +136,13 @@ class RunView(APIView):
         sprint = get_authorized_sprint(request.user, sprint_id)
         execution = get_object_or_404(CapabilityExecution.objects.select_related('run', 'run__view').defer('run__inputs'),
                                       run_id=run_id, sprint=sprint)
-        from .publication import require_visible
+        from .publication import is_staff, require_visible
         require_visible(request.user, execution)   # before the 304: a college never learns an unpublished version
-        traces = request.query_params.get('traces') in ('1', 'true')
-        full = traces or request.query_params.get('full') in ('1', 'true')
+        staff = is_staff(request.user)
+        # The full detail and the model traces are for InGage staff, like the JSON export (audit, 26 Nov): a college
+        # login asking for them gets the screens' detail.
+        traces = staff and request.query_params.get('traces') in ('1', 'true')
+        full = staff and (traces or request.query_params.get('full') in ('1', 'true'))
         view = ensure(execution.run_id)
         stalled = _stalled(execution)
         version = marker(execution, view, stalled, 'traces' if traces else 'full' if full else 'light')
@@ -154,6 +157,10 @@ class RunView(APIView):
             body = self.full(execution, view, traces)
         else:
             body = self.light(execution, view)
+        if not staff and body.get('partial_decisions'):
+            # A run still going (or stopped) has no published result: its judgments so far are for staff only. The
+            # screens show progress from completed_indicators, never these (audit, 26 Nov).
+            body['partial_decisions'] = []
         return Response({**body, 'version': version}, headers=headers)
 
     def light(self, execution, view):
