@@ -29,8 +29,23 @@ def writer(area, *, spoil=None):
             if spoil:
                 spoil(entry, requirement)
             requirements.append(entry)
-    return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '', 'next_step': ''},
+    return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '',
+                     'next_step': '', **card(area)},
             'indicators': indicators, 'requirements': requirements}
+
+
+def card(area):
+    """A valid area card for an area input: strengths quote their quotation's own words."""
+    reqs = [r for i in area['indicators'] for r in i['requirements']]
+    credited = [r for r in reqs if r['result'] in ('shown in full', 'partly shown') and r['quotations']]
+    missing = [r for r in reqs if r['result'] != 'shown in full']
+    word = area['institution_word']
+    return {'verdict': f'The {word} has made a start in this area. Much of it is not yet in place.',
+            'headline': 'A start has been made here.',
+            'strengths': [{'text': f'It has this on record: "{r["quotations"][0]["text"][:40].strip()}".',
+                           'condition_id': r['condition_id'], 'quote_id': 'Q1'} for r in credited[:2]],
+            'gaps': [{'text': 'A practice here is not yet in place.', 'condition_ids': [r['condition_id']]}
+                     for r in missing[:2]]}
 
 
 class ExplanationTests(SimpleTestCase):
@@ -93,6 +108,38 @@ class ExplanationTests(SimpleTestCase):
         self.assertEqual(written['requirements'][self.full]['quote_ids'], ['Q1'])
         self.assertEqual(set(written['indicators']), {i['code'] for i in self.rubric['indicators']})
         self.assertIn('AIQIF-C1', written['areas'])
+
+    def test_the_area_card_is_checked(self):
+        good = writer(self.area)
+        passed, errors = explanations.validate(self.area, good)
+        self.assertEqual(errors, [])
+        self.assertTrue(passed['area']['verdict'].startswith(f"The {self.area['institution_word']} "))
+        self.assertTrue(all(s['source'] for s in passed['area']['strengths']))
+
+        def broken(change):
+            answer = writer(self.area)
+            change(answer['area'])
+            return explanations.validate(self.area, answer)[1]
+        first = good['area']['strengths'][0]
+        cases = {
+            'must begin': lambda a: a.update(verdict='You have made a start.'),
+            'at most two sentences': lambda a: a.update(verdict=f"The {self.area['institution_word']} has A. B. C. D."),
+            'no numbers': lambda a: a.update(headline='Audited 12 times.'),
+            'one short sentence': lambda a: a.update(headline='x' * 120),
+            'must cite a quotation given': lambda a: a['strengths'].append(dict(first, quote_id='Q9')),
+            'must name what its quotation names': lambda a: a['strengths'].__setitem__(
+                0, dict(first, text='It does good work in many ways overall.')),
+            'not shown in full': lambda a: a.update(gaps=[{'text': 'Something.', 'condition_ids': [self.full]}]),
+            'give two or three strengths': lambda a: a.update(strengths=[]),
+        }
+        for words, change in cases.items():
+            with self.subTest(words=words):
+                self.assertTrue(any(words in e for e in broken(change)), broken(change))
+
+    def test_the_institution_word(self):
+        self.assertEqual(explanations.institution_word({'institution_type': 'deemed university'}), 'university')
+        self.assertEqual(explanations.institution_word({'name': 'ABC Arts College'}), 'college')
+        self.assertEqual(explanations.institution_word({}), 'institution')
 
     def test_every_check_catches_its_claim(self):
         def at(cid, change):

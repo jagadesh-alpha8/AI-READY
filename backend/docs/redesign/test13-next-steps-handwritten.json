@@ -1,7 +1,7 @@
 {
  "Responsible-use guidance": {
   "kind": "extend",
-  "action": "Extend your Plagiarism Policy, and the Turnitin and DrillBit checks behind it, to say how students and staff may and may not use AI.",
+  "action": "Extend your Plagiarism Policy, and the Turnitin and DrillBit checks, to cover AI use.",
   "have": [],
   "related": [
    {
@@ -29,11 +29,12 @@
    "name": "the office responsible for academic integrity",
    "kind": "suggested_role",
    "passage_id": ""
-  }
+  },
+  "builds_on": "your Plagiarism Policy and the Turnitin and DrillBit checks"
  },
  "Advanced student skills": {
   "kind": "extend",
-  "action": "Add a marked practical task to the machine learning unit of Advanced Data Analysis Tools, where students build and test a model on real data.",
+  "action": "Add a marked practical task to the machine learning unit of Advanced Data Analysis Tools.",
   "have": [],
   "related": [
    {
@@ -50,11 +51,12 @@
    "name": "Board of Studies",
    "kind": "named_in_documents",
    "passage_id": "P9"
-  }
+  },
+  "builds_on": "the machine learning unit of Advanced Data Analysis Tools"
  },
  "Security and recovery": {
   "kind": "name",
-  "action": "Name the office responsible for the security of your servers and the ERP portal, and write down how they are restored after a failure.",
+  "action": "Name who is responsible for the security of your servers and the ERP portal, and how they are restored.",
   "have": [
    {
     "text": "Your servers, computers, routers and switches already link the campus digitally.",
@@ -83,11 +85,12 @@
    "name": "the office responsible for IT and data",
    "kind": "suggested_role",
    "passage_id": ""
-  }
+  },
+  "builds_on": "your servers and the ERP portal"
  },
  "Role-specific faculty skills": {
   "kind": "extend",
-  "action": "Build on the IQAC's AI workshops with a short course for one named teaching role, with a practice task that builds a skill that role uses.",
+  "action": "Build on the IQAC's AI workshops with a short course, and a practice task, for one teaching role.",
   "have": [],
   "related": [
    {
@@ -109,11 +112,12 @@
    "name": "Internal Quality Assurance Cell",
    "kind": "named_in_documents",
    "passage_id": "P3"
-  }
+  },
+  "builds_on": "the IQAC's workshops on Artificial Intelligence"
  },
  "AI in teaching and assessment": {
   "kind": "extend",
-  "action": "In one course of your B.Tech in Artificial Intelligence and Machine Learning, add a learning or feedback activity supported by AI, with a note telling students what AI use is allowed.",
+  "action": "Add an activity supported by AI to one course, with a note on what AI use is allowed.",
   "have": [],
   "related": [
    {
@@ -135,11 +139,12 @@
    "name": "the body responsible for approving curricula",
    "kind": "suggested_role",
    "passage_id": ""
-  }
+  },
+  "builds_on": "your B.Tech in Artificial Intelligence and Machine Learning, and the LMS"
  },
  "Measuring educational and business benefits": {
   "kind": "extend",
-  "action": "Give your ImaginXP partnership for the B.Tech in Artificial Intelligence and Machine Learning a stated intended outcome, and decide how you will measure it.",
+  "action": "Give the ImaginXP partnership for the B.Tech in AI a stated outcome and a way to measure it.",
   "have": [],
   "related": [
    {
@@ -161,11 +166,12 @@
    "name": "IQAC",
    "kind": "named_in_documents",
    "passage_id": "P13"
-  }
+  },
+  "builds_on": "the ImaginXP partnership for the B.Tech in Artificial Intelligence and Machine Learning"
  },
  "Decision-making and accountability": {
   "kind": "extend",
-  "action": "Add AI decisions to the route your departments already use to report to the IQAC, and say when such a decision goes up to a higher body.",
+  "action": "Add AI decisions to the route your departments use to report to the IQAC.",
   "have": [
    {
     "text": "Your departments already report audit findings to the IQAC on the same day.",
@@ -188,11 +194,12 @@
    "name": "IQAC",
    "kind": "named_in_documents",
    "passage_id": "P6"
-  }
+  },
+  "builds_on": "the route by which departments report to the IQAC"
  },
  "Research collaboration and public benefit": {
   "kind": "extend",
-  "action": "Pick one of your industry MoUs and add a short work plan for a piece of AI research or application work, naming what the partner will do.",
+  "action": "Add a short plan for AI work to one industry MoU, naming what the partner will do.",
   "have": [],
   "related": [
    {
@@ -214,11 +221,12 @@
    "name": "the office responsible for research and innovation",
    "kind": "suggested_role",
    "passage_id": ""
-  }
+  },
+  "builds_on": "your industry MoUs and their Single Point of Contact"
  },
  "Testing, feedback and improvement": {
   "kind": "name",
-  "action": "Keep one register of the actions that come out of your stakeholder feedback and academic audits, with the person or office that owns each.",
+  "action": "Keep one register of the actions from feedback and audits, with an owner for each.",
   "have": [
    {
     "text": "Your stakeholder feedback is already collected and analysed.",
@@ -247,6 +255,7 @@
    "name": "the office responsible for quality assurance",
    "kind": "suggested_role",
    "passage_id": ""
-  }
+  },
+  "builds_on": "your action taken report on stakeholder feedback"
  }
 }

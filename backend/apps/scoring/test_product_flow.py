@@ -135,7 +135,9 @@ class ProductFlowTests(APITestCase):
                     'text': 'This is shown.' if full else 'This is partly shown.' if credited else 'Not yet shown.',
                     'looked': 'We read the documents listed for this area.' if gap else '',
                     'next_step': 'Add a record that shows what is missing.' if gap else ''})
-        return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '', 'next_step': ''},
+        from .test_explanations import card
+        return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '',
+                         'next_step': '', **card(payload)},
                 'indicators': indicators, 'requirements': requirements}
 
     def reply_capability_advice(self, payload):

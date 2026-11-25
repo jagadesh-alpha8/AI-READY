@@ -1,0 +1,98 @@
+{% load report_tags %}{# The approved v5 leadership mock's stylesheet (26 Nov 2026), unchanged apart from the page footer. #}
+<style>
+@page { size:A4; margin:14mm 16mm 16mm 16mm;
+ @bottom-left { content:"{{ v.institution|cssstr }}, AI readiness result"; font:7.5pt 'DM Sans'; color:#707A73; }
+ @bottom-right { content:counter(page); font:7.5pt 'DM Sans'; color:#707A73; } }
+*{box-sizing:border-box} body{margin:0;font-family:'DM Sans';font-size:9.2pt;line-height:1.42;color:#26332C}
+.page{page-break-after:always} .page:last-child{page-break-after:auto}
+sup{font-size:.62em;color:#707A73;font-weight:400;line-height:0}
+.top{display:flex;justify-content:space-between;align-items:baseline;border-bottom:.35mm solid #26332C;padding-bottom:1.6mm;margin-bottom:6mm}
+.brand{font-family:'DM Sans';font-weight:700;font-size:10pt;letter-spacing:.04em} .meta{font-size:8.5pt;color:#535353}
+h1{font-family:'DM Sans';font-weight:600;font-size:23pt;line-height:1.1;margin:0} .h1s{font-size:18pt}
+.sub{margin:1mm 0 0;color:#535353;font-size:10pt} .mk{color:#707A73;font-size:8pt}
+h2{font-family:'DM Sans';font-weight:600;font-size:11.5pt;margin:0 0 1.6mm}
+.result{display:flex;gap:10mm;align-items:flex-end;margin:6mm 0 3mm}
+.rl{flex:0 0 78mm} .lname{font-family:'DM Sans';font-weight:600;font-size:30pt;line-height:1;color:#0C4320}
+.rline{display:flex;align-items:center;gap:3mm;margin-top:2.4mm;white-space:nowrap} .stars svg{margin-right:.5mm;vertical-align:middle}
+.outof{font-size:10pt;color:#535353} .outof b{color:#26332C;font-size:12pt;font-weight:600}
+.means{margin:0;font-size:10.5pt;line-height:1.4;border-left:.6mm solid #B9A23C;padding-left:3.5mm}
+.ruler{width:100%;display:block;margin:1mm 0 0}
+.action{display:flex;justify-content:space-between;gap:8mm;align-items:center;background:#F4F8ED;border-left:.9mm solid #0C4320;padding:2.6mm 4mm;margin-top:2.5mm}
+.action strong{display:block;font-size:10.5pt} .action span{color:#535353;font-size:8.6pt} .action em{font-style:normal;font-size:8.6pt;color:#0C4320;text-align:right;white-space:nowrap}
+.h2row{display:flex;justify-content:space-between;align-items:baseline;margin-top:5mm;border-bottom:.2mm solid #DCE3DC;padding-bottom:.6mm} .h2row h2{margin:0}
+.legend{font-size:8pt;color:#535353} .lg{margin-left:5mm} .lg i{display:inline-block;width:5mm;height:2mm;margin-right:1.5mm;vertical-align:middle} .k1{background:#8DB600} .k2{background:#CFE3A0}
+.arow{display:flex;align-items:center;gap:4mm;padding:1.3mm 0;border-bottom:.2mm solid #DCE3DC}
+.an{flex:0 0 100mm} .an strong{display:block;font-weight:600;font-size:9.6pt;line-height:1.2} .an span{display:block;color:#535353;font-size:7.9pt;line-height:1.25}
+.bar{position:relative;flex:1;height:3.2mm;background:#EDF1E9;border-radius:.8mm;overflow:hidden}
+.bar b{position:absolute;left:0;top:0;bottom:0;background:#8DB600} .bar b.wait{background:#CFE3A0}
+.bar i{position:absolute;top:0;bottom:0;width:.35mm;background:#fff}
+.as{flex:0 0 9mm;text-align:right;font-family:'DM Sans';font-weight:600;font-size:12pt} .as.s1{flex:0 0 19mm} .plus{display:inline-block;width:8.5mm;text-align:left;padding-left:1mm;color:#0C4320;font-size:9pt;font-weight:500}
+.al{flex:0 0 21mm;font-size:8.2pt;color:#535353}
+.lower{display:flex;gap:9mm;margin-top:5mm} .summary{flex:0 0 76mm} .summary p{margin:0;font-size:9.4pt;line-height:1.45} .start{flex:1}
+.steps{margin:0;padding:0;list-style:none;counter-reset:s}
+.steps li{counter-increment:s;display:flex;justify-content:space-between;gap:4mm;align-items:flex-start;padding:1.5mm 0 1.5mm 6.5mm;position:relative;border-bottom:.2mm solid #DCE3DC}
+.steps li:first-child{padding-top:0} .steps li:last-child{border-bottom:0}
+.steps li::before{content:counter(s);position:absolute;left:0;font-family:'DM Sans';font-weight:700;font-size:12pt;color:#0C4320;line-height:1.1}
+.steps strong{display:block;font-weight:600;line-height:1.3} .steps span{color:#535353;font-size:7.9pt} .steps em{font-style:normal;white-space:nowrap;color:#0C4320;font-weight:500;font-size:8.6pt}
+.key{margin:4mm 0 0;padding-top:1.6mm;border-top:.2mm solid #DCE3DC;font-size:7.9pt;color:#535353} .key span{color:#707A73}
+.card{border:.25mm solid #DCE3DC;border-top:.9mm solid #8DB600;padding:2.2mm 4.5mm 2.6mm;margin-top:2.6mm;page-break-inside:avoid}
+.chead{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.8mm} .ctitle h3{font-family:'DM Sans';font-weight:600;font-size:13.5pt;margin:0;line-height:1.15} .ctitle p{margin:.4mm 0 0;color:#535353;font-size:8.4pt}
+.cscore{text-align:right;min-width:21mm;white-space:nowrap} .cscore .num{font-family:'DM Sans';font-weight:600;font-size:19pt;line-height:1} .cscore .lvl{font-size:8.2pt;color:#535353}
+.cright{display:flex;align-items:center;gap:4mm} .bar.wide{flex:none;width:46mm;height:2.6mm}
+.verdict{margin:0 0 1.8mm;font-size:9.4pt;font-weight:500}
+.cols{display:flex;gap:8mm} .cols>div{flex:1} .cols>div:first-child{flex:1.3}
+h4{font-family:'DM Sans';font-weight:600;font-size:8.6pt;margin:0 0 1mm;color:#0C4320}
+.cols ul{margin:0;padding:0;list-style:none} .cols li{position:relative;padding-left:4.2mm;margin-bottom:.9mm;font-size:8.7pt;line-height:1.3}
+.cols li small{color:#707A73;font-size:7.4pt;margin-left:1.2mm}
+.well li::before{content:"";position:absolute;left:0;top:1.25mm;width:2mm;height:2mm;border-radius:50%;background:#0C4320}
+.miss li::before{content:"";position:absolute;left:0;top:1.25mm;width:2mm;height:2mm;border-radius:50%;border:.35mm solid #707A73}
+.step{background:#F4F8ED;padding:2mm 3.5mm;margin-top:1.2mm}
+.stitle{display:flex;gap:2.5mm;align-items:baseline} .stitle strong{font-weight:600;font-size:9.8pt;line-height:1.3}
+.kind{flex:none;font-size:7.6pt;font-weight:600;color:#fff;background:#0C4320;padding:.3mm 1.8mm;border-radius:.6mm}
+dl{display:grid;grid-template-columns:17mm 1.25fr 17mm 1fr;margin:1.2mm 0 0;font-size:8.3pt;row-gap:.5mm;column-gap:3mm;line-height:1.3} dt{color:#535353} dd{margin:0}
+.two{display:flex;gap:10mm;margin-top:7mm} .two>div{flex:1} .two h2{margin-top:5mm} .two h2:first-child{margin-top:0}
+.how{margin:0;padding-left:5mm} .how li{margin-bottom:1.6mm;padding-left:1mm} .limits{margin:0;padding-left:4.5mm} .limits li{margin-bottom:1.6mm}
+.about p,.notes p{margin:0} .about>h2{margin-top:8mm}
+.levels{width:100%;border-collapse:collapse} .levels td{padding:2mm 3mm 2mm 0;border-bottom:.2mm solid #DCE3DC;vertical-align:middle} .levels td:nth-child(3){color:#535353;white-space:nowrap} .lvs{white-space:nowrap;width:24mm}
+.cards .top{margin-bottom:4mm} .cards .card{margin-top:2.2mm;padding:2mm 4.5mm 2.3mm} .cards .cols li{margin-bottom:.6mm} .cards .chead{margin-bottom:1.3mm} .cards .verdict{margin-bottom:1.4mm} .cards .step{padding:1.7mm 3.5mm}
+.st1 .arow{padding:.85mm 0} .st1 .action{padding:2mm 4mm;margin-top:1.5mm} .st1 .result{margin-top:4mm} .st1 .h2row{margin-top:3.6mm} .st1 .lower{margin-top:3.6mm} .st1 .key{margin-top:2.5mm} .st1 .top{margin-bottom:5mm} 
+
+.howto{background:#F4F8ED;padding:2.6mm 4mm 3mm;margin-top:4mm;border-left:.9mm solid #B9A23C}
+.howto h2{font-size:10pt;margin:0 0 1.4mm}
+.hgrid{display:flex;flex-wrap:wrap;gap:1.4mm 7mm} .hgrid>div{flex:0 0 81mm;font-size:8.3pt;line-height:1.35}
+.hgrid strong{display:block;font-weight:600} .hgrid span{color:#535353}
+.p1 .result{margin:4.5mm 0 2mm;align-items:flex-start} .rr{flex:1} .rr .means{font-weight:500;font-size:10pt}
+.summ{margin:1.8mm 0 0;padding-left:4.1mm;font-size:8.8pt;line-height:1.35} .summ>div{display:flex;gap:2mm;margin-bottom:.9mm} .summ b{flex:0 0 19mm;font-weight:500;color:#0C4320} .summ strong{font-weight:600}
+.p1 .arow{padding:.9mm 0} .p1 .h2row{margin-top:3mm} .p1 h1{font-size:20pt} .p1 .sub{font-size:9pt;margin-top:.4mm} .p1 .top{margin-bottom:4.5mm} .p1 .howto{margin-top:3mm;padding:2.2mm 4mm 2.4mm} .p1 .result{margin:3.6mm 0 1mm} .p1 .steps li{padding:1.1mm 0 1.1mm 6.5mm}
+.s3{display:flex;gap:6mm;margin-top:2mm} .s3>div{flex:1;position:relative;padding-left:6mm;font-size:8.8pt;line-height:1.32}   .s3 b{position:absolute;left:0;top:-.3mm;font-family:'DM Sans';font-size:13pt;color:#0C4320} .s3 strong{display:block;font-weight:600} .s3 span{display:block;color:#535353;font-size:7.9pt;margin-top:.6mm} .sh{flex:0 0 52mm} .sh p{margin:0;font-size:8.4pt;color:#535353;line-height:1.4}
+.startrow .start{flex:1} .steps em{text-align:right;font-size:8pt;line-height:1.25}
+.cbar{width:46mm} .cbar .bar.wide{width:46mm} .room{font-size:7.8pt;color:#0C4320;margin-top:.8mm;text-align:right}
+dd.wide2{grid-column:2 / span 3}
+.ctop{display:flex;align-items:baseline;gap:5mm} .cards .ctop .h1s{font-size:13.5pt} .cards .ctop .sub{margin:0;font-size:8.6pt} .cards .card{margin-top:2mm;padding:1.7mm 4.5mm 2mm} .cards .verdict{font-weight:500} .cards .cols>div:first-child{flex:1.5} .cards .cols li{font-size:8.4pt;margin-bottom:.35mm;line-height:1.27} .cards .verdict{font-size:9.1pt;margin-bottom:1.2mm} .cards .h1s{font-size:16pt} .cards .sub{font-size:9pt;margin-top:.5mm} .cards .top{margin-bottom:3.4mm} .cards .step{padding:1.5mm 3.5mm;margin-top:.8mm} .cards .stitle strong{font-size:9.3pt} .cards dl{font-size:8.1pt;margin-top:.8mm} .cards h4{margin-bottom:.6mm} .cards .ctitle h3{font-size:12.5pt} .cards .cscore .num{font-size:17pt}
+.st1 .action{margin-top:1.2mm;padding:1.8mm 4mm}
+.mk{display:inline-block;width:2.4mm;height:2.4mm;border-radius:50%;vertical-align:-.25mm;border:.35mm solid #0C4320}
+.mk.shown{background:#0C4320} .mk.partly{background:linear-gradient(90deg,#0C4320 50%,#fff 50%)} .mk.missing{border-color:#707A73}
+
+.howto.slim{padding:2.2mm 4mm 2.6mm} .howto.slim h2{font-size:9.6pt;margin:0 0 .8mm} .howto.slim p{margin:0;font-size:8.6pt;line-height:1.4;color:#26332C}
+.p1 .result{margin:3.2mm 0 0} .p1 .howto{margin-top:2.6mm} .p1 .rl{flex-basis:66mm} .p1 .h2row{margin-top:3.4mm} .p1 .h2row .legend{max-width:105mm;text-align:right;line-height:1.3}
+.gx{margin-top:1mm} .gx-row{display:flex;align-items:center;gap:3mm;padding:.62mm 0;border-bottom:.2mm solid #DCE3DC}
+.gx-l{flex:0 0 78mm} .gx-l strong{display:block;font-weight:600;font-size:9.3pt;line-height:1.2} .gx-l span{display:block;color:#707A73;font-size:7.6pt;line-height:1.25}
+.gx-b{flex:1;position:relative} .gx-b .bar{height:3.4mm} .gx-n{flex:0 0 11mm;text-align:left;font-weight:650;font-size:12pt} .gx-n .plus{font-size:8.5pt;font-weight:500;color:#0C4320;margin-left:1mm}
+.gx-head{border-bottom:.35mm solid #26332C;padding:0 0 1mm;align-items:flex-end} .gx-bands{align-items:flex-end} .gx-bands{display:flex} .gx-bands>div{flex:1;text-align:center;font-size:7.4pt;line-height:1.2;color:#707A73;padding:0 .6mm} .gx-bands strong{display:block;font-weight:500;color:#535353} .gx-bands span{font-size:7pt} .gx-bands .on strong{font-weight:700;color:#26332C}
+.gx-all{padding:2mm 0 1.2mm;background:#F4F8ED} .gx-all .gx-l{padding-left:2mm;flex-basis:76mm} .gx-all .gx-l strong{font-size:10.5pt;font-weight:700} .gx-all .bar{height:5mm} .gx-all .gx-n{font-size:15pt}
+.gx-note{position:relative;margin-top:1.6mm;padding-top:1.1mm;font-size:8.2pt;font-weight:500;color:#0C4320;white-space:nowrap} .gx-note i{position:absolute;left:0;top:0;height:1.2mm;border-top:.35mm solid #0C4320;border-left:.35mm solid #0C4320;border-right:.35mm solid #0C4320}
+.road{display:flex;gap:5mm;margin-top:1.6mm} .rc{flex:1;border:.25mm solid #DCE3DC;border-top:.9mm solid #8DB600;padding:1.5mm 3mm 1.8mm} .rt{display:flex;align-items:baseline;gap:2mm} .rt b{font-size:12pt;font-weight:700;color:#0C4320} .rt strong{font-size:10pt;font-weight:650}
+.rc p{margin:.6mm 0 1mm;font-size:8.2pt;line-height:1.32;color:#535353} .rg{font-size:9.2pt;font-weight:650;color:#0C4320} .rg span{font-weight:500;margin-left:2mm;padding:.2mm 1.8mm;background:#F4F8ED;border-radius:.6mm;font-size:8pt}
+.s3{margin-top:1.6mm} .s3>div{font-size:8.5pt} .st1 .gx-n{flex-basis:19mm;white-space:nowrap} .st1 .action strong{font-size:10pt} .roadline p{margin:1.6mm 0 0;font-size:9.6pt;line-height:1.45} .roadline strong{font-weight:650;color:#0C4320} .t1{display:flex;align-items:baseline;gap:5mm} .t1 .sub{margin:0}
+.c2 .card{margin-top:3.4mm;padding:3mm 5mm 3.2mm} .c2 .ctitle h3{font-size:14.5pt} .c2 .ctitle p{font-size:9pt} .c2 .cscore .num{font-size:20pt} .c2 .chead{margin-bottom:2.4mm}
+.c2 .verdict{font-size:10.2pt;line-height:1.38;margin-bottom:2.2mm;font-weight:500} .c2 .cols{gap:9mm} .c2 .cols li{font-size:9.3pt;line-height:1.35;margin-bottom:1.1mm} .c2 .cols li small{font-size:8pt} .c2 h4{font-size:9.4pt;margin-bottom:1.4mm}
+.c2 .step{padding:2.4mm 4mm;margin-top:1.6mm} .c2 .stitle strong{font-size:10.2pt} .c2 dl{font-size:9.2pt;margin-top:1.6mm;row-gap:.9mm;grid-template-columns:20mm 1.25fr 12mm 1fr} .c2 .bar.wide{width:50mm;height:3mm}
+.c2 .ctop .h1s{font-size:14pt;white-space:nowrap} .c2 .ctop .sub{font-size:9pt}
+.aboutin{margin-top:4.5mm} .aboutin .h1s{font-size:13pt} .aboutin .two{margin-top:2.5mm;gap:8mm} .aboutin h2{font-size:9.6pt;margin:2.5mm 0 1mm} .aboutin, .aboutin li, .aboutin p{font-size:8.2pt;line-height:1.35} .aboutin .how li, .aboutin .limits li{margin-bottom:.7mm} .aboutin table.levels td{padding:.9mm 2.5mm .9mm 0;font-size:8.2pt}
+
+/* WeasyPrint sizes grid columns from their content: keep long text inside the step box. */
+.c2 dl, .cards dl{grid-template-columns:20mm minmax(0,1.25fr) 12mm minmax(0,1fr)} dd{min-width:0;overflow-wrap:anywhere}
+.none{margin:0;color:#707A73;font-size:9pt}
+/* About shares the last card's page; at Stage 1 it is a paragraph longer: keep the levels table on that page. */
+.aboutin .two{margin-top:1.8mm} .aboutin h2{margin:2mm 0 .8mm} .aboutin table.levels td{padding:.6mm 2.5mm .6mm 0} .aboutin table.levels{page-break-inside:avoid}
+{% include "scoring/report_draft_css.html" %}</style>

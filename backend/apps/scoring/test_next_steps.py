@@ -67,7 +67,7 @@ def given(credited=True):
 
 
 def good(credited=True):
-    return {'kind': 'extend', 'action': 'Turn your e-Varsity ERP records into a register of the data your offices hold.',
+    return {'kind': 'extend', 'builds_on': 'your e-Varsity ERP records', 'action': 'Turn your e-Varsity ERP records into a register of the data your offices hold.',
             'have': [{'text': 'Your "e-Varsity ERP digitises student, faculty and staff data".', 'passage_ids': ['P1']}]
             if credited else [],
             'related': [{'text': 'The Internal Quality Assurance Cell already reviews feedback; a starting point, '
@@ -118,6 +118,8 @@ class ValidationTests(SimpleTestCase):
             (lambda o: o.pop('kind'), 'kind must be'),
             (lambda o: o.update(kind='begin'), 'kind must be'),
             (lambda o: o.update(kind='start'), 'have and related must then be empty'),
+            (lambda o: o.update(builds_on=''), 'name what the step builds on'),
+            (lambda o: o.update(action=' '.join(['Turn'] + ['your'] * 22)), 'at most 20 words'),
             (lambda o: o.update(kind='name', have=[], related=[]), 'cite it under have or related'),
             (lambda o: o.update(have=[], related=[{'text': 'A workshop, a start.', 'passage_ids': ['P3']}]),
              'real starting point'),
@@ -132,7 +134,7 @@ class ValidationTests(SimpleTestCase):
         for kind in ('extend', 'name'):
             text, problems = self.check(dict(good(), kind=kind))
             self.assertEqual((problems, text['kind']), ([], kind))
-        start = dict(good(credited=False), kind='start', related=[])
+        start = dict(good(credited=False), kind='start', related=[], builds_on='')
         text, problems = self.check(start, given(credited=False))
         self.assertEqual((problems, text['kind']), ([], 'start'))
 
@@ -243,6 +245,7 @@ class NextStepsFlowTests(APITestCase):
         credited = [p['id'] for p in payload['passages'] if p['role'] == 'credited']
         others = [p['id'] for p in payload['passages'] if p['role'] != 'credited' and p.get('close')]
         return {'kind': 'extend' if credited or others else 'start',
+                'builds_on': 'what you already have' if credited or others else '',
                 'action': f"Put this in place in your {payload['topic'].lower()} work, building on what you have.",
                 'have': [{'text': 'You already have part of this on record.', 'passage_ids': credited[:1]}] if credited else [],
                 'related': [{'text': 'This is a starting point, not the practice itself.', 'passage_ids': others[:1]}]
@@ -276,7 +279,7 @@ class NextStepsFlowTests(APITestCase):
         from django.core.management import call_command
         run = self.assess()
         actions = self.detail(run)['next_steps']['actions']
-        good_one = {'kind': 'start', 'action': 'Start a short written plan for this.', 'have': [], 'related': [],
+        good_one = {'kind': 'start', 'builds_on': '', 'action': 'Start a short written plan for this.', 'have': [], 'related': [],
                     'not_found': 'We did not find this in your documents.',
                     'first_step': 'Ask the people involved to write down how it works today.',
                     'owner': {'name': 'the office responsible for quality assurance', 'kind': 'suggested_role',
@@ -336,8 +339,9 @@ class NextStepsFlowTests(APITestCase):
         for _ in range(2):
             self.detail(run)
         html = self.client.get(f'{self.base}/{run.pk}/report', {'file': 'html', 'audience': 'summary'})
-        self.assertIn('Ask the people involved to write down how it works today.', html.content.decode())
-        self.assertIn('Done when:', html.content.decode())
+        # The v5 card prints the step's title, what it builds on, who leads it and when it is done.
+        self.assertIn('Put this in place in your', html.content.decode())
+        self.assertIn('<dt>Done when</dt>', html.content.decode())
         self.assertEqual(CapabilityNextSteps.objects.filter(run=run).count(), 1)
         self.assertEqual(SecondLayerJob.objects.filter(run=run, operation='next_steps').count(), 1)
 

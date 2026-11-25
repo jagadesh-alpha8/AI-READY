@@ -69,6 +69,7 @@ NOT_FOUND_WORDS = re.compile(r'\b(?:did not find|not found|not yet in place|have
 COMMON_CAPITALS = {'AI', 'I', 'We', 'You', 'Your', 'Our', 'This', 'That', 'These', 'Those', 'The', 'A', 'An', 'It',
                    'Set', 'Start', 'Ask', 'Use', 'Make', 'Add', 'Keep', 'Record', 'Write', 'Name', 'Agree', 'Review'}
 MAX_FIELD_CHARS = 420
+ACTION_WORDS = 20        # the step's title: the v5 reports print it on page 1 and in the work list
 MAX_ITEMS = 3
 PASSAGE_CHARS = 1500      # one passage as the model sees it (starting value)
 PACKET_PASSAGES = 6       # from the indicator's own packet, beyond the cited ones, closest first (starting value)
@@ -198,7 +199,8 @@ def fallback(action, records, pages, not_started_ids=frozenset()):
             if cite:
                 found.append({'text': f'“{_quote(cite["quote"], 220)}”',
                               'sources': [_page_label(pages, cite.get('source_id'))]})
-    return {'key': action_key(action), 'generated': False, 'kind': None, 'action': None, 'have': found[:MAX_ITEMS],
+    return {'key': action_key(action), 'generated': False, 'kind': None, 'builds_on': '', 'action': None,
+            'have': found[:MAX_ITEMS],
             'related': [],
             'not_found': _fallback_not_found(requirements), 'first_step': None,
             'owner': {'name': GENERIC_OWNERS.get(action['area_code'], 'the office responsible for this area'),
@@ -225,7 +227,8 @@ def finish(actions, records, pages, stored=None, not_started_ids=frozenset()):
         base = fallback(action, records, pages, not_started_ids)
         text = written.get(base['key'])
         if text:
-            base.update({'generated': True, 'kind': text.get('kind'), 'action': text['action'], 'have': text['have'],
+            base.update({'generated': True, 'kind': text.get('kind'), 'builds_on': text.get('builds_on') or '',
+                         'action': text['action'], 'have': text['have'],
                          'related': text['related'], 'not_found': text['not_found'] or None,
                          'first_step': text['first_step'], 'owner': text['owner']})
         out.append({**{k: action[k] for k in ('code', 'title', 'area', 'area_code', 'points', 'step')},
@@ -274,7 +277,8 @@ Write these fields:
   "extend": something the college already has (a "credited", "seen" or "related" passage) can be extended or adapted to this practice. Prefer this whenever a passage names a real starting point, for example extending an existing plagiarism policy to cover AI use.
   "name": the thing exists, but no owner, record or decision about it is named; the step names one.
   "start": nothing in the passages is a fair starting point; the step starts it, and says so plainly. have and related are then empty. Keep a "start" step small and concrete: the first simple version that would count, not a programme.
-- action: one sentence, at most 30 words, saying what the college should do, in its own terms (its own offices, programmes, systems and documents where the passages name them). Not a copy of the requirement.
+- builds_on: a short phrase, at most 15 words, naming what the step builds on as the passages name it ("your Plagiarism Policy and the Turnitin and DrillBit checks"). Empty for a "start".
+- action: one sentence, at most 20 words (it is the step's title on the report's front page and in the work list; first_step carries the detail), saying what the college should do, in its own terms (its own offices, programmes, systems and documents where the passages name them). Not a copy of the requirement.
 - have: at most three things the college already has towards THIS requirement, each one sentence citing the "credited" passages it rests on in passage_ids. Empty when no passage is "credited".
 - related: at most three things the college has that it can build on, each citing "seen" or "related" passages. Say plainly that they are a starting point, not the practice itself.
 - not_found: one sentence on what we did not find, starting "We did not find" (or, where the college told us it is not yet in place, saying so). Never say "you don't have", "you lack", "there is no" or that something does not exist: we only know what the documents show.
@@ -294,9 +298,9 @@ def schema(passage_ids):
     item = {'type': 'object', 'additionalProperties': False, 'required': ['text', 'passage_ids'],
             'properties': {'text': {'type': 'string'}, 'passage_ids': ids}}
     return {'type': 'object', 'additionalProperties': False,
-            'required': ['kind', 'action', 'have', 'related', 'not_found', 'first_step', 'owner'],
+            'required': ['kind', 'builds_on', 'action', 'have', 'related', 'not_found', 'first_step', 'owner'],
             'properties': {
-                'kind': {'type': 'string', 'enum': list(KINDS)},
+                'kind': {'type': 'string', 'enum': list(KINDS)}, 'builds_on': {'type': 'string'},
                 'action': {'type': 'string'}, 'have': {'type': 'array', 'items': item},
                 'related': {'type': 'array', 'items': item}, 'not_found': {'type': 'string'},
                 'first_step': {'type': 'string'},
@@ -554,7 +558,8 @@ def validate(given, output):
     allowed_numbers = set(NUMBER.findall(' '.join([p['text'] + ' ' + p['where'] for p in given['passages']]
                                                   + [json.dumps(given['college'])])))
     out = output or {}
-    text = {'action': _clean(out.get('action')), 'not_found': _clean(out.get('not_found')),
+    text = {'action': _clean(out.get('action')), 'builds_on': _clean(out.get('builds_on')),
+            'not_found': _clean(out.get('not_found')),
             'first_step': _clean(out.get('first_step'))}
     lists = {}
     for field in ('have', 'related'):
@@ -569,6 +574,12 @@ def validate(given, output):
     owner = {'name': _clean(owner.get('name')), 'kind': owner.get('kind'), 'passage_id': _clean(owner.get('passage_id'))}
 
     kind = out.get('kind')
+    if kind == 'start' and text['builds_on']:
+        problems.append('builds_on must be empty for a "start".')
+    elif kind in ('extend', 'name') and not text['builds_on']:
+        problems.append('builds_on: name what the step builds on, in a short phrase.')
+    if len(text['builds_on'].split()) > 15:
+        problems.append('builds_on: at most 15 words.')
     if kind not in KINDS:
         problems.append('kind must be extend, name or start.')
     elif kind == 'start' and (lists['have'] or lists['related']):
@@ -585,6 +596,8 @@ def validate(given, output):
         problems.append('nothing here is a starting point: the step is a "start".')
     if not text['action']:
         problems.append('action is empty.')
+    elif len(text['action'].split()) > ACTION_WORDS:
+        problems.append(f'action: at most {ACTION_WORDS} words; put the detail in first_step.')
     if not text['first_step']:
         problems.append('first_step is empty.')
     # Every chosen action has something not yet shown, so not_found always says what that is.
@@ -661,7 +674,8 @@ def validate(given, output):
     if problems:
         return None, sorted(set(problems), key=problems.index)
     where = {p['id']: p['where'] for p in given['passages']}
-    return {'kind': kind, 'action': text['action'], 'not_found': text['not_found'], 'first_step': text['first_step'],
+    return {'kind': kind, 'builds_on': text['builds_on'], 'action': text['action'], 'not_found': text['not_found'],
+            'first_step': text['first_step'],
             'have': [{'text': i['text'], 'sources': [where[x] for x in i['passage_ids']]} for i in lists['have']],
             'related': [{'text': i['text'], 'sources': [where[x] for x in i['passage_ids']]} for i in lists['related']],
             'owner': {'name': owner['name'], 'suggested': owner['kind'] == 'suggested_role',
