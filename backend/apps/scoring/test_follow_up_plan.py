@@ -105,16 +105,19 @@ class PlanTests(SimpleTestCase):
         # Equal full credit on the first requirement of every key indicator: test 13's tie, everywhere.
         self.firsts = [i['conditions'][0]['id'] for i in self.rubric['indicators']]
         self.rows = reserve.stamp(records({cid: 1 for cid in self.firsts}, self.rubric), Fraction(1, 4))
+        # questions-0.4: an owner practice in place has no depth question (two of the firsts are owner practices).
+        self.asked = [cid for cid in self.firsts if cid not in depth.OWNER_PRACTICES]
 
     def plan(self, model=None, **kwargs):
         return depth.plan_all(self.rows, self.rubric, model or Model(), share=Fraction(1, 4), **kwargs)
 
     def test_every_key_indicator_is_asked_about_and_nothing_is_cut(self):
         questions, notes, shown = self.plan()
-        self.assertEqual({q['condition_ids'][0] for q in questions if q['kind'] == 'depth'}, set(self.firsts))
+        self.assertEqual({q['condition_ids'][0] for q in questions if q['kind'] == 'depth'}, set(self.asked))
+        self.assertEqual(len(self.asked), 34)
         self.assertEqual(sum(q['kind'] == 'missing' for q in questions), 36)
-        self.assertEqual(len(questions), 72)
-        self.assertEqual([q['rank'] for q in questions], list(range(1, 73)))
+        self.assertEqual(len(questions), 70)
+        self.assertEqual([q['rank'] for q in questions], list(range(1, 71)))
         self.assertIn('37 model calls', notes[0])   # 36 key indicators and one linking pass
 
     def test_tied_questions_take_turns_across_areas(self):
@@ -141,11 +144,12 @@ class PlanTests(SimpleTestCase):
             if q['kind'] == 'missing':
                 stages = [level[c] for c in q['condition_ids']]
                 self.assertEqual(stages, sorted(stages, key='FAO'.index))
-                self.assertIn('1. A simple record of it', q['text'])
+                self.assertRegex(q['text'], r'\n1\. (A simple record of it|Who is responsible for )')   # owners: 0.4
                 self.assertNotIn('AIQIF', q['text'])
 
     def test_a_part_credited_requirement_is_also_a_missing_item(self):
-        cid = self.rubric['indicators'][0]['conditions'][1]['id']
+        cid = self.rubric['indicators'][0]['conditions'][2]['id']   # not an owner practice (questions-0.4)
+        self.assertNotIn(cid, depth.OWNER_PRACTICES)
         rows = reserve.stamp(records({cid: Fraction(1, 2)}, self.rubric), Fraction(1, 4))
         model = Model()
         questions, _, _ = depth.plan_all(rows, self.rubric, model, share=Fraction(1, 4))
@@ -157,18 +161,18 @@ class PlanTests(SimpleTestCase):
 
     def test_what_the_model_gets_wrong_falls_back_to_fixed_wording(self):
         def bad(payload):
+            asked = [r for r in payload['credited_requirements'] if r['dimensions']]
             return {'answered': [{'condition_id': r['condition_id'], 'dimension_id': r['dimensions'][0]['id'],
-                                  'evidence_quote': 'A quote that is not in the evidence at all.'}
-                                 for r in payload['credited_requirements']],
+                                  'evidence_quote': 'A quote that is not in the evidence at all.'} for r in asked],
                     'questions': [{'condition_id': r['condition_id'], 'dimension_ids': [r['dimensions'][0]['id']],
-                                   'text': 'Under AIQIF-C1.1 rubric, give the score.'}
-                                  for r in payload['credited_requirements']],
+                                   'text': 'Under AIQIF-C1.1 rubric, give the score.'} for r in asked],
                     'missing_items': [{'condition_id': r['condition_id'], 'text': 'see rubric'}
                                       for r in payload['requirements_not_yet_shown']]}
         questions, notes, shown = self.plan(Model(bad))
-        self.assertEqual(shown, [])   # an invented quote answers nothing
+        owners = sorted(set(self.firsts) & depth.OWNER_PRACTICES)
+        self.assertEqual(sorted(shown), owners)   # an invented quote answers nothing; owners have nothing to ask
         depth_qs = [q for q in questions if q['kind'] == 'depth']
-        self.assertEqual({q['condition_ids'][0] for q in depth_qs}, set(self.firsts))
+        self.assertEqual({q['condition_ids'][0] for q in depth_qs}, set(self.asked))
         self.assertTrue(all(q.get('fixed_wording') for q in depth_qs))
         self.assertTrue(all('AIQIF' not in q['text'] for q in questions))
         self.assertTrue(any('fixed wording' in n for n in notes))
@@ -179,12 +183,12 @@ class PlanTests(SimpleTestCase):
         def broken(payload):
             raise AIResponseError('not JSON')
         questions, notes, _ = self.plan(Model(broken))
-        self.assertEqual(len(questions), 72)
+        self.assertEqual(len(questions), 70)
         self.assertTrue(any('question model failed' in n for n in notes))
         model = Model()
         questions, notes, _ = self.plan(model, max_calls=5)
         self.assertEqual(len(model.calls), 5)
-        self.assertEqual(len(questions), 72)
+        self.assertEqual(len(questions), 70)
         self.assertTrue(any('past the limit of 5 model calls' in n for n in notes))
 
     def test_quotes_that_show_every_dimension_need_no_question(self):
@@ -253,7 +257,7 @@ class PlanTests(SimpleTestCase):
                                  for r in payload['credited_requirements'] for d in r['dimensions']],
                     'questions': [], 'missing_items': []}
         _, _, shown = self.plan(Model(dash))
-        self.assertEqual(shown, [])
+        self.assertEqual(sorted(shown), sorted(set(self.firsts) & depth.OWNER_PRACTICES))   # only nothing-to-ask
 
     def test_max_questions_cuts_only_when_set(self):
         questions, notes, _ = self.plan(max_questions=10)
@@ -366,7 +370,7 @@ class LinkTests(SimpleTestCase):
         self.assertEqual(member['rank'], len(questions))   # ranked after everything the college sees
         self.assertTrue(lead['own_text'])
         self.assertTrue(any('1 repeated questions linked into 1' in n for n in notes))
-        self.assertIn('71 questions for the college', notes[0])
+        self.assertIn('69 questions for the college', notes[0])   # two owner practices in place: nothing to ask
         import json
         json.dumps(questions)   # plain data, no references between questions
 
@@ -409,3 +413,69 @@ class MinimumCreditTests(SimpleTestCase):
         # v1 records (no minimum) keep v1's rule: the weak one holds too.
         v1 = reserve.stamp(records({weak_id: Fraction(1, 4)}, rubric), Fraction(1, 4))
         self.assertEqual(reserve.record_factor(next(r for r in v1 if r['condition_id'] == weak_id)), Fraction(3, 4))
+
+
+class OwnerQuestionTests(SimpleTestCase):
+    """questions-0.4 (Siddharth, 26 Nov): who is responsible is asked only where a practice that requires a named
+    person or office is not in place, and nowhere else."""
+
+    def setUp(self):
+        self.rubric = release()
+        self.ids = {c['id'] for i in self.rubric['indicators'] for c in i['conditions']}
+
+    def plan(self, credited, model=None):
+        rows = reserve.stamp(records(credited, self.rubric), Fraction(1, 4))
+        model = model or Model()
+        questions, notes, _ = depth.plan_all(rows, self.rubric, model, share=Fraction(1, 4), min_credit=Fraction(1, 2),
+                                             link=False)
+        return questions, notes, model
+
+    def owner_lines(self, questions):
+        return [line for q in questions if q['kind'] == 'missing' for line in q['text'].split('\n')
+                if line[:1].isdigit() and depth.OWNER_ASK.search(line)]
+
+    def test_the_ten_owner_practices_are_in_the_rubric(self):
+        self.assertEqual(len(depth.OWNER_PRACTICES), 10)
+        self.assertLessEqual(depth.OWNER_PRACTICES, self.ids)
+        self.assertNotIn('AIQIF-C7.4.F2', depth.OWNER_PRACTICES)   # a partner's responsibility, not an owner
+
+    def test_an_owner_practice_not_in_place_is_asked_who_and_nothing_else_is(self):
+        everything = {cid: 1 for cid in self.ids}
+        partly = dict(everything, **{'AIQIF-C9.2.F2': Fraction(1, 4), 'AIQIF-C2.3.F2': 0})
+        questions, _, model = self.plan(partly)
+        lines = self.owner_lines(questions)
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(any('keeping your evidence records' in line for line in lines))
+        self.assertTrue(any('each AI service or tool you use' in line for line in lines))
+        for q in questions:
+            if q['kind'] == 'depth':
+                self.assertNotIn('owner', q['dimension_ids'])
+                self.assertIsNone(depth.OWNER_ASK.search(q['text']))
+        for payload in model.calls:   # the writer never sees the ownership dimension
+            for r in payload['credited_requirements']:
+                self.assertNotIn('owner', [d['id'] for d in r['dimensions']])
+            flagged = {r['condition_id'] for r in payload['requirements_not_yet_shown'] if r.get('ask_who_is_responsible')}
+            self.assertLessEqual(flagged, {'AIQIF-C9.2.F2', 'AIQIF-C2.3.F2'})
+
+    def test_owners_in_place_get_no_owner_question(self):
+        questions, _, _ = self.plan({cid: 1 for cid in self.ids})
+        self.assertEqual(self.owner_lines(questions), [])
+
+    def test_the_writers_owner_questions_elsewhere_are_left_out(self):
+        def reply(payload):
+            return {'answered': [],
+                    'missing_items': [{'condition_id': r['condition_id'],
+                                       'text': 'the name of the office responsible for it, with the order'
+                                       if r.get('ask_who_is_responsible') else 'who owns this record, by name'}
+                                      for r in payload['requirements_not_yet_shown']],
+                    'questions': [{'condition_id': r['condition_id'], 'dimension_ids': [d['id'] for d in r['dimensions']],
+                                   'also_for': [], 'text': 'Who is responsible for running this programme? Please share the order.'}
+                                  for r in payload['credited_requirements']]}
+        credited = {cid: 1 for cid in self.ids}
+        credited.update({'AIQIF-C9.1.F2': 0, 'AIQIF-C9.1.O1': 0})
+        questions, notes, _ = self.plan(credited, Model(reply))
+        lines = self.owner_lines(questions)
+        self.assertEqual(len(lines), 1)   # the owner practice's own line, the writer's wording kept
+        self.assertIn('the office responsible for it', lines[0])
+        self.assertTrue(any('asked who is responsible; left out' in n for n in notes))
+        self.assertTrue(all(depth.OWNER_ASK.search(q['text']) is None for q in questions if q['kind'] == 'depth'))
