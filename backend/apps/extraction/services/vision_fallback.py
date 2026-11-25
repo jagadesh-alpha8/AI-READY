@@ -53,6 +53,10 @@ VISION_PATTERNS = [
     'chatgpt-4o',
     'claude-3',
     'claude-haiku-4',
+    'claude-haiku-5',      # Claude 5-generation models all take images (models overview, Nov 2026)
+    'claude-sonnet-',
+    'claude-opus-',
+    'claude-fable-',
     'vision',
     '-vl',
     'gemini',
