@@ -72,6 +72,9 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    # Demo display mask (DEMO_NAME_MASK, off by default): shows the institution under another name in every API
+    # response. apps/demo_mask/mask.py.
+    'apps.demo_mask.middleware.NameMaskMiddleware',
     # Logs API requests that are slow or run many queries (no contents): config/request_diagnostics.py.
     'config.request_diagnostics.RequestDiagnosticsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -863,8 +866,9 @@ CAPABILITY_REPEAT_SKIP = os.getenv('CAPABILITY_REPEAT_SKIP', 'false').strip().lo
 CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '')
 # Evidence-map mode (CAPABILITY_RETRIEVAL_MODE=map; apps/evidence_map/packet.py): each key indicator's packet is built
 # from the pages the evidence map tagged for it, then a keyword fill (at least a third of the cap). Needs the sprint
-# tagged with evidence_map_tag; without a map the run falls back to keyword mode at the larger of the cap and
-# CAPABILITY_KEYWORD_CHARS, and records that it did. CAPABILITY_MAX_INPUT_TOKEN_BOUND must be at least twice the cap.
+# tagged with evidence_map_tag; without a map the run falls back to keyword mode at the wide budget (200,000, test 13's
+# keyword lane), and records that it did. CAPABILITY_MAX_INPUT_TOKEN_BOUND must be at least twice that fallback
+# (400000), which also covers twice the cap.
 CAPABILITY_MAP_CAP_CHARS = int(os.getenv('CAPABILITY_MAP_CAP_CHARS', '').strip() or 60000)
 # The prompt shape whose map a run uses (one: all areas in one request per chunk; areas: one request per area).
 EVIDENCE_MAP_SHAPE = os.getenv('EVIDENCE_MAP_SHAPE', 'one').strip() or 'one'
@@ -982,3 +986,9 @@ EVIDENCE_MAP_CONCURRENCY = int(os.getenv('EVIDENCE_MAP_CONCURRENCY', '').strip()
 EVIDENCE_MAP_STALE_SECONDS = int(os.getenv('EVIDENCE_MAP_STALE_SECONDS', '').strip() or 6 * 3600)
 if EXTRACTION_QUEUE:
     CELERY_TASK_ROUTES['apps.evidence_map.tasks.tag_sprint'] = {'queue': EXTRACTION_QUEUE}
+
+# Demo display mask (apps/demo_mask; decided 25 Nov 2026): the name of a term list in apps/demo_mask/terms/ (e.g.
+# "vistas") shows that institution and its campuses under another name ("ABC University") in every API response and
+# report, PDFs included, and refuses downloads of original files (letterheads can't be masked). Stored data is never
+# changed. Empty (the default): off, nothing changes. Restart the backend after changing it.
+DEMO_NAME_MASK = os.getenv('DEMO_NAME_MASK', '').strip().lower()

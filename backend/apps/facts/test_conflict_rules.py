@@ -58,13 +58,38 @@ class NameFormTests(SimpleTestCase):
 
 class MisreadBoundTests(SimpleTestCase):
     def test_a_question_mark_before_a_number_reads_as_at_least(self):
-        self.assertTrue(conflicts.bounds_agree(['? 50', '64']))
-        self.assertFalse(conflicts.bounds_agree(['? 50', '40']))
+        self.assertTrue(conflicts.bounds_agree(['? 50', '64'], misread=True))
+        self.assertFalse(conflicts.bounds_agree(['? 50', '40'], misread=True))
         group = [fact(1, '? 50', data_type='number', field='mous'), fact(2, '64', data_type='number', field='mous')]
         self.assertEqual(conflicts.disagreements(group), [])
 
     def test_a_question_mark_elsewhere_is_left_alone(self):
-        self.assertFalse(conflicts.bounds_agree(['50?', '64']))
+        self.assertFalse(conflicts.bounds_agree(['50?', '64'], misread=True))
+
+    def test_not_without_the_facts_saying_it_is_safe(self):
+        # Audit 25 Nov, item 3: bare values never get the "≥" reading.
+        self.assertFalse(conflicts.bounds_agree(['? 2,00,000', '3,50,000']))
+        self.assertFalse(conflicts.bounds_agree(['? 50,000', '60,000']))
+
+    def test_money_conflicts_stay_visible(self):
+        # In Indian PDFs "?" before an amount is usually a lost rupee sign: ₹2,00,000 against 3,50,000 is a conflict.
+        cases = [
+            [fact(1, '? 2,00,000', data_type='number', field='annual_budget'),
+             fact(2, '3,50,000', data_type='number', field='annual_budget')],
+            [fact(1, '? 50,000', data_type='currency', field='seed_grant'),
+             fact(2, '60,000', data_type='currency', field='seed_grant')],
+            [fact(1, '? 50000', data_type='number', field='award', snippet='A cash award of ? 50000 is given.'),
+             fact(2, '60000', data_type='number', field='award')],
+        ]
+        for group in cases:
+            with self.subTest(group[0].field_key):
+                self.assertFalse(conflicts.misread_allowed(group))
+                self.assertEqual(len(conflicts.disagreements(group)), 1)
+
+    def test_counts_keep_the_reading(self):
+        group = [fact(1, '? 50', data_type='number', field='mous_signed'), fact(2, '64', data_type='number',
+                                                                              field='mous_signed')]
+        self.assertTrue(conflicts.misread_allowed(group))
 
 
 class UndatedTests(SimpleTestCase):

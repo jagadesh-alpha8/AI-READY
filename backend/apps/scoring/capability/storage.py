@@ -280,11 +280,12 @@ def candidate_requirements(run):
 def map_for_run(sprint, sources, policy):
     """(retrieval policy, frozen map or None) for a map-mode run: the sprint's stored map for the current rubric and
     the configured shape, copied for the run's pages. With no tagged page the run falls back to keyword mode at the
-    larger of the map's cap and CAPABILITY_KEYWORD_CHARS, and the policy records why."""
+    wide budget (semantic_retrieval.map_fallback_chars: 200,000, test 13's keyword lane), and the policy records
+    why. map_policy has already checked the input bound against that size."""
     from django.conf import settings
     from apps.evidence_map import packet, spec
     from apps.evidence_map.models import MapJob
-    from .semantic_retrieval import keyword_chars
+    from .semantic_retrieval import map_fallback_chars
     rubric, profiles, parts = spec.rubric_sources()
     version = spec.map_version(policy['map_shape'], rubric, profiles, parts)
     model = getattr(settings, 'EVIDENCE_MAP_AI_MODEL', '') or (MapJob.objects.filter(
@@ -297,7 +298,7 @@ def map_for_run(sprint, sources, policy):
     if not coverage['tagged']:
         routing = {k: v for k, v in policy.items() if k in ('deduplicate', 'structure', 'repeat_skip', 'evidence_lane',
                                                               'prompt_ceiling')}
-        return {'mode': 'bm25', **routing, 'keyword_chars': max(keyword_chars(), policy['cap_chars']),
+        return {'mode': 'bm25', **routing, 'keyword_chars': map_fallback_chars(policy['cap_chars']),
                 'map_fallback': {'reason': 'no_map' if not model else 'no_tagged_page', 'map_version': version,
                                  'map_model': model or None, 'coverage': coverage}}, None
     return {**policy, 'map_version': version, 'map_model': model, 'map_coverage': coverage}, {'pages': frozen['pages']}

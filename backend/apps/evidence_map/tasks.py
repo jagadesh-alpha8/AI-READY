@@ -44,11 +44,15 @@ def tag_sprint(sprint_id):
     """One tagging pass over the sprint's untagged pages, at the configured shape, concurrency and spend cap."""
     from apps.sprints.models import Sprint
     from . import tagging
-    sprint = Sprint.objects.filter(pk=sprint_id).first()
-    if sprint is None or running_job(sprint) is not None:
-        return None
-    job = tagging.run(sprint, shape=getattr(settings, 'EVIDENCE_MAP_SHAPE', 'one'),
-                      concurrency=getattr(settings, 'EVIDENCE_MAP_CONCURRENCY', 4))
+    shape = getattr(settings, 'EVIDENCE_MAP_SHAPE', 'one')
+    # Check and claim under the sprint's row lock: two extraction jobs finishing together queue two tasks, and the
+    # check alone (before any job row existed) let both start a pass, doubling the spend.
+    with transaction.atomic():
+        sprint = Sprint.objects.select_for_update().filter(pk=sprint_id).first()
+        if sprint is None or running_job(sprint) is not None:
+            return None
+        claimed = tagging.start_job(sprint, shape=shape)
+    job = tagging.run(sprint, shape=shape, concurrency=getattr(settings, 'EVIDENCE_MAP_CONCURRENCY', 4), job=claimed)
     logger.info('evidence_map.tag_sprint sprint=%s job=%s status=%s tagged=%s failed=%s', sprint_id, job.pk,
                 job.status, job.pages_tagged, job.pages_failed)
     return str(job.pk)

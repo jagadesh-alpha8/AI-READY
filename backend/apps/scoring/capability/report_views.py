@@ -192,6 +192,13 @@ class CapabilityReportView(RunView):
             except Exception:   # a run shaped in a way the new reports don't expect: serve the older report instead
                 logger.exception('presentation failed for run %s; serving the older %s report', run.pk, audience)
                 audience = 'leadership' if audience == 'summary' else 'evidence'
+        from apps.demo_mask import mask
+        if mask.active():
+            # Demo display mask (apps/demo_mask): the report is rendered from masked data, so its PDF never holds the
+            # institution's names either. Stored data is unchanged; the integrity checks above read the stored run.
+            payload, indicators, actions = mask.data(payload), mask.data(indicators), mask.data(actions)
+            if 'presentation' in payload:
+                view = payload['presentation']
         if file_format == 'json':
             content = json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2)
         elif audience in {'summary', 'detailed'}:
@@ -234,6 +241,9 @@ def report_response(content, file_format, run, audience, cache=None):
     response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
     if cache:
         response['X-Report-Cache'] = cache
+    from apps.demo_mask import mask
+    if mask.active():
+        response['X-Name-Mask'] = 'applied'   # made from masked data (CapabilityReportView); see demo_mask.middleware
     return response
 
 
