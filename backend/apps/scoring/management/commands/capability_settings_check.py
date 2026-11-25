@@ -66,6 +66,7 @@ SETTING = {
     ('retrieval_policy', 'prompt_ceiling'): 'CAPABILITY_PROMPT_TOKEN_CEILING (and CAPABILITY_PROMPT_BYTES_PER_TOKEN)',
     ('retrieval_policy', 'cap_chars'): 'CAPABILITY_MAP_CAP_CHARS (map mode)',
     ('retrieval_policy', 'map_shape'): 'EVIDENCE_MAP_SHAPE (map mode)',
+    ('retrieval_policy', 'semantic'): 'CAPABILITY_MAP_FILL=semantic and CAPABILITY_EMBEDDING_PATH (map mode)',
 }
 #: Recorded from the sprint when a run starts (its evidence map and how much of it was tagged), not set by a setting.
 PER_SPRINT = {('retrieval_policy', key) for key in ('map_version', 'map_model', 'map_coverage', 'map_fallback')}

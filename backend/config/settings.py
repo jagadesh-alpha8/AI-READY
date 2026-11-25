@@ -847,7 +847,10 @@ CAPABILITY_PLANS_ENABLED = os.getenv('CAPABILITY_PLANS_ENABLED', 'false').lower(
 
 # Capability retrieval: installing weights never changes the live retrieval policy.
 # Workers never download artifacts or use hosted embedding inference.
-CAPABILITY_EMBEDDING_PATH = os.getenv('CAPABILITY_EMBEDDING_PATH', '')
+# The image bakes bge-small into BAKED_EMBEDDING_PATH (Dockerfile); an empty setting uses it when it is there.
+BAKED_EMBEDDING_PATH = '/opt/embeddings/bge-small-en-v1.5'
+CAPABILITY_EMBEDDING_PATH = os.getenv('CAPABILITY_EMBEDDING_PATH', '').strip() or (
+    BAKED_EMBEDDING_PATH if os.path.isfile(os.path.join(BAKED_EMBEDDING_PATH, 'tokenizer.json')) else '')
 CAPABILITY_EMBEDDING_MODEL = os.getenv('CAPABILITY_EMBEDDING_MODEL', 'BAAI/bge-small-en-v1.5')
 CAPABILITY_RETRIEVAL_MODE = os.getenv('CAPABILITY_RETRIEVAL_MODE', 'bm25')
 # Retrieval options for multi-document sprints (apps/scoring/capability/structure.py). All off by
@@ -870,6 +873,10 @@ CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '
 # keyword lane), and records that it did. CAPABILITY_MAX_INPUT_TOKEN_BOUND must be at least twice that fallback
 # (400000), which also covers twice the cap.
 CAPABILITY_MAP_CAP_CHARS = int(os.getenv('CAPABILITY_MAP_CAP_CHARS', '').strip() or 60000)
+# Map mode's fill (apps/evidence_map/packet.py): 'keyword' (default), or 'semantic', which first gives up to half of
+# the fill to tags for other indicators closest in meaning to a requirement (apps/evidence_map/semantic.py; local
+# embeddings, CAPABILITY_EMBEDDING_PATH). A run refuses to start in 'semantic' when the model is not provisioned.
+CAPABILITY_MAP_FILL = os.getenv('CAPABILITY_MAP_FILL', 'keyword').strip().lower() or 'keyword'
 # The prompt shape whose map a run uses (one: all areas in one request per chunk; areas: one request per area).
 EVIDENCE_MAP_SHAPE = os.getenv('EVIDENCE_MAP_SHAPE', 'one').strip() or 'one'
 # Keyword mode only (CAPABILITY_RETRIEVAL_MODE=bm25): characters of keyword evidence per key indicator, 18,000 by
