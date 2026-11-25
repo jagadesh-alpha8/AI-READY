@@ -49,12 +49,12 @@ class LabelTests(SimpleTestCase):
 
 def given(credited=True):
     passages = [
-        {'id': 'P1', 'role': 'credited' if credited else 'seen', 'where': 'Self-Study Report, page 141',
+        {'id': 'P1', 'role': 'credited' if credited else 'seen', 'where': 'Self-Study Report, page 141', 'close': True,
          'source_id': 's1', 'text': 'The e-Varsity ERP digitises student, faculty and staff data. The Board of '
                                     'Studies approved 3 new electives in 2023.'},
-        {'id': 'P2', 'role': 'seen', 'where': 'Annual Quality Assurance Report, page 9', 'source_id': 's2',
+        {'id': 'P2', 'role': 'seen', 'where': 'Annual Quality Assurance Report, page 9', 'source_id': 's2', 'close': True,
          'text': 'The Internal Quality Assurance Cell reviews feedback every semester.'},
-        {'id': 'P3', 'role': 'related', 'where': 'Self-Study Report, page 113', 'source_id': 's3',
+        {'id': 'P3', 'role': 'related', 'where': 'Self-Study Report, page 113', 'source_id': 's3', 'close': False,
          'text': 'Faculty attended a workshop on Turnitin and DrillBit plagiarism checking.'},
     ]
     return {'college': {'name': 'Vels Institute', 'type': 'university', 'size': {}}, 'area': 'Data and infrastructure',
@@ -119,6 +119,8 @@ class ValidationTests(SimpleTestCase):
             (lambda o: o.update(kind='begin'), 'kind must be'),
             (lambda o: o.update(kind='start'), 'have and related must then be empty'),
             (lambda o: o.update(kind='name', have=[], related=[]), 'cite it under have or related'),
+            (lambda o: o.update(have=[], related=[{'text': 'A workshop, a start.', 'passage_ids': ['P3']}]),
+             'real starting point'),
         ]
         for change, words in cases:
             with self.subTest(words=words):
@@ -133,6 +135,17 @@ class ValidationTests(SimpleTestCase):
         start = dict(good(credited=False), kind='start', related=[])
         text, problems = self.check(start, given(credited=False))
         self.assertEqual((problems, text['kind']), ([], 'start'))
+
+    def test_degree_names_are_not_people(self):
+        for degree in ('B.Tech', 'M.Tech', 'B.Sc', 'M.Phil', 'B.Com', 'M.Pharm', 'B.Ed'):
+            self.assertIsNone(ns.PERSON.search(f'Add a practical to the {degree} in Data Science.'), degree)
+        for person in ('Ask K. Rao to lead it.', 'Dr. Raman leads it.', 'Ask S.Kumar.'):
+            self.assertIsNotNone(ns.PERSON.search(person), person)
+
+    def test_every_generic_owner_passes_as_a_suggested_role(self):
+        for name in ns.GENERIC_OWNERS.values():
+            output = dict(good(), owner={'name': name, 'kind': 'suggested_role', 'passage_id': ''})
+            self.assertEqual(self.check(output)[1], [], name)
 
     def test_a_suggested_generic_role_passes(self):
         output = good()
@@ -228,7 +241,7 @@ class NextStepsFlowTests(APITestCase):
         """A careful writer: credits only from credited passages, a generic owner, plain words."""
         self.packets = getattr(self, 'packets', []) + [payload]
         credited = [p['id'] for p in payload['passages'] if p['role'] == 'credited']
-        others = [p['id'] for p in payload['passages'] if p['role'] != 'credited']
+        others = [p['id'] for p in payload['passages'] if p['role'] != 'credited' and p.get('close')]
         return {'kind': 'extend' if credited or others else 'start',
                 'action': f"Put this in place in your {payload['topic'].lower()} work, building on what you have.",
                 'have': [{'text': 'You already have part of this on record.', 'passage_ids': credited[:1]}] if credited else [],
@@ -257,6 +270,28 @@ class NextStepsFlowTests(APITestCase):
         self.assertEqual([s['area'] for s in steps], shown)   # the same nine-at-most choice as the screens
         self.assertTrue(all(s['practices'] and s['passages'] for s in steps))
         self.assertEqual(CapabilityNextSteps.objects.count(), 0)   # nothing written, nothing saved
+
+    def test_imported_answers_go_through_the_same_checks(self):
+        import io, tempfile
+        from django.core.management import call_command
+        run = self.assess()
+        actions = self.detail(run)['next_steps']['actions']
+        good_one = {'kind': 'start', 'action': 'Start a short written plan for this.', 'have': [], 'related': [],
+                    'not_found': 'We did not find this in your documents.',
+                    'first_step': 'Ask the people involved to write down how it works today.',
+                    'owner': {'name': 'the office responsible for quality assurance', 'kind': 'suggested_role',
+                              'passage_id': ''}}
+        answers = {actions[0]['title']: good_one, actions[1]['title']: dict(good_one, action='You lack a plan.')}
+        with tempfile.NamedTemporaryFile('w', suffix='.json') as handle:
+            json.dump(answers, handle)
+            handle.flush()
+            call_command('capability_next_steps', str(run.pk), '--import', handle.name, '--save',
+                         '--written-by', 'test', stdout=io.StringIO())
+        row = CapabilityNextSteps.objects.get(run=run)
+        self.assertEqual((row.model, list(row.payload['actions'])), ('test', [actions[0]['key']]))
+        self.assertIn(actions[1]['key'], row.payload['fallbacks'])   # failed the checks: plain checklist
+        shown = self.detail(run)['next_steps']['actions']
+        self.assertEqual([a['generated'] for a in shown[:2]], [True, False])
 
     def test_written_once_shown_everywhere_and_never_regenerated(self):
         run = self.assess()

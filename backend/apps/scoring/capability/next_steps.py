@@ -50,9 +50,14 @@ GENERIC_OWNERS = {
     'AIQIF-C8': 'the people responsible for the services and partnerships concerned',
     'AIQIF-C9': 'the office responsible for quality assurance',
 }
+# Lower-case words only (no names), apart from "IT" and "AI": the product's own generic role for technology and data
+# is "the office responsible for IT and data", which a model copying it must be able to use.
 SUGGESTED_ROLE = re.compile(r'^the (?:office|body|team|committee|department|leadership team|people|person|unit) '
-                            r'responsible for [a-z ,\-]+$')
-PERSON = re.compile(r'\b(?:Dr|Prof|Mr|Mrs|Ms|Miss|Shri|Smt|Sri|Thiru|Tmt|Selvi)\b\.?\s*[A-Z]|\b[A-Z]\.\s?[A-Z][a-z]')
+                            r'responsible for (?:[a-z ,\-]|\bIT\b|\bAI\b)+$')
+# An initial and a name ("K. Rao"), never a degree ("B.Tech", "M.Sc", "Ph.D"): colleges name their programmes so.
+DEGREES = r'(?:Tech|Sc|Com|Ed|Pharm|Phil|Arch|Des|Voc|Lib|Lit|Litt|Plan|Optom|Physio|Mus|Ba|Ca|Ba|El|Ec|Des|Hm|Ft|Ag|Fsc|Vsc)'
+PERSON = re.compile(r'\b(?:Dr|Prof|Mr|Mrs|Ms|Miss|Shri|Smt|Sri|Thiru|Tmt|Selvi)\b\.?\s*[A-Z]|'
+                    r'\b[A-Z]\.\s?(?!' + DEGREES + r'\b)[A-Z][a-z]')
 ABSENCE = re.compile(r"\byou (?:do not|don't|lack|have not|haven't|have no|never)\b|\byour (?:institution|college) "
                      r"(?:does not|doesn't|lacks|has no)\b|\bthere (?:is|are) no\b|\bdoes not exist\b|\bno evidence of\b|"
                      r"\b(?:lacks?|lacking|absent|absence)\b", re.I)
@@ -259,12 +264,16 @@ You are given ONE action that has already been chosen, the requirement(s) it is 
 - "credited": the assessment found this passage shows part of this requirement.
 - "seen": the reviewer read this passage for this area; it may or may not bear on the requirement.
 - "related": from elsewhere in the college's documents, chosen because it is close to what this step is about (a policy, office, system, programme or record nearby). Some were credited for a different practice ("credited_elsewhere": true), some were not credited at all. It may be something the college can build on, but it is never evidence that this practice exists.
+- "ai_work": AI work the assessment confirmed the college already does (a programme, workshop, project, partnership), from any area. A step about "an AI initiative" or "an AI activity" can attach to one of these.
+Each passage has "close": true when it is a real starting point (credited here, AI work the college does, or something of the same kind as this practice). A passage with "close": false only shares words with the practice: never build a step on it alone.
+
+"starting_points" tells you what there is: credited (part of this practice is shown), like_this (something of the same kind exists), ai_work (AI work it could apply to). A good step usually joins two: apply something the college already does (like_this) to AI work it already runs (ai_work). When all three are false, the step is a "start".
 
 Write these fields:
 - kind: how the step starts.
   "extend": something the college already has (a "credited", "seen" or "related" passage) can be extended or adapted to this practice. Prefer this whenever a passage names a real starting point, for example extending an existing plagiarism policy to cover AI use.
   "name": the thing exists, but no owner, record or decision about it is named; the step names one.
-  "start": nothing in the passages is a fair starting point; the step starts it, and says so plainly. have and related are then empty.
+  "start": nothing in the passages is a fair starting point; the step starts it, and says so plainly. have and related are then empty. Keep a "start" step small and concrete: the first simple version that would count, not a programme.
 - action: one sentence, at most 30 words, saying what the college should do, in its own terms (its own offices, programmes, systems and documents where the passages name them). Not a copy of the requirement.
 - have: at most three things the college already has towards THIS requirement, each one sentence citing the "credited" passages it rests on in passage_ids. Empty when no passage is "credited".
 - related: at most three things the college has that it can build on, each citing "seen" or "related" passages. Say plainly that they are a starting point, not the practice itself.
@@ -298,6 +307,50 @@ def schema(passage_ids):
 
 
 STOP = frozenset(['about', 'across', 'after', 'also', 'among', 'and', 'any', 'been', 'before', 'being', 'between', 'college', 'could', 'each', 'every', 'for', 'from', 'had', 'has', 'have', 'include', 'includes', 'including', 'institution', 'institutional', 'into', 'more', 'most', 'only', 'other', 'ours', 'over', 'shall', 'should', 'some', 'such', 'than', 'that', 'the', 'their', 'them', 'then', 'there', 'these', 'they', 'this', 'those', 'under', 'university', 'upon', 'used', 'using', 'were', 'what', 'when', 'where', 'which', 'while', 'whom', 'whose', 'will', 'with', 'within', 'without', 'would', 'your', 'yours'])
+
+
+@lru_cache(maxsize=None)
+def phrase_rx(phrase):
+    """A records' word or phrase as a whole word ("AI" never matches "maintained", "MIS" never "mission")."""
+    return re.compile(r'(?<![a-z0-9])' + re.escape(phrase.lower()) + r'(?![a-z0-9])', re.I)
+
+
+#: A records' word found in more than this share of a college's passages says nothing about closeness for that
+#: college ("outcome", "data", "students" in a Self-Study Report): it still ranks, but never makes a passage "close".
+COMMON_SHARE = 0.08
+AI_WORK = 4               # the college's AI work, as the judge confirmed it, closest first (starting value)
+
+
+def common_phrases(everything):
+    """The records' words too common in this college's own passages to signal closeness."""
+    texts = [p['text'] for p in everything]
+    n = len(texts)
+    if not n:
+        return frozenset()
+    share = COMMON_SHARE if n >= 100 else 0.25   # a small corpus: only the plainly ubiquitous
+    phrases = {ph for words in _builds_on_file().values() for ph in words}
+    return frozenset(ph for ph in phrases if sum(1 for t in texts if phrase_rx(ph).search(t)) / n > share)
+
+
+def ai_work(records, parts):
+    """The college's AI activity as the judge confirmed it: quotations behind an artificial-intelligence part that
+    was credited in full, on a practice credited at half or more. What an AI step can attach to (a B.Tech in AI, the
+    IQAC's AI workshops), whatever area it was found in."""
+    out, seen = [], set()
+    for cid, record in sorted(records.items()):
+        if credit_of(record) < 0.5:
+            continue
+        spec = {x.get('id'): x for x in (parts.get(cid) or {}).get('parts') or []}
+        for part in record.get('parts') or []:
+            if not spec.get(part.get('id'), {}).get('ai_gate') or part.get('credited_as') != 'full':
+                continue
+            for cite in part.get('citations') or []:
+                quote = cite.get('quote') or ''
+                key = _norm(quote)[:80]
+                if len(quote) >= 20 and key not in seen:
+                    seen.add(key)
+                    out.append({'condition_id': cid, 'source_id': str(cite.get('source_id')), 'quote': quote})
+    return out
 
 
 def _words(text):
@@ -344,7 +397,7 @@ class Closeness:
             words = _terms(phrase)
             if not words:
                 continue
-            if len(words) > 1 and phrase.lower() not in self.lower[i]:
+            if len(words) > 1 and not phrase_rx(phrase).search(self.lower[i]):
                 continue
             total += 2 * max(self._term(i, w) for w in words)
         return total
@@ -443,6 +496,25 @@ def packet(action, target):
     # Credited elsewhere: the requirements credited at half or more, by their source pages.
     credited_pages = {str(x.get('source_id')) for cid, r in records.items() if credit_of(r) >= 0.5
                       for x in (r.get('citations') or [y for p in r.get('parts') or [] for y in p.get('citations') or []])}
+    common = target.get('common') or frozenset()
+
+    def close(text):
+        """Names something like this practice: a records' word of this key indicator, not one common everywhere."""
+        return any(phrase_rx(ph).search(text or '') for ph in phrases if ph not in common)
+    for passage in passages:   # the credited ones so far
+        passage['close'] = True
+    # Short quotations, so they go in before the longer passages fill the packet.
+    # The college's AI work this step could apply to: same area first, then the closest to the step.
+    work = [w for w in target.get('ai_work') or [] if not w['condition_id'].startswith(code + '.')]
+    if work:
+        scorer = Closeness([w['quote'] for w in work])
+        work = [w for _, w in sorted(enumerate(work), key=lambda x: (
+            not x[1]['condition_id'].startswith(action['area_code'] + '.'), -scorer.score(x[0], asked, phrases), x[0]))]
+    taken = 0
+    for w in work:
+        if taken >= AI_WORK:
+            break
+        taken += add('ai_work', w['source_id'], w['quote'], close=True)
     own = [i for i in ranked if code in everything[i]['indicators']]
     other = [i for i in ranked if code not in everything[i]['indicators']]
     # Passages far weaker than the closest one are noise, not something to build on.
@@ -451,15 +523,18 @@ def packet(action, target):
     for i in own:
         if taken >= PACKET_PASSAGES or closeness.score(i, asked, phrases) <= max(0.0, floor):
             break
-        taken += add('seen', everything[i]['id'], everything[i]['text'])
+        taken += add('seen', everything[i]['id'], everything[i]['text'], close=close(everything[i]['text']))
     taken = 0
     for i in other:
         if taken >= RELATED or closeness.score(i, asked, phrases) <= max(0.0, floor):
             break
         taken += add('related', everything[i]['id'], everything[i]['text'],
-                     credited_elsewhere=everything[i]['id'] in credited_pages)
+                     credited_elsewhere=everything[i]['id'] in credited_pages, close=close(everything[i]['text']))
+    basis = {'credited': any(p['role'] == 'credited' for p in passages),
+             'like_this': any(p['close'] for p in passages if p['role'] in ('seen', 'related')),
+             'ai_work': any(p['role'] == 'ai_work' for p in passages)}
     return {'college': target['college'], 'area': action['area'], 'topic': action['title'], 'stage': action['step'],
-            'requirements': requirements, 'passages': passages}
+            'requirements': requirements, 'passages': passages, 'starting_points': basis}
 
 
 def _clean(value):
@@ -502,6 +577,12 @@ def validate(given, output):
     elif kind in ('extend', 'name') and not (lists['have'] or lists['related']):
         problems.append(f'kind "{kind}" builds on something the college has: cite it under have or related '
                         '(or choose "start").')
+    elif kind in ('extend', 'name') and not any(passages.get(i, {}).get('close') for f in ('have', 'related')
+                                                for item in lists[f] for i in item['passage_ids']):
+        problems.append(f'kind "{kind}" must build on a real starting point: cite at least one passage marked '
+                        '"close" (or choose "start").')
+    elif kind == 'extend' and not any(given.get('starting_points', {}).values()) and given.get('starting_points'):
+        problems.append('nothing here is a starting point: the step is a "start".')
     if not text['action']:
         problems.append('action is empty.')
     if not text['first_step']:
@@ -673,8 +754,11 @@ def _target(run_id, event_id, inputs, payload, not_started_ids):
                'size': {k: v for k, v in population.items() if isinstance(v, (int, float, str)) and k != 'label'}
                if isinstance(population, dict) else {}}
     everything = pool(payload.get('traces'))
-    return {'run_id': run_id, 'event_id': event_id, 'records': {r['condition_id']: r for r in payload['records']},
+    records = {r['condition_id']: r for r in payload['records']}
+    parts = load_parts()[0]['conditions']
+    return {'run_id': run_id, 'event_id': event_id, 'records': records,
+            'common': common_phrases(everything), 'ai_work': ai_work(records, parts),
             'packets': {t['indicator']: t.get('source_excerpts') or [] for t in payload.get('traces') or []},
             'pool': everything, 'closeness': Closeness([p['text'] for p in everything]),
-            'pages': pages, 'parts': load_parts()[0]['conditions'], 'actions': view['raw_actions'], 'college': college,
+            'pages': pages, 'parts': parts, 'actions': view['raw_actions'], 'college': college,
             'not_started': not_started_ids}
