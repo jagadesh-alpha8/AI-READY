@@ -140,6 +140,31 @@ class Packet:
                  'text_offset': s[1], 'chars': s[2] - s[1], 'reasons': s[3]} for s in self.spans]
 
 
+def _subtract(start, end, spans):
+    """[start, end) minus the given spans, as a list of (start, end) pieces in order."""
+    pieces = [(start, end)]
+    for a, b in sorted(spans):
+        pieces = [p for s, e in pieces for p in ((s, min(e, a)), (max(s, b), e)) if p[0] < p[1]]
+    return pieces
+
+
+def _uncovered(source, spans):
+    """The source as the keyword fill should see it: unchanged when nothing of it is in the packet; with the held
+    spans blanked out (same length, so offsets stay exact) when part of it is; None when all of it is."""
+    text = source.get('text') or ''
+    if not spans:
+        return source
+    left = _subtract(0, len(text), spans)
+    if not any(text[s:e].strip() for s, e in left):
+        return None
+    chars = list(text)
+    for a, b in spans:
+        for i in range(max(0, a), min(len(chars), b)):
+            if not chars[i].isspace():
+                chars[i] = ' '
+    return {**source, 'text': ''.join(chars)}
+
+
 # ------------------------------------------------------------------ the builder
 
 
@@ -248,19 +273,36 @@ def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=N
     else:
         lane_chars = 0
 
-    # Keyword fill over pages not yet in the packet; topical pages for this indicator only after the rest.
-    present = {w['id'] for w in context}
+    # Keyword fill over every span not yet in the packet (rule 2: the map orders, it never excludes). A page already
+    # in the packet joins the fill with its chosen spans blanked out, so the rest of a long tagged page can still be
+    # reached; offsets are kept, and each fill window is trimmed back to text the packet does not hold yet.
+    # Topical pages for this indicator only after the rest.
+    covered = {}
+    for w in context:
+        if w.get('text_offset') is None:
+            covered[w['id']] = [(0, 10 ** 9)]      # no offset: treat the whole page as held (the old behaviour)
+        else:
+            covered.setdefault(w['id'], []).append((w['text_offset'], w['text_offset'] + len(w.get('text') or '')))
     remaining = cap - packet.used - lane_chars
     fill = []
-    for step, pool in (('keyword_fill', [s for s in sources if s['id'] not in present and s['id'] not in topical]),
-                       ('keyword_fill_topical', [s for s in sources if s['id'] not in present and s['id'] in topical])):
+    for step, wanted in (('keyword_fill', lambda s: s['id'] not in topical),
+                         ('keyword_fill_topical', lambda s: s['id'] in topical)):
+        pool = [p for p in (_uncovered(s, covered.get(s['id'])) for s in sources if wanted(s)) if p is not None]
         if remaining < 100 or not pool:
             continue
-        windows = [w for w in keyword_fill(pool, remaining) if w['id'] not in present]
-        for w in windows:
-            fill.append((step, w))
-            present.add(w['id'])
-            remaining -= len(w.get('text') or '')
+        originals = {s['id']: s for s in sources}
+        for w in keyword_fill(pool, remaining):
+            source = originals.get(w['id'])
+            if source is None or w.get('text_offset') is None:
+                continue
+            for start, end in _subtract(w['text_offset'], w['text_offset'] + len(w.get('text') or ''),
+                                        covered.get(w['id'], [])):
+                piece = source['text'][start:end]
+                if not piece.strip() or len(piece) > remaining:
+                    continue
+                fill.append((step, {**w, 'text': piece, 'text_offset': start}))
+                covered.setdefault(w['id'], []).append((start, end))
+                remaining -= len(piece)
     context = context + [w for _, w in fill]
     trace = {'allocation': ALLOCATION, 'cap_chars': cap, 'tagged_limit_chars': tagged_limit,
              'tagged_chars': packet.used, 'lane_chars': lane_chars,

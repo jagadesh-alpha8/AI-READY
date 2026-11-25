@@ -167,7 +167,33 @@ def check(run):
                             'set_with': 'code version (not a setting)'})
     unfrozen = {'FACT_VERIFICATION_MODE': settings.FACT_VERIFICATION_MODE, 'AI_TEMPERATURE': settings.AI_TEMPERATURE,
                 'AI_SEED': settings.AI_SEED}
-    return {'run_id': str(run.pk), 'differences': differences, 'errors': errors, 'unfrozen': unfrozen}
+    return {'run_id': str(run.pk), 'differences': differences, 'errors': errors, 'unfrozen': unfrozen,
+            'warnings': deployment_warnings(getattr(run, 'sprint_id', None))}
+
+
+def deployment_warnings(sprint_id):
+    """Settings this deployment would start a run with that are valid but probably not what was meant. Warnings
+    only: they never fail the check."""
+    out = []
+    try:
+        current = _current_retrieval()
+    except Exception:
+        return out
+    wide = current.get('keyword_chars', 0) >= 90000 or current.get('mode') == 'map'
+    missing = [name for key, name in (('deduplicate', 'CAPABILITY_DEDUPLICATE_PAGES'),
+                                      ('repeat_skip', 'CAPABILITY_REPEAT_SKIP')) if key not in current]
+    if wide and missing:
+        out.append('Wide keyword packets (CAPABILITY_KEYWORD_CHARS, or map mode\'s 200,000 fallback) without '
+                   + ' and '.join(missing) + ': the packet will not be test 13\'s.')
+    if current.get('mode') == 'map' and sprint_id and not getattr(settings, 'EVIDENCE_MAP_AI_MODEL', ''):
+        from apps.evidence_map.models import MapJob
+        from apps.evidence_map.status import current_version
+        models = set(MapJob.objects.filter(sprint_id=sprint_id, map_version=current_version())
+                     .values_list('model', flat=True))
+        if len(models) > 1:
+            out.append(f'This sprint has maps from {len(models)} models ({", ".join(sorted(models))}) and '
+                       'EVIDENCE_MAP_AI_MODEL is not set: a run would use whichever pass started last. Set it.')
+    return out
 
 
 class Command(BaseCommand):
@@ -195,6 +221,8 @@ class Command(BaseCommand):
                                       f"  [{d['set_with']}]")
             for error in result['errors']:
                 self.stdout.write(self.style.WARNING(f'\nCould not check: {error}'))
+            for warning in result['warnings']:
+                self.stdout.write(self.style.WARNING(f'\nWarning: {warning}'))
             self.stdout.write('\nNot frozen with the run (check by hand): ' + ', '.join(
                 f'{k}={v!r}' for k, v in result['unfrozen'].items()))
             if result['unfrozen']['FACT_VERIFICATION_MODE'] != 'enforce':

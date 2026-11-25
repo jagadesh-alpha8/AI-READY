@@ -31,9 +31,13 @@ def status(sprint):
     if job is None:
         out['warning'] = 'no_map'
         return out
-    readable = max(0, job.pages_total)
-    done_before = max(0, job.pages_total - job.pages_to_tag)
-    share = (done_before + job.pages_tagged) / readable if readable else 1.0
+    if job.pages_unique is not None:
+        # Identical pages are tagged once, so the share is of distinct page texts: counting a duplicate as done
+        # (pages_total - pages_to_tag) overstated it.
+        readable, done_before = job.pages_unique, job.pages_done_before or 0
+    else:   # a job from before the distinct counts were stored: the old estimate, which can only overstate
+        readable, done_before = max(0, job.pages_total), max(0, job.pages_total - job.pages_to_tag)
+    share = min(1.0, (done_before + job.pages_tagged) / readable) if readable else 1.0
     out['job'] = {'id': str(job.pk), 'status': job.status, 'model': job.model, 'shape': job.shape,
                   'pages_total': job.pages_total, 'pages_to_tag': job.pages_to_tag, 'pages_tagged': job.pages_tagged,
                   'pages_failed': job.pages_failed, 'pages_unreadable': job.pages_skipped,

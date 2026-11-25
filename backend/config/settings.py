@@ -863,8 +863,9 @@ CAPABILITY_REPEAT_SKIP = os.getenv('CAPABILITY_REPEAT_SKIP', 'false').strip().lo
 CAPABILITY_RETRIEVAL_ALLOCATION = os.getenv('CAPABILITY_RETRIEVAL_ALLOCATION', '')
 # Evidence-map mode (CAPABILITY_RETRIEVAL_MODE=map; apps/evidence_map/packet.py): each key indicator's packet is built
 # from the pages the evidence map tagged for it, then a keyword fill (at least a third of the cap). Needs the sprint
-# tagged with evidence_map_tag; without a map the run falls back to keyword mode at the larger of the cap and
-# CAPABILITY_KEYWORD_CHARS, and records that it did. CAPABILITY_MAX_INPUT_TOKEN_BOUND must be at least twice the cap.
+# tagged with evidence_map_tag; without a map the run falls back to keyword mode at the wide budget (200,000, test 13's
+# keyword lane), and records that it did. CAPABILITY_MAX_INPUT_TOKEN_BOUND must be at least twice that fallback
+# (400000), which also covers twice the cap.
 CAPABILITY_MAP_CAP_CHARS = int(os.getenv('CAPABILITY_MAP_CAP_CHARS', '').strip() or 60000)
 # The prompt shape whose map a run uses (one: all areas in one request per chunk; areas: one request per area).
 EVIDENCE_MAP_SHAPE = os.getenv('EVIDENCE_MAP_SHAPE', 'one').strip() or 'one'
