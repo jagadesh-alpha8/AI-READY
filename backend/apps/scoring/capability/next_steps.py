@@ -245,8 +245,9 @@ def for_screens(run_id, event_id, assessment, manifest, profile, plan, final, pr
     view = present({'assessment': assessment, 'source_manifest': manifest, 'profile': profile or {},
                     'deterministic_plan': plan, 'assessment_stage': {'stage': 'final' if final else 'provisional'},
                     'next_steps': steps, 'not_started': sorted(not_started_ids)})
+    from .presentation import for_screens as screens
     return {'version': (steps or {}).get('version'), 'written': view['next_steps_written'], 'actions': view['actions'],
-            'checklist': {a['code']: a['missing'] for a in view['areas']}}
+            'checklist': {a['code']: a['missing'] for a in view['areas']}, 'presentation': screens(view)}
 
 
 def stored(run_id, event_id):

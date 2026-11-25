@@ -274,6 +274,20 @@ class NextStepsFlowTests(APITestCase):
         self.assertTrue(all(s['practices'] and s['passages'] for s in steps))
         self.assertEqual(CapabilityNextSteps.objects.count(), 0)   # nothing written, nothing saved
 
+    def test_the_screens_get_the_reports_own_view(self):
+        """Part E: the run detail carries the report's view for the website (presentation.for_screens), so the
+        Overview, area cards and practices screens print what the PDFs print."""
+        run = self.assess()
+        shown = self.detail(run)['next_steps']
+        v = shown['presentation']
+        self.assertEqual([s['area'] for s in v['steps']], [a['area'] for a in shown['actions']])
+        self.assertEqual(len(v['cards']), len({a['area_code'] for a in v['steps']} | {c['code'] for c in v['cards']}))
+        self.assertEqual(sorted(c['score'] for c in v['cards'])[::-1], [c['score'] for c in v['cards']])  # strongest first
+        practices = [p for c in v['cards'] for t in c['topics'] for p in t['practices']]
+        self.assertTrue(practices and all(p['label_short'] and p['looked_for'] for p in practices))
+        self.assertEqual(len(v['start_here']), min(3, len(v['steps'])))
+        self.assertNotIn('traces', json.dumps(v))
+
     def test_imported_answers_go_through_the_same_checks(self):
         import io, tempfile
         from django.core.management import call_command

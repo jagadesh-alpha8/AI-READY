@@ -488,3 +488,33 @@ def build(payload):
             'in_place': sum(a['in_place'] for a in areas), 'partly': sum(a['partly'] for a in areas),
             'documents': len(payload.get('source_manifest') or []),
             'reference_period': payload.get('reference_period') or ''}
+
+
+def for_screens(view):
+    """What the website's Overview, Readiness areas and practices screens print: the same pieces as the reports
+    (build brief: one set of pieces, so the reports and the website can't drift apart), trimmed to what they show."""
+    def step(s):
+        return None if not s else {k: s[k] for k in ('title', 'kind', 'builds_on', 'lead', 'done_when_text', 'start',
+                                                    'written', 'first_step')}
+    cards = []
+    for a in view['cards']:
+        cards.append({
+            'code': a['code'], 'name': a['name'], 'definition': a['definition'], 'score': a['score'],
+            'level': a['level']['name'], 'level_index': a['level_index'], 'to_confirm': a['to_confirm'],
+            'card': a['card'], 'step': step(a.get('step')),
+            'topics': [{'code': t['code'], 'name': t['name'], 'score': t['score'], 'marks': t['marks'],
+                        'practices': [{k: r.get(k) for k in ('id', 'label_short', 'looked_for', 'status', 'label',
+                                                             'found', 'quote', 'source', 'next_step', 'done_when',
+                                                             'follow_up')} for r in t['requirements']]}
+                       for t in a['subareas']]})
+    return {
+        'stage1': view['stage1'], 'level': view['level'], 'levels': view['levels'], 'level_index': view['level_index'],
+        'score': view['score'], 'confirmed_whole': view['confirmed_whole'], 'shown_whole': view['shown_whole'],
+        'held_whole': view['held_whole'], 'held_points': view['held_points'],
+        'to_next_if_confirmed': view['to_next_if_confirmed'], 'summary_lines': view['summary_lines'],
+        'basics': view['basics'], 'documents': view['documents'], 'requirements': view['requirements'],
+        'institution_word': view['institution_word'], 'cards': cards,
+        'start_here': [{'area': a['area'], 'area_code': a['area_code'], **step(a['view'])} for a in view['start_here']],
+        'steps': [{'area': a['area'], 'area_code': a['area_code'], 'area_score': a['area_score'], **step(a['view'])}
+                  for a in view['actions']],
+    }

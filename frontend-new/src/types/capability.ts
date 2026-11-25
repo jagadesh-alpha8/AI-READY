@@ -285,7 +285,35 @@ export interface NextStepAction {
   first_step: string | null; owner: { name: string; suggested: boolean; source: string | null };
   requirements: ChecklistItem[];
 }
+/** The reports' own view, trimmed for the screens (presentation.for_screens): one set of pieces for both. */
+export interface ScreenStep {
+  title: string; kind: string; builds_on: string; lead: string; done_when_text: string; start: boolean;
+  written: boolean; first_step: string; area?: string; area_code?: string; area_score?: number;
+}
+export interface ScreenPractice {
+  id: string; label_short: string; looked_for: string; status: 'shown' | 'partly' | 'missing'; label: string;
+  found: string; quote: string; source: string; next_step: string; done_when: string; follow_up: string;
+}
+export interface ScreenCard {
+  code: string; name: string; definition: string; score: number; level: string; level_index: number; to_confirm: number;
+  card: { written: boolean; verdict: string; headline: string; strengths_title: string;
+    strengths: { text: string; source: string }[]; gaps: string[] };
+  step: ScreenStep | null;
+  topics: { code: string; name: string; score: number | null; marks: string[]; practices: ScreenPractice[] }[];
+}
+export interface ScreenView {
+  stage1: boolean; level: { name: string; stars: number; meaning: string; next: string | null; points_to_next: number };
+  levels: { name: string; stars: number; from: number; to: number | null; meaning: string }[]; level_index: number;
+  score: number; confirmed_whole: number; shown_whole: number; held_whole: number; held_points: number;
+  to_next_if_confirmed: number; summary_lines: { label: string; area: string; fact: string }[];
+  basics: { score: number; whole: number; level: string; reaches_next: boolean };
+  documents: number; requirements: number; institution_word: string; cards: ScreenCard[];
+  start_here: ScreenStep[]; steps: ScreenStep[];
+}
+
 export interface NextSteps {
+  /** The reports' view for the screens (presentation.for_screens). */
+  presentation?: ScreenView;
   version: string | null;
   written: boolean;
   /** One step in every area, weakest area first, the same everywhere; the first three are "Where to start". */
