@@ -435,7 +435,7 @@ def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=N
             {'condition_id': cid, 'requirement': indicator['conditions'][cid]['assertion'],
              'stage': STAGE_NAMES.get(levels[cid]), 'quotes': quotes_of[cid],
              'dimensions': [{'id': d, 'name': by_dim[d]['name'], 'what_an_auditor_asks': by_dim[d]['ask']}
-                            for d in dims_of[cid]], 'max_questions': cap} for cid in credited],
+                            for d in dims_of[cid]], 'max_questions': cap} for cid in credited if dims_of[cid]],
         'requirements_not_yet_shown': [
             {'condition_id': cid, 'requirement': indicator['conditions'][cid]['assertion'],
              'stage': STAGE_NAMES.get(levels[cid]),

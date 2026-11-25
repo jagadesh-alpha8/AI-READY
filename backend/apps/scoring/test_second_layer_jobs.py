@@ -186,7 +186,8 @@ class SecondLayerJobTests(APITestCase):
         depth_questions = DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='depth')
         # Both credited requirements are asked about; dimensions the model left out get fixed wording, and a fact
         # asked once counts for both requirements, so there is no fixed count.
-        self.assertEqual({q.condition_ids[0] for q in depth_questions}, set(self.credited))
+        from .capability.depth import OWNER_PRACTICES   # questions-0.4: an owner in place has no depth question
+        self.assertEqual({q.condition_ids[0] for q in depth_questions}, set(self.credited) - OWNER_PRACTICES)
         self.assertEqual(DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='missing').count(), 36)
         self.assertEqual(job.result['questions'], DepthQuestion.objects.filter(run_ref=str(self.run.pk)).count())
         kinds = list(job.events.values_list('payload__kind', flat=True))

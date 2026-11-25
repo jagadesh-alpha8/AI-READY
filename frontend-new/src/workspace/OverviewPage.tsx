@@ -175,10 +175,12 @@ function NextStepBox({ v, sprintId, runId, final, closed, left }: {
   const { staff } = useAccess();
   const readiness = useResource<ReportReadiness>(() => getReportReadiness(sprintId, runId), `ws-ready:${runId}`, final);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
   const open = staff || !!readiness.data?.ready;
   const get = async (audience: 'summary' | 'detailed') => {
     setBusy(true);
-    try { await downloadCapabilityReport(sprintId, runId, 'pdf', audience); } finally { setBusy(false); }
+    setFailed(false);
+    try { await downloadCapabilityReport(sprintId, runId, 'pdf', audience); } catch { setFailed(true); } finally { setBusy(false); }
   };
   if (final) {
     return (
@@ -192,6 +194,8 @@ function NextStepBox({ v, sprintId, runId, final, closed, left }: {
               <button className="btn-ol" disabled={busy} onClick={() => void get('summary')}>Download the leadership report</button>
               <button className="lnk" disabled={busy} onClick={() => void get('detailed')}>Download the detailed report</button>
             </div>
+            {busy && <p role="status">Preparing the report…</p>}
+            {failed && <p role="alert">The report could not be downloaded. Try again, or open it from the Reports page.</p>}
           </>
         ) : <p>Your reports are being written. They can be downloaded here, and on the Reports page, as soon as they are ready.</p>}
       </section>
