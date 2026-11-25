@@ -701,13 +701,24 @@ def map_argument(retrieval_policy, evidence_map):
     if policy.get('mode') != 'map':
         return None
     from apps.evidence_map import packet
-    if policy.get('allocation') != packet.ALLOCATION or policy.get('window_chars') != packet.WINDOW_CHARS \
+    if policy.get('allocation') not in packet.ALLOCATIONS or policy.get('window_chars') != packet.WINDOW_CHARS \
             or policy.get('fill_share') != '/'.join(map(str, packet.FILL_SHARE)) \
             or policy.get('context_share') != '/'.join(map(str, packet.CONTEXT_SHARE)):
         raise ValueError('Frozen evidence-map packet rules do not match this worker.')
     if not isinstance(evidence_map, dict) or 'pages' not in evidence_map:
         raise ValueError('A map-mode run needs its frozen evidence map.')
-    return {'pages': evidence_map['pages'], 'cap_chars': policy['cap_chars']}
+    semantic = None
+    if policy['allocation'] == packet.SEMANTIC_ALLOCATION:
+        if (policy.get('semantic') or {}).get('version') != _tag_semantic_version():
+            raise ValueError('Frozen semantic fill does not match this worker.')
+        from apps.evidence_map.semantic import configured
+        semantic = configured(policy)   # refuses when this worker's embedding model differs from the run's
+    return {'pages': evidence_map['pages'], 'cap_chars': policy['cap_chars'], 'semantic': semantic}
+
+
+def _tag_semantic_version():
+    from apps.evidence_map.semantic import VERSION
+    return VERSION
 
 
 def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope,
@@ -758,7 +769,7 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
                 return evidence_lane(indicator, list(context), pool, ledger, budget=budget, aliases=aliases,
                                      version=lane_version)
         context, trace = packet.build(indicator, pool, evidence_map, cap=cap, keyword_fill=keyword_fill,
-                                      lane=lane_step)
+                                      lane=lane_step, semantic=evidence_map.get('semantic'))
         map_trace.clear()
         map_trace.update(trace)
         return context, trace.get('evidence_lane')

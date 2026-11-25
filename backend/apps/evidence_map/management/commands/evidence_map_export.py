@@ -29,8 +29,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         target = Path(options['output']).resolve()
-        repository = Path(settings.BASE_DIR).resolve().parent
-        if target.exists() or repository in target.parents:
+        from apps.scoring.capability.private_output import inside_code
+        if target.exists() or inside_code(target):
             raise CommandError('Choose a new output path outside the repository.')
         try:
             sprint = Sprint.objects.get(pk=options['sprint_id'])

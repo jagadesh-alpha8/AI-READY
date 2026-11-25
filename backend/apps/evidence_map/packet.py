@@ -19,11 +19,16 @@ from collections import Counter
 from . import spec
 
 ALLOCATION = 'evidence-map-then-keyword-v1'
+#: The same packet with a semantic step in the fill (semantic.py; CAPABILITY_MAP_FILL=semantic).
+SEMANTIC_ALLOCATION = 'evidence-map-then-semantic-v1'
+ALLOCATIONS = (ALLOCATION, SEMANTIC_ALLOCATION)
 CAP_CHARS = 60000          # starting value (spec); CAPABILITY_MAP_CAP_CHARS
 FILL_SHARE = (1, 3)        # at least a third of the cap for the keyword fill
 WINDOW_CHARS = 2400
 CONTEXT_SHARE = (1, 10)    # context tags: at most a tenth of the cap
-STEPS = ('direct', 'supporting', 'context', 'extracted_evidence', 'keyword_fill', 'keyword_fill_topical')
+SEMANTIC_SHARE = (1, 2)    # semantic step: at most half of what the fill has (semantic.SHARE)
+STEPS = ('direct', 'supporting', 'context', 'extracted_evidence', 'keyword_fill_unread', 'semantic_fill', 'keyword_fill',
+         'keyword_fill_topical')
 
 
 # ------------------------------------------------------------------ freezing
@@ -168,12 +173,14 @@ def _uncovered(source, spans):
 # ------------------------------------------------------------------ the builder
 
 
-def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=None, window_chars=WINDOW_CHARS):
+def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=None, window_chars=WINDOW_CHARS,
+          semantic=None):
     """(context, trace) for one indicator.
 
     sources: the run's pages as retrieval reads them (after deduplication). frozen_map: freeze()'s result.
     keyword_fill(sources, max_chars) -> windows: today's keyword selector, run over the pages not yet in the packet.
-    lane(context, budget) -> (context, audit): the extracted-evidence lane, or None."""
+    lane(context, budget) -> (context, audit): the extracted-evidence lane, or None.
+    semantic: a semantic.TagSearch (allocation evidence-map-then-semantic-v1), or None for the keyword fill alone."""
     code = indicator['code']
     requirements = [c['id'] for c in indicator.get('conditions', [])]
     texts = {c['id']: c['text'] for c in indicator.get('conditions', [])}
@@ -273,10 +280,14 @@ def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=N
     else:
         lane_chars = 0
 
-    # Keyword fill over every span not yet in the packet (rule 2: the map orders, it never excludes). A page already
-    # in the packet joins the fill with its chosen spans blanked out, so the rest of a long tagged page can still be
-    # reached; offsets are kept, and each fill window is trimmed back to text the packet does not hold yet.
-    # Topical pages for this indicator only after the rest.
+    # The fill, over every span not yet in the packet (rule 2: the map orders, it never excludes). A page already in
+    # the packet joins it with its chosen spans blanked out, so the rest of a long tagged page can still be reached;
+    # offsets are kept, and each fill window is trimmed back to text the packet does not hold yet. In bands:
+    #   1. pages the tagger never read (failed, or no row): they have no other way in; keyword-ranked;
+    #   2. with semantic search: tags for other indicators closest in meaning to a requirement (semantic.py), up to
+    #      semantic.SHARE of what is left;
+    #   3. pages the tagger read: keyword-ranked, as before;
+    #   4. pages tagged topical for this indicator, last.
     covered = {}
     for w in context:
         if w.get('text_offset') is None:
@@ -285,26 +296,46 @@ def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=N
             covered.setdefault(w['id'], []).append((w['text_offset'], w['text_offset'] + len(w.get('text') or '')))
     remaining = cap - packet.used - lane_chars
     fill = []
-    for step, wanted in (('keyword_fill', lambda s: s['id'] not in topical),
-                         ('keyword_fill_topical', lambda s: s['id'] in topical)):
+    originals = {s['id']: s for s in sources}
+    unread = {s['id'] for s in sources if spec.text_hash(s.get('text') or '') not in pages_map}
+
+    def take(step, source, start, end, base=None):
+        """Add [start, end) of `source` to the fill, less what the packet already holds; the characters added. base: the
+        selector's window, whose own fields (e.g. a report timestamp's role) are kept."""
+        nonlocal remaining
+        added = 0
+        for a, b in _subtract(start, end, covered.get(source['id'], [])):
+            piece = source['text'][a:b]
+            if not piece.strip() or len(piece) > remaining:
+                continue
+            item = base if base is not None else {
+                k: v for k, v in source.items() if k not in ('text', 'report_timestamp', 'retrieval_hints')}
+            fill.append((step, {**item, 'text': piece, 'text_offset': a}))
+            covered.setdefault(source['id'], []).append((a, b))
+            remaining -= len(piece)
+            added += len(piece)
+        return added
+
+    def keyword_band(step, wanted):
         pool = [p for p in (_uncovered(s, covered.get(s['id'])) for s in sources if wanted(s)) if p is not None]
         if remaining < 100 or not pool:
-            continue
-        originals = {s['id']: s for s in sources}
+            return
         for w in keyword_fill(pool, remaining):
             source = originals.get(w['id'])
             if source is None or w.get('text_offset') is None:
                 continue
-            for start, end in _subtract(w['text_offset'], w['text_offset'] + len(w.get('text') or ''),
-                                        covered.get(w['id'], [])):
-                piece = source['text'][start:end]
-                if not piece.strip() or len(piece) > remaining:
-                    continue
-                fill.append((step, {**w, 'text': piece, 'text_offset': start}))
-                covered.setdefault(w['id'], []).append((start, end))
-                remaining -= len(piece)
+            take(step, source, w['text_offset'], w['text_offset'] + len(w.get('text') or ''), base=w)
+
+    keyword_band('keyword_fill_unread', lambda s: s['id'] in unread and s['id'] not in topical)
+    semantic_audit = None
+    if semantic is not None and remaining >= 100:
+        semantic_audit = _semantic_band(indicator, readable, pages_map, code, topical, semantic, take,
+                                        remaining * SEMANTIC_SHARE[0] // SEMANTIC_SHARE[1], window_chars)
+    keyword_band('keyword_fill', lambda s: s['id'] not in unread and s['id'] not in topical)
+    keyword_band('keyword_fill_topical', lambda s: s['id'] in topical)
     context = context + [w for _, w in fill]
-    trace = {'allocation': ALLOCATION, 'cap_chars': cap, 'tagged_limit_chars': tagged_limit,
+    trace = {'allocation': SEMANTIC_ALLOCATION if semantic is not None else ALLOCATION, 'cap_chars': cap,
+             'tagged_limit_chars': tagged_limit,
              'tagged_chars': packet.used, 'lane_chars': lane_chars,
              'fill_chars': sum(len(w.get('text') or '') for _, w in fill),
              'windows': packet.trace() + [{'id': w['id'], 'document_id': w.get('document_id'),
@@ -315,4 +346,61 @@ def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=N
              'tagged_pages': len(tags_for)}
     if lane_audit is not None:
         trace['evidence_lane'] = lane_audit
+    if semantic_audit is not None:
+        trace['semantic_fill'] = semantic_audit
     return context, trace
+
+
+def _semantic_band(indicator, readable, pages_map, code, topical, semantic, take, limit, window_chars):
+    """The semantic step of the fill: tags for other indicators, nearest in meaning to one of this indicator's
+    requirements first, the requirements taking turns; each sent as the window around its quotation, up to `limit`
+    characters. Returns an audit (candidates, chosen, characters)."""
+    from . import semantic as tag_semantic
+    queries = tag_semantic.queries_for(indicator)
+    requirements = list(queries)
+    candidates = []
+    for source in readable:
+        if source['id'] in topical:
+            continue
+        entry = pages_map.get(spec.text_hash(source['text'])) or {}
+        for tag in entry.get('tags') or []:
+            if tag.get('indicator') == code or tag.get('strength') not in tag_semantic.STRENGTHS:
+                continue
+            text = tag_semantic.tag_text(tag)
+            if text:
+                candidates.append((source, tag, text))
+    if not candidates or not requirements:
+        return {'candidates': len(candidates), 'chosen': 0, 'chars': 0}
+    scores = semantic.similarities([queries[r] for r in requirements], [c[2] for c in candidates])
+    # Per requirement: candidates by similarity, then page text hash and quote, so ties never depend on order.
+    queues = {r: sorted(range(len(candidates)), key=lambda k: (-round(scores[i][k], 6),
+                                                              spec.text_hash(candidates[k][0]['text']),
+                                                              candidates[k][1].get('quote') or ''))
+              for i, r in enumerate(requirements)}
+    used, chosen, seen = 0, [], set()
+    while used < limit and any(queues.values()):
+        progressed = False
+        for i, requirement in enumerate(requirements):
+            queue = queues[requirement]
+            while queue:
+                k = queue.pop(0)
+                if k in seen:
+                    continue
+                seen.add(k)
+                source, tag, _ = candidates[k]
+                query = _tokens(indicator['conditions'][i]['text'])
+                start, end = window(source['text'], tag.get('quote'), query, size=window_chars)
+                if used + (end - start) > limit:
+                    continue
+                added = take('semantic_fill', source, start, end)
+                if added:
+                    used += added
+                    chosen.append({'id': source['id'], 'requirement': requirement, 'tag_indicator': tag.get('indicator'),
+                                   'similarity': round(scores[i][k], 4)})
+                    progressed = True
+                    break
+            if used >= limit:
+                break
+        if not progressed:
+            break
+    return {'candidates': len(candidates), 'chosen': len(chosen), 'chars': used, 'windows': chosen}

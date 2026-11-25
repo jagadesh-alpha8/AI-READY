@@ -53,6 +53,9 @@ ABSENCE = re.compile(r"\byou (?:do not|don't|lack|have not|haven't|have no|never
                      r"(?:does not|doesn't|lacks|has no)\b|\bthere (?:is|are) no\b|\bdoes not exist\b|\bno evidence of\b|"
                      r"\b(?:lacks?|lacking|absent|absence)\b", re.I)
 INTERNAL = re.compile(r'\b(?:credit(?:ed)?|indicator|rubric|requirement|passage|P\d+)\b', re.I)
+#: Internal words a college's own documents also use ("credit course", "Choice Based Credit System", "programme
+#: requirements"): allowed when the passages themselves use the word, refused otherwise.
+COLLEGE_WORDS = {'credit', 'credits', 'requirement', 'requirements'}
 NOT_FOUND_WORDS = re.compile(r'\b(?:did not find|not found|not yet in place|have not yet|not started)\b', re.I)
 COMMON_CAPITALS = {'AI', 'I', 'We', 'You', 'Your', 'Our', 'This', 'That', 'These', 'Those', 'The', 'A', 'An', 'It',
                    'Set', 'Start', 'Ask', 'Use', 'Make', 'Add', 'Keep', 'Record', 'Write', 'Name', 'Agree', 'Review'}
@@ -365,6 +368,7 @@ def validate(given, output):
     everything = _norm(' '.join([given['college'].get('name') or '', given['area'], given['topic']]
                                 + [p['text'] + ' ' + p['where'] for p in given['passages']]
                                 + [r['what_it_asks'] + ' ' + r['done_when'] for r in given['requirements']]))
+    passage_words = set(re.findall(r'[a-z]+', _norm(' '.join(p['text'] for p in given['passages']))))
     allowed_numbers = set(NUMBER.findall(' '.join([p['text'] + ' ' + p['where'] for p in given['passages']]
                                                   + [json.dumps(given['college'])])))
     out = output or {}
@@ -428,7 +432,8 @@ def validate(given, output):
     for where, value in fields.items():
         if len(value) > MAX_FIELD_CHARS:
             problems.append(f'{where}: too long.')
-        if MACHINERY.search(value) or INTERNAL.search(value):
+        internal = [m.group(0).lower() for m in INTERNAL.finditer(value)]
+        if MACHINERY.search(value) or any(w not in COLLEGE_WORDS or w not in passage_words for w in internal):
             problems.append(f'{where}: uses codes or internal words; write plain English.')
         if PERCENT.search(value):
             problems.append(f'{where}: gives a percentage.')

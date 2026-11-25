@@ -31,8 +31,8 @@ class Command(BaseCommand):
         flips = instability(results) if len(results) > 1 else []
         if options['output']:
             target = Path(options['output']).resolve()
-            repository = Path(settings.BASE_DIR).resolve().parent
-            if target.exists() or repository in target.parents:
+            from apps.scoring.capability.private_output import inside_code
+            if target.exists() or inside_code(target):
                 raise CommandError('Choose a new output path outside the repository.')
             target.write_text(json.dumps({'results': results, 'unstable_conditions': flips,
                                           'agreement': consensus(results) if len(results) > 1 else None}, indent=1),

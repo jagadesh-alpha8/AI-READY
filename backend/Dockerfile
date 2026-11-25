@@ -21,7 +21,15 @@ RUN pip install -r requirements/ocr.txt \
     && rm -rf /usr/local/lib/python3.12/site-packages/paddle/include
 
 COPY requirements/ requirements/
+COPY scripts/bake_embedding_model.py scripts/bake_embedding_model.py
 RUN pip install -r requirements/production.txt
+
+# Local embeddings for map mode's semantic fill (CAPABILITY_MAP_FILL=semantic; apps/evidence_map/semantic.py):
+# fastembed, and the bge-small model files baked into the image at /opt/embeddings/bge-small-en-v1.5, so the server
+# never downloads weights (settings.BAKED_EMBEDDING_PATH is used when CAPABILITY_EMBEDDING_PATH is empty). The check
+# at the end fails the build if the files are incomplete or the model cannot embed, rather than the run failing later.
+RUN pip install -r requirements/semantic.txt \
+    && python scripts/bake_embedding_model.py /opt/embeddings/bge-small-en-v1.5
 
 COPY . .
 RUN chmod +x docker-entrypoint.sh
