@@ -176,9 +176,18 @@ def map_policy(routing):
     shape = getattr(settings, 'EVIDENCE_MAP_SHAPE', 'one')
     if shape not in spec.SHAPES:
         raise SemanticRetrievalUnavailable(f'EVIDENCE_MAP_SHAPE must be one of {", ".join(spec.SHAPES)}.')
-    return {'mode': 'map', 'allocation': packet.ALLOCATION, 'cap_chars': cap,
+    fill = (getattr(settings, 'CAPABILITY_MAP_FILL', 'keyword') or 'keyword').strip().lower()
+    if fill not in ('keyword', 'semantic'):
+        raise SemanticRetrievalUnavailable('CAPABILITY_MAP_FILL must be keyword or semantic.')
+    semantic = {}
+    if fill == 'semantic':
+        # Refuses here, before any model credit, when the image has no fastembed or no provisioned model: a run never
+        # starts expecting semantic search it cannot do (24 Nov: hybrid failed on live and the run went out smaller).
+        from apps.evidence_map.semantic import policy_entry
+        semantic = {'semantic': policy_entry()}
+    return {'mode': 'map', 'allocation': packet.SEMANTIC_ALLOCATION if semantic else packet.ALLOCATION, 'cap_chars': cap,
             'fill_share': '/'.join(map(str, packet.FILL_SHARE)), 'context_share': '/'.join(map(str, packet.CONTEXT_SHARE)),
-            'window_chars': packet.WINDOW_CHARS, 'map_shape': shape, **routing}
+            'window_chars': packet.WINDOW_CHARS, 'map_shape': shape, **semantic, **routing}
 
 
 @lru_cache(maxsize=2)
