@@ -71,7 +71,10 @@ def code_fingerprint():
     paths = tuple(sorted(p for p in SCORING.rglob('*') if p.is_file() and p.suffix in {'.py', '.json', '.html'}
                          and 'migrations' not in p.parts and not p.name.startswith('test')))
     names = ('CAPABILITY_STALE_SECONDS', 'CAPABILITY_ASSESSMENT_ENABLED', 'DEPTH_CREDIT_MODE', 'DEPTH_CREDIT_SHARE')
-    return digest([_files_digest(paths), {n: str(getattr(settings, n, None)) for n in names}])[:24]
+    from apps.demo_mask import mask
+    # The demo display mask changes what every response says, so switching it changes every marker and kept PDF.
+    return digest([_files_digest(paths), {n: str(getattr(settings, n, None)) for n in names},
+                   *([mask.fingerprint()] if mask.active() else [])])[:24]
 
 
 @lru_cache(maxsize=1)
