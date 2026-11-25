@@ -72,6 +72,9 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    # Demo display mask (DEMO_NAME_MASK, off by default): shows the institution under another name in every API
+    # response. apps/demo_mask/mask.py.
+    'apps.demo_mask.middleware.NameMaskMiddleware',
     # Logs API requests that are slow or run many queries (no contents): config/request_diagnostics.py.
     'config.request_diagnostics.RequestDiagnosticsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -982,3 +985,9 @@ EVIDENCE_MAP_CONCURRENCY = int(os.getenv('EVIDENCE_MAP_CONCURRENCY', '').strip()
 EVIDENCE_MAP_STALE_SECONDS = int(os.getenv('EVIDENCE_MAP_STALE_SECONDS', '').strip() or 6 * 3600)
 if EXTRACTION_QUEUE:
     CELERY_TASK_ROUTES['apps.evidence_map.tasks.tag_sprint'] = {'queue': EXTRACTION_QUEUE}
+
+# Demo display mask (apps/demo_mask; decided 25 Nov 2026): the name of a term list in apps/demo_mask/terms/ (e.g.
+# "vistas") shows that institution and its campuses under another name ("ABC University") in every API response and
+# report, PDFs included, and refuses downloads of original files (letterheads can't be masked). Stored data is never
+# changed. Empty (the default): off, nothing changes. Restart the backend after changing it.
+DEMO_NAME_MASK = os.getenv('DEMO_NAME_MASK', '').strip().lower()
