@@ -42,7 +42,10 @@ class NameMaskMiddleware:
             return response
         if not getattr(response, 'streaming', False) and not response.content:
             return response
-        if hasattr(response, 'close'):
-            response.close()
+        # Close the file being served, not the response: HttpResponse.close() sends request_finished, which closes
+        # the request's database connection early.
+        stream = getattr(response, 'file_to_stream', None)
+        if stream is not None and hasattr(stream, 'close'):
+            stream.close()
         return JsonResponse({'detail': 'Original files are not available in demo mode.',
                              'code': 'demo_mask_download_blocked'}, status=403)
