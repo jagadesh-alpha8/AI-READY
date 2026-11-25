@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { pathOf } from '../navigation';
 import { LEVELS, levelFor, whole } from '../utils/levels';
 import { Icon, Stars } from './Icon';
+import type { ChecklistItem, NextStepAction } from '../types/capability';
 import type { AreaView, ResultView } from './useResult';
 
 /** "1 point", "3 points"; at least 1 when there is anything at all. */
@@ -81,7 +82,7 @@ export function FocusCards({ view }: { view: ResultView }) {
         <article className="ws-card focus" key={a.code}>
           <div className="ws-row" style={{ justifyContent: 'space-between' }}><h3>{a.name}</h3><Stars stars={a.level.stars} size={14} /></div>
           <p>{a.score === 0 ? 'Nothing found in your documents yet.' : `${a.inPlace + a.partly} of ${a.requirements} practices shown so far.`}</p>
-          {a.missing[0] && <p><strong>Start with:</strong> {a.missing[0]}</p>}
+          {a.missing[0] && <p><strong>Start with</strong> ({a.missing[0].label.toLowerCase()}): done when {a.missing[0].done_when}</p>}
           {a.room >= 0.5 && <span className="ws-source">Up to {pts(a.room)} to gain here</span>}
         </article>
       ))}
@@ -132,3 +133,38 @@ export function LevelLadder({ score }: { score: number }) {
 }
 
 export type { AreaView };
+
+/** One checklist line: the label (partly in place, not found in your documents, not started) and "done when". */
+export function ChecklistLine({ item }: { item: ChecklistItem }) {
+  return <li><span className={`ws-tag${item.label === 'Partly in place' ? '' : ' amber'}`}>{item.label}</span> Done when {item.done_when}</li>;
+}
+
+const ownerText = (o: NextStepAction['owner']) => `${o.name.charAt(0).toUpperCase()}${o.name.slice(1)}${o.suggested ? ' (suggested)' : ''}`;
+
+/** One first step as the server finished it: the written text where the next-steps job wrote it for this college,
+ * the plain checklist wording otherwise. Labels, "done when" lines and points always come from the code. */
+export function ActionCard({ a, n, compact = false }: { a: NextStepAction; n: number; compact?: boolean }) {
+  return (
+    <article className="ws-action">
+      <span className="ws-action-n">{n}</span>
+      <div>
+        <h3>{a.title}</h3>
+        {a.action && <p style={{ marginTop: 6, fontSize: 15 }}>{a.action}</p>}
+        <ul className="ws-plain-list" style={{ marginTop: 10 }}>
+          {a.requirements.map((r) => <ChecklistLine key={r.id} item={r} />)}
+        </ul>
+        {!compact && (
+          <>
+            {a.have.length > 0 && <div style={{ marginTop: 10 }}><strong style={{ fontSize: 14 }}>What you have</strong>
+              <ul className="ws-plain-list">{a.have.map((h) => <li key={h.text}>{h.text} <span className="ws-source">({h.sources.join('; ')})</span></li>)}</ul></div>}
+            {a.related.length > 0 && <div style={{ marginTop: 10 }}><strong style={{ fontSize: 14 }}>To build on</strong>
+              <ul className="ws-plain-list">{a.related.map((h) => <li key={h.text}>{h.text} <span className="ws-source">({h.sources.join('; ')})</span></li>)}</ul></div>}
+            {a.not_found && <p style={{ marginTop: 10, fontSize: 14 }}>{a.not_found}</p>}
+            {a.first_step && <p style={{ marginTop: 10, fontSize: 14 }}><strong>First step:</strong> {a.first_step}</p>}
+          </>
+        )}
+        <p className="ws-source">{a.area} · Owner: {ownerText(a.owner)} · {pts(a.points)} at stake</p>
+      </div>
+    </article>
+  );
+}

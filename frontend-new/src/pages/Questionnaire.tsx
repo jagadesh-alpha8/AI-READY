@@ -332,6 +332,7 @@ const OPERATION_LABEL: Record<SecondLayerOperation, string> = {
   depth: 'Judging how deep the credited evidence goes',
   rejudge: 'Publishing the final result',
   explain: 'Writing score explanations',
+  next_steps: 'Writing next steps',
 };
 
 /** Siddharth's job error codes, in plain words. */
@@ -361,8 +362,17 @@ function explainOutcome(r: Record<string, unknown> | null): string {
     problems ? `${problems} area${problems === 1 ? '' : 's'} with problems` : ''].filter(Boolean).join(' · ');
 }
 
+/** A next-steps job's result: { calls, written, fallbacks }. */
+function stepsOutcome(r: Record<string, unknown> | null): string {
+  if (!r) return 'Done';
+  const num = (k: string) => (typeof r[k] === 'number' ? (r[k] as number) : 0);
+  return [`${num('written')} steps written in ${num('calls')} calls`,
+    num('fallbacks') ? `${num('fallbacks')} on the plain checklist` : ''].filter(Boolean).join(' · ');
+}
+
 function jobOutcome(j: SecondLayerJob): string {
   if (j.status === 'completed' && j.operation === 'explain') return explainOutcome(j.result);
+  if (j.status === 'completed' && j.operation === 'next_steps') return stepsOutcome(j.result);
   if (j.status === 'completed') return j.operation === 'rejudge' && j.final_run_id ? `Final run ${j.final_run_id.slice(0, 8)}` : 'Done';
   if (!j.error_code) return j.detail || '';
   const words = JOB_ERROR[j.error_code] || j.error_code;
@@ -447,6 +457,8 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
             onClick={() => void start('depth')}>{busy === 'depth' ? 'Starting…' : DEMO_MODE ? 'Check how far the evidence goes' : 'Judge evidence depth'}</button>}
           {!(DEMO_MODE && (closed || explained)) && <button className="secondary-button" disabled={disabled} title="One model call per area (about 9), checked against this run's record"
             onClick={() => void start('explain')}>{busy === 'explain' ? 'Starting…' : DEMO_MODE ? 'Explain the Stage 1 result' : explained ? 'Write explanations again' : 'Write explanations'}</button>}
+          {!DEMO_MODE && <button className="secondary-button" disabled={disabled} title="One model call per first step (at most six), checked against this run's record; written once, never on a reload"
+            onClick={() => void start('next_steps')}>{busy === 'next_steps' ? 'Starting…' : 'Write next steps'}</button>}
           {canPublish && <button className="primary-action" disabled={disabled} title="Closes the follow-up stage: after this no answer or document can change the final AI-READY Score"
             onClick={() => setConfirmPublish(true)}>{busy === 'rejudge' ? 'Starting…' : 'Finish and publish the final result'}</button>}
         </div>

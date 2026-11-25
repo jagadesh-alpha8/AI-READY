@@ -88,9 +88,18 @@ def threshold_plan(result, rubric, policy):
             'note': 'Conditional sufficient scenario, not optimal or guaranteed; reassessment required.'}
 
 
-def build_inputs(run, event, execution_policy):
-    if digest(run.inputs) != run.inputs_hash or event.payload.get('inputs_hash') != run.inputs_hash:
-        raise ValueError('Assessment integrity mismatch.')
+def build_inputs(run, event, execution_policy, *, verified_assessment_hash=None):
+    """verified_assessment_hash: digest(event.payload), given by a caller that has already checked the run's inputs
+    and the payload against inputs_hash (the run detail's stored copy, run_view.py); `run.inputs` may then hold only
+    the keys read here and `event.payload` the payload without its traces. Every other caller is checked here."""
+    if verified_assessment_hash is None:
+        if digest(run.inputs) != run.inputs_hash or event.payload.get('inputs_hash') != run.inputs_hash:
+            raise ValueError('Assessment integrity mismatch.')
+        assessment_hash = digest(event.payload)
+    else:
+        if event.payload.get('inputs_hash') != run.inputs_hash:
+            raise ValueError('Assessment integrity mismatch.')
+        assessment_hash = verified_assessment_hash
     from . import action_plan
     result, rubric = event.payload['result'], run.inputs['rubric']
     records = {r['condition_id']: r for r in event.payload['records']}
@@ -128,7 +137,7 @@ def build_inputs(run, event, execution_policy):
     from .foundation_plan import build_foundation_plan
     foundation = build_foundation_plan(rubric, event.payload['records'], result)
     return {'foundation_plan': foundation, 'version': VERSION, 'prompt_hash': digest(PROMPT), 'schema_hash': digest(SCHEMA),
-            'assessment_event_id': event.pk, 'assessment_hash': digest(event.payload),
+            'assessment_event_id': event.pk, 'assessment_hash': assessment_hash,
             'run_inputs_hash': run.inputs_hash, 'profile': run.inputs['profile'],
             'population': run.inputs['population'], 'reference_period': run.inputs['reference_period'],
             'reviewed_evidence': run.inputs.get('reviewed_evidence'),

@@ -300,8 +300,9 @@ def mark_to_check(question, to_check=True, *, user=None):
 
 def final_run_id(run_ref):
     """The newest final result published for this provisional run, or None."""
-    final = CapabilityRun.objects.filter(inputs__second_layer__provisional_run_id=str(run_ref)).order_by('-created_at').first()
-    return str(final.pk) if final else None
+    final = (CapabilityRun.objects.filter(inputs__second_layer__provisional_run_id=str(run_ref)).order_by('-created_at')
+             .values_list('pk', flat=True).first())   # the id only: never load the final run's inputs
+    return str(final) if final else None
 
 
 CLOSED = ('The follow-up stage is closed: the final AI-READY Score has been published, so answers and evidence can no '

@@ -1,0 +1,84 @@
+"""Write the next steps for a completed run (provisional or final), unmetered, with a cap on calls.
+
+    python manage.py capability_next_steps RUN_ID                 # print what would be written
+    python manage.py capability_next_steps RUN_ID --save          # store them for the run's reports and screens
+    python manage.py capability_next_steps RUN_ID --out file.json
+    python manage.py capability_next_steps RUN_ID --job           # queue the metered background job instead
+    python manage.py capability_next_steps RUN_ID --job --final   # the same for the published final result
+
+One model call per chosen first step (at most six), a second only to fix the first's problems; through the scoring-
+model switch (CAPABILITY_AI_*) at the writing effort. The background job (second-layer operation 'next_steps') is the
+metered route for the product; this is for consultants and for checking the wording on a real run.
+
+Generate only on runs whose evidence is fair to the college: the text says what we did not find, so a run that read
+too little evidence would point to gaps that are not real.
+"""
+import json
+
+from django.core.management.base import BaseCommand, CommandError
+
+from apps.scoring.models import CapabilityNextSteps, CapabilityRun
+
+
+class Command(BaseCommand):
+    help = 'Write the next steps for a completed run (model calls, unmetered, capped).'
+
+    def add_arguments(self, parser):
+        parser.add_argument('run_id')
+        parser.add_argument('--max-calls', type=int, default=12)
+        parser.add_argument('--save', action='store_true')
+        parser.add_argument('--out')
+        parser.add_argument('--job', action='store_true',
+                            help='Queue the metered background job (as the API does) instead of writing here.')
+        parser.add_argument('--final', action='store_true',
+                            help="With --job: write the published final result's next steps.")
+
+    def handle(self, *args, **options):
+        from apps.scoring.capability.depth import default_model
+        from apps.scoring.capability.next_steps import build_target, write
+        run = CapabilityRun.objects.filter(pk=options['run_id']).first()
+        if run is None:
+            raise CommandError('Run not found.')
+        if options['job']:
+            return self.queue(run, final=options['final'])
+        if options['final']:
+            raise CommandError('--final goes with --job; without it, pass the final run id itself.')
+        try:
+            target = build_target(run)
+        except ValueError as exc:
+            raise CommandError(str(exc))
+        model = default_model()
+        written = write(target, model, max_calls=options['max_calls'])
+        self.stdout.write(f"{written['calls']} calls; {len(written['actions'])} steps written; "
+                          f"{len(written['fallbacks'])} on the plain checklist.")
+        for key, errors in written['errors'].items():
+            self.stdout.write(f'  {key}: {len(errors)} problems left after the retry, e.g. {errors[0]}')
+        if options['save']:
+            CapabilityNextSteps.objects.create(run=run, event_id=target['event_id'], version=written['version'],
+                                               model=getattr(model, 'model_name', ''), payload=written)
+            self.stdout.write('Saved.')
+        if options['out']:
+            with open(options['out'], 'w') as handle:
+                json.dump(written, handle, indent=2, ensure_ascii=False)
+        elif not options['save']:
+            self.stdout.write(json.dumps(written['actions'], indent=2, ensure_ascii=False))
+
+    def queue(self, run, final=False):
+        import uuid
+        from django.db import transaction
+        from rest_framework.exceptions import APIException
+        from apps.scoring.capability import second_layer_jobs as jobs
+        from apps.scoring.capability.layer2_service import is_final
+        if is_final(run):
+            if not final:
+                raise CommandError('This run is a published final result: add --final (or pass its Stage 1 run id).')
+            run = CapabilityRun.objects.get(pk=run.inputs['second_layer']['provisional_run_id'])
+        try:
+            with transaction.atomic():
+                job, _ = jobs.start(run=run, operation='next_steps', user=None,
+                                    key=f'next-steps-cli-{uuid.uuid4().hex[:16]}',
+                                    options={'final': True} if final else None)
+        except APIException as exc:
+            raise CommandError(str(getattr(exc, 'detail', exc)))
+        self.stdout.write(f'Queued next-steps job {job.pk} for run {run.pk}. '
+                          'The reports and screens show the steps once it completes.')

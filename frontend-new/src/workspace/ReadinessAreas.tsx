@@ -6,7 +6,7 @@ import { pathOf } from '../navigation';
 import type { Sprint } from '../types/api';
 import { whole } from '../utils/levels';
 import { Stars } from './Icon';
-import { pts } from './ResultParts';
+import { ChecklistLine, pts } from './ResultParts';
 import { useResultView } from './useResult';
 
 /** Results › Readiness areas: one card per area, what's in place, what's missing, and the next step. */
@@ -52,7 +52,7 @@ function Body({ sprint }: { sprint: Sprint }) {
               <h3 style={{ marginBottom: 8 }}>What to show next</h3>
               {a.missing.length === 0 ? <p className="muted" style={{ fontSize: 14 }}>Everything in this area is shown. Keep the evidence current.</p> : (
                 <ul className="ws-plain-list">
-                  {a.missing.slice(0, 3).map((m) => <li key={m}>{m}</li>)}
+                  {a.missing.slice(0, 3).map((m) => <ChecklistLine key={m.id} item={m} />)}
                   {a.missing.length > 3 && <li className="muted">and {a.missing.length - 3} more in the detailed report</li>}
                 </ul>
               )}

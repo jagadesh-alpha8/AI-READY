@@ -808,6 +808,10 @@ class ProductFlowTests(APITestCase):
         html = self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'leadership', 'file': 'html'})
         self.assertIn('Your foundations are good. You have made a solid start.', html.content.decode())   # the area explanation
         # Test 13 (20 Nov) found the leadership PDF and both evidence reports without them; all three carry them now.
+        # The PDFs made by self.reports() above are kept (report_views.pdf_cache_key); render them afresh to read them.
+        fresh = patch('apps.scoring.capability.report_views.cache_get', return_value=None)
+        fresh.start()
+        self.addCleanup(fresh.stop)
         import fpdf
         printed = []
         real = fpdf.FPDF.multi_cell

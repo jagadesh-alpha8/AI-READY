@@ -58,14 +58,6 @@ def _first_sentences(text, count=2, limit=340):
     return _quote(' '.join(parts[:count]), limit)
 
 
-# A suggested lead for an area's actions when no foundation goal names one (shown as a suggestion, never assigned).
-DEFAULT_LEADS = {
-    'AIQIF-C1': 'Leadership team and IQAC', 'AIQIF-C2': 'Data protection and IT leads',
-    'AIQIF-C3': 'Programme and curriculum leads', 'AIQIF-C4': 'Academic development lead',
-    'AIQIF-C5': 'Student learning and placement leads', 'AIQIF-C6': 'IT and data leads',
-    'AIQIF-C7': 'Research and innovation lead', 'AIQIF-C8': 'Service owners and partnerships lead',
-    'AIQIF-C9': 'IQAC coordinator',
-}
 STAGE_STEP = {0: 'Set up', 1: 'Put in use', 2: 'Measure the results'}
 _SENTENCE_VERB = re.compile(r'\b(is|are|was|were|has|have|had|provides?|conducts?|offers?|organi[sz]ed|established|'
                             r'approved|completed|trained|includes?|uses?|maintains?|supports?|introduced|adopted|'
@@ -160,10 +152,11 @@ def _join(names):
     return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
-def choose_actions(result, records, indicator_scores, goal_roles, areas, focus, total_weight, limit=6, per_area=2):
+def choose_actions(result, records, areas, focus, total_weight, limit=6, per_area=2):
     """What to do next: for each key indicator, the practices at its first unfinished stage (at most two), with the
     overall points they would add when shown in full. The areas with the most to gain and the focus areas get their
-    best action first; then the largest gains, at most two per area and six in all. Matches workspace/plain.ts."""
+    best action first; then the largest gains, at most two per area and six in all. The code's choice, never the
+    model's: next_steps.py writes text only for the actions chosen here."""
     candidates = []
     for indicator in result['indicators']:
         conditions = indicator['conditions']
@@ -178,12 +171,10 @@ def choose_actions(result, records, indicator_scores, goal_roles, areas, focus, 
         weight = (float(indicator.get('weight_units') or 0) / total_weight) if total_weight else 1 / max(1, len(result['indicators']))
         points = sum((1 - cr) / len(conditions) * 100 * weight for _, cr in chosen)
         area = indicator.get('pillar') or indicator['code'].rsplit('.', 1)[0]
-        lead = next((goal_roles[c['id']] for c, _ in chosen if goal_roles.get(c['id'])), '') or DEFAULT_LEADS.get(area, '')
         candidates.append({'title': AREA_TITLES.get(indicator['code'], indicator.get('name', '')), 'code': indicator['code'],
                            'area_code': area, 'area': PILLARS.get(area, area), 'points': points,
                            'step': STAGE_STEP.get(first, 'Show'),
-                           'show': [_sentence(c['text']) + (' (partly shown)' if cr > 0 else '') for c, cr in chosen],
-                           'more': 0, 'lead': lead})
+                           'conditions': [{'id': c['id'], 'text': c['text']} for c, _ in chosen]})
     candidates.sort(key=lambda a: -a['points'])
     picked, count = [], {}
     priority = [a['code'] for a in sorted(areas, key=lambda a: -a['room'])[:3]] + [a['code'] for a in focus]
@@ -230,10 +221,9 @@ def build(payload):
              for d in payload.get('source_manifest') or [] for p in d.get('pages', [])}
     plan = (payload.get('deterministic_plan') or {}).get('priority_plan') or {}
     foundation = (payload.get('deterministic_plan') or {}).get('foundation_plan') or {}
-    goal_roles = {}
-    for goal in foundation.get('goals') or []:
-        for cid in goal.get('target_condition_ids') or []:
-            goal_roles.setdefault(cid, re.sub(r'\s*\(suggested\)$', '', goal.get('suggested_role') or ''))
+    from . import next_steps
+    not_started = frozenset(payload.get('not_started') or ())
+    checklist = next_steps.checklist(result, records, not_started)
     gains = {}
     for action in plan.get('actions') or []:
         area = action.get('pillar') or action['indicator'].rsplit('.', 1)[0]
@@ -258,7 +248,6 @@ def build(payload):
         credit = counted = 0.0
         in_place = partly = 0
         candidates = []
-        missing = []
         subareas = []
         for indicator in indicators:
             rows = []
@@ -272,9 +261,6 @@ def build(payload):
                     in_place += 1
                 elif status == 'partly':
                     partly += 1
-                    missing.append((_level_of(condition['id']), 1, _sentence(condition['text']) + ' (partly shown)'))
-                else:
-                    missing.append((_level_of(condition['id']), 0, _sentence(condition['text'])))
                 cites = (record or {}).get('citations') or [c for p in (record or {}).get('parts') or []
                                                             for c in p.get('citations') or []]
                 cite = _best_cite(cites, cr)
@@ -285,6 +271,8 @@ def build(payload):
                             candidates.append((q, -_level_of(condition['id']), c))
                 explanation = (record or {}).get('explanation') or {}
                 rows.append({'text': _sentence(condition['text']), 'status': status,
+                             'label': next_steps.label(condition['id'], cr, not_started),
+                             'done_when': next_steps.done_when(condition) if cr < 1 else '',
                              'stage': STAGE_WORDS.get(condition['id'].rsplit('.', 1)[-1][:1], ''),
                              'quote': _quote(cite['quote'], 260) if cite and cr > 0 else '',
                              'source': pages.get(str(cite.get('source_id')), '') if cite and cr > 0 else '',
@@ -312,7 +300,8 @@ def build(payload):
                       'held': max(0.0, shown - pillar['score']), 'level': level(pillar['score']),
                       'requirements': sum(len(i['conditions']) for i in indicators), 'in_place': in_place,
                       'partly': partly, 'quote': quote,
-                      'missing': [m for *_, m in sorted(missing, key=lambda x: (x[0], x[1]))],
+                      # Requirements not yet done, foundations first: the code's label and the plain "done when" line.
+                      'missing': checklist.get(code, []),
                       'summary_short': _first_sentences(clean_text(exp.get('found') or exp.get('text') or '', names)),
                       'summary': clean_text(' '.join(x for x in (exp.get('found'), exp.get('text')) if x), names),
                       'points_available': round(gains.get(code, 0.0), 1), 'room': room, 'subareas': subareas})
@@ -321,7 +310,8 @@ def build(payload):
     strengths = [a for a in by_score if a['score'] > 0][:3]
     focus = [a for a in sorted(areas, key=lambda a: (a['score'], -a['points_available'])) if a not in strengths][:3]
     overall = level(score)
-    actions = choose_actions(result, records, indicator_scores, goal_roles, areas, focus, total_weight)
+    chosen = choose_actions(result, records, areas, focus, total_weight)
+    actions = next_steps.finish(chosen, records, pages, payload.get('next_steps'), not_started)
     to_next, gathered = [], 0.0
     for action in actions:
         if len(to_next) >= 5 or (overall['next'] and gathered >= overall['points_to_next']):
@@ -347,7 +337,8 @@ def build(payload):
                                 else f"{float(reserve.get('share') or 0) * 100:g}%"),
             'shown_score': min(100.0, score + held_points),
             'areas': sorted(areas, key=lambda a: -a['score']), 'strengths': strengths, 'focus': focus,
-            'actions': actions, 'actions_points': sum(a['points'] for a in actions), 'to_next': to_next,
+            'actions': actions, 'raw_actions': chosen, 'actions_points': sum(a['points'] for a in actions),
+            'next_steps_written': any(a['generated'] for a in actions), 'to_next': to_next,
             'where_points': sorted(areas, key=lambda a: -a['room'])[:3],
             'started': [a for a in sorted(areas, key=lambda a: -a['score']) if a['score'] > 0 or a['partly']],
             'not_started': [a for a in areas if not (a['score'] > 0 or a['partly'])], 'to_next_points': gathered, 'summary': summary,

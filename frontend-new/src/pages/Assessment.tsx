@@ -8,6 +8,7 @@ import { useAccess } from '../hooks/useAccess';
 import { useCapability } from '../hooks/useCapability';
 import { useCycle } from '../hooks/useCycle';
 import { useResource } from '../hooks/useResource';
+import { getReviewStatus } from '../services/capability';
 import { getScoringConfig, recalculateScore } from '../services/scoring';
 import { getSprintOverview } from '../services/sprints';
 import type { PillarConfig, Scorecard, Sprint, SprintOverview } from '../types/api';
@@ -25,6 +26,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
   const rubric = useResource<PillarConfig[]>(getScoringConfig, 'rubric');
   const { detail: cycle } = useCycle(sprint.institution_id);
   const cap = useCapability(sprint.id);
+  const reviewStatus = useResource(() => getReviewStatus(sprint.id), `review-status:${sprint.id}`);
   const [score, setScore] = useState<Scorecard | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
@@ -56,9 +58,9 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
     <>
       <PageHeading page="assessment" actions={!DEMO_MODE && runButton} />
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
-      {!!cap.runs.data?.review_questions_awaiting && (
+      {!!reviewStatus.data?.review_questions_awaiting && (
         <Notice tone="info">
-          {cap.runs.data.review_questions_awaiting} evidence review question(s) still await an answer. Finish them before starting a run:{' '}
+          {reviewStatus.data.review_questions_awaiting} evidence review question(s) still await an answer. Finish them before starting a run:{' '}
           <PageLink to="questionnaire" className="link-button">open the questionnaire</PageLink>.
         </Notice>
       )}

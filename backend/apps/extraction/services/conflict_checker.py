@@ -104,7 +104,6 @@ class OpenAIConflictChecker(ConflictChecker):
         """Deterministic: every fact this document contributed, paired with each other live fact of the sprint
         with the same field_key that measures the same thing and states a different value. No AI here."""
         from apps.facts.verification import conflicts as rules
-        from apps.facts.verification.normalize import same_value
         from apps.facts.verification.precedent import _lineage
 
         pairs = []
@@ -116,9 +115,15 @@ class OpenAIConflictChecker(ConflictChecker):
                 .exclude(document_id__in=lineage)  # an earlier version of this same file is history
                 .select_related('source_document', 'document')
             )
+            if rules.option_code(fact_a.value):
+                continue  # a questionnaire option ("A. All of the above") is not a value
             for fact_b in rules.live_facts(others):
-                if same_value(fact_a.value, fact_b.value, fact_a.data_type):
-                    continue  # the same value once printing differences are removed
+                if rules.option_code(fact_b.value):
+                    continue
+                if rules.same_statement(fact_a.value, fact_b.value, fact_a.data_type):
+                    continue  # the same value once printing differences, name forms and initials are removed
+                if rules.bounds_agree([fact_a.value, fact_b.value], misread=rules.misread_allowed([fact_a, fact_b])):
+                    continue  # a number and a stated bound it satisfies
                 if not rules.comparable_pair(fact_a, fact_b)[0]:
                     continue  # different period / population / unit / categories: not the same metric
                 pairs.append((fact_a, fact_b))

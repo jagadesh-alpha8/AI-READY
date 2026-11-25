@@ -621,10 +621,11 @@ def explain(target, model, *, max_calls=None, concurrency=1, skip_error=None):
 def latest(run):
     """The newest explanations stored for a run's current completed assessment, or None."""
     from apps.scoring.models import CapabilityExplanation
-    event = run.events.filter(state='completed', payload__result__isnull=False).last()
-    if event is None:
+    # The id only: the completed payload is about 40 MB with its traces.
+    event_id = run.events.filter(state='completed', payload__result__isnull=False).values_list('pk', flat=True).last()
+    if event_id is None:
         return None
-    row = CapabilityExplanation.objects.filter(run=run, event_id=event.pk).order_by('-created_at').first()
+    row = CapabilityExplanation.objects.filter(run=run, event_id=event_id).order_by('-created_at').first()
     return row.payload if row else None
 
 

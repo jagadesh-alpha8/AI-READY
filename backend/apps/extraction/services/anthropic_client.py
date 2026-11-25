@@ -13,6 +13,7 @@ exactly), then reading that tool call's `input` as the result.
 """
 import json
 import logging
+import re
 import time
 
 from django.conf import settings
@@ -43,6 +44,25 @@ DEFAULT_TIMEOUT_SECONDS = settings.AI_REQUEST_TIMEOUT_SECONDS
 #: app's other non-streaming AI calls' headroom without risking the SDK's
 #: HTTP timeout.
 DEFAULT_MAX_TOKENS = 16000
+
+
+#: Claude models from the 5 generation on reject sampling settings (temperature / top_p / top_k) with a 400 (Claude Haiku
+#: 5.5 migration guide: "omit temperature, top_p and top_k"). The extraction call (a forced tool call) used to send
+#: AI_TEMPERATURE to every Claude model.
+_NO_SAMPLING_MODEL = re.compile(r'claude-(?:haiku|sonnet|opus|fable|mythos)-(\d+)', re.IGNORECASE)
+#: Models that rejected `temperature` with a 400 anyway: sent without it for the rest of this process.
+_NO_SAMPLING = set()
+
+
+def accepts_sampling(model):
+    """False for Claude 5-generation and later models, and for any model that already rejected a temperature here."""
+    match = _NO_SAMPLING_MODEL.search(model or '')
+    return not (match and int(match.group(1)) >= 5) and (model or '') not in _NO_SAMPLING
+
+
+def _rejects_sampling(exc):
+    return getattr(exc, 'status_code', None) == 400 and any(
+        word in str(exc) for word in ('temperature', 'top_p', 'top_k'))
 
 
 class AnthropicResponseError(AIResponseError):
@@ -84,6 +104,9 @@ class AnthropicExtractionService:
         # (output_config.effort) is set by scoring's meter from the run's frozen policy; None = model default.
         self.json_output = False
         self.effort = None
+        # Mark the system prompt for Claude's prompt cache (callers that send one long, unchanging system prompt with
+        # many requests: the evidence map's rubric). Off by default, so every other request is sent as before.
+        self.cache_system = False
 
         # `client` is accepted for dependency injection in tests -- normal
         # callers just get a real Anthropic client built from the settings above.
@@ -118,7 +141,19 @@ class AnthropicExtractionService:
             # Shared per-key request / token limits across every worker (services/rate_limit.py).
             estimate = rate_limit.estimate_tokens(system_prompt, user_content, output_tokens=DEFAULT_MAX_TOKENS, has_image=bool(image_b64))
             with rate_limit.throttle('anthropic', self.model, self.api_key, estimate) as slot:
-                response = self._create(system_prompt, user_content, response_schema, schema_name, timeout, image_b64=image_b64)
+                try:
+                    response = self._create(system_prompt, user_content, response_schema, schema_name, timeout,
+                                            image_b64=image_b64)
+                except APIStatusError as exc:
+                    # A model this code doesn't know rejected the temperature: resend once without it, and never send
+                    # it to this model again in this process.
+                    if not (self._sends_sampling() and _rejects_sampling(exc)):
+                        raise
+                    logger.warning('anthropic.request model=%s sampling_params_unsupported resending_without_them',
+                                   self.model)
+                    _NO_SAMPLING.add(self.model)
+                    response = self._create(system_prompt, user_content, response_schema, schema_name, timeout,
+                                            image_b64=image_b64)
                 usage = getattr(response, 'usage', None)
                 slot.record((getattr(usage, 'input_tokens', 0) or 0) + (getattr(usage, 'output_tokens', 0) or 0)
                             if usage is not None else None)
@@ -171,6 +206,14 @@ class AnthropicExtractionService:
         self._log_outcome(started, success=True)
         return result
 
+    def _sends_sampling(self):
+        return not self.json_output and settings.AI_TEMPERATURE is not None and accepts_sampling(self.model)
+
+    def _system(self, system_prompt):
+        if not self.cache_system:
+            return system_prompt
+        return [{'type': 'text', 'text': system_prompt, 'cache_control': {'type': 'ephemeral'}}]
+
     def _create(self, system_prompt, user_content, response_schema, schema_name, timeout, image_b64=None):
         if image_b64:
             content_blocks = [
@@ -193,13 +236,13 @@ class AnthropicExtractionService:
                 output_config['effort'] = self.effort
             # No temperature: with thinking on, Claude accepts only its default.
             return self._client.messages.create(
-                model=self.model, max_tokens=DEFAULT_MAX_TOKENS, system=system_prompt,
+                model=self.model, max_tokens=DEFAULT_MAX_TOKENS, system=self._system(system_prompt),
                 messages=[{'role': 'user', 'content': content_blocks}], output_config=output_config, timeout=timeout)
 
         return self._client.messages.create(
             model=self.model,
             max_tokens=DEFAULT_MAX_TOKENS,
-            system=system_prompt,
+            system=self._system(system_prompt),
             messages=[{'role': 'user', 'content': content_blocks}],
             tools=[{
                 'name': schema_name,
@@ -209,8 +252,9 @@ class AnthropicExtractionService:
             }],
             tool_choice={'type': 'tool', 'name': schema_name, 'disable_parallel_tool_use': True},
             timeout=timeout,
-            # Repeatable extraction (settings.AI_TEMPERATURE); Anthropic has no seed.
-            **({'temperature': settings.AI_TEMPERATURE} if settings.AI_TEMPERATURE is not None else {}),
+            # Repeatable extraction (settings.AI_TEMPERATURE); Anthropic has no seed. Never to Claude 5 models and
+            # later, which reject it (accepts_sampling); Claude Haiku 5.5 takes the forced tool call, without thinking.
+            **({'temperature': settings.AI_TEMPERATURE} if self._sends_sampling() else {}),
         )
 
     @staticmethod

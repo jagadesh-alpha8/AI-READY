@@ -1,0 +1,871 @@
+{
+ "version": "done-when-1",
+ "rubric_version": "AIQIF-CAP-0.3",
+ "note": "One plain rewrite per requirement, shown after \"Done when:\". Each was checked against its requirement (same requirement, not weaker, not stricter, nothing dropped), then re-checked by a separate reviewer (24 Nov 2026). sentence_hash is the first 16 hex digits of the SHA-256 of the requirement sentence it rewrites: when the rubric changes that sentence, the line is not used until it is rewritten and checked again.",
+ "conditions": {
+  "AIQIF-C1.1.F1": {
+   "done_when": "an approved plan for your institution names a digital or AI priority.",
+   "sentence_hash": "76e42c3b828b0b48"
+  },
+  "AIQIF-C1.1.F2": {
+   "done_when": "a person or office is made responsible for that priority.",
+   "sentence_hash": "081312b2b7fa1eff"
+  },
+  "AIQIF-C1.1.A1": {
+   "done_when": "records show an AI initiative actually running in a named area of your institution's work.",
+   "sentence_hash": "ed096835c292afff"
+  },
+  "AIQIF-C1.1.A2": {
+   "done_when": "a review of your set of initiatives records a decision about an AI initiative.",
+   "sentence_hash": "0fabed4d98d2de88"
+  },
+  "AIQIF-C1.1.O1": {
+   "done_when": "a completed review of your set of initiatives compares a measured result with the objective stated for it.",
+   "sentence_hash": "a87daa266f6e0d58"
+  },
+  "AIQIF-C1.1.O2": {
+   "done_when": "a later record evaluates what effect a decision from such a review had.",
+   "sentence_hash": "d4f31a9aeb286c50"
+  },
+  "AIQIF-C1.2.F1": {
+   "done_when": "a named body in your institution has authority over the relevant digital or AI decisions.",
+   "sentence_hash": "a78a6f8666423e40"
+  },
+  "AIQIF-C1.2.F2": {
+   "done_when": "there is a set route for escalating those decisions to a higher level.",
+   "sentence_hash": "2dbd2ee6960dee70"
+  },
+  "AIQIF-C1.2.A1": {
+   "done_when": "a dated decision by a governing body concerns an AI use that is actually in place.",
+   "sentence_hash": "977fcb25754d0961"
+  },
+  "AIQIF-C1.2.A2": {
+   "done_when": "an action assigned by a governing body has a recorded follow-up.",
+   "sentence_hash": "fd5d1370d3772d9e"
+  },
+  "AIQIF-C1.2.O1": {
+   "done_when": "a review evaluates how well governance is working, using a named incident or a named delivery result.",
+   "sentence_hash": "3f501339bc2e6a63"
+  },
+  "AIQIF-C1.2.O2": {
+   "done_when": "a follow-up checks whether a revised governance rule has been put into practice.",
+   "sentence_hash": "a80fd8768fa913a1"
+  },
+  "AIQIF-C1.3.F1": {
+   "done_when": "a commitment of resources, such as funds, staff or equipment, supports computing, teaching or innovation capacity relevant to digital or AI work.",
+   "sentence_hash": "3f3fe09a2aff170e"
+  },
+  "AIQIF-C1.3.F2": {
+   "done_when": "the decision to allocate it names the group or function it is meant to benefit.",
+   "sentence_hash": "d0a782669bb0314a"
+  },
+  "AIQIF-C1.3.A1": {
+   "done_when": "a review compares the resources committed with a named need they are meant to meet.",
+   "sentence_hash": "1d1dc46b65126477"
+  },
+  "AIQIF-C1.3.A2": {
+   "done_when": "a decision about resources responds to a recorded shortfall in capacity.",
+   "sentence_hash": "b4853e8179c93ab3"
+  },
+  "AIQIF-C1.3.O1": {
+   "done_when": "a completed review compares a stated cost with a measured benefit or capacity result.",
+   "sentence_hash": "065498c47bbed84a"
+  },
+  "AIQIF-C1.3.O2": {
+   "done_when": "a follow-up evaluates what effect a change in how resources are allocated had.",
+   "sentence_hash": "e1eefc27780b9481"
+  },
+  "AIQIF-C1.4.F1": {
+   "done_when": "you have a set process for introducing a digital service or teaching tool.",
+   "sentence_hash": "38b733d80eb1ddbf"
+  },
+  "AIQIF-C1.4.F2": {
+   "done_when": "users of that service or tool have a named contact for help.",
+   "sentence_hash": "1d823843b74a9d47"
+  },
+  "AIQIF-C1.4.A1": {
+   "done_when": "usage records show the service or tool being used repeatedly within the named group or setting it was introduced to.",
+   "sentence_hash": "5e8b12f61e3e519c"
+  },
+  "AIQIF-C1.4.A2": {
+   "done_when": "a support action responds to a recorded obstacle to people taking it up.",
+   "sentence_hash": "399886f6b4674978"
+  },
+  "AIQIF-C1.4.O1": {
+   "done_when": "a completed review compares how far it has been taken up with a clearly stated target.",
+   "sentence_hash": "c65715183da5ef78"
+  },
+  "AIQIF-C1.4.O2": {
+   "done_when": "a follow-up evaluates a change in how the service or tool is taken up, or in users' experience of it.",
+   "sentence_hash": "ba8c61e28c7540c1"
+  },
+  "AIQIF-C2.1.F1": {
+   "done_when": "guidance in force at your institution deals with AI use explicitly.",
+   "sentence_hash": "e6666ab1ad84620a"
+  },
+  "AIQIF-C2.1.F2": {
+   "done_when": "that guidance sets a limit on unsafe or inappropriate use of AI.",
+   "sentence_hash": "85810f8a0cb57644"
+  },
+  "AIQIF-C2.1.A1": {
+   "done_when": "a check made when an AI tool is introduced, or when a user is set up, applies a requirement of the AI policy.",
+   "sentence_hash": "78e0c802f8408836"
+  },
+  "AIQIF-C2.1.A2": {
+   "done_when": "a review of a sample of AI use records how an exception to the policy was dealt with.",
+   "sentence_hash": "93798fdc5c7c74ba"
+  },
+  "AIQIF-C2.1.O1": {
+   "done_when": "a review of the policy evaluates a named incident or a named finding from a check or audit.",
+   "sentence_hash": "4a3ccc29d0371923"
+  },
+  "AIQIF-C2.1.O2": {
+   "done_when": "a follow-up tests what effect a revised safeguard on responsible AI use had.",
+   "sentence_hash": "acef8464df1d5c7c"
+  },
+  "AIQIF-C2.2.F1": {
+   "done_when": "a person or office is made responsible for personal or sensitive data your institution holds.",
+   "sentence_hash": "51664b5781ca18a4"
+  },
+  "AIQIF-C2.2.F2": {
+   "done_when": "the information system concerned is covered by a procedure for controlling who can access it.",
+   "sentence_hash": "c19a12133b2eea29"
+  },
+  "AIQIF-C2.2.A1": {
+   "done_when": "a risk assessment covers a named use that is in place.",
+   "sentence_hash": "e09199ae73e69aa7"
+  },
+  "AIQIF-C2.2.A2": {
+   "done_when": "a recorded decision about risk responds to a named change in access or in a supplier.",
+   "sentence_hash": "329c76b6b7be57c3"
+  },
+  "AIQIF-C2.2.O1": {
+   "done_when": "a completed risk review compares the level of risk with a stated risk criterion.",
+   "sentence_hash": "849841bb5251ba65"
+  },
+  "AIQIF-C2.2.O2": {
+   "done_when": "a follow-up tests whether a fix that was put in place works.",
+   "sentence_hash": "e711ce390146ea7f"
+  },
+  "AIQIF-C2.3.F1": {
+   "done_when": "a list names the AI services in use in the part of your institution being assessed.",
+   "sentence_hash": "9dd7727009ffb4a7"
+  },
+  "AIQIF-C2.3.F2": {
+   "done_when": "each service on that list has a person or office made responsible for it.",
+   "sentence_hash": "a01839b97721cb2a"
+  },
+  "AIQIF-C2.3.A1": {
+   "done_when": "an evaluation record concerns an AI service that was actually released or changed.",
+   "sentence_hash": "84de9d972557b079"
+  },
+  "AIQIF-C2.3.A2": {
+   "done_when": "a record of the change says where that service's data came from.",
+   "sentence_hash": "00a1d47754a28594"
+  },
+  "AIQIF-C2.3.O1": {
+   "done_when": "monitoring after a release compares how the service actually behaves with a stated evaluation criterion.",
+   "sentence_hash": "91a3445154574db6"
+  },
+  "AIQIF-C2.3.O2": {
+   "done_when": "an exercise in rolling back or retiring a service records the result observed.",
+   "sentence_hash": "eee0a3ff33ee766c"
+  },
+  "AIQIF-C2.4.F1": {
+   "done_when": "for a named AI use with significant consequences for people, there is a set way for a person to step in.",
+   "sentence_hash": "2d49595d118e1bf4"
+  },
+  "AIQIF-C2.4.F2": {
+   "done_when": "people affected by that use have a way to report errors or to appeal.",
+   "sentence_hash": "d332ba6ed438b4a7"
+  },
+  "AIQIF-C2.4.A1": {
+   "done_when": "a record shows a person overseeing an AI use with significant consequences that is actually in place.",
+   "sentence_hash": "4b672ced7a90dfc0"
+  },
+  "AIQIF-C2.4.A2": {
+   "done_when": "a test examines a specific failure risk or fairness risk in that use.",
+   "sentence_hash": "4de505a2b7dd8a97"
+  },
+  "AIQIF-C2.4.O1": {
+   "done_when": "a reviewer who was not part of the decision to deliver that use evaluates a named harm or oversight result.",
+   "sentence_hash": "6adf484babdc7d04"
+  },
+  "AIQIF-C2.4.O2": {
+   "done_when": "a follow-up tests what effect a change to oversight had.",
+   "sentence_hash": "276087c4ede59bf3"
+  },
+  "AIQIF-C3.1.F1": {
+   "done_when": "an approved syllabus includes real AI or machine-learning content, not a passing mention.",
+   "sentence_hash": "badf382778ec5a6c"
+  },
+  "AIQIF-C3.1.F2": {
+   "done_when": "a clearly stated learning objective covers that AI or machine-learning content.",
+   "sentence_hash": "5fc2161ceb2a41c8"
+  },
+  "AIQIF-C3.1.A1": {
+   "done_when": "teaching records show real AI content being taught to a named programme group.",
+   "sentence_hash": "a7142fa3aa76d658"
+  },
+  "AIQIF-C3.1.A2": {
+   "done_when": "marked student work shows what students achieved against a clearly stated AI learning criterion.",
+   "sentence_hash": "5f01c82cc61cda4a"
+  },
+  "AIQIF-C3.1.O1": {
+   "done_when": "a completed course review compares what students achieved in AI learning with a stated objective.",
+   "sentence_hash": "fd69de7803edcb4a"
+  },
+  "AIQIF-C3.1.O2": {
+   "done_when": "a later assessment evaluates what effect a change to the curriculum had.",
+   "sentence_hash": "c51eca96966c311d"
+  },
+  "AIQIF-C3.2.F1": {
+   "done_when": "a learning offer in AI literacy (understanding and using AI) is set out.",
+   "sentence_hash": "ed6fad81692f07b7"
+  },
+  "AIQIF-C3.2.F2": {
+   "done_when": "a way of delivering that offer makes it available to a named group of learners.",
+   "sentence_hash": "5219180bb81d3294"
+  },
+  "AIQIF-C3.2.A1": {
+   "done_when": "delivery records show an AI literacy activity for a named discipline.",
+   "sentence_hash": "bef6d5c819db6c29"
+  },
+  "AIQIF-C3.2.A2": {
+   "done_when": "a support measure addresses a recorded gap in access or learning specific to one discipline.",
+   "sentence_hash": "08b194b502c94cd3"
+  },
+  "AIQIF-C3.2.O1": {
+   "done_when": "an assessment reports AI literacy attainment for a named discipline.",
+   "sentence_hash": "9503c08da2b7ca68"
+  },
+  "AIQIF-C3.2.O2": {
+   "done_when": "a follow-up assessment evaluates what effect targeted literacy support had.",
+   "sentence_hash": "e44671d0bd274082"
+  },
+  "AIQIF-C3.3.F1": {
+   "done_when": "a course design sets out a learning or feedback activity supported by AI.",
+   "sentence_hash": "28ee8fa3156acc9c"
+  },
+  "AIQIF-C3.3.F2": {
+   "done_when": "instructions to learners say what use of AI is acceptable in that activity.",
+   "sentence_hash": "c8416deb27283f20"
+  },
+  "AIQIF-C3.3.A1": {
+   "done_when": "course records show a named AI-supported learning activity being used repeatedly.",
+   "sentence_hash": "9d98dadd3576c537"
+  },
+  "AIQIF-C3.3.A2": {
+   "done_when": "a check in assessment evaluates whether learners depend on AI inappropriately in that activity.",
+   "sentence_hash": "59e5f43f52b868d3"
+  },
+  "AIQIF-C3.3.O1": {
+   "done_when": "a completed evaluation compares learning or feedback results with a stated baseline.",
+   "sentence_hash": "da9c24528ffbd47b"
+  },
+  "AIQIF-C3.3.O2": {
+   "done_when": "a follow-up evaluates what effect a change to the design of that AI-supported learning had.",
+   "sentence_hash": "70499492f923ea10"
+  },
+  "AIQIF-C3.4.F1": {
+   "done_when": "a student project or lab option includes real AI work, not a passing mention.",
+   "sentence_hash": "225938c93ca94067"
+  },
+  "AIQIF-C3.4.F2": {
+   "done_when": "mentoring is provided for that work.",
+   "sentence_hash": "f4c4511e80e3ccba"
+  },
+  "AIQIF-C3.4.A1": {
+   "done_when": "marked project work shows a working AI application built by a named student group.",
+   "sentence_hash": "1e178ab94f95eec9"
+  },
+  "AIQIF-C3.4.A2": {
+   "done_when": "a moderation record (a second check on marking) checks each student's own contribution to that work.",
+   "sentence_hash": "dd94ba22358c44d2"
+  },
+  "AIQIF-C3.4.O1": {
+   "done_when": "a completed review of projects evaluates the work against a clearly stated criterion for the abilities shown.",
+   "sentence_hash": "7e7fe3f9f0044fbc"
+  },
+  "AIQIF-C3.4.O2": {
+   "done_when": "after a change to mentoring or project design, later work is evaluated against a comparable criterion.",
+   "sentence_hash": "93fdc63b5a3d82e8"
+  },
+  "AIQIF-C4.1.F1": {
+   "done_when": "a learning activity for faculty, focused on AI, has set content.",
+   "sentence_hash": "607d54ade484ae9b"
+  },
+  "AIQIF-C4.1.F2": {
+   "done_when": "participation in an AI-focused learning activity is recorded for a named faculty group.",
+   "sentence_hash": "338e4528525190d6"
+  },
+  "AIQIF-C4.1.A1": {
+   "done_when": "an assessment shows the AI literacy of a named faculty group.",
+   "sentence_hash": "417559aea6dcb985"
+  },
+  "AIQIF-C4.1.A2": {
+   "done_when": "a support measure addresses a recorded gap in faculty AI literacy.",
+   "sentence_hash": "483b4dd60c4e02af"
+  },
+  "AIQIF-C4.1.O1": {
+   "done_when": "a completed assessment compares faculty AI literacy with a stated standard of competence.",
+   "sentence_hash": "7312a216c1399dfd"
+  },
+  "AIQIF-C4.1.O2": {
+   "done_when": "a follow-up assessment evaluates what effect a change to faculty learning had.",
+   "sentence_hash": "68609f2d8712bdd8"
+  },
+  "AIQIF-C4.2.F1": {
+   "done_when": "an AI learning offer for faculty is aimed at a named academic role.",
+   "sentence_hash": "fb957f926462fcbf"
+  },
+  "AIQIF-C4.2.F2": {
+   "done_when": "a practice task builds a specific AI-related academic skill for that role.",
+   "sentence_hash": "88ae8c174553c4ed"
+  },
+  "AIQIF-C4.2.A1": {
+   "done_when": "an assessed task relevant to the role shows a faculty AI skill.",
+   "sentence_hash": "ee8a1d30b59f572c"
+  },
+  "AIQIF-C4.2.A2": {
+   "done_when": "a support action addresses a recorded skill gap specific to the role.",
+   "sentence_hash": "b2c0674c12a67529"
+  },
+  "AIQIF-C4.2.O1": {
+   "done_when": "a sample of academic work shows the assessed skill being applied.",
+   "sentence_hash": "1d7fdd08a4fe0afb"
+  },
+  "AIQIF-C4.2.O2": {
+   "done_when": "a later evaluation of tasks tests what effect a change to the role's learning pathway had.",
+   "sentence_hash": "7efddb67eec211ae"
+  },
+  "AIQIF-C4.3.F1": {
+   "done_when": "a record of faculty work shows AI being used in an academic task.",
+   "sentence_hash": "2d29f0a226536595"
+  },
+  "AIQIF-C4.3.F2": {
+   "done_when": "a step where a person reviews the AI-supported task is set out.",
+   "sentence_hash": "a96a5d3cd54e4d58"
+  },
+  "AIQIF-C4.3.A1": {
+   "done_when": "samples of work show AI being used repeatedly in a named faculty practice.",
+   "sentence_hash": "6d0fc2b2573d374f"
+  },
+  "AIQIF-C4.3.A2": {
+   "done_when": "a quality check evaluates the AI-supported academic work.",
+   "sentence_hash": "6ebe715326f81fff"
+  },
+  "AIQIF-C4.3.O1": {
+   "done_when": "a completed evaluation compares a result in academic quality, time taken or research with a stated baseline.",
+   "sentence_hash": "fe0dd48b123cf716"
+  },
+  "AIQIF-C4.3.O2": {
+   "done_when": "a follow-up evaluates a change in practice made in response to a named failure.",
+   "sentence_hash": "282d69ed7a6fb04d"
+  },
+  "AIQIF-C4.4.F1": {
+   "done_when": "a learning offer on digital tools or ways of working is aimed at a named non-teaching staff role.",
+   "sentence_hash": "53991c3a69128af9"
+  },
+  "AIQIF-C4.4.F2": {
+   "done_when": "staff applying that learning have somewhere to go for support.",
+   "sentence_hash": "d983bf57b8e3f25f"
+  },
+  "AIQIF-C4.4.A1": {
+   "done_when": "an assessed task shows a relevant digital or AI skill for a named staff role.",
+   "sentence_hash": "d7283299508a0ff0"
+  },
+  "AIQIF-C4.4.A2": {
+   "done_when": "a support action addresses a recorded error in how staff carry out their work.",
+   "sentence_hash": "c1642cc0751b0192"
+  },
+  "AIQIF-C4.4.O1": {
+   "done_when": "a completed evaluation compares how staff performed tasks with a stated standard for the role.",
+   "sentence_hash": "9478d132e9a6eb0a"
+  },
+  "AIQIF-C4.4.O2": {
+   "done_when": "a follow-up evaluates what effect a change to staff training or support had.",
+   "sentence_hash": "b0bd0456661457f7"
+  },
+  "AIQIF-C5.1.F1": {
+   "done_when": "an AI literacy offer is open to a named group of students.",
+   "sentence_hash": "dde601e0141dd35c"
+  },
+  "AIQIF-C5.1.F2": {
+   "done_when": "a learning objective sets out what that offer intends students to learn.",
+   "sentence_hash": "7b3ae66dac4bac10"
+  },
+  "AIQIF-C5.1.A1": {
+   "done_when": "delivery records show AI literacy teaching given to a named group of students.",
+   "sentence_hash": "7642eeb181a9398c"
+  },
+  "AIQIF-C5.1.A2": {
+   "done_when": "a support measure addresses a recorded gap in participation or attainment.",
+   "sentence_hash": "d16d761915ae7207"
+  },
+  "AIQIF-C5.1.O1": {
+   "done_when": "an assessment reports students' AI literacy attainment against a clearly stated criterion.",
+   "sentence_hash": "a35ce056fb78cc1c"
+  },
+  "AIQIF-C5.1.O2": {
+   "done_when": "a follow-up evaluates what effect a change made to close an access or learning gap had.",
+   "sentence_hash": "1d672787d7ac5abe"
+  },
+  "AIQIF-C5.2.F1": {
+   "done_when": "an advanced AI or machine-learning skills pathway is set out for a named group of students.",
+   "sentence_hash": "6a78abaaf43e9826"
+  },
+  "AIQIF-C5.2.F2": {
+   "done_when": "the pathway includes a practical assessed task.",
+   "sentence_hash": "1520b5024b9430fb"
+  },
+  "AIQIF-C5.2.A1": {
+   "done_when": "student work shows an advanced or job-specific AI skill, judged against a clearly stated criterion.",
+   "sentence_hash": "e9883b9b62d25664"
+  },
+  "AIQIF-C5.2.A2": {
+   "done_when": "a change in how the pathway is delivered responds to specific feedback from employers or from experts in the subject.",
+   "sentence_hash": "1d9a4a2b173eb608"
+  },
+  "AIQIF-C5.2.O1": {
+   "done_when": "a completed review of the pathway evaluates a relevant result in skills or in students' progression.",
+   "sentence_hash": "314d970be4a9f298"
+  },
+  "AIQIF-C5.2.O2": {
+   "done_when": "a later evaluation of tasks tests what effect a change to the pathway had.",
+   "sentence_hash": "883d3212b580dd9a"
+  },
+  "AIQIF-C5.3.F1": {
+   "done_when": "an AI project or portfolio opportunity is open to a named group of students.",
+   "sentence_hash": "4a31ae9da9086f6f"
+  },
+  "AIQIF-C5.3.F2": {
+   "done_when": "an assessment criterion covers each student's own contribution to the project or portfolio.",
+   "sentence_hash": "2492aa82e46546a6"
+  },
+  "AIQIF-C5.3.A1": {
+   "done_when": "a reviewed portfolio identifies the student's own real AI contribution.",
+   "sentence_hash": "7d6238cebd140f93"
+  },
+  "AIQIF-C5.3.A2": {
+   "done_when": "a moderation record (a second check on marking) evaluates a participating student's project or portfolio.",
+   "sentence_hash": "130bbcbbf5ecc83c"
+  },
+  "AIQIF-C5.3.O1": {
+   "done_when": "a completed evaluation judges the quality of the AI work, or its value to real users, against a clearly stated criterion.",
+   "sentence_hash": "e281096958e1760d"
+  },
+  "AIQIF-C5.3.O2": {
+   "done_when": "a follow-up evaluates what effect a change to projects or mentoring had.",
+   "sentence_hash": "1080bf35a682a1d3"
+  },
+  "AIQIF-C5.4.F1": {
+   "done_when": "an internship or career opportunity relevant to AI is recorded.",
+   "sentence_hash": "df6818e0f4bceb06"
+  },
+  "AIQIF-C5.4.F2": {
+   "done_when": "an eligibility rule says who can take up the opportunity.",
+   "sentence_hash": "2b8e35551352d2e9"
+  },
+  "AIQIF-C5.4.A1": {
+   "done_when": "a verified record shows participation in an AI-relevant internship or career opportunity.",
+   "sentence_hash": "0eb063e8db860f20"
+  },
+  "AIQIF-C5.4.A2": {
+   "done_when": "a register of the group of students gives the total against which participation or progression is counted.",
+   "sentence_hash": "7f688e17ff2a8556"
+  },
+  "AIQIF-C5.4.O1": {
+   "done_when": "a completed review compares a verified AI-related career result with a stated target.",
+   "sentence_hash": "4a4506e0c7ac5d78"
+  },
+  "AIQIF-C5.4.O2": {
+   "done_when": "a follow-up evaluates what effect a change to a career pathway had.",
+   "sentence_hash": "7949a222241d9ee5"
+  },
+  "AIQIF-C6.1.F1": {
+   "done_when": "the learners or researchers concerned have access to computing resources.",
+   "sentence_hash": "4d5f2382f5af26ef"
+  },
+  "AIQIF-C6.1.F2": {
+   "done_when": "the specifications of those resources support one clearly named introductory AI workload.",
+   "sentence_hash": "e952088c23b275c2"
+  },
+  "AIQIF-C6.1.A1": {
+   "done_when": "usage records show the computing capacity concerned serving a named group of users.",
+   "sentence_hash": "007df3fcb81c3f0e"
+  },
+  "AIQIF-C6.1.A2": {
+   "done_when": "a support measure addresses a recorded failure of capacity or access.",
+   "sentence_hash": "2453f238abe21934"
+  },
+  "AIQIF-C6.1.O1": {
+   "done_when": "a completed review compares how the service performed with a stated target for capacity or availability.",
+   "sentence_hash": "9e44c51b28033f9b"
+  },
+  "AIQIF-C6.1.O2": {
+   "done_when": "a continuity exercise records how well that computing environment recovered.",
+   "sentence_hash": "059371c854681d03"
+  },
+  "AIQIF-C6.2.F1": {
+   "done_when": "a register lists the relevant datasets or systems your institution holds.",
+   "sentence_hash": "395ed38ac808fccd"
+  },
+  "AIQIF-C6.2.F2": {
+   "done_when": "a person or office is made responsible for looking after the listed datasets or systems.",
+   "sentence_hash": "32f77aef2b5cecd8"
+  },
+  "AIQIF-C6.2.A1": {
+   "done_when": "a data-quality check runs for a named AI use or for an activity preparing for one.",
+   "sentence_hash": "85c24c395a99a669"
+  },
+  "AIQIF-C6.2.A2": {
+   "done_when": "a data-quality problem that was logged has a recorded outcome.",
+   "sentence_hash": "449a4fc77cd7101b"
+  },
+  "AIQIF-C6.2.O1": {
+   "done_when": "a completed review compares data quality with a stated standard for being fit for use.",
+   "sentence_hash": "1a486ce3ef6b3143"
+  },
+  "AIQIF-C6.2.O2": {
+   "done_when": "a follow-up measures what effect a change to data quality had on the work that uses the data.",
+   "sentence_hash": "0b3743625eb090e6"
+  },
+  "AIQIF-C6.3.F1": {
+   "done_when": "a person or office is made responsible for the security of the computing environment concerned.",
+   "sentence_hash": "20cd6cf6eab98dcb"
+  },
+  "AIQIF-C6.3.F2": {
+   "done_when": "a recovery procedure covers that environment.",
+   "sentence_hash": "42d21d24f696150f"
+  },
+  "AIQIF-C6.3.A1": {
+   "done_when": "a security test examines a named AI-related threat in that environment.",
+   "sentence_hash": "3b8bce134086ed08"
+  },
+  "AIQIF-C6.3.A2": {
+   "done_when": "a record of an incident or an exercise shows an action taken in response.",
+   "sentence_hash": "8f8e1a36846f6712"
+  },
+  "AIQIF-C6.3.O1": {
+   "done_when": "a completed security review compares how well problems were fixed, or how well systems recovered, with a stated criterion.",
+   "sentence_hash": "ee5bf0481ac2aa9d"
+  },
+  "AIQIF-C6.3.O2": {
+   "done_when": "a follow-up test evaluates a change to security controls made in response to a recorded threat.",
+   "sentence_hash": "73e6485c2cca96d1"
+  },
+  "AIQIF-C6.4.F1": {
+   "done_when": "a learning environment supports one named introductory AI learning activity.",
+   "sentence_hash": "f1751ce4cfbb6ad6"
+  },
+  "AIQIF-C6.4.F2": {
+   "done_when": "learners have a set way of getting access to that environment.",
+   "sentence_hash": "fbc4abec2c230efd"
+  },
+  "AIQIF-C6.4.A1": {
+   "done_when": "usage records show learners getting access to a named AI learning environment.",
+   "sentence_hash": "76cf77a4d3e4313b"
+  },
+  "AIQIF-C6.4.A2": {
+   "done_when": "a support measure addresses a recorded problem with accessibility or capacity.",
+   "sentence_hash": "5e247dc5ab7616b8"
+  },
+  "AIQIF-C6.4.O1": {
+   "done_when": "a completed review compares learners' access with a stated standard for the service or for fair access.",
+   "sentence_hash": "19c17de21bc14bad"
+  },
+  "AIQIF-C6.4.O2": {
+   "done_when": "a follow-up evaluates what effect an improvement to the environment had.",
+   "sentence_hash": "3510abfc259055e0"
+  },
+  "AIQIF-C7.1.F1": {
+   "done_when": "an AI research or applied investigation project has a set objective.",
+   "sentence_hash": "8a9415f8d29be1fc"
+  },
+  "AIQIF-C7.1.F2": {
+   "done_when": "a person is made responsible for leading the project.",
+   "sentence_hash": "53d3a864253fb145"
+  },
+  "AIQIF-C7.1.A1": {
+   "done_when": "an active AI research or applied investigation project has an output that has been reviewed.",
+   "sentence_hash": "7e931bad6d1bf56f"
+  },
+  "AIQIF-C7.1.A2": {
+   "done_when": "a progress review records a decision about that project.",
+   "sentence_hash": "f8374642801061dc"
+  },
+  "AIQIF-C7.1.O1": {
+   "done_when": "a completed review evaluates the quality or use of the project's output against a stated objective.",
+   "sentence_hash": "9e64f0cfcbfcea5d"
+  },
+  "AIQIF-C7.1.O2": {
+   "done_when": "a follow-up evaluates what effect a change to the research agenda or its resources had.",
+   "sentence_hash": "99de41f5b9a8099b"
+  },
+  "AIQIF-C7.2.F1": {
+   "done_when": "an AI centre, or an innovation function spread across your institution, has a set remit.",
+   "sentence_hash": "5aa0810c7f28704c"
+  },
+  "AIQIF-C7.2.F2": {
+   "done_when": "a project or mentoring service is available through it.",
+   "sentence_hash": "61731d9786feea4e"
+  },
+  "AIQIF-C7.2.A1": {
+   "done_when": "a record of its services shows an AI project or an AI mentoring engagement that it took on.",
+   "sentence_hash": "348d7bfdb3157eb0"
+  },
+  "AIQIF-C7.2.A2": {
+   "done_when": "a review of the service records a decision made in response to evidence about its use or delivery.",
+   "sentence_hash": "2919531175c6194d"
+  },
+  "AIQIF-C7.2.O1": {
+   "done_when": "a completed review evaluates an output or a benefit to the institution against the function's objective.",
+   "sentence_hash": "8d8cfb9d270d2e1b"
+  },
+  "AIQIF-C7.2.O2": {
+   "done_when": "a follow-up evaluates what effect a change to the service had.",
+   "sentence_hash": "ac5a998961239f78"
+  },
+  "AIQIF-C7.3.F1": {
+   "done_when": "support for funding, intellectual property or incubation is available to eligible projects.",
+   "sentence_hash": "ad592f2cdc72bc49"
+  },
+  "AIQIF-C7.3.F2": {
+   "done_when": "a contact or an application process gives access to that support.",
+   "sentence_hash": "d496d1e8bde3ae49"
+  },
+  "AIQIF-C7.3.A1": {
+   "done_when": "a project record shows that support for funding, intellectual property or incubation was used.",
+   "sentence_hash": "7587c4eb8e3e0581"
+  },
+  "AIQIF-C7.3.A2": {
+   "done_when": "a review records a decision about funding a named project or taking it into practical use.",
+   "sentence_hash": "e0a697d8cac7771d"
+  },
+  "AIQIF-C7.3.O1": {
+   "done_when": "a completed review evaluates a project's verified progress against a stated milestone.",
+   "sentence_hash": "ee9e4dbf819e193e"
+  },
+  "AIQIF-C7.3.O2": {
+   "done_when": "a follow-up evaluates what effect a change to project support had.",
+   "sentence_hash": "1c65c8ae9053d725"
+  },
+  "AIQIF-C7.4.F1": {
+   "done_when": "a work plan for a collaboration sets out real AI research or application work, not a passing mention.",
+   "sentence_hash": "69d39aededbe5402"
+  },
+  "AIQIF-C7.4.F2": {
+   "done_when": "a partner is given responsibility for the planned AI work.",
+   "sentence_hash": "998cf06a5df570ff"
+  },
+  "AIQIF-C7.4.A1": {
+   "done_when": "a record shows real AI work done with a partner, beyond signing an agreement.",
+   "sentence_hash": "0fa7425de6c408f3"
+  },
+  "AIQIF-C7.4.A2": {
+   "done_when": "feedback from a partner or from those who benefited evaluates a named contribution that was delivered.",
+   "sentence_hash": "f3f2a58ed0414bab"
+  },
+  "AIQIF-C7.4.O1": {
+   "done_when": "a completed review evaluates the knowledge passed on, or a result for those who benefited, against a stated objective.",
+   "sentence_hash": "a9c93dfbbca5239c"
+  },
+  "AIQIF-C7.4.O2": {
+   "done_when": "a follow-up evaluates what effect a change to the collaboration had.",
+   "sentence_hash": "42784fe2b1097426"
+  },
+  "AIQIF-C8.1.F1": {
+   "done_when": "a digital service your institution runs has a set purpose.",
+   "sentence_hash": "c7c3d93d20711567"
+  },
+  "AIQIF-C8.1.F2": {
+   "done_when": "a person or office is made responsible for that service.",
+   "sentence_hash": "7c93bcbb8dc85cbc"
+  },
+  "AIQIF-C8.1.A1": {
+   "done_when": "operating records show AI being used repeatedly in a named service of your institution.",
+   "sentence_hash": "d5fdf0c63e082532"
+  },
+  "AIQIF-C8.1.A2": {
+   "done_when": "a monitoring record evaluates a problem or unusual event in the service that involved AI.",
+   "sentence_hash": "2dc32be9c67b33fb"
+  },
+  "AIQIF-C8.1.O1": {
+   "done_when": "a completed evaluation compares the service's benefit with a stated baseline and says openly what limits the quality of that comparison.",
+   "sentence_hash": "c1811a232c1ed307"
+  },
+  "AIQIF-C8.1.O2": {
+   "done_when": "a follow-up tests what effect a change to the workflow or its controls had.",
+   "sentence_hash": "4a7681f8a6cdefb6"
+  },
+  "AIQIF-C8.2.F1": {
+   "done_when": "a work plan with industry sets out an AI-related activity.",
+   "sentence_hash": "94e446faae43edff"
+  },
+  "AIQIF-C8.2.F2": {
+   "done_when": "the activity sets out what it will contribute to skills, the curriculum or projects.",
+   "sentence_hash": "066ef0995b8a6bcb"
+  },
+  "AIQIF-C8.2.A1": {
+   "done_when": "a record shows an AI-related activity carried out with an industry partner.",
+   "sentence_hash": "aceebd274ff29ba7"
+  },
+  "AIQIF-C8.2.A2": {
+   "done_when": "a review evaluates what the partner actually contributed to skills, projects or opportunities.",
+   "sentence_hash": "cd512c49fb3da1bf"
+  },
+  "AIQIF-C8.2.O1": {
+   "done_when": "a completed review of the partnership evaluates a relevant output or outcome against a stated objective.",
+   "sentence_hash": "27a77b1ada29c398"
+  },
+  "AIQIF-C8.2.O2": {
+   "done_when": "a follow-up evaluates what effect a change in delivery, agreed jointly with the partner, had.",
+   "sentence_hash": "01aea229689befd3"
+  },
+  "AIQIF-C8.3.F1": {
+   "done_when": "a pathway into employment, enterprise or the workforce deals with AI skills explicitly.",
+   "sentence_hash": "7528d76dd02e0c05"
+  },
+  "AIQIF-C8.3.F2": {
+   "done_when": "an opportunity or referral process connects eligible participants to the pathway.",
+   "sentence_hash": "be2b0a1674046fd0"
+  },
+  "AIQIF-C8.3.A1": {
+   "done_when": "a verified record links someone on the AI pathway to an opportunity or a venture.",
+   "sentence_hash": "f454cf2d176c25dc"
+  },
+  "AIQIF-C8.3.A2": {
+   "done_when": "a review examines how taking part in the pathway relates to a result that was observed.",
+   "sentence_hash": "43087255b41353b0"
+  },
+  "AIQIF-C8.3.O1": {
+   "done_when": "a completed review evaluates a verified progression or enterprise result against a stated objective.",
+   "sentence_hash": "1fdd6636b6df8cfc"
+  },
+  "AIQIF-C8.3.O2": {
+   "done_when": "a follow-up evaluates what effect a change to the set of pathways had.",
+   "sentence_hash": "4fa1719992c5a59b"
+  },
+  "AIQIF-C8.4.F1": {
+   "done_when": "a named AI initiative has a clearly stated intended outcome.",
+   "sentence_hash": "1aa152e763b66a34"
+  },
+  "AIQIF-C8.4.F2": {
+   "done_when": "a method for measuring that outcome is set out before the outcome is measured.",
+   "sentence_hash": "0fa4db3087c2cea3"
+  },
+  "AIQIF-C8.4.A1": {
+   "done_when": "recorded results compare the AI initiative's outcome with a stated baseline, using a method that is set out.",
+   "sentence_hash": "b4932bfa785015f2"
+  },
+  "AIQIF-C8.4.A2": {
+   "done_when": "a review examines another possible explanation, or a possible harm, that affects how the results should be read.",
+   "sentence_hash": "ec75b28f6a8f8f58"
+  },
+  "AIQIF-C8.4.O1": {
+   "done_when": "a completed review of the measurements evaluates the benefit and clearly states the limits of what it can conclude.",
+   "sentence_hash": "fd78857d9cad6151"
+  },
+  "AIQIF-C8.4.O2": {
+   "done_when": "a later measurement evaluates what effect a change to the initiative had.",
+   "sentence_hash": "b567273d88606a80"
+  },
+  "AIQIF-C9.1.F1": {
+   "done_when": "a review process run by your institution uses set indicators.",
+   "sentence_hash": "b64df94cc96e28fc"
+  },
+  "AIQIF-C9.1.F2": {
+   "done_when": "a person or office is made responsible for producing that indicator-based review.",
+   "sentence_hash": "bde257af38c42f40"
+  },
+  "AIQIF-C9.1.A1": {
+   "done_when": "an institutional assessment carried out more than once uses evidence that can be traced to its source, with calculations that can be repeated.",
+   "sentence_hash": "9f269f363a3ee32a"
+  },
+  "AIQIF-C9.1.A2": {
+   "done_when": "a record of changes separates changes in the institution's evidence from changes in how it is measured.",
+   "sentence_hash": "a8ec775c2f982a4d"
+  },
+  "AIQIF-C9.1.O1": {
+   "done_when": "a completed review uses the assessment's results to evaluate an improvement priority.",
+   "sentence_hash": "a22c9668b43c03a1"
+  },
+  "AIQIF-C9.1.O2": {
+   "done_when": "a follow-up evaluates what effect a change to the measurement method had.",
+   "sentence_hash": "dbee5beabf5332e3"
+  },
+  "AIQIF-C9.2.F1": {
+   "done_when": "an index of evidence lists the source records used for assessment.",
+   "sentence_hash": "940b465c93d004c8"
+  },
+  "AIQIF-C9.2.F2": {
+   "done_when": "a person or office is made responsible for keeping those records.",
+   "sentence_hash": "3121d2f0e2380698"
+  },
+  "AIQIF-C9.2.A1": {
+   "done_when": "a finding picked from an assessment can be traced back to the requirement it answers and the passage it rests on.",
+   "sentence_hash": "0e4de247e00d45b6"
+  },
+  "AIQIF-C9.2.A2": {
+   "done_when": "when evidence is corrected, the earlier record and the reason for the change are kept.",
+   "sentence_hash": "cf718d49fa419293"
+  },
+  "AIQIF-C9.2.O1": {
+   "done_when": "a completed audit evaluates how well findings can be traced, following a clearly set out checking procedure.",
+   "sentence_hash": "d03f8610fae3a6fd"
+  },
+  "AIQIF-C9.2.O2": {
+   "done_when": "a follow-up measures what effect an improvement to the evidence process had.",
+   "sentence_hash": "aceca85040de1023"
+  },
+  "AIQIF-C9.3.F1": {
+   "done_when": "a process keeps track of relevant changes in accreditation, curriculum or technology.",
+   "sentence_hash": "42fe49ef63a05495"
+  },
+  "AIQIF-C9.3.F2": {
+   "done_when": "a review schedule sets when those changes are considered.",
+   "sentence_hash": "ef391a32a1bee8bf"
+  },
+  "AIQIF-C9.3.A1": {
+   "done_when": "a review of changes names a requirement affected by a change from outside the institution.",
+   "sentence_hash": "75fe65c74616c7d1"
+  },
+  "AIQIF-C9.3.A2": {
+   "done_when": "a new version of an assessment keeps the earlier result and explains what changed.",
+   "sentence_hash": "5fbc3d7f0c6f7c6c"
+  },
+  "AIQIF-C9.3.O1": {
+   "done_when": "a completed review evaluates how promptly a relevant change was picked up.",
+   "sentence_hash": "5272c4060f33b82b"
+  },
+  "AIQIF-C9.3.O2": {
+   "done_when": "a follow-up evaluates what effect a change to the monitoring process had.",
+   "sentence_hash": "624c673e5298caa9"
+  },
+  "AIQIF-C9.4.F1": {
+   "done_when": "a process for gathering feedback covers a digital or learning initiative of your institution.",
+   "sentence_hash": "a11c84b69c354527"
+  },
+  "AIQIF-C9.4.F2": {
+   "done_when": "a register of follow-up actions names who owns the actions that result.",
+   "sentence_hash": "03c3a3bb069e5ac6"
+  },
+  "AIQIF-C9.4.A1": {
+   "done_when": "a review of whether users accept a named initiative that is in use, or of its outcomes, evaluates that initiative.",
+   "sentence_hash": "f3c4c97c13033bde"
+  },
+  "AIQIF-C9.4.A2": {
+   "done_when": "a corrective action has a recorded check that it was completed.",
+   "sentence_hash": "4ebf2aa864f660ca"
+  },
+  "AIQIF-C9.4.O1": {
+   "done_when": "a completed review evaluates what resulted from a change made in response to feedback.",
+   "sentence_hash": "70280b70331f80b5"
+  },
+  "AIQIF-C9.4.O2": {
+   "done_when": "a later initiative can be shown to apply a lesson from that review.",
+   "sentence_hash": "50792473bd68ff9b"
+  }
+ }
+}

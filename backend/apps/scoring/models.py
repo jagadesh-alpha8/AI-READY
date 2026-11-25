@@ -300,6 +300,37 @@ class CapabilityRunEvent(models.Model):
         ordering = ['id']
 
 
+class CapabilityRunView(models.Model):
+    """A display copy of one run, derived from its frozen inputs and events (issue 60). Never history: it can be
+    rebuilt from the run at any time (capability/run_view.py), and nothing reads it to decide a score.
+
+    The run list reads only these columns, never the run's inputs (every frozen page's text) or its events. The run
+    detail reads `assessment` (the completed payload without its model traces, about 1 MB instead of 40 MB) instead
+    of the stored event.
+    """
+    run = models.OneToOneField(CapabilityRun, on_delete=models.CASCADE, primary_key=True, related_name='view')
+    stage = models.CharField(max_length=16, default='provisional')
+    provisional_run_id = models.CharField(max_length=36, blank=True, db_index=True)
+    refines_run_id = models.CharField(max_length=36, blank=True)
+    rubric_version = models.CharField(max_length=200, blank=True)
+    engine_version = models.CharField(max_length=200, blank=True)
+    prompt_version = models.CharField(max_length=200, blank=True)
+    retrieval_version = models.CharField(max_length=200, blank=True)
+    reference_period = models.TextField(blank=True)
+    indicators_done = models.PositiveIntegerField(default=0)
+    # The completed event, and the copy of its payload without traces.
+    event_id = models.BigIntegerField(null=True, blank=True)
+    assessment = models.JSONField(null=True, blank=True)
+    # digest() of the whole stored payload, and whether the run's inputs and the payload matched inputs_hash when
+    # the copy was made (checked once here instead of on every view; reports still check on every export).
+    assessment_hash = models.CharField(max_length=64, blank=True)
+    verified = models.BooleanField(default=False)
+    # diagnostics.explain() reads the traces, so it is kept, with the fingerprint of the code that wrote it.
+    diagnostics = models.JSONField(null=True, blank=True)
+    diagnostics_key = models.CharField(max_length=64, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class CapabilityExecution(models.Model):
     """Mutable dispatch/ownership ledger; evidence and events stay immutable.
 
@@ -688,6 +719,7 @@ class SecondLayerJob(models.Model):
         DEPTH = 'depth', 'Judge the depth of credited evidence'
         REJUDGE = 'rejudge', 'Re-judge credit and publish the final result'
         EXPLAIN = 'explain', 'Write the score explanations'
+        NEXT_STEPS = 'next_steps', 'Write the next steps'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='second_layer_jobs')
@@ -727,6 +759,25 @@ class SecondLayerEvent(models.Model):
 
     class Meta:
         ordering = ['id']
+
+
+class CapabilityNextSteps(models.Model):
+    """The written next steps for one completed assessment of a run (capability/next_steps.py): the text of the actions
+    the code chose, each checked against the passages the run saw. Written once per run by a metered job, never on a
+    reload. Stored beside the run, never in it, so they cannot change a score or a report's integrity hashes. The
+    screens and reports fall back to the plain checklist wherever this has nothing for an action."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, related_name='next_steps')
+    event_id = models.BigIntegerField(help_text='The completed CapabilityRunEvent the steps were written for.')
+    version = models.CharField(max_length=32)
+    model = models.CharField(max_length=100, blank=True)
+    payload = models.JSONField(default=dict)
+    job = models.ForeignKey(SecondLayerJob, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+        indexes = [models.Index(fields=['run', 'event_id'])]
 
 
 class CapabilityExplanation(models.Model):

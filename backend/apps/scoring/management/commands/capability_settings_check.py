@@ -40,6 +40,7 @@ SETTING = {
     ('execution_policy', 'agreement_passes'): 'CAPABILITY_AGREEMENT_PASSES',
     ('execution_policy', 'gemini_reasoning_effort'): 'CAPABILITY_GEMINI_REASONING_EFFORT (else AI_GEMINI_REASONING_EFFORT)',
     ('execution_policy', 'tie_break'): 'CAPABILITY_TIE_BREAK',
+    ('execution_policy', 'stored_judgments'): 'CAPABILITY_STORED_JUDGMENTS',
     ('execution_policy', 'part_quote_repair'): 'CAPABILITY_PART_QUOTE_REPAIR',
     ('retrieval_policy', 'evidence_lane'): 'CAPABILITY_EVIDENCE_LANE',
     ('execution_policy', 'judgment'): 'CAPABILITY_JUDGMENT',
@@ -54,6 +55,7 @@ SETTING = {
     ('retrieval_policy', 'model'): 'CAPABILITY_EMBEDDING_MODEL',
     ('retrieval_policy', 'artifact_hash'): 'CAPABILITY_EMBEDDING_PATH (the embedding model files)',
     ('retrieval_policy', 'allocation'): 'CAPABILITY_RETRIEVAL_ALLOCATION',
+    ('retrieval_policy', 'keyword_chars'): 'CAPABILITY_KEYWORD_CHARS (keyword mode; missing means the default 18,000)',
     ('retrieval_policy', 'deduplicate'): 'CAPABILITY_DEDUPLICATE_PAGES',
     ('retrieval_policy', 'structure'): 'CAPABILITY_STRUCTURE_ROUTING',
     ('retrieval_policy', 'repeat_skip'): 'CAPABILITY_REPEAT_SKIP',
@@ -62,7 +64,11 @@ SETTING = {
     ('execution_policy', 'model_effort'): 'CAPABILITY_AI_EFFORT',
     ('execution_policy', 'writing_effort'): 'CAPABILITY_AI_WRITING_EFFORT',
     ('retrieval_policy', 'prompt_ceiling'): 'CAPABILITY_PROMPT_TOKEN_CEILING (and CAPABILITY_PROMPT_BYTES_PER_TOKEN)',
+    ('retrieval_policy', 'cap_chars'): 'CAPABILITY_MAP_CAP_CHARS (map mode)',
+    ('retrieval_policy', 'map_shape'): 'EVIDENCE_MAP_SHAPE (map mode)',
 }
+#: Recorded from the sprint when a run starts (its evidence map and how much of it was tagged), not set by a setting.
+PER_SPRINT = {('retrieval_policy', key) for key in ('map_version', 'map_model', 'map_coverage', 'map_fallback')}
 
 
 def _current_execution():
@@ -111,6 +117,8 @@ def _same_file(key, recorded):
 def _compare(section, frozen, current):
     rows = []
     for key in sorted(set(frozen) | set(current)):
+        if (section, key) in PER_SPRINT:
+            continue
         before, after = frozen.get(key, MISSING), current.get(key, MISSING)
         if before != after and not _same_file(key, before):
             rows.append({'section': section, 'setting': key, 'run': before, 'now': after, 'kind': _kind(section, key),
@@ -159,7 +167,33 @@ def check(run):
                             'set_with': 'code version (not a setting)'})
     unfrozen = {'FACT_VERIFICATION_MODE': settings.FACT_VERIFICATION_MODE, 'AI_TEMPERATURE': settings.AI_TEMPERATURE,
                 'AI_SEED': settings.AI_SEED}
-    return {'run_id': str(run.pk), 'differences': differences, 'errors': errors, 'unfrozen': unfrozen}
+    return {'run_id': str(run.pk), 'differences': differences, 'errors': errors, 'unfrozen': unfrozen,
+            'warnings': deployment_warnings(getattr(run, 'sprint_id', None))}
+
+
+def deployment_warnings(sprint_id):
+    """Settings this deployment would start a run with that are valid but probably not what was meant. Warnings
+    only: they never fail the check."""
+    out = []
+    try:
+        current = _current_retrieval()
+    except Exception:
+        return out
+    wide = current.get('keyword_chars', 0) >= 90000 or current.get('mode') == 'map'
+    missing = [name for key, name in (('deduplicate', 'CAPABILITY_DEDUPLICATE_PAGES'),
+                                      ('repeat_skip', 'CAPABILITY_REPEAT_SKIP')) if key not in current]
+    if wide and missing:
+        out.append('Wide keyword packets (CAPABILITY_KEYWORD_CHARS, or map mode\'s 200,000 fallback) without '
+                   + ' and '.join(missing) + ': the packet will not be test 13\'s.')
+    if current.get('mode') == 'map' and sprint_id and not getattr(settings, 'EVIDENCE_MAP_AI_MODEL', ''):
+        from apps.evidence_map.models import MapJob
+        from apps.evidence_map.status import current_version
+        models = set(MapJob.objects.filter(sprint_id=sprint_id, map_version=current_version())
+                     .values_list('model', flat=True))
+        if len(models) > 1:
+            out.append(f'This sprint has maps from {len(models)} models ({", ".join(sorted(models))}) and '
+                       'EVIDENCE_MAP_AI_MODEL is not set: a run would use whichever pass started last. Set it.')
+    return out
 
 
 class Command(BaseCommand):
@@ -187,6 +221,8 @@ class Command(BaseCommand):
                                       f"  [{d['set_with']}]")
             for error in result['errors']:
                 self.stdout.write(self.style.WARNING(f'\nCould not check: {error}'))
+            for warning in result['warnings']:
+                self.stdout.write(self.style.WARNING(f'\nWarning: {warning}'))
             self.stdout.write('\nNot frozen with the run (check by hand): ' + ', '.join(
                 f'{k}={v!r}' for k, v in result['unfrozen'].items()))
             if result['unfrozen']['FACT_VERIFICATION_MODE'] != 'enforce':

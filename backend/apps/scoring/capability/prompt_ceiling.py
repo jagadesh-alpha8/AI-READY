@@ -10,8 +10,10 @@ tokens, so most would cross. Switched on with CAPABILITY_PROMPT_TOKEN_CEILING an
    the judge reads is lost: test 13's requests carried about 190 bytes of IDs and metadata per passage.
 2. A smaller keyword lane, only if still over. The packet is rebuilt by retrieval itself with a smaller keyword-lane
    budget, so the passages dropped are the ones retrieval ranks lowest; the discovery lane and the extracted-evidence
-   lane are untouched. Cutting the end of a built packet would not do: it is grouped by page, not ordered by rank, and
-   in test 13 the last 10% of packet text held 36 of the 132 passages that earned credit.
+   lane are untouched. In keyword mode with a wider packet (retrieval_policy.keyword_chars) the whole packet is the
+   keyword lane, and it shrinks the same way; the default 18,000 is never trimmed. Cutting the end of a built packet
+   would not do: it is grouped by page, not ordered by rank, and in test 13 the last 10% of packet text held 36 of the
+   132 passages that earned credit.
 
 Tokens are estimated from the request's UTF-8 bytes (CAPABILITY_PROMPT_BYTES_PER_TOKEN, conservative by default;
 Gemini measured 3.36 bytes per token on test 13). Every request still records its actual prompt tokens, so the

@@ -20,7 +20,7 @@ from apps.scoring.models import CapabilityRun
 
 
 def changes(run, *, indicators=None, ranker=None, lane_version=None):
-    from apps.scoring.capability.evaluation import _prepare
+    from apps.scoring.capability.evaluation import _prepare, map_argument
     from apps.scoring.capability.page_use import _completed_payload, _structure, compare_packets, retrieval_sources
     from apps.scoring.capability.reviewed_evidence import LANE_VERSION_2
     from apps.scoring.capability.semantic_retrieval import ranker_for
@@ -38,7 +38,9 @@ def changes(run, *, indicators=None, ranker=None, lane_version=None):
     common = dict(sources=sources, semantic_ranker=ranker, gemini=True, reviewed_evidence=inputs.get('reviewed_evidence'),
                   population=inputs.get('population') or '', reference_period=inputs.get('reference_period') or '',
                   scope=inputs.get('scope'), structure=_structure(sources, policy),
-                  ceiling=policy.get('prompt_ceiling'), judgment=execution.get('judgment', 'conditions'))
+                  ceiling=policy.get('prompt_ceiling'), judgment=execution.get('judgment', 'conditions'),
+                  keyword_chars=policy.get('keyword_chars'),
+                  evidence_map=map_argument(policy, inputs.get('evidence_map')))
     rows = []
     for indicator in inputs['rubric']['indicators']:
         code = indicator['code']

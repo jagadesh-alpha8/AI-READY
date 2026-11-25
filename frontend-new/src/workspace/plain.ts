@@ -1,24 +1,12 @@
 /**
  * Plain presentation rules shared by the screens, matching the back end's capability/presentation.py so the screens
  * and the leadership report say the same thing: which quotation shows a strength best, explanation text without
- * criterion-file codes or a document named twice, and the first steps in each area.
+ * criterion-file codes or a document named twice. The first steps and the checklist are not worked out here: the
+ * server sends them finished (run.next_steps, capability/next_steps.py), so screens and reports cannot differ.
  */
-import type { ConditionRecord, Result } from '../types/capability';
-import { areaTitle } from '../utils/areaTitles';
-import { pillarName } from '../utils/capability';
 
 const STAGE: Record<string, number> = { F: 0, A: 1, O: 2 };
 export const stageOf = (conditionId: string) => STAGE[conditionId.split('.').pop()?.[0] || 'F'] ?? 3;
-const STAGE_STEP = ['Set up', 'Put in use', 'Measure the results'];
-
-/** A suggested lead for an area's actions when no foundation goal names one (a suggestion, never an assignment). */
-export const DEFAULT_LEADS: Record<string, string> = {
-  'AIQIF-C1': 'Leadership team and IQAC', 'AIQIF-C2': 'Data protection and IT leads',
-  'AIQIF-C3': 'Programme and curriculum leads', 'AIQIF-C4': 'Academic development lead',
-  'AIQIF-C5': 'Student learning and placement leads', 'AIQIF-C6': 'IT and data leads',
-  'AIQIF-C7': 'Research and innovation lead', 'AIQIF-C8': 'Service owners and partnerships lead',
-  'AIQIF-C9': 'IQAC coordinator',
-};
 
 const squash = (t: string) => t.replace(/\s+/g, ' ').trim();
 
@@ -78,54 +66,4 @@ export function cleanText(text: string | null | undefined, names: string[]) {
     });
   }
   return t;
-}
-
-export interface FirstStep {
-  code: string; title: string; areaCode: string; area: string; points: number; step: string;
-  show: string[]; lead: string;
-}
-
-/**
- * What to do next: for each key indicator, the practices at its first unfinished stage (at most two) and the overall
- * points they add when shown in full; the areas with the most to gain and the focus areas get their best step first,
- * then the largest gains, at most two per area and `limit` in all.
- */
-export function chooseActions(result: Result, records: Map<string, ConditionRecord>, leads: Record<string, string>,
-  priorityAreas: string[], limit = 6, perArea = 2): FirstStep[] {
-  const total = result.indicators.reduce((n, i) => n + (i.weight_units || 0), 0);
-  const credit = (id: string) => { const r = records.get(id); return r?.credit ?? (r?.state === 'met' ? 1 : 0); };
-  const candidates: FirstStep[] = [];
-  for (const ind of result.indicators) {
-    const open = ind.conditions.map((c) => ({ c, cr: credit(c.id) })).filter((x) => x.cr < 1);
-    if (!open.length) continue;
-    const first = Math.min(...open.map((x) => stageOf(x.c.id)));
-    const chosen = open.filter((x) => stageOf(x.c.id) === first).sort((a, b) => a.cr - b.cr).slice(0, 2);
-    const weight = total ? (ind.weight_units || 0) / total : 1 / result.indicators.length;
-    const areaCode = ind.pillar || ind.code.split('.')[0];
-    candidates.push({
-      code: ind.code, title: areaTitle(ind.code, ind.name), areaCode, area: pillarName(areaCode),
-      points: chosen.reduce((n, x) => n + ((1 - x.cr) / ind.conditions.length) * 100 * weight, 0),
-      step: STAGE_STEP[first] || 'Show',
-      show: chosen.map((x) => `${x.c.text}${x.cr > 0 ? ' (partly shown)' : ''}`),
-      lead: chosen.map((x) => leads[x.c.id]).find(Boolean) || DEFAULT_LEADS[areaCode] || '',
-    });
-  }
-  candidates.sort((a, b) => b.points - a.points);
-  const picked: FirstStep[] = [];
-  const count = new Map<string, number>();
-  const take = (a: FirstStep) => { picked.push(a); count.set(a.areaCode, (count.get(a.areaCode) || 0) + 1); };
-  for (const code of Array.from(new Set(priorityAreas))) {
-    const best = candidates.find((a) => a.areaCode === code && !picked.includes(a));
-    if (best && picked.length < limit) take(best);
-  }
-  for (const a of candidates) {
-    if (picked.length >= limit) break;
-    if (!picked.includes(a) && (count.get(a.areaCode) || 0) < perArea) take(a);
-  }
-  return picked.sort((a, b) => b.points - a.points);
-}
-
-/** Every first step, for the Recommended actions screen: one per key indicator with something unfinished. */
-export function allActions(result: Result, records: Map<string, ConditionRecord>, leads: Record<string, string>) {
-  return chooseActions(result, records, leads, [], 1000, 1000);
 }

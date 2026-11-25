@@ -11,7 +11,8 @@ from django.core.exceptions import ImproperlyConfigured
 EFFORTS = ('none', 'low', 'medium', 'high', 'xhigh', 'max')
 #: Calls that write or route rather than judge: they never decide a requirement's credit themselves.
 WRITING = frozenset({'depth_question_plan', 'depth_question_links', 'depth_questions', 'answer_check',
-                     'score_explanations', 'capability_advice', 'capability_advice_repair', 'institution_plan_parse'})
+                     'score_explanations', 'capability_advice', 'capability_advice_repair', 'institution_plan_parse',
+                     'next_step'})
 #: Gemini's reasoning levels for a Claude/OpenAI-style effort name.
 GEMINI_EFFORT = {'none': 'minimal', 'low': 'low', 'medium': 'medium', 'high': 'high', 'xhigh': 'high', 'max': 'high'}
 
@@ -56,7 +57,7 @@ def scoring_service():
     if not settings.CAPABILITY_AI_MODEL:
         raise ImproperlyConfigured('CAPABILITY_AI_API_KEY is set but CAPABILITY_AI_MODEL is not: name the scoring model.')
     service = get_ai_service(api_key=settings.CAPABILITY_AI_API_KEY, model=settings.CAPABILITY_AI_MODEL,
-                             base_url=settings.CAPABILITY_AI_BASE_URL or None)
+                             base_url=settings.CAPABILITY_AI_BASE_URL or '')   # never AI_BASE_URL (extraction's)
     if hasattr(service, 'json_output'):
         service.json_output = True   # Claude: JSON output (works with thinking) instead of a forced tool call
     return service

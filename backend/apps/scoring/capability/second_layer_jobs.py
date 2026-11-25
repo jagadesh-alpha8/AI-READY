@@ -16,6 +16,9 @@ and credit):
     explain    write the score explanations for the provisional run, or with options.final for its final result
                (explanations.explain; one call per area, at most two); started on its own after a final result is
                published when SECOND_LAYER_EXPLAIN_AFTER_PUBLISH is on
+    next_steps write the next steps for the provisional run, or with options.final for its final result
+               (next_steps.write; one call per chosen action, a second only to fix the first, at most twelve); never
+               started on its own
 
 Every model call goes through SecondLayerMeter: it is reserved against the job (which must still be running) and
 against the run's SecondLayerBudget, whose limits are frozen when the first job starts (SECOND_LAYER_MAX_HTTP_CALLS
@@ -118,7 +121,8 @@ def clean_options(operation, options):
     options = options or {}
     if not isinstance(options, dict):
         raise ValidationError({'options': 'Must be an object.'})
-    allowed = {'questions': {'replace'}, 'rejudge': {'publish', 'close'}, 'explain': {'final'}}.get(operation, set())
+    allowed = {'questions': {'replace'}, 'rejudge': {'publish', 'close'}, 'explain': {'final'},
+               'next_steps': {'final'}}.get(operation, set())
     unknown = set(options) - allowed
     if unknown:
         raise ValidationError({'options': f'Unknown for {operation}: {", ".join(sorted(unknown))}.'})
@@ -140,7 +144,7 @@ def clean_options(operation, options):
                                               'true (answers and evidence can no longer change it afterwards).'})
     if operation == 'questions':
         out.setdefault('replace', False)
-    if operation == 'explain':
+    if operation in ('explain', 'next_steps'):
         out.setdefault('final', False)
     return out
 
@@ -189,7 +193,7 @@ def preflight(run, operation, options):
         if latest_answer is not None and (judged is None or judged < latest_answer):
             raise ValidationError('Some depth answers have not been judged yet; run "Judge evidence depth" before '
                                   'closing the follow-up stage.')
-    elif operation == 'explain':
+    elif operation in ('explain', 'next_steps'):
         target = explain_target(run, options)
         if not target.events.filter(state='completed', payload__result__isnull=False).exists():
             raise ValidationError('This assessment has not completed.')
@@ -233,7 +237,7 @@ def start(*, run, operation, user, key, options=None):
     _expire_stale(run)
     if SecondLayerJob.objects.filter(run=run, status__in=ACTIVE).exists():
         raise AssessmentConflict('A second-layer job is already active for this assessment.')
-    if operation != 'explain':
+    if operation not in ('explain', 'next_steps'):   # writing for a result is allowed after the stage closes
         from .layer2_service import CLOSED, stage_closed
         if stage_closed(run):
             raise ValidationError(CLOSED)
@@ -332,6 +336,7 @@ class SecondLayerMeter(MeteredService):
     """Reserves each request against the job (its status and deadline) and the run's shared second-layer budget."""
     execution_model = SecondLayerJob
     execution_key = 'pk'
+    reuses_answers = False   # stored answers are a Stage 1 stopgap only
 
     @property
     def settles(self):
@@ -494,8 +499,28 @@ def run_explain(job, meter):
                                'areas_with_problems': {a: len(e) for a, e in written['errors'].items()}})
 
 
+def run_next_steps(job, meter):
+    from apps.scoring.models import CapabilityNextSteps
+    from .next_steps import build_target, write
+    target_run = explain_target(job.run, job.options)
+    try:
+        target = build_target(target_run)
+    except ValueError as exc:
+        raise Layer2Error(str(exc))
+    # A failed request leaves its action on the plain checklist; a spent budget or a cancelled job still stops it.
+    written = write(target, metered_model(meter), max_calls=12,
+                    skip_error=lambda exc: recoverable_failure(exc) and not isinstance(exc, ProviderQuotaExhausted))
+    with transaction.atomic():
+        commit_point(job.pk, lock_run=True)
+        CapabilityNextSteps.objects.create(run=target_run, event_id=target['event_id'], version=written['version'],
+                                           model=meter.model, payload=written, job=job)
+        record_result(job.pk, {'run_id': str(target_run.pk), 'calls': written['calls'],
+                               'written': len(written['actions']), 'fallbacks': len(written['fallbacks']),
+                               'problems': {k: len(v) for k, v in written['errors'].items()}})
+
+
 RUNNERS = {'questions': run_questions, 'checks': run_checks, 'depth': run_depth, 'rejudge': run_rejudge,
-           'explain': run_explain}
+           'explain': run_explain, 'next_steps': run_next_steps}
 
 
 @shared_task(acks_late=True, max_retries=0, reject_on_worker_lost=False)
