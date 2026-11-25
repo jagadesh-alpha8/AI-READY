@@ -136,6 +136,30 @@ class ExplanationTests(SimpleTestCase):
             with self.subTest(words=words):
                 self.assertTrue(any(words in e for e in broken(change)), broken(change))
 
+    def test_cards_written_without_the_model_go_through_the_same_checks(self):
+        """capability_explain --import: hand-written cards on a stored payload, checked against the run."""
+        base = explanations.explain(self.target, self.model(writer))
+        for key in explanations.AREA_FIELDS:
+            base['areas']['AIQIF-C1'].pop(key, None)
+        base['version'] = 'explanations-0.3'
+        written, problems = explanations.import_cards(self.target, base, {'AIQIF-C1': card(self.area)}, 'test')
+        self.assertEqual(problems, {})
+        self.assertEqual(written['version'], explanations.VERSION)
+        self.assertTrue(written['areas']['AIQIF-C1']['verdict'].startswith('The '))
+        self.assertEqual(written['requirements'], base['requirements'])   # the rest is the stored text
+        bad = card(self.area)
+        bad['strengths'][0]['condition_id'] = next(r['condition_id'] for i in self.area['indicators']
+                                                   for r in i['requirements'] if r['result'] not in ('shown in full', 'partly shown'))
+        written, problems = explanations.import_cards(self.target, base, {'AIQIF-C1': bad}, 'test')
+        self.assertIn('AIQIF-C1', problems)
+        self.assertTrue(written['areas']['AIQIF-C1']['fallback'])   # the reports stay a draft for it
+        self.assertNotIn('verdict', written['areas']['AIQIF-C1'])
+        written, problems = explanations.import_cards(self.target, base, {}, 'test')
+        self.assertEqual(problems, {'AIQIF-C1': ['no card was given']})
+        base['areas']['AIQIF-C1']['fallback'] = True
+        _, problems = explanations.import_cards(self.target, base, {'AIQIF-C1': card(self.area)}, 'test')
+        self.assertIn('plain wording', problems['AIQIF-C1'][0])
+
     def test_the_institution_word(self):
         self.assertEqual(explanations.institution_word({'institution_type': 'deemed university'}), 'university')
         self.assertEqual(explanations.institution_word({'name': 'ABC Arts College'}), 'college')

@@ -728,6 +728,52 @@ def explain(target, model, *, max_calls=None, concurrency=1, skip_error=None):
     return out
 
 
+def import_cards(target, base, cards, written_by):
+    """Area cards written outside the product (for example while the model keys are unavailable), on top of a
+    stored payload's requirement, topic and area text: each card goes through the same checks as the model's
+    (_check_card) against this run; a card that fails, or an area with none, keeps the area on the plain fallback, so
+    the reports stay a draft for it (publication.readiness). Returns (payload, problems by area)."""
+    out = {'version': VERSION, 'run_id': target['run_id'], 'event_id': target['event_id'],
+           'areas': {}, 'indicators': dict(base.get('indicators') or {}),
+           'requirements': dict(base.get('requirements') or {}), 'fallbacks': list(base.get('fallbacks') or []),
+           'calls': 0, 'errors': {}, 'written_by': written_by,
+           'base_version': base.get('version')}
+    problems = {}
+    areas = list(dict.fromkeys(i.get('pillar') for i in target['rubric']['indicators']))
+    for area in areas:
+        area_text = dict((base.get('areas') or {}).get(area) or {})
+        for key in AREA_FIELDS:
+            area_text.pop(key, None)
+        card = cards.get(area)
+        if not area_text or area_text.get('fallback'):
+            problems[area] = ["the area's own text is on plain wording: write the explanations with the model"]
+        elif card is None:
+            problems[area] = ['no card was given']
+        else:
+            given_area = area_input(area, target)
+            given = {r['condition_id']: r for i in given_area['indicators'] for r in i['requirements']}
+            everything = [r for i in given_area['indicators'] for r in i['requirements']]
+            totals = {k: sum(i['counts'][k] for i in given_area['indicators'])
+                      for k in given_area['indicators'][0]['counts']}
+            scope = _summary_scope(everything, totals)
+            _with_documents(scope, given_area, given_area['name'])
+            checked, errors = _check_card(card, given_area, given, scope)
+            if errors:
+                problems[area] = errors
+            else:
+                area_text.update(checked)
+        if area in problems:
+            area_text['fallback'] = True
+            if area not in out['fallbacks']:
+                out['fallbacks'].append(area)
+        else:
+            area_text.pop('fallback', None)
+            out['fallbacks'] = [f for f in out['fallbacks'] if f != area]
+        out['areas'][area] = area_text
+    out['errors'] = problems
+    return out, problems
+
+
 def latest(run):
     """The newest explanations stored for a run's current completed assessment, or None."""
     from apps.scoring.models import CapabilityExplanation
