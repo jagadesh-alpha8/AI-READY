@@ -23,6 +23,26 @@ from .execution import BudgetExceeded, ExecutionStopped, ExecutionDeadlineExceed
 from .storage import digest
 
 
+
+#: Waits before the 2nd, 3rd and 4th attempt of one request when the provider is rate limiting, overloaded or
+#: unreachable and gives no Retry-After (25 Nov audit, finding 1: one 429 or "overloaded" used to score a whole key
+#: indicator as unknown). A provider's own Retry-After is followed up to MAX_RETRY_WAIT seconds. A timeout is retried
+#: once: it has already used the whole timeout. Every attempt is metered and counts toward the run's caps.
+RETRY_WAITS = (5, 20, 45)
+MAX_RETRY_WAIT = 60
+
+
+def retry_wait(exc, attempt):
+    """Seconds to wait before retrying after `exc` on attempt `attempt` (0-based), or None: give up."""
+    if getattr(exc, 'kind', None) == 'timeout':
+        return 0.1 if attempt == 0 else None
+    if attempt >= len(RETRY_WAITS):
+        return None
+    asked = exc.retry_after or 0
+    if asked > MAX_RETRY_WAIT:
+        return None
+    return max(0.1, asked) if asked else RETRY_WAITS[attempt]
+
 class UnpricedModel(Exception):
     pass
 
@@ -131,7 +151,7 @@ class MeteredService:
                                            'schema_name': kwargs.get('schema_name'), 'answered_in_run': str(row.run_id)})
                 return row.answer
             stored = (key, occurrence)
-        for attempt in range(2):
+        for attempt in range(len(RETRY_WAITS) + 1):
             self.remaining_time()
             try:
                 result = self.service.extract_structured_data(**kwargs, timeout=self.policy['timeout_seconds'])
@@ -143,9 +163,10 @@ class MeteredService:
             except ProviderQuotaExhausted:
                 raise
             except RecoverableExtractionError as exc:
-                if attempt or (exc.retry_after or 0) > 2:
+                wait = retry_wait(exc, attempt)
+                if wait is None or wait >= self.remaining_time():
                     raise
-                time.sleep(max(0.1, min(2, exc.retry_after or 0.1)))
+                time.sleep(wait)
 
     def envelope(self, kwargs):
         # UTF-8 bytes bound ordinary byte-level tokenizer content; explicit allowance

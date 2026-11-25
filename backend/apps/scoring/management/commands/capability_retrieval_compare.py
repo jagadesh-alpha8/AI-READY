@@ -29,11 +29,11 @@ class Command(BaseCommand):
         from apps.scoring.capability.semantic_retrieval import configured_policy, ranker_for
         from apps.scoring.capability.storage import digest
         output = Path(options['output']).resolve()
-        repository = Path(settings.BASE_DIR).resolve().parent
+        from apps.scoring.capability.private_output import inside_code
         readable = output.with_suffix('.md')
         if output.suffix != '.json' or readable.exists():
             raise CommandError('Choose a new .json output and an unused matching .md path.')
-        if output == repository or repository in output.parents or output.exists():
+        if inside_code(output) or output.exists():
             raise CommandError('Choose a new private output file outside the repository.')
         if not 100 <= options['budget'] <= 100000:
             raise CommandError('Budget must be between 100 and 100000 characters.')

@@ -36,5 +36,8 @@
   {"find": "600117", "replace": "600 000"},
   {"find": "600 117", "replace": "600 000"},
   {"find": "600130", "replace": "600 000"},
-  {"find": "600 130", "replace": "600 000"}
+  {"find": "600 130", "replace": "600 000"},
+  {"find": "VelsUniversity", "replace": "ABC University"},
+  {"find": "VelsUniv", "replace": "ABC University"},
+  {"find": "VISTASUniversity", "replace": "ABC University"}
 ]

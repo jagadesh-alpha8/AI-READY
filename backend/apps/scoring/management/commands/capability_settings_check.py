@@ -197,6 +197,23 @@ def deployment_warnings(sprint_id):
     return out
 
 
+def _find_run(value):
+    """A run by its full id, or by the first characters of it as the screens and emails write it ("f9587aca")."""
+    import re
+    import uuid
+    value = value.strip().lower()
+    try:
+        return CapabilityRun.objects.get(pk=uuid.UUID(value))
+    except (ValueError, CapabilityRun.DoesNotExist):
+        pass
+    if not re.fullmatch(r'[0-9a-f]{6,32}', value.replace('-', '')):
+        raise CommandError('Run not found: give the run id or its first 6 or more characters.')
+    matches = [r for r in CapabilityRun.objects.only('pk') if str(r.pk).replace('-', '').startswith(value.replace('-', ''))]
+    if len(matches) != 1:
+        raise CommandError('Run not found.' if not matches else f'{len(matches)} runs start with {value}: give more of the id.')
+    return CapabilityRun.objects.get(pk=matches[0].pk)
+
+
 class Command(BaseCommand):
     help = 'List what differs between the settings a run was scored with and this deployment (no model calls).'
 
@@ -205,9 +222,7 @@ class Command(BaseCommand):
         parser.add_argument('--json', action='store_true')
 
     def handle(self, *args, **options):
-        run = CapabilityRun.objects.filter(pk=options['run_id']).first()
-        if run is None:
-            raise CommandError('Run not found.')
+        run = _find_run(options['run_id'])
         result = check(run)
         scoring = [d for d in result['differences'] if d['kind'] == 'scoring']
         if options['json']:
