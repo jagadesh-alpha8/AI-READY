@@ -111,7 +111,9 @@ def get_ai_service(*, api_key=None, model=None, base_url=None):
             'backend/.env before using get_ai_service().'
         )
 
-    resolved_base_url = base_url or settings.AI_BASE_URL
+    # base_url None = the extraction endpoint (AI_BASE_URL); '' = no custom endpoint, as the scoring switch and the
+    # tagger pass when their own base URL is empty: their own key must not be sent to extraction's endpoint.
+    resolved_base_url = settings.AI_BASE_URL if base_url is None else base_url
     if resolved_base_url:
         resolved_model = model or settings.AI_MODEL or settings.OPENAI_EXTRACTION_MODEL
         if not resolved_model:
