@@ -1,4 +1,6 @@
 """Applies the demo display mask (mask.py) to API responses. Does nothing while DEMO_NAME_MASK is empty."""
+import json
+
 from django.http import JsonResponse
 
 from . import mask
@@ -6,6 +8,19 @@ from . import mask
 TEXT_TYPES = ('application/json', 'text/html', 'text/plain', 'text/csv', 'application/problem+json')
 #: Set by a view whose binary body was made from masked data (the capability report PDFs).
 APPLIED_HEADER = 'X-Name-Mask'
+
+
+def _masked_json(body):
+    """A JSON body with only its strings masked, or None when it doesn't parse. Masking the raw text also rewrote
+    numbers: a bare 600117 (a postcode term) became 600 000, which is not JSON (25 Nov audit, finding 6)."""
+    try:
+        value = json.loads(body)
+    except ValueError:
+        return None
+    masked = mask.data(value)
+    if masked == value:
+        return body
+    return json.dumps(masked, ensure_ascii=False, separators=(',', ':'))
 
 
 class NameMaskMiddleware:
@@ -24,7 +39,9 @@ class NameMaskMiddleware:
         if kind in TEXT_TYPES or kind.endswith('+json'):
             charset = response.charset or 'utf-8'
             body = response.content.decode(charset, errors='replace')
-            masked = mask.text(body)
+            masked = _masked_json(body) if kind == 'application/json' or kind.endswith('+json') else None
+            if masked is None:
+                masked = mask.text(body)
             if masked != body:
                 response.content = masked.encode(charset)
                 if response.has_header('Content-Length'):

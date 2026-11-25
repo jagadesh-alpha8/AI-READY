@@ -15,8 +15,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         target = Path(options['output']).resolve()
-        repository = Path(settings.BASE_DIR).resolve().parent
-        if target == repository or repository in target.parents:
+        from apps.scoring.capability.private_output import inside_code
+        if inside_code(target):
             raise CommandError('Choose a private output outside the repository.')
         if target.exists():
             raise CommandError('Refusing to overwrite an existing audit.')

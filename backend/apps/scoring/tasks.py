@@ -1,4 +1,7 @@
 """Capability worker: one claimed execution, no whole-run retries or GET-triggered inference."""
+import logging
+import traceback
+
 from celery import shared_task
 from django.db import transaction
 from django.utils import timezone
@@ -13,6 +16,27 @@ from .capability.execution import BudgetExceeded, ExecutionDeadlineExceeded, Exe
 from .capability.provider import MeteredService, UnpricedModel, UsageUnavailable
 from .capability.storage import publish, digest
 from .models import CapabilityExecution
+
+
+logger = logging.getLogger(__name__)
+
+
+def failure_outline(exc):
+    """What broke, without any message text: the exception classes down the chain, an HTTP status, and the last place
+    in our code it passed through. e.g. "PermanentExtractionError <- BadRequestError (status 400) at
+    apps/extraction/services/anthropic_client.py:190"."""
+    chain, seen, current = [], set(), exc
+    while current is not None and id(current) not in seen and len(chain) < 4:
+        seen.add(id(current))
+        status = getattr(current, 'status_code', None)
+        chain.append(type(current).__name__ + (f' (status {status})' if isinstance(status, int) else ''))
+        current = current.__cause__ or current.__context__
+    where = ''
+    for frame in reversed(traceback.extract_tb(exc.__traceback__)):
+        if '/apps/' in frame.filename.replace('\\', '/'):
+            where = ' at apps/' + frame.filename.replace('\\', '/').split('/apps/', 1)[1] + f':{frame.lineno}'
+            break
+    return ' <- '.join(chain) + where
 
 
 def locked_progress(run_id, rows, trace):
@@ -88,8 +112,10 @@ def run_capability_assessment(run_id, task_id):
         if pool is not None and lease is not None:
             pool.mark_exhausted(lease.router, 'Capability provider quota exhausted')
         finish(run_id, 'failed', 'provider_quota_exhausted')
-    except Exception:
-        # Never log/store exception strings: SDK errors can contain document text or keys.
+    except Exception as exc:
+        # Never log/store exception strings: SDK errors can contain document text or keys. The exception's class, where
+        # it was raised and an HTTP status are safe and say what broke (25 Nov audit, finding 9: no reason anywhere).
+        logger.error('Capability run %s failed: %s', run_id, failure_outline(exc))
         finish(run_id, 'failed', 'evaluation_failed')
     finally:
         if pool is not None and lease is not None:

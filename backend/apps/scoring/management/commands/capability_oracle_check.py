@@ -33,8 +33,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         out = Path(options['output_dir']).resolve()
-        repository = Path(settings.BASE_DIR).resolve().parent
-        if out == repository or repository in out.parents:
+        from apps.scoring.capability.private_output import inside_code
+        if inside_code(out):
             raise CommandError('Institutional diagnostics must be written outside the repository.')
         try:
             export = json.loads(Path(options['export']).read_text(encoding='utf-8'))

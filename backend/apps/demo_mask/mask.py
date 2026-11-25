@@ -11,7 +11,8 @@ Where it applies (decided 25 Nov 2026):
 - binary downloads the mask cannot rewrite (uploaded source documents, the older stored report files) are refused
   while the mask is on, so a letterhead or logo can't leak through them.
 
-A term list is a JSON array of {"find": text, "replace": text}. A find text is matched as a whole word, ignoring case,
+A term list is a JSON array of {"find": text, "replace": text}. A find text is matched as a whole word (letters on either
+side stop a match; digits don't), ignoring case,
 with spaces, commas, "&"/"and", apostrophes and the space before "(" matched loosely, so one entry covers the forms
 documents use ("Vels Institute of Science, Technology & Advanced Studies (VISTAS)", "VELS INSTITUTE OF SCIENCE
 TECHNOLOGY AND ADVANCED STUDIES(VISTAS)"). Longer entries are applied first. Programme names and facts are not masked.
@@ -26,6 +27,9 @@ from django.conf import settings
 
 TERMS_DIR = Path(__file__).resolve().parent / 'terms'
 SPACE = r'(?:\s|\\[nrt])+'   # whitespace, or the "\n" / "\t" a JSON body writes inside a string
+#: A term must not sit inside a longer word. Next to a term that ends in a letter, digits don't count ("VISTAS2021"
+#: is masked; 25 Nov audit); next to one that ends in a digit, they do (a postcode inside a phone number is not one).
+_LETTER = r'[A-Za-zÀ-ɏ]'
 _WORD = r'[0-9A-Za-zÀ-ɏ]'
 
 
@@ -65,8 +69,9 @@ def pattern(find):
     body = body.replace(r'\.?\s*' + gap, r'\.?' + gaps)   # "P.V. Road" also matches "P.V.Road"
     # Whole words: not inside a longer word, but a term right after a JSON "\n" still counts. A find text that starts or
     # ends with punctuation ("(VISTA") needs no boundary on that side.
-    before = rf'(?:(?<!{_WORD})|(?<=\\[nrt]))' if re.match(r'\w', words) else ''
-    after = rf'(?!{_WORD})' if re.search(r'\w$', words) else ''
+    edge = lambda char: _WORD if char.isdigit() else _LETTER
+    before = rf'(?:(?<!{edge(words[0])})|(?<=\\[nrt]))' if re.match(r'\w', words) else ''
+    after = rf'(?!{edge(words[-1])})' if re.search(r'\w$', words) else ''
     return re.compile(before + body + after, re.IGNORECASE)
 
 
