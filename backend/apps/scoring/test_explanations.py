@@ -154,6 +154,16 @@ class ExplanationTests(SimpleTestCase):
         self.assertIn('AIQIF-C1', problems)
         self.assertTrue(written['areas']['AIQIF-C1']['fallback'])   # the reports stay a draft for it
         self.assertNotIn('verdict', written['areas']['AIQIF-C1'])
+        code = self.area['indicators'][0]['code']
+        with_topics = {**card(self.area), 'topics': {code: 'A strategic plan names a digital priority.'}}
+        written, problems = explanations.import_cards(self.target, base, {'AIQIF-C1': with_topics}, 'test')
+        self.assertEqual(problems, {})
+        self.assertEqual(written['indicators'][code]['verdict'], 'A strategic plan names a digital priority.')
+        with_topics['topics'][code] = 'Your plan names three priorities.'   # checked like the model's; the card stands
+        written, problems = explanations.import_cards(self.target, base, {'AIQIF-C1': with_topics}, 'test')
+        self.assertIn('AIQIF-C1 topics', problems)
+        self.assertNotIn('verdict', written['indicators'][code])
+        self.assertFalse(written['areas']['AIQIF-C1'].get('fallback'))
         written, problems = explanations.import_cards(self.target, base, {}, 'test')
         self.assertEqual(problems, {'AIQIF-C1': ['no card was given']})
         base['areas']['AIQIF-C1']['fallback'] = True
@@ -231,6 +241,32 @@ class ExplanationTests(SimpleTestCase):
         answer = writer(self.area, spoil=lambda e, r: e.update(found='Your Strategic Plan, page 3, shows this.')
                         if e['condition_id'] == self.full else None)
         self.assertIn(self.full, explanations.validate(self.area, answer)[0]['requirements'])   # a real page is fine
+
+    def test_a_topic_verdict_is_checked_and_carried_to_the_report(self):
+        code = self.area['indicators'][0]['code']
+        answer = writer(self.area)
+        answer['indicators'][0]['verdict'] = 'A strategic plan names a digital priority. Its delivery is not yet shown.'
+        passed, errors = explanations.validate(self.area, answer)
+        self.assertEqual(passed['indicators'][code]['verdict'],
+                         'A strategic plan names a digital priority. Its delivery is not yet shown.', errors)
+        for name, verdict in {'a number': 'Three plans name a digital priority.',
+                              'you': 'Your plan names a digital priority.',
+                              'three sentences': 'A plan exists. It names a priority. Delivery is not shown.',
+                              'widened scope': 'AI runs across the college.',
+                              'a cut-off quotation': 'The plan says "AI is introduced in".'}.items():
+            with self.subTest(name):
+                answer = writer(self.area)
+                answer['indicators'][0]['verdict'] = verdict
+                self.assertNotIn(code, explanations.validate(self.area, answer)[0]['indicators'])
+        answer = writer(self.area)
+        answer['indicators'][0]['verdict'] = ''   # left out: the report prints the plain line
+        passed, _ = explanations.validate(self.area, answer)
+        self.assertNotIn('verdict', passed['indicators'][code])
+        attached = explanations.attach({'records': [], 'result': {'indicators': [{'code': code}],
+                                                                  'documented': {'indicators': [{'code': code}]}}},
+                                       {'requirements': {}, 'areas': {}, 'version': explanations.VERSION,
+                                        'indicators': {code: {'text': 't', 'verdict': 'A plan exists.'}}})
+        self.assertEqual(attached['result']['documented']['indicators'][0]['explanation']['verdict'], 'A plan exists.')
 
     def test_the_result_follows_the_credit_whatever_else_happened(self):
         target = copy.deepcopy(self.target)

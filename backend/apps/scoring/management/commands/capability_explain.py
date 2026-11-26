@@ -87,9 +87,13 @@ class Command(BaseCommand):
         with open(options['cards']) as handle:
             cards = json.load(handle)
         if isinstance(cards, dict) and isinstance(cards.get('areas'), dict) and 'version' in cards:
-            cards = cards['areas']   # a whole explanations payload: its areas' cards
+            # A whole explanations payload: its areas' cards, each with its topics' verdicts (explanations-0.6).
+            verdicts = {code: e['verdict'] for code, e in (cards.get('indicators') or {}).items()
+                        if (e or {}).get('verdict')}
+            cards = {area: {**card, 'topics': {c: v for c, v in verdicts.items() if c.startswith(f'{area}.')}}
+                     for area, card in cards['areas'].items()}
         written, problems = import_cards(target, base, cards, options['written_by'])
-        passed = len(written['areas']) - len(problems)
+        passed = len(written['areas']) - len([a for a in problems if not a.endswith(' topics')])
         self.stdout.write(f'{passed} of {len(written["areas"])} area cards pass the checks.')
         for area, errors in problems.items():
             self.stdout.write(f'  {area}: {errors[0]}' + (f' (and {len(errors) - 1} more)' if len(errors) > 1 else ''))

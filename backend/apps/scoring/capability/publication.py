@@ -190,6 +190,11 @@ def _readiness(execution, view):
         if exp['others_on_plain_wording']:
             n = exp['others_on_plain_wording']
             warnings.append(f"{n} practice or topic explanation{'s are' if n != 1 else ' is'} on plain wording.")
+        topics = [e for e in (written.get('indicators') or {}).values() if e and not e.get('fallback')]
+        unwritten = sum(1 for e in topics if not e.get('verdict'))
+        if unwritten:
+            warnings.append(f"{unwritten} topic verdict{'s are' if unwritten != 1 else ' is'} missing; the detailed "
+                            'report prints those topics\' plain line.')
 
     steps_id, steps = next_steps.stored(execution.run_id, view.event_id)
     parts = inputs_part(execution.run_id, 'population', 'profile', 'manifest', 'rubric', 'reference_period',
