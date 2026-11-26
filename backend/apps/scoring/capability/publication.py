@@ -4,7 +4,8 @@ The published result. Since 26 Nov 2026 (Siddharth: "shouldn't the report be aut
 publish themselves (CAPABILITY_AUTO_PUBLISH, on by default; keep_going below): when a Stage 1 run completes, and after
 every second-layer job of it, the result the college should see (the final result once there is one, else the Stage 1
 run) has its report text written, one job at a time (next steps, then explanations), and is published as soon as its
-reports pass the draft gate below. A Stage 1 result never replaces a published final result, and once staff withdraw
+reports pass the draft gate below; a published Stage 1 result then has its follow-up questions planned, and depth
+answers judged as they are checked (_follow_up). A Stage 1 result never replaces a published final result, and once staff withdraw
 a result nothing is published automatically until staff publish one again. Staff can still publish an older result or
 withdraw one. Every choice is a CapabilityPublication row (published_by empty when automatic); the newest row of a
 sprint is the current one, and a row with no run withdraws it. A college login (any role that is not InGage staff) may read a completed run only when
@@ -306,7 +307,10 @@ def _keep_going(provisional_run):
         return None
     state = readiness(execution)
     if state['ready']:
-        return publish_if_ready(target)
+        row = publish_if_ready(target)
+        if target == str(provisional_run.pk):
+            return _follow_up(provisional_run, execution) or row
+        return row
     exp, steps = state.get('explanations') or {}, state.get('next_steps') or {}
     # The next steps first: a weak area's card text is written from its step's starting points (explanations-0.5).
     if steps and (not steps.get('written') or steps.get('version') != next_steps.VERSION):
@@ -328,5 +332,42 @@ def _keep_going(provisional_run):
         return None   # another job is running; its own completion continues from here
     except (AssessmentDisabled, ValidationError) as exc:
         logger.warning('automatic publication: %s could not start for run %s: %s', operation, provisional_run.pk,
+                       getattr(exc, 'detail', exc))
+        return None
+
+
+def _follow_up(provisional_run, execution):
+    """The follow-up stage runs itself too (26 Nov, with automatic publication): once the college sees its Stage 1
+    result, its questions are planned; and depth answers checked since the last judging are judged, so that closing
+    the stage (the college's "finish") never waits on a staff step. Nothing once the stage is closed or the result
+    withdrawn. One job at a time: a busy run continues from that job's own completion."""
+    from django.db.models import Max
+    from apps.scoring.models import DepthQuestion, DepthResponse, SecondLayerJob
+    from .execution import AssessmentConflict, AssessmentDisabled
+    from .layer2_service import stage_closed
+    from .second_layer_jobs import enabled, start
+    from rest_framework.exceptions import ValidationError
+    if not enabled() or stage_closed(provisional_run) or \
+            str(published_run_id(execution.sprint_id) or '') != str(provisional_run.pk):
+        return None
+    run_ref = str(provisional_run.pk)
+    if not DepthQuestion.objects.filter(run_ref=run_ref).exists():
+        operation, key, options = 'questions', f'auto-questions-{run_ref}', {}
+    else:
+        latest = DepthResponse.objects.filter(question__run_ref=run_ref, question__kind=DepthQuestion.Kind.DEPTH,
+                                              status=DepthResponse.Status.CHECKED).aggregate(x=Max('created_at'))['x']
+        judged = SecondLayerJob.objects.filter(run=provisional_run, operation='depth', status='completed').aggregate(
+            x=Max('finished_at'))['x']
+        if latest is None or (judged is not None and judged >= latest):
+            return None
+        operation, key, options = 'depth', f'auto-depth-{run_ref}-{latest.isoformat()}', {}
+    try:
+        with transaction.atomic():
+            job, _ = start(run=provisional_run, operation=operation, user=None, key=key, options=options)
+        return job
+    except AssessmentConflict:
+        return None
+    except (AssessmentDisabled, ValidationError) as exc:
+        logger.warning('automatic follow-up: %s could not start for run %s: %s', operation, run_ref,
                        getattr(exc, 'detail', exc))
         return None

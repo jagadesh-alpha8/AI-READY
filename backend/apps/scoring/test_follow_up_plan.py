@@ -479,3 +479,24 @@ class OwnerQuestionTests(SimpleTestCase):
         self.assertIn('the office responsible for it', lines[0])
         self.assertTrue(any('asked who is responsible; left out' in n for n in notes))
         self.assertTrue(all(depth.OWNER_ASK.search(q['text']) is None for q in questions if q['kind'] == 'depth'))
+
+
+class FixedWordingTests(SimpleTestCase):
+    """When the writer's wording is not used, a college reads the practice's own stand-alone sentence
+    (practice_labels_v1.json), not the rubric's (audit, 26 Nov: "records the disposition of a policy exception")."""
+
+    def test_fixed_wording_uses_the_plain_practice_sentences(self):
+        from .capability.presentation import practice_label
+        rubric = release()
+        rows = reserve.stamp(records({}, rubric), Fraction(1, 4))   # nothing credited: every line falls back
+        questions, _, _ = depth.plan_all(rows, rubric, depth._no_model, share=Fraction(1, 4),
+                                         min_credit=Fraction(1, 2), link=False)
+        conditions = {c['id']: c for i in rubric['indicators'] for c in i['conditions']}
+        for q in questions:
+            lines = [line for line in q['text'].split('\n') if line[:1].isdigit()]
+            for cid, line in zip(q['condition_ids'], lines):
+                if cid in depth.OWNER_PRACTICES:
+                    continue
+                sentence = practice_label(cid)[1].rstrip('.')
+                self.assertIn(sentence[1:], line, cid)
+                self.assertNotIn(conditions[cid]['text'].rstrip('.')[1:], line, cid)

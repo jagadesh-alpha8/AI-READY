@@ -7,7 +7,7 @@ from rest_framework.test import APIClient, APITestCase
 
 from . import test_next_steps as steps_tests
 from . import test_product_flow as flow
-from .models import CapabilityExecution, CapabilityExplanation, CapabilityPublication, CapabilityRun, SecondLayerJob
+from .models import DepthQuestion, CapabilityExecution, CapabilityExplanation, CapabilityPublication, CapabilityRun, SecondLayerJob
 
 
 @override_settings(**flow.SETTINGS)
@@ -227,7 +227,9 @@ class AutomaticPublicationTests(APITestCase):
         provisional = self.assess_and_queue()
         self.assertIsNone(self.shown())   # nothing yet: the text is being written
         self.assertEqual([SecondLayerJob.objects.get(pk=j).operation for j in self.queued], ['next_steps'])
-        self.assertEqual([j.operation for j in self.run_queued()], ['next_steps', 'explain'])
+        # Once the Stage 1 result is published, its follow-up questions are planned without a staff step.
+        self.assertEqual([j.operation for j in self.run_queued()], ['next_steps', 'explain', 'questions'])
+        self.assertTrue(DepthQuestion.objects.filter(run_ref=str(provisional.pk)).exists())
         shown = self.shown()
         self.assertEqual((shown['run_id'], shown['stage'], shown['published_by']), (str(provisional.pk), 'provisional', None))
         self.assertTrue(self.readiness(provisional).data['ready'])
@@ -247,6 +249,32 @@ class AutomaticPublicationTests(APITestCase):
         from .capability.publication import publish_if_ready
         self.assertIsNone(publish_if_ready(provisional.pk))
         self.assertEqual(self.shown()['run_id'], str(final.pk))
+
+    def test_the_follow_up_stage_runs_itself_for_the_college(self):
+        provisional = self.assess_and_queue()
+        self.run_queued()   # text written, Stage 1 published, questions planned
+        base = f'{self.base}/{provisional.pk}'
+        question = DepthQuestion.objects.filter(run_ref=str(provisional.pk), kind='depth', status='open').first()
+        self.post(f'{base}/questions/{question.pk}/responses',
+                  {'answer': '85 of 120 faculty completed the programme.', 'document_ids': [self.document(flow.ATTACHMENT)]},
+                  expect=201)
+        # The answer is checked, and then judged for depth with no staff step, so closing never waits on one.
+        self.assertEqual([j.operation for j in self.run_queued()], ['checks', 'depth'])
+        from .capability.publication import keep_going
+        self.assertIsNone(keep_going(provisional))   # judged since the latest answer: nothing more to do
+        close = self.client.post(f'{base}/second-layer/jobs', {'operation': 'rejudge', 'options': {'close': True}},
+                                 format='json', HTTP_IDEMPOTENCY_KEY='close')
+        self.assertEqual(close.status_code, 202, close.data)
+
+    def test_a_college_answers_only_on_a_result_it_can_see(self):
+        with override_settings(CAPABILITY_AUTO_PUBLISH=False):
+            run = self.assess()
+        base = f'{self.base}/{run.pk}'
+        for url in ('/questions', '/additional-evidence'):
+            self.assertEqual(self.client.get(f'{base}{url}').status_code, 403, url)
+            self.assertNotEqual(self.staff_client.get(f'{base}{url}').status_code, 403, url)
+        self.publish(run)
+        self.assertEqual(self.client.get(f'{base}/questions').status_code, 200)
 
     def test_a_staff_withdrawal_stops_it(self):
         provisional = self.assess_and_queue()
