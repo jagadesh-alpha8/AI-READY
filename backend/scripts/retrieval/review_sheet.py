@@ -7,6 +7,10 @@ Each row: requirement (id and sentence), document and page, the tag's strength, 
 around the quote. A reviewer fills "verdict": direct | supporting | not_evidence | topical, and "note". Rows also carry
 whether any test 13 packet held the page (never_seen: no judge has read it). Direct tags come first.
 The seed (the 25 Nov hand reading of Self-Study Report pages) is merged in as already reviewed.
+
+With --credited, the sheet is instead test 13's own credits (requirements that earned credit, compare.py's
+'credited' rule), one row per requirement and page, so a person can mark the lenient ones (an IT policy credited as
+AI guidance): verdict direct | supporting | not_evidence. Rows a reviewer marks not_evidence leave the yardstick.
 """
 import argparse, json, os, sys
 sys.path.insert(0, os.path.dirname(__file__))
@@ -30,11 +34,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('sources'); ap.add_argument('map'); ap.add_argument('test13')
     ap.add_argument('--out', required=True)
+    ap.add_argument('--credited', action='store_true', help="Test 13's own credits instead of the map's new finds.")
+    ap.add_argument('--gold-rule', default='credited', help="compare.py's gold rule for what counts as credited.")
     a = ap.parse_args()
     exported = json.load(open(a.sources, encoding='utf-8'))
     filename = {d['document_id']: d['filename'] for d in exported['manifest']}
     text_of = {spec.text_hash(s['text']): s for s in exported['sources'] if (s.get('text') or '').strip()}
-    gold = gold_pairs(a.test13)
+    gold = gold_pairs(a.test13, a.gold_rule)
     t13 = json.load(open(a.test13, encoding='utf-8'))
     seen = set()
     pages = {p['page_id']: (doc['filename'], p['number']) for doc in t13['source_manifest'] for p in doc.get('pages') or []}
@@ -43,6 +49,21 @@ def main():
             if (w.get('id') or w.get('source_id')) in pages:
                 seen.add(pages[w.get('id') or w.get('source_id')])
     sentences = {c['id']: c['text'] for i in release()['indicators'] for c in i['conditions']}
+    if a.credited:
+        by_page = {(filename.get(s['document_id']), s['page_number']): s for s in exported['sources']}
+        rows = []
+        for (req, fn, num), g in sorted(gold.items()):
+            text = (by_page.get((fn, num)) or {}).get('text') or ''
+            quote = sorted(g['quotes'])[0] if g['quotes'] else ''
+            span = spec.locate(text, quote) if quote and text else None
+            start = max(0, (span[0] if span else 0) - 600)
+            rows.append({'requirement': req, 'requirement_text': sentences.get(req, ''), 'filename': fn,
+                         'page_number': num, 'credit': g['credit'], 'full': g['full'], 'quotes': sorted(g['quotes']),
+                         'page_excerpt': text[start:start + 1800], 'verdict': None, 'note': ''})
+        json.dump(rows, open(a.out, 'w'), indent=1, ensure_ascii=False)
+        print(len(rows), "of test 13's credited requirement-page pairs to review;", sum(r['full'] for r in rows),
+              'full credit')
+        return
     rows, done = [], set()
     for p in json.load(open(a.map, encoding='utf-8'))['pages']:
         source = text_of.get(p['text_hash'])

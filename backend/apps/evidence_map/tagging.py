@@ -308,8 +308,15 @@ def _call(service, system, content, sprint, document):
             time.sleep(min(30, max(1, exc.retry_after or 2)))
 
 
+def kept_tags(row):
+    """Tags on a stored row that did not come from tagging (the requirement check, judged runs): a new tagging
+    answer for the page keeps them."""
+    return [t for t in (row.tags if row else []) or [] if t.get('origin')]
+
+
 def save(job, pages, results):
-    """Store one chunk's pages. A tagged row is never replaced by a failure."""
+    """Store one chunk's pages. A tagged row is never replaced by a failure, and tags that did not come from
+    tagging (kept_tags) survive a new answer."""
     with DB_WRITE_LOCK:
         for page in pages:
             result = results.get(page['number']) or {'error': 'no result'}
@@ -322,8 +329,9 @@ def save(job, pages, results):
                                                                   'page_type': '', 'error': result['error'][:2000],
                                                                   'page_id': page['id']})
             else:
+                kept = kept_tags(MapPage.objects.filter(**key).first())
                 MapPage.objects.update_or_create(**key, defaults={'status': MapPage.Status.TAGGED,
-                                                                  'tags': result['tags'],
+                                                                  'tags': result['tags'] + kept,
                                                                   'page_type': result['page_type'], 'error': '',
                                                                   'page_id': page['id']})
 
@@ -340,3 +348,24 @@ def coverage(sprint, version, model, documents=None):
         counts[row.status if row else 'not_tagged'] += 1
     counts['unreadable'] = sum(d['unreadable'] for d in docs)
     return {'pages': len(hashes), **counts}, rows, hashes
+
+
+def add_tags(*, map_version, model, found):
+    """Append tags that did not come from tagging (each with an `origin`) to the pages' stored rows, never to a
+    row that is not tagged, and never twice. Returns how many were added."""
+    added = 0
+    with DB_WRITE_LOCK:
+        for text_hash, tags in found.items():
+            row = MapPage.objects.filter(map_version=map_version, model=model, text_hash=text_hash,
+                                         status=MapPage.Status.TAGGED).first()
+            if row is None:
+                continue
+            existing = {(t.get('indicator'), tuple(t.get('requirements') or []), t.get('strength'),
+                         spec.normal(t.get('quote'))) for t in row.tags}
+            new = [t for t in tags if (t['indicator'], tuple(t['requirements']), t['strength'],
+                                       spec.normal(t['quote'])) not in existing]
+            if new:
+                row.tags = list(row.tags) + new
+                row.save(update_fields=['tags'])
+                added += len(new)
+    return added

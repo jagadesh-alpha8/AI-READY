@@ -46,12 +46,52 @@ class SpecificationTests(SimpleTestCase):
         self.assertTrue(all(2 <= len(c['parts']) <= 4 for c in spec.values()))
         self.assertTrue(all(p['full'] and p['related'] for c in spec.values() for p in c['parts']))
 
-    def test_schema_requires_every_part(self):
-        schema = pj.schema(c11())
-        f1 = schema['properties']['conditions']['properties']['AIQIF-C1.1.F1']
-        findings = f1['properties']['findings']
+    def test_schema_is_one_row_for_every_condition(self):
+        indicator = c11()
+        schema = pj.schema(indicator)
+        conditions = schema['properties']['conditions']
+        self.assertEqual(conditions['type'], 'array')
+        row = conditions['items']
+        self.assertEqual(row['properties']['condition_id']['enum'], [c['id'] for c in indicator['conditions']])
+        self.assertEqual(set(row['required']), {'condition_id', 'reason', 'scope_supported', 'period_supported',
+                                                'findings'})
+        findings = row['properties']['findings']
         self.assertNotIn('minItems', findings)
-        self.assertEqual(findings['items']['properties']['part_id']['enum'], ['p1', 'p2'])
+        spec = pj.specification(release())
+        parts = {p['id'] for c in indicator['conditions'] for p in spec[c['id']]['parts']}
+        self.assertEqual(set(findings['items']['properties']['part_id']['enum']), parts)
+        # The grammar is one row's: the schema grows only by the ID lists, never by a block per condition (26 Nov:
+        # the keyed object, about 5 KB for C1.1, was refused by Claude as "compiled grammar too large").
+        one = pj.schema(indicator, indicator['conditions'][:1])
+        self.assertLess(len(json.dumps(schema)) - len(json.dumps(one)), 400)
+        self.assertLess(len(json.dumps(schema)), 1600)
+
+    def test_schema_fits_claude_json_output(self):
+        from jsonschema import validate
+        from apps.extraction.services.anthropic_client import json_output_schema
+        indicator = c11()
+        schema = json_output_schema(pj.schema(indicator))
+        rows = [{'condition_id': c['id'], 'reason': 'x', 'scope_supported': True, 'period_supported': False,
+                 'findings': [{'part_id': 'p1', 'finding': 'not_found', 'citations': []}]} for c in indicator['conditions']]
+        validate({'conditions': rows}, schema)
+
+    def test_list_rows_are_judged_like_keyed_rows(self):
+        keyed = response(F2={'reason': 'x', 'scope_supported': True, 'period_supported': True, 'findings': [
+            {'part_id': 'p1', 'finding': 'full', 'citations': [{'source_id': 'doc:1', 'quote': QUOTE_OWNER}]},
+            {'part_id': 'p2', 'finding': 'full', 'citations': [{'source_id': 'doc:1', 'quote': QUOTE_OWNER}]}]})
+        listed = {'conditions': [{**row, 'condition_id': cid} for cid, row in keyed['conditions'].items()]}
+        self.assertEqual(judged(listed)['F2']['credit'], judged(keyed)['F2']['credit'])
+        self.assertEqual(judged(listed)['F2']['state'], 'met')
+        # A second row for the same condition is not trusted.
+        doubled = {'conditions': listed['conditions'] + [r for r in listed['conditions'] if r['condition_id'].endswith('F2')]}
+        self.assertEqual(judged(doubled)['F2']['credit'], 0.0)
+
+    def test_missing_lists_conditions_without_a_row(self):
+        indicator = c11()
+        listed = {'conditions': [{'condition_id': indicator['conditions'][0]['id'], 'findings': []}]}
+        self.assertEqual([c['id'] for c in pj.missing(indicator['conditions'], listed)],
+                         [c['id'] for c in indicator['conditions'][1:]])
+        self.assertEqual(pj.metadata()['output_format'], pj.OUTPUT_FORMAT)
 
     def test_findings_array_and_duplicate_parts(self):
         r = judged(response(F2={'reason': 'x', 'scope_supported': True, 'period_supported': True, 'findings': [
@@ -225,6 +265,28 @@ class EvaluateTests(SimpleTestCase):
         self.assertEqual(records['AIQIF-C1.1.F2']['credit'], 1.0)
         self.assertEqual(sum(r['credit'] for r in result['records']), 1.0)
         self.assertEqual(result['traces'][0]['judgment']['judgment'], pj.JUDGMENT)
+
+    def test_a_condition_left_out_is_asked_again_once(self):
+        class Forgetful(Parts):
+            def __init__(self):
+                super().__init__()
+                self.calls = []
+
+            def extract_structured_data(self, **kwargs):
+                payload = json.loads(kwargs['user_content'])
+                self.calls.append([c['id'] for c in payload['indicator']['conditions']])
+                answer = Parts.extract_structured_data(self, **kwargs)
+                rows = [{**row, 'condition_id': cid} for cid, row in answer['conditions'].items()]
+                if len(self.calls) == 1:
+                    rows = [r for r in rows if r['condition_id'] != 'AIQIF-C1.1.F2']   # forgets one condition
+                return {'conditions': rows}
+        service = Forgetful()
+        result = evaluate([SOURCE], service=service, population='All programmes', reference_period='2025-26',
+                          judgment='parts', agreement_passes=1, rubric={**release(), 'indicators': [c11()]})
+        self.assertEqual(service.calls[1], ['AIQIF-C1.1.F2'])
+        self.assertEqual(len(service.calls), 2)
+        records = {r['condition_id']: r for r in result['records']}
+        self.assertEqual(records['AIQIF-C1.1.F2']['credit'], 1.0)
 
     def test_unknown_judgment_is_refused(self):
         with self.assertRaises(ValueError):

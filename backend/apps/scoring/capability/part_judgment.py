@@ -33,6 +33,10 @@ from pathlib import Path
 
 VERSION = 'AIQIF-PARTS-2'
 JUDGMENT = 'parts-v2'
+#: The answer format (schema()): a list of condition rows, each with its findings. The earlier keyed object (one
+#: property per condition) was refused by Claude on 26 Nov ("The compiled grammar is too large") for every key
+#: indicator; the list's grammar is one row's, whatever the number of conditions. Recorded in metadata().
+OUTPUT_FORMAT = 'condition-list-1'
 #: How part findings become a condition's credit (see credit()). subject-cap-v1: a subject found only as related
 #: caps the condition at related credit. Frozen with the run (metadata) so runs on another rule are not mixed.
 CREDIT_RULE = 'subject-cap-v1'
@@ -135,7 +139,8 @@ Scope and period, per condition:
   not enough.
 
 Give a short reason per condition that says which parts were found and why. Do not return scores.
-Return a conditions object with one property per supplied condition ID, and within it one findings entry per part ID."""
+Return a conditions list with exactly one entry per supplied condition ID, each with its findings: one findings entry
+per part ID of that condition."""
 
 
 def _shared_rules():
@@ -200,6 +205,7 @@ def specification(rubric):
 def metadata():
     return {'judgment': JUDGMENT, 'parts_version': VERSION, 'parts_hash': _load()[1],
             'parts_prompt_hash': hashlib.sha256(prompt().encode()).hexdigest(), 'related_credit': RELATED_CREDIT,
+            'output_format': OUTPUT_FORMAT,
             'credit_rule': CREDIT_RULE}
 
 
@@ -221,30 +227,37 @@ def indicator_with_parts(indicator, conditions=None):
 
 
 def schema(indicator, conditions=None):
-    """Per condition: reason, scope/period flags and a findings array with one entry per part.
+    """A list of condition rows: per row the condition ID, a reason, the scope and period flags and a findings array
+    with one entry per part (condition-list-1).
 
-    An array keeps the schema about as small as the condition schema (Gemini rejects schemas that are too
-    large or deep); a part the model leaves out counts as not found."""
+    One row schema serves every condition, so the compiled grammar stays the size of one row: the keyed object this
+    replaces (one property per condition, each with its own part list) was refused by Claude for six conditions. The
+    condition and part IDs are enums of the supplied ones; a row for an unsupplied condition, a second row for the
+    same condition, or a part the model leaves out counts as not found (judge_rows), and a condition with no row is
+    asked again once (evaluation._judge_parts)."""
     spec = _load()[0]['conditions']
     chosen = indicator['conditions'] if conditions is None else conditions
+    ids = [c['id'] for c in chosen]
+    part_ids = sorted({p['id'] for c in chosen for p in spec[c['id']]['parts']}, key=lambda x: (len(x), x))
     citation = {'type': 'object', 'additionalProperties': False, 'required': ['source_id', 'quote'],
                 'properties': {'source_id': {'type': 'string'}, 'quote': {'type': 'string'}}}
-    properties = {}
-    for condition in chosen:
-        ids = [p['id'] for p in spec[condition['id']]['parts']]
-        finding = {'type': 'object', 'additionalProperties': False, 'required': ['part_id', 'finding', 'citations'],
-                   'properties': {'part_id': {'type': 'string', 'enum': ids},
-                                  'finding': {'type': 'string', 'enum': list(FINDINGS)},
-                                  'citations': {'type': 'array', 'items': deepcopy(citation)}}}
-        properties[condition['id']] = {
-            'type': 'object', 'additionalProperties': False,
-            'required': ['reason', 'scope_supported', 'period_supported', 'findings'],
-            'properties': {'reason': {'type': 'string'}, 'scope_supported': {'type': 'boolean'},
-                           'period_supported': {'type': 'boolean'},
-                           'findings': {'type': 'array', 'items': finding}}}
+    finding = {'type': 'object', 'additionalProperties': False, 'required': ['part_id', 'finding', 'citations'],
+               'properties': {'part_id': {'type': 'string', 'enum': part_ids},
+                              'finding': {'type': 'string', 'enum': list(FINDINGS)},
+                              'citations': {'type': 'array', 'items': citation}}}
+    row = {'type': 'object', 'additionalProperties': False,
+           'required': ['condition_id', 'reason', 'scope_supported', 'period_supported', 'findings'],
+           'properties': {'condition_id': {'type': 'string', 'enum': ids}, 'reason': {'type': 'string'},
+                          'scope_supported': {'type': 'boolean'}, 'period_supported': {'type': 'boolean'},
+                          'findings': {'type': 'array', 'items': finding}}}
     return {'type': 'object', 'additionalProperties': False, 'required': ['conditions'],
-            'properties': {'conditions': {'type': 'object', 'additionalProperties': False,
-                                          'required': list(properties), 'properties': properties}}}
+            'properties': {'conditions': {'type': 'array', 'items': row}}}
+
+
+def missing(conditions, response):
+    """The supplied conditions the response has no row for."""
+    got = {row['condition_id'] for row in rows(response)}
+    return [c for c in conditions if c['id'] not in got]
 
 
 def _reported_parts(row):
@@ -260,7 +273,8 @@ def _reported_parts(row):
 
 
 def rows(response):
-    """Condition rows from a part response (keyed object) or from a split merge (list of rows)."""
+    """Condition rows from a part response: a list of rows (condition-list-1, and split merges), or the keyed object
+    of earlier runs."""
     conditions = response.get('conditions') if isinstance(response, dict) else None
     if isinstance(conditions, list):
         return [row for row in conditions if isinstance(row, dict) and isinstance(row.get('condition_id'), str)]

@@ -2,8 +2,10 @@
 
 Specification: claude.ai project doc claude/ai-ready-evidence-map-spec.md, "Building a packet". In short:
 - pages the map tagged for the indicator go first, as windows around the tag's quotation: direct tags, then
-  supporting, the requirements taking turns; then a little context from documents already in the packet; then the
-  extracted-evidence lane (ignoring review status); then today's keyword selector fills the rest;
+  supporting, the requirements taking turns; with the same-area band (CAPABILITY_MAP_SAME_AREA), then pages tagged
+  direct or supporting for the other indicators of the same area, nearest to a requirement's words first; then a
+  little context from documents already in the packet; then the extracted-evidence lane (ignoring review status);
+  then today's keyword selector fills the rest;
 - at least `fill_share` of the cap is kept for the keyword fill, so every page stays reachable (the map orders, it
   never excludes); pages tagged topical for the indicator go to the back of the fill;
 - the judge sees plain windows: no tier, strength or tag goes into the request. Each window's step and tag are kept
@@ -22,12 +24,20 @@ ALLOCATION = 'evidence-map-then-keyword-v1'
 #: The same packet with a semantic step in the fill (semantic.py; CAPABILITY_MAP_FILL=semantic).
 SEMANTIC_ALLOCATION = 'evidence-map-then-semantic-v1'
 ALLOCATIONS = (ALLOCATION, SEMANTIC_ALLOCATION)
+#: The same-area band (26 Nov): the tagger often finds a page and its area but names a sibling indicator (Self-Study
+#: Report, per-area map: 17 of 83 credited pages). A packet then also takes the area's other strong tags, after its
+#: own, in at most SAME_AREA_SHARE of the tagged share they leave, so the keyword fill keeps its third. Uncapped, the
+#: band crowded out keyword fill that reached credited pages (60,000: 90 -> 84 full credit). Frozen per run as
+#: retrieval_policy.same_area.
+SAME_AREA_VERSION = 'same-area-1'
+SAME_AREA_STRENGTHS = ('direct', 'supporting')
+SAME_AREA_SHARE = (1, 3)   # of the tagged share left after the indicator's own tags (26 Nov sweep: 1/3 and 1/2 best)
 CAP_CHARS = 60000          # starting value (spec); CAPABILITY_MAP_CAP_CHARS
 FILL_SHARE = (1, 3)        # at least a third of the cap for the keyword fill
 WINDOW_CHARS = 2400
 CONTEXT_SHARE = (1, 10)    # context tags: at most a tenth of the cap
 SEMANTIC_SHARE = (1, 2)    # semantic step: at most half of what the fill has (semantic.SHARE)
-STEPS = ('direct', 'supporting', 'context', 'extracted_evidence', 'keyword_fill_unread', 'semantic_fill', 'keyword_fill',
+STEPS = ('direct', 'supporting', 'same_area_direct', 'same_area_supporting', 'context', 'extracted_evidence', 'keyword_fill_unread', 'semantic_fill', 'keyword_fill',
          'keyword_fill_topical')
 
 
@@ -173,14 +183,20 @@ def _uncovered(source, spans):
 # ------------------------------------------------------------------ the builder
 
 
+def area_of(code):
+    """An indicator's area ('AIQIF-C1.1' -> 'AIQIF-C1')."""
+    return (code or '').rsplit('.', 1)[0]
+
+
 def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=None, window_chars=WINDOW_CHARS,
-          semantic=None):
+          semantic=None, same_area=False):
     """(context, trace) for one indicator.
 
     sources: the run's pages as retrieval reads them (after deduplication). frozen_map: freeze()'s result.
     keyword_fill(sources, max_chars) -> windows: today's keyword selector, run over the pages not yet in the packet.
     lane(context, budget) -> (context, audit): the extracted-evidence lane, or None.
-    semantic: a semantic.TagSearch (allocation evidence-map-then-semantic-v1), or None for the keyword fill alone."""
+    semantic: a semantic.TagSearch (allocation evidence-map-then-semantic-v1), or None for the keyword fill alone.
+    same_area: also take the area's other indicators' direct and supporting tags, after this indicator's own."""
     code = indicator['code']
     requirements = [c['id'] for c in indicator.get('conditions', [])]
     texts = {c['id']: c['text'] for c in indicator.get('conditions', [])}
@@ -190,13 +206,17 @@ def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=N
     for source in readable:
         frequency.update(set(_tokens(source['text'])))
     by_hash = {}
-    tags_for, topical = {}, set()
+    tags_for, topical, area_tags_for = {}, set(), {}
+    area = area_of(code)
     for source in readable:
         entry = pages_map.get(spec.text_hash(source['text']))
         if not entry:
             continue
         for tag in entry.get('tags') or []:
             if tag.get('indicator') != code:
+                if same_area and tag.get('indicator') and area_of(tag['indicator']) == area \
+                        and tag.get('strength') in SAME_AREA_STRENGTHS:
+                    area_tags_for.setdefault(source['id'], []).append(tag)
                 continue
             if tag.get('strength') == 'topical':
                 topical.add(source['id'])
@@ -239,6 +259,8 @@ def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=N
                 source, start, end, tag, _ = rows.pop(0)
                 trace = {'step': strength, 'requirement': requirement, 'requirements': tag.get('requirements') or [],
                          'quote_found': tag.get('quote_found'), 'reason': tag.get('reason')}
+                if tag.get('origin'):
+                    trace['origin'] = tag['origin']
                 if packet.add(source, start, end, trace, tagged_limit):
                     used_docs[requirement].add(source.get('document_id'))
                 elif packet.used + (end - start) > tagged_limit:
@@ -249,6 +271,46 @@ def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=N
 
     fill_turns('direct')
     fill_turns('supporting')
+
+    # The same-area band: the area's other strong tags, direct before supporting; inside a strength the requirements
+    # take turns, each taking the window nearest its own words (keyword score), then text hash and offset.
+    area_audit = None
+    if same_area:
+        area_audit = {'version': SAME_AREA_VERSION, 'candidates': sum(len(t) for t in area_tags_for.values()),
+                      'chosen': 0, 'chars': 0}
+        before = packet.used
+        area_limit = packet.used + (tagged_limit - packet.used) * SAME_AREA_SHARE[0] // SAME_AREA_SHARE[1]
+        seen = set()
+        for strength in SAME_AREA_STRENGTHS:
+            queues = {}
+            for requirement in requirements:
+                query = _tokens(texts.get(requirement) or indicator.get('name', ''))
+                rows = []
+                for source in readable:
+                    for tag in area_tags_for.get(source['id'], []):
+                        if tag['strength'] != strength:
+                            continue
+                        start, end = window(source['text'], tag.get('quote'), query, size=window_chars)
+                        score = keyword_score(source['text'][start:end], query, frequency, len(readable))
+                        rows.append((-score, spec.text_hash(source['text']), start, end, source, tag))
+                queues[requirement] = sorted(rows, key=lambda r: r[:3])
+            while any(queues.values()) and packet.used < area_limit:
+                for requirement in requirements:
+                    queue = queues[requirement]
+                    while queue:
+                        _, _, start, end, source, tag = queue.pop(0)
+                        if (source['id'], start, end) in seen:
+                            continue
+                        seen.add((source['id'], start, end))
+                        trace = {'step': 'same_area_' + strength, 'requirement': requirement,
+                                 'tag_indicator': tag.get('indicator'), 'requirements': tag.get('requirements') or [],
+                                 'quote_found': tag.get('quote_found'), 'reason': tag.get('reason')}
+                        if packet.add(source, start, end, trace, area_limit):
+                            area_audit['chosen'] += 1
+                            break
+                        if packet.used + (end - start) > area_limit:
+                            skipped['same_area_' + strength] += 1
+        area_audit['chars'] = packet.used - before
 
     # Context: only from documents already in the packet, the nearest page first, one per document.
     context_limit = min(tagged_limit, packet.used + cap * CONTEXT_SHARE[0] // CONTEXT_SHARE[1])
@@ -348,6 +410,8 @@ def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=N
         trace['evidence_lane'] = lane_audit
     if semantic_audit is not None:
         trace['semantic_fill'] = semantic_audit
+    if area_audit is not None:
+        trace['same_area'] = area_audit
     return context, trace
 
 
