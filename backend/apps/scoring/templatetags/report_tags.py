@@ -106,4 +106,4 @@ def tilecolour(score):
         s = float(score or 0)
     except (TypeError, ValueError):
         s = 0.0
-    return '#FFFFFF' if s <= 0 else TILES[min(4, int(s // 20))]
+    return '#FFFFFF' if s <= 0 else TILES[min(4, _whole(s) // 20)]   # the level of the number printed on it

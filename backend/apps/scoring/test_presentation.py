@@ -84,3 +84,21 @@ class ReadingFixesTests(SimpleTestCase):
         longer = {'quote': 'The institution upgraded its firewall after the audit of its network security.', 'source_id': 'p2'}
         self.assertEqual(_readable_cite(short, [short, longer]), longer)
         self.assertEqual(_readable_cite(short, [short]), {'quote': '', 'source_id': 'p1'})
+
+    def test_a_number_and_its_level_never_disagree(self):
+        from .capability.presentation import level
+        self.assertEqual((level(39.6)['name'], level(39.4)['name']), ('Prepared', 'Getting there'))
+        self.assertEqual((level(26.14)['points_to_next'], level(39.4)['points_to_next']), (14, 1))
+
+    def test_a_done_when_line_stands_alone_and_keeps_rubric_order(self):
+        from .capability.next_steps import done_when
+        from .capability.engine import release
+        from .capability.presentation import _and, _standalone, step_view
+        by = {c['id']: c for i in release()['indicators'] for c in i['conditions']}
+        alone = _and(_standalone([{'id': 'AIQIF-C1.2.F2', 'done_when': done_when(by['AIQIF-C1.2.F2'])}]))
+        self.assertNotIn('those', alone)
+        self.assertTrue(alone.startswith('there is a set route'))
+        step = step_view({'requirements': [{'id': i, 'done_when': done_when(by[i])}
+                                           for i in ('AIQIF-C4.2.F2', 'AIQIF-C4.2.F1')]})
+        self.assertLess(step['done_when_text'].index('aimed at a named academic role'),
+                        step['done_when_text'].index('for that role'))

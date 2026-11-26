@@ -18,7 +18,7 @@ and credit):
                published when SECOND_LAYER_EXPLAIN_AFTER_PUBLISH is on
     next_steps write the next steps for the provisional run, or with options.final for its final result
                (next_steps.write; one call per chosen action, a second only to fix the first, at most eighteen); with
-               CAPABILITY_AUTO_PUBLISH on, explain and next_steps start on their own, one after the other, after a
+               CAPABILITY_AUTO_PUBLISH on, next_steps and then explain start on their own, one after the other, after a
                Stage 1 run completes and after the final result is published (publication.keep_going)
 
 Every model call goes through SecondLayerMeter: it is reserved against the job (which must still be running) and

@@ -25,7 +25,7 @@
 
 {% if v.level.next %}<div class="h2row"><h2>What gets you to {{ v.level.next }}</h2></div>
 <div class="roadline"><p>{% if v.basics.reaches_next %}Finishing the basics in every area would bring you to about <strong>{{ v.basics.whole }} out of 100</strong>, which is {{ v.basics.level }}.{% else %}Finishing the basics in every area would bring you to about <strong>{{ v.basics.whole }} out of 100</strong>. To reach {{ v.level.next }}, the next practices in each topic, the ones that show a thing in use, are needed too.{% endif %} The basics are the first two practices in each topic: the ones that show a thing has been set up.</p></div>{% endif %}
-{% if not v.stage1 and v.start_here %}<div class="h2row"><h2>Where to start</h2><div class="legend">The first step in each of your three weakest areas.</div></div>
+{% comment %}At Stage 1 the questions box takes this room: Where to start would spill onto a second page (checked 26 Nov).{% endcomment %}{% if not v.stage1 and v.start_here %}<div class="h2row"><h2>Where to start</h2><div class="legend">The first step in each of your three weakest areas.</div></div>
 <div class="s3">{% for a in v.start_here %}<div><b>{{ forloop.counter }}</b><strong>{{ a.view.title }}</strong><span>{{ a.area }}, page {{ a.card_page }}</span></div>{% endfor %}</div>{% endif %}
 </section>
 
@@ -33,7 +33,7 @@
 {% if forloop.first %}<div class="ctop"><h1 class="h1s">The nine areas, one by one</h1><p class="sub">Strongest first. For each: what you do well, what’s missing, and one next step.</p></div>{% endif %}
 {% for a in group %}<section class="card">
 <div class="chead"><div class="ctitle"><h3>{{ a.name }}</h3><p>{{ a.definition }}</p></div>
-<div class="cright"><div class="bar wide">{{ a.score|bar }}</div><div class="cscore"><div class="num">{{ a.score|whole }}</div><div class="lvl">{{ a.level.name }}</div></div></div></div>
+<div class="cright"><div class="bar wide">{% if v.stage1 %}{{ a.score|bar:a.to_confirm }}{% else %}{{ a.score|bar }}{% endif %}</div><div class="cscore"><div class="num">{{ a.score|whole }}{% if v.stage1 and a.to_confirm >= 0.5 %}<span class="plus">+{{ a.to_confirm|whole }}</span>{% endif %}</div><div class="lvl">{{ a.level.name }}</div></div></div></div>
 {% if a.card.verdict %}<p class="verdict">{{ a.card.verdict }}</p>{% endif %}
 <div class="cols"><div><h4>{{ a.card.strengths_title }}</h4>{% if a.card.strengths %}<ul class="well">{% for x in a.card.strengths %}<li>{{ x.text }}{% if x.source %} <small>{{ x.source }}</small>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="none">{{ nothing_yet }}.</p>{% endif %}</div>
 <div><h4>What’s missing</h4><ul class="miss">{% for g in a.card.gaps %}<li>{{ g }}</li>{% endfor %}</ul></div></div>

@@ -3,7 +3,7 @@
 The published result. Since 26 Nov 2026 (Siddharth: "shouldn't the report be auto generated post sprint?") results
 publish themselves (CAPABILITY_AUTO_PUBLISH, on by default; keep_going below): when a Stage 1 run completes, and after
 every second-layer job of it, the result the college should see (the final result once there is one, else the Stage 1
-run) has its report text written, one job at a time (explanations, then next steps), and is published as soon as its
+run) has its report text written, one job at a time (next steps, then explanations), and is published as soon as its
 reports pass the draft gate below. A Stage 1 result never replaces a published final result, and once staff withdraw
 a result nothing is published automatically until staff publish one again. Staff can still publish an older result or
 withdraw one. Every choice is a CapabilityPublication row (published_by empty when automatic); the newest row of a
@@ -210,6 +210,18 @@ def _readiness(execution, view):
         warnings.append(f"{len(starts)} of the {len(actions)} steps start from nothing in the documents "
                         f"({', '.join(a['area'] for a in starts)}). Consider asking the college for its operational "
                         'records in those areas before publishing.')
+    if written and written.get('version') == explanations.VERSION:
+        # A weak area's card lists its step's starting points (presentation.card_view); text written before the step
+        # could not see them, so its verdict may name other things (explanations-0.5).
+        from .presentation import CLOSEST_BELOW
+        scores = {p.get('code'): p.get('score') for p in
+                  (((view.assessment or {}).get('result') or {}).get('documented') or {}).get('pillars') or []}
+        stale = [a['area'] for a in actions if a.get('generated') and a.get('kind') != 'start'
+                 and (scores.get(a.get('area_code')) or 0) < CLOSEST_BELOW
+                 and not ((written.get('areas') or {}).get(a.get('area_code')) or {}).get('closest_seen')]
+        if stale:
+            warnings.append(f"The card text of {', '.join(stale)} was written before its next step, so it may not "
+                            "match the starting points the card lists: write the explanations again.")
     st = {'written': steps is not None, 'version': (steps or {}).get('version'), 'steps': len(actions),
           'written_steps': len(actions) - len(unwritten), 'start_steps': len(starts)}
     if actions and steps is None:
@@ -296,10 +308,11 @@ def _keep_going(provisional_run):
     if state['ready']:
         return publish_if_ready(target)
     exp, steps = state.get('explanations') or {}, state.get('next_steps') or {}
-    if not exp.get('written') or exp.get('version') != explanations.VERSION:
-        operation = 'explain'
-    elif steps and (not steps.get('written') or steps.get('version') != next_steps.VERSION):
+    # The next steps first: a weak area's card text is written from its step's starting points (explanations-0.5).
+    if steps and (not steps.get('written') or steps.get('version') != next_steps.VERSION):
         operation = 'next_steps'
+    elif not exp.get('written') or exp.get('version') != explanations.VERSION:
+        operation = 'explain'
     else:
         return None   # written by the current versions but still not ready (text on plain wording): staff decide
     if not enabled():

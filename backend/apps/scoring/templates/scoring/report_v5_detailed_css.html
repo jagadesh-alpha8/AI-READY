@@ -94,4 +94,7 @@ dd.wide2{grid-column:2 / span 3}
 .foot{margin-top:2mm;font-size:8.3pt;color:#535353}
 /* Nine rows on one page: each "done when" joins two practices, longer than the mock's one hand-written line. */
 .work{font-size:7.9pt;line-height:1.28;margin-top:3.5mm} .work td{padding:1.5mm 2.2mm 1.5mm 0} .work strong{font-size:8.5pt}
+/* WeasyPrint splits a flex row across pages whatever break-inside says (test 13: a practice's "Next" line alone at
+   the top of a page): a practice is a plain block, its mark placed beside it. */
+.prow{display:block;position:relative;padding-left:7mm} .prow .pm{position:absolute;left:2.5mm;top:1.8mm}
 {% include "scoring/report_draft_css.html" %}</style>

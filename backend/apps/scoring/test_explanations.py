@@ -160,6 +160,21 @@ class ExplanationTests(SimpleTestCase):
         _, problems = explanations.import_cards(self.target, base, {'AIQIF-C1': card(self.area)}, 'test')
         self.assertIn('plain wording', problems['AIQIF-C1'][0])
 
+    def test_a_weak_area_card_is_written_from_the_starting_points_it_lists(self):
+        """explanations-0.5: a weak area's card lists its step's starting points; its writer sees the same list."""
+        near = {'text': 'Your Strategic Plan sets an e-governance target, a starting point for AI.', 'sources': ['p. 3']}
+        step = {'kind': 'extend', 'have': [], 'related': [near]}
+        target = {**self.target, 'area_scores': {'AIQIF-C1': 4.0},
+                  'next_steps': {'actions': {'AIQIF-C1.1:AIQIF-C1.1.F2': step}}}
+        self.assertEqual(explanations.area_input('AIQIF-C1', target)['closest_things_on_the_card'], [near['text']])
+        self.assertTrue(explanations.explain(target, self.model(writer))['areas']['AIQIF-C1']['closest_seen'])
+        for other in ({**target, 'area_scores': {'AIQIF-C1': 40.0}},   # not weak: the card lists strengths
+                      {**target, 'next_steps': {'actions': {'AIQIF-C1.1:AIQIF-C1.1.F2': {**step, 'kind': 'start'}}}},
+                      {**target, 'next_steps': None}):   # steps not written yet
+            self.assertNotIn('closest_things_on_the_card', explanations.area_input('AIQIF-C1', other))
+        self.assertFalse(explanations.explain({**target, 'next_steps': None},
+                                              self.model(writer))['areas']['AIQIF-C1']['closest_seen'])
+
     def test_the_institution_word(self):
         self.assertEqual(explanations.institution_word({'institution_type': 'deemed university'}), 'university')
         self.assertEqual(explanations.institution_word({'name': 'ABC Arts College'}), 'college')

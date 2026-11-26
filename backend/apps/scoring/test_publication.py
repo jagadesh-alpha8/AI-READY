@@ -226,8 +226,8 @@ class AutomaticPublicationTests(APITestCase):
     def test_a_result_publishes_itself_once_its_reports_are_written(self):
         provisional = self.assess_and_queue()
         self.assertIsNone(self.shown())   # nothing yet: the text is being written
-        self.assertEqual([SecondLayerJob.objects.get(pk=j).operation for j in self.queued], ['explain'])
-        self.assertEqual([j.operation for j in self.run_queued()], ['explain', 'next_steps'])
+        self.assertEqual([SecondLayerJob.objects.get(pk=j).operation for j in self.queued], ['next_steps'])
+        self.assertEqual([j.operation for j in self.run_queued()], ['next_steps', 'explain'])
         shown = self.shown()
         self.assertEqual((shown['run_id'], shown['stage'], shown['published_by']), (str(provisional.pk), 'provisional', None))
         self.assertTrue(self.readiness(provisional).data['ready'])
@@ -237,7 +237,7 @@ class AutomaticPublicationTests(APITestCase):
         self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge', 'options': {'close': True}},
                   key='close', expect=202)
         done = self.run_queued()
-        self.assertEqual([j.operation for j in done], ['rejudge', 'explain', 'next_steps'])
+        self.assertEqual([j.operation for j in done], ['rejudge', 'next_steps', 'explain'])
         self.assertTrue(all(j.options.get('final') for j in done[1:]))
         final = CapabilityRun.objects.get(pk=done[0].final_run_id)
         shown = self.shown()
