@@ -124,6 +124,16 @@ class ChunkAndRequestTests(SimpleTestCase):
         changed = {**profiles, 'AIQIF-C1.1.F1': {**profiles['AIQIF-C1.1.F1'], 'query': 'Another description.'}}
         self.assertNotEqual(one, spec.map_version('one', rubric_, changed, parts))
 
+    def test_another_tagging_effort_is_its_own_map_and_low_changes_nothing(self):
+        rubric_, profiles, parts = spec.rubric_sources()
+        low = spec.map_version('areas', rubric_, profiles, parts, effort='low')
+        self.assertEqual(low, 'em1-4e19100caf0392491a82f228925f1b99ece66668')   # the map tagged on live, 26 Nov
+        medium = spec.map_version('areas', rubric_, profiles, parts, effort='medium')
+        default = spec.map_version('areas', rubric_, profiles, parts, effort=None)
+        self.assertEqual(len({low, medium, default}), 3)
+        with self.settings(EVIDENCE_MAP_AI_EFFORT='medium'):
+            self.assertEqual(spec.map_version('areas', rubric_, profiles, parts), medium)
+
     def test_the_every_indicator_shape_adds_its_note_to_each_area_and_is_its_own_map(self):
         rubric_, profiles, parts = spec.rubric_sources()
         areas = spec.system_prompts('areas', rubric_, profiles, parts)

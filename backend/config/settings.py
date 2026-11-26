@@ -794,6 +794,10 @@ CAPABILITY_AGREEMENT_PASSES = int(os.getenv('CAPABILITY_AGREEMENT_PASSES', '1'))
 # 'parts' (default): part-level judgment under the accreditation-reviewer standard, scored with partial credit
 # (part_judgment.py). 'conditions': the earlier strict met/unknown judge, kept for comparison runs.
 CAPABILITY_JUDGMENT = os.getenv('CAPABILITY_JUDGMENT', 'parts').strip().lower()
+# A JSON object of settings an assessment on this server must have, e.g.
+# {"CAPABILITY_AI_MODEL": "claude-haiku-5-5", "CAPABILITY_RETRIEVAL_MODE": "map", "EVIDENCE_MAP_SHAPE": "areas-every"}.
+# A run refuses to start while any differs (apps/scoring/capability/execution.settings_not_met). Empty: none.
+CAPABILITY_REQUIRED_SETTINGS = os.getenv('CAPABILITY_REQUIRED_SETTINGS', '').strip()
 # Gemini thinking level for the assessor only; empty = AI_GEMINI_REASONING_EFFORT (which extraction keeps using).
 CAPABILITY_GEMINI_REASONING_EFFORT = os.getenv('CAPABILITY_GEMINI_REASONING_EFFORT', '').strip() or None
 
@@ -991,6 +995,11 @@ EVIDENCE_MAP_AI_API_KEY = os.getenv('EVIDENCE_MAP_AI_API_KEY', '').strip()
 EVIDENCE_MAP_AI_MODEL = os.getenv('EVIDENCE_MAP_AI_MODEL', '').strip()
 EVIDENCE_MAP_AI_BASE_URL = os.getenv('EVIDENCE_MAP_AI_BASE_URL', '').strip()
 EVIDENCE_MAP_AI_EFFORT = os.getenv('EVIDENCE_MAP_AI_EFFORT', 'low').strip().lower() or None
+# After a completed tagging pass, the requirement check on the same map (apps/evidence_map/requirement_check.py);
+# after a completed assessment, its credited quotations added to the map (apps/evidence_map/learn.py). Both off.
+EVIDENCE_MAP_AUTO_CHECK = os.getenv('EVIDENCE_MAP_AUTO_CHECK', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+EVIDENCE_MAP_CHECK_MAX_COST_USD = float(os.getenv('EVIDENCE_MAP_CHECK_MAX_COST_USD', '0.5') or 0.5)
+EVIDENCE_MAP_AUTO_LEARN = os.getenv('EVIDENCE_MAP_AUTO_LEARN', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 EVIDENCE_MAP_MAX_COST_USD = float(os.getenv('EVIDENCE_MAP_MAX_COST_USD', '').strip() or 5)
 # Tag a sprint's new pages automatically once its extraction jobs have all finished (apps/evidence_map/tasks.py). Off by
 # default: each pass calls the tagging model (about $1 per VISTAS-sized sprint on Claude Haiku 5.5 or GPT-6 Luna, est.).
