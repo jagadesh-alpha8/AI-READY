@@ -34,27 +34,39 @@ def norm(text):
     return ' '.join((text or '').split()).lower()
 
 
-def gold_pairs(export_path):
-    """{(requirement, filename, page): {'full': bool, 'quotes': [...]}} from test 13's export: pages cited by a part
-    credited in full (full) or as related / digital groundwork, or by a requirement with any credit (part)."""
+GOLD_RULES = ('credited', 'parts')
+
+
+def gold_pairs(export_path, rule='credited'):
+    """{(requirement, filename, page): {'full': bool, 'quotes': [...], 'credit': float}} from test 13's export.
+
+    rule 'credited' (the yardstick from 26 Nov): only requirements that earned credit count; a page is a full-credit
+    find when its requirement earned full credit. rule 'parts' (before 26 Nov): any page cited by a part found in
+    full, related or as digital groundwork counts, full when that part was found in full, even if the requirement
+    ended with no credit (5 of the map's 11 remaining misses at 100,000 were such pages)."""
+    if rule not in GOLD_RULES:
+        raise ValueError(f'rule must be one of {", ".join(GOLD_RULES)}')
     d = json.load(open(export_path, encoding='utf-8'))
     pages = {p['page_id']: (doc['filename'], p['number']) for doc in d['source_manifest'] for p in doc.get('pages') or []}
     gold = {}
     for r in d['assessment']['records']:
         cid, credit = r['condition_id'], float(r.get('credit') or 0)
+        if rule == 'credited' and credit <= 0:
+            continue
         cites = []
         for part in r.get('parts') or []:
             for key, label in (('citations', 'credited_as'), ('second_citations', 'second_credited_as')):
                 kind = part.get(label) or part.get('finding')
                 if kind in ('full', 'related', 'digital_only'):
-                    cites += [(c, kind == 'full') for c in part.get(key) or []]
+                    full = kind == 'full' and (rule == 'parts' or credit >= 1)
+                    cites += [(c, full) for c in part.get(key) or []]
         if credit > 0:
             cites += [(c, credit >= 1) for c in r.get('citations') or []]
         for c, full in cites:
             key = pages.get(c.get('source_id'))
             if key is None:
                 continue
-            entry = gold.setdefault((cid,) + key, {'full': False, 'quotes': set(), 'source': 'test13'})
+            entry = gold.setdefault((cid,) + key, {'full': False, 'quotes': set(), 'source': 'test13', 'credit': credit})
             entry['full'] = entry['full'] or full
             if c.get('quote'):
                 entry['quotes'].add(c['quote'])
@@ -73,6 +85,8 @@ def main():
                     help='Map packet caps to compare, comma-separated (default 60000). Each cap gets the map alone, the '
                          'map with the same-area band (same-area-1) and, with --embedding, both with semantic search.')
     ap.add_argument('--keyword-sizes', default='200000', help='Keyword packet sizes, comma-separated (default 200000).')
+    ap.add_argument('--gold-rule', choices=GOLD_RULES, default='credited',
+                    help="credited (default): only requirements test 13 gave credit; parts: the pre-26 Nov count.")
     a = ap.parse_args()
     run_inputs = {}
     if a.inputs:
@@ -89,7 +103,7 @@ def main():
     mp = json.load(open(a.map, encoding='utf-8'))
     pages_map = {p['text_hash']: {'page_type': p['page_type'], 'tags': p['tags']}
                  for p in mp['pages'] if p['status'] == 'tagged'}
-    gold = gold_pairs(a.test13)
+    gold = gold_pairs(a.test13, a.gold_rule)
     if a.new_gold:
         for row in json.load(open(a.new_gold, encoding='utf-8')):
             if row.get('verdict') in ('direct', 'supporting'):
@@ -123,7 +137,7 @@ def main():
     print(f'map tags joined to {joined} of {len(sources)} pages (by page text); tagged pages in the map: {len(pages_map)}',
           flush=True)
     print('evidence lane:', lane, '| reviewed claims:', len((reviewed or {}).get('claims') or []), flush=True)
-    results = {'gold': {'full': sum(1 for g in gold.values() if g['full']), 'any': len(gold),
+    results = {'gold_rule': a.gold_rule, 'gold': {'full': sum(1 for g in gold.values() if g['full']), 'any': len(gold),
                         'reviewed_new': sum(1 for g in gold.values() if g['source'] == 'reviewed')},
                'map_coverage': mp.get('coverage'), 'methods': {}}
     for name, (policy, evidence_map) in policies.items():
