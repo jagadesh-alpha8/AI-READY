@@ -179,14 +179,24 @@ export function AreaCardV5({ a, stage1, open, onToggle }: { a: ScreenCard; stage
 const STATUS: Record<string, string> = { shown: 'In place', partly: 'Partly in place', missing: 'Not found' };
 
 function Practice({ p, stage1 }: { p: ScreenPractice; stage1: boolean }) {
+  // The page cites the documents as the detailed report does (26 Nov); the passage behind a finding is one click away.
+  const [passage, setPassage] = useState(false);
+  const where = p.evidence_in?.length ? p.evidence_in.join('; ') : p.source;
   return (
     <div className="v5-prow">
       <i className={`v5-mk ${p.status}`} aria-hidden="true" />
       <div>
         <div className="v5-ps"><strong>{p.label_short}</strong><span className={`v5-st ${p.status}`}>{p.label === 'Not started' ? 'Not started' : STATUS[p.status]}</span></div>
         <p><em>We looked for</em> {p.looked_for}</p>
-        {p.found && <p><em>We found</em> {p.found}</p>}
-        {p.quote ? <p className="v5-q">“{p.quote}” <small>{p.source}</small></p> : p.source && <p className="v5-q"><small>{p.source}</small></p>}
+        {(p.found || p.why) && <p><em>We found</em> {[p.found, p.why].filter(Boolean).join(' ')}</p>}
+        {where && (
+          <p className="v5-ev"><em>Evidence found in</em> {where}
+            {p.quote && <button type="button" className="text-btn v5-passage" aria-expanded={passage} onClick={() => setPassage(!passage)}>
+              {passage ? 'Hide the passage' : 'Show the passage'}</button>}
+          </p>
+        )}
+        {passage && p.quote && <p className="v5-q">“{p.quote}” <small>{p.source}</small></p>}
+        {p.status === 'missing' && p.records && <p><em>Records that would show it</em> {p.records}</p>}
         {stage1 && p.follow_up && <p><em>To be confirmed</em> {p.follow_up}</p>}
         {p.status !== 'shown' && (p.next_step || p.done_when) && <p><em>Next</em> {p.next_step || `Done when ${p.done_when}`}</p>}
       </div>
@@ -206,7 +216,7 @@ export function PracticesV5({ a, stage1 }: { a: ScreenCard; stage1: boolean }) {
       <p className="muted v5-pnote">Four topics, six practices in each, listed from the basics to checking results. For every practice: what we looked for, what we found and where, and what to do next.</p>
       {a.topics.map((t) => (
         <section key={t.code} className="v5-topic">
-          <div className="v5-thead"><h3>{t.name}</h3><span className="v5-marks">{t.marks.map((m, i) => <i key={i} className={`v5-mk ${m}`} />)}</span><b>{round(t.score)}</b></div>
+          <div className="v5-thead"><h3>{t.name}</h3><b>{round(t.score)}</b></div>{/* no circles: Harsha, 26 Nov */}
           {t.practices.map((p) => <Practice key={p.id} p={p} stage1={stage1} />)}
         </section>
       ))}

@@ -707,17 +707,24 @@ def for_screens(view):
             'code': a['code'], 'name': a['name'], 'definition': a['definition'], 'score': a['score'],
             'level': a['level']['name'], 'level_index': a['level_index'], 'to_confirm': a['to_confirm'],
             'card': a['card'], 'step': step(a.get('step')),
+            # A topic's one-line definition and its verdict (or plain line), for the website's topic rows and
+            # drawer (merged website design, 27 Nov), as the detailed report prints them.
             'topics': [{'code': t['code'], 'name': t['name'], 'score': t['score'], 'marks': t['marks'],
+                        'definition': t.get('definition', ''), 'verdict': t.get('verdict', ''), 'line': t.get('line', ''),
+                        # The website cites documents as the detailed report does (26 Nov); the passage itself stays
+                        # one click away (quote), for a college that wants to check a finding.
                         'practices': [{k: r.get(k) for k in ('id', 'label_short', 'looked_for', 'status', 'label',
-                                                             'found', 'quote', 'source', 'next_step', 'done_when',
-                                                             'follow_up')} for r in t['requirements']]}
+                                                             'found', 'why', 'evidence_in', 'records', 'quote',
+                                                             'source', 'next_step', 'done_when', 'follow_up')}
+                                      for r in t['requirements']]}
                        for t in a['subareas']]})
     return {
         'stage1': view['stage1'], 'level': view['level'], 'levels': view['levels'], 'level_index': view['level_index'],
         'score': view['score'], 'confirmed_whole': view['confirmed_whole'], 'shown_whole': view['shown_whole'],
         'held_whole': view['held_whole'], 'held_points': view['held_points'],
         'to_next_if_confirmed': view['to_next_if_confirmed'], 'summary_lines': view['summary_lines'],
-        'basics': view['basics'], 'documents': view['documents'], 'requirements': view['requirements'],
+        'basics': view['basics'], 'documents': view['documents'], 'pages': view.get('pages', 0),
+        'requirements': view['requirements'],
         'institution_word': view['institution_word'], 'cards': cards,
         'start_here': [{'area': a['area'], 'area_code': a['area_code'], **step(a['view'])} for a in view['start_here']],
         'steps': [{'area': a['area'], 'area_code': a['area_code'], 'area_score': a['area_score'], **step(a['view'])}

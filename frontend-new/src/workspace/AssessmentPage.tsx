@@ -144,7 +144,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
           ) : (
             <>
               <h2>Run your assessment</h2>
-              <p className="muted" style={{ marginTop: 8 }}>We read every document you sent against 216 practices in nine areas of AI readiness, and quote the passage behind each finding. You get your Stage 1 result, then follow-up questions to complete it.</p>
+              <p className="muted" style={{ marginTop: 8 }}>We read every document you sent against 216 practices in nine areas of AI readiness, and name the document and page behind each finding. You get your Stage 1 result, then follow-up questions to complete it.</p>
               {failed && <Notice tone="error">The last attempt could not finish, so nothing was published. You can run it again.</Notice>}
               {disagree > 0 && <Notice tone="info">{disagreeText}<Link to={pathOf('gaps')}>Settle them</Link></Notice>}
               {canRun ? <button className="primary-action" style={{ marginTop: 16 }} disabled={processed === 0} onClick={() => setConfirming(true)}>Run the assessment</button>
@@ -157,7 +157,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
         <aside className="surface surface-pad">
           <h2>How it works</h2>
           <ol className="ws-plain-list" style={{ marginTop: 12 }}>
-            <li><strong>Your documents are the evidence.</strong> A practice counts when a document shows it; a quote and its page back every finding.</li>
+            <li><strong>Your documents are the evidence.</strong> A practice counts when a document shows it; every finding names the document and page it rests on.</li>
             <li><strong>Part of the credit is held.</strong> A quarter of what each document shows is held until your follow-up answers confirm how far it goes.</li>
             <li><strong>Nothing missing lowers your score.</strong> A practice we did not find may still exist: send the document and it can be counted.</li>
             <li><strong>Five levels, one star for every 20 points</strong>, from Starting out to Leading.</li>

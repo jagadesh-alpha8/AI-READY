@@ -295,6 +295,9 @@ export interface ScreenStep {
 export interface ScreenPractice {
   id: string; label_short: string; looked_for: string; status: 'shown' | 'partly' | 'missing'; label: string;
   found: string; quote: string; source: string; next_step: string; done_when: string; follow_up: string;
+  /** Since 26 Nov: the reason a practice is only partly in place, where its evidence is (document and pages), and
+   * the records that would show a practice not found. Absent from an older result. */
+  why?: string; evidence_in?: string[]; records?: string;
 }
 export interface ScreenCard {
   code: string; name: string; definition: string; score: number; level: string; level_index: number; to_confirm: number;

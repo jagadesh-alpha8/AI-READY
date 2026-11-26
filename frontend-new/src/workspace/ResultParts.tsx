@@ -68,7 +68,6 @@ export function StrengthCards({ view }: { view: ResultView }) {
         <article className="ws-card strong" key={a.code}>
           <div className="ws-row" style={{ justifyContent: 'space-between' }}><h3>{a.name}</h3><Stars stars={a.level.stars} size={14} /></div>
           <p>{a.inPlace} of {a.requirements} practices shown in full{a.partly ? `, ${a.partly} in part` : ''}.</p>
-          {a.quote && <><p className="ws-quote">“{a.quote.text}”</p><span className="ws-source">{a.quote.source}</span></>}
         </article>
       ))}
     </div>
