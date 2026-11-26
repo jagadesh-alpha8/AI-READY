@@ -111,6 +111,26 @@ class CapabilityAPITests(APITestCase):
         self.assertEqual(CapabilityRun.objects.count(), 1)
         self.assertIsNone(claim(execution.run_id, 'wrong-task-id'))
 
+    def test_a_server_missing_a_required_setting_refuses_to_start(self):
+        required = json.dumps({'CAPABILITY_RETRIEVAL_MODE': 'map', 'CAPABILITY_ASSESSMENT_ENABLED': True})
+        with override_settings(CAPABILITY_REQUIRED_SETTINGS=required, CAPABILITY_RETRIEVAL_MODE='bm25'):
+            result = self.client.post(self.url, self.body, format='json', HTTP_IDEMPOTENCY_KEY='req-settings')
+        self.assertEqual(result.status_code, 400)
+        self.assertIn('CAPABILITY_RETRIEVAL_MODE should be', str(result.data))
+        self.assertFalse(CapabilityRun.objects.exists())
+        from .capability.execution import settings_not_met
+        with override_settings(CAPABILITY_REQUIRED_SETTINGS=required, CAPABILITY_RETRIEVAL_MODE='MAP'):
+            self.assertEqual(settings_not_met(), [])
+        with override_settings(CAPABILITY_REQUIRED_SETTINGS='not json'):
+            self.assertEqual(settings_not_met()[0][0], 'CAPABILITY_REQUIRED_SETTINGS')
+
+    def test_the_condition_judge_is_refused_on_a_claude_model(self):
+        with override_settings(CAPABILITY_AI_MODEL='claude-haiku-5-5'):
+            result = self.client.post(self.url, self.body, format='json', HTTP_IDEMPOTENCY_KEY='req-judge')
+        self.assertEqual(result.status_code, 400)
+        self.assertIn('judgment_not_supported', str(result.data))
+        self.assertFalse(CapabilityRun.objects.exists())
+
     @override_settings(CAPABILITY_ASSESSMENT_ENABLED=False)
     def test_inference_disabled_by_default_and_key_required(self):
         self.assertEqual(self.client.post(self.url, self.body, format='json',

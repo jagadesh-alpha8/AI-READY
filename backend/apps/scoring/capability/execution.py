@@ -125,6 +125,49 @@ def policy(stage='assessment'):
 
 
 @transaction.atomic
+def _setting_text(name):
+    value = getattr(settings, name, None)
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    return '' if value is None else str(value)
+
+
+def settings_not_met():
+    """[(setting, required, actual)] for CAPABILITY_REQUIRED_SETTINGS: a JSON object of setting names and the values
+    a run on this server must have, compared as text ("true"/"false" for switches). An assessment refuses to start
+    while any differs, so a restart that loses a line of the .env cannot quietly run on weaker settings (issue 65).
+    Unset or empty: no requirement."""
+    import json
+    raw = (getattr(settings, 'CAPABILITY_REQUIRED_SETTINGS', '') or '').strip()
+    if not raw:
+        return []
+    try:
+        required = json.loads(raw)
+    except ValueError:
+        return [('CAPABILITY_REQUIRED_SETTINGS', 'a JSON object', raw[:80])]
+    if not isinstance(required, dict):
+        return [('CAPABILITY_REQUIRED_SETTINGS', 'a JSON object', type(required).__name__)]
+    out = []
+    for name, value in sorted(required.items()):
+        want = ('true' if value else 'false') if isinstance(value, bool) else str(value)
+        have = _setting_text(name)
+        if have.strip().lower() != want.strip().lower():
+            out.append((name, want, have))
+    return out
+
+
+def judgment_refusal():
+    """Why the configured judgment cannot run on the configured model, or None. The condition judge's keyed answer
+    format (evaluation.indicator_schema) is the shape Claude refused for the part judge on 26 Nov ("The compiled
+    grammar is too large"); only the part judge (condition-list-1) has been checked on Claude."""
+    judgment = getattr(settings, 'CAPABILITY_JUDGMENT', 'conditions')
+    model = str(getattr(settings, 'CAPABILITY_AI_MODEL', '') or getattr(settings, 'AI_MODEL', '') or '')
+    if judgment == 'conditions' and model.lower().startswith('claude'):
+        return ('CAPABILITY_JUDGMENT=conditions uses a keyed answer format that Claude refuses as too large; '
+                'use CAPABILITY_JUDGMENT=parts with a Claude model.')
+    return None
+
+
 def start(*, sprint, user, idempotency_key, population=None, reference_period=None, scope_mode=None, refines_run_id=None, confirmed_source_institution=None):
     # Serializes competing keys as well as repeated requests for this sprint (PostgreSQL).
     Sprint.objects.select_for_update().get(pk=sprint.pk)
@@ -147,6 +190,14 @@ def start(*, sprint, user, idempotency_key, population=None, reference_period=No
             raise ValidationError('Refinement requires a completed assessment in this sprint.')
     if not settings.CAPABILITY_ASSESSMENT_ENABLED:
         raise AssessmentDisabled()
+    missing = settings_not_met()
+    if missing:
+        raise ValidationError({'code': 'required_settings_not_met', 'detail': 'This server is not set up the way '
+                               'CAPABILITY_REQUIRED_SETTINGS requires: ' + '; '.join(
+                                   f'{name} should be {want!r}, is {have!r}' for name, want, have in missing)})
+    refusal = judgment_refusal()
+    if refusal:
+        raise ValidationError({'code': 'judgment_not_supported', 'detail': refusal})
     if CapabilityExecution.objects.filter(sprint=sprint, status__in=['queued', 'running']).exists():
         raise AssessmentConflict()
     run = create_run(institution_id=sprint.institution_id, sprint_id=sprint.pk,

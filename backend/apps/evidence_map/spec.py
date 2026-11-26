@@ -174,13 +174,29 @@ def system_prompts(shape, rubric, profiles, parts):
             for name, inds in groups.items()]
 
 
-def map_version(shape, rubric, profiles, parts):
-    """The map version: everything that decides what a tag means, except the model (recorded beside it)."""
+DEFAULT_EFFORT = 'low'
+
+
+def tagging_effort():
+    """The tagger's effort as configured (EVIDENCE_MAP_AI_EFFORT): 'low' by default, None for the model's own."""
+    from django.conf import settings
+    return getattr(settings, 'EVIDENCE_MAP_AI_EFFORT', DEFAULT_EFFORT)
+
+
+def map_version(shape, rubric, profiles, parts, effort=...):
+    """The map version: everything that decides what a tag means, except the model (recorded beside it).
+
+    The tagger's effort counts too (26 Nov): a pass at another effort is its own map, so it tags every page again
+    instead of skipping the pages a low-effort pass already tagged. The default effort ('low') adds nothing, so the
+    versions of maps made at it are unchanged. effort: as tagging_effort() gives it, unless passed."""
+    effort = tagging_effort() if effort is ... else effort
     block = '\n\n'.join(indicator_block(i, profiles, parts) for i in rubric['indicators'])
     prompt = PROMPT + ('\n\n' + EVERY_INDICATOR if shape == 'areas-every' else '')
-    payload = json.dumps({'spec': SPEC_VERSION, 'prompt': prompt, 'rubric': block, 'schema': SCHEMA,
-                          'chunk_chars': CHUNK_CHARS, 'carry_chars': CARRY_CHARS, 'shape': shape},
-                         sort_keys=True, ensure_ascii=False)
+    fields = {'spec': SPEC_VERSION, 'prompt': prompt, 'rubric': block, 'schema': SCHEMA,
+              'chunk_chars': CHUNK_CHARS, 'carry_chars': CARRY_CHARS, 'shape': shape}
+    if effort != DEFAULT_EFFORT:
+        fields['effort'] = effort or 'model-default'
+    payload = json.dumps(fields, sort_keys=True, ensure_ascii=False)
     return 'em1-' + hashlib.sha256(payload.encode()).hexdigest()[:40]
 
 
