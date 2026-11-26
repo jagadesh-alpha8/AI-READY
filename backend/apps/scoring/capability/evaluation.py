@@ -705,6 +705,8 @@ def map_argument(retrieval_policy, evidence_map):
             or policy.get('fill_share') != '/'.join(map(str, packet.FILL_SHARE)) \
             or policy.get('context_share') != '/'.join(map(str, packet.CONTEXT_SHARE)):
         raise ValueError('Frozen evidence-map packet rules do not match this worker.')
+    if policy.get('same_area') not in (None, packet.SAME_AREA_VERSION):
+        raise ValueError('Frozen same-area band does not match this worker.')
     if not isinstance(evidence_map, dict) or 'pages' not in evidence_map:
         raise ValueError('A map-mode run needs its frozen evidence map.')
     semantic = None
@@ -713,7 +715,8 @@ def map_argument(retrieval_policy, evidence_map):
             raise ValueError('Frozen semantic fill does not match this worker.')
         from apps.evidence_map.semantic import configured
         semantic = configured(policy)   # refuses when this worker's embedding model differs from the run's
-    return {'pages': evidence_map['pages'], 'cap_chars': policy['cap_chars'], 'semantic': semantic}
+    return {'pages': evidence_map['pages'], 'cap_chars': policy['cap_chars'], 'semantic': semantic,
+            'same_area': policy.get('same_area') == packet.SAME_AREA_VERSION}
 
 
 def _tag_semantic_version():
@@ -769,7 +772,8 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
                 return evidence_lane(indicator, list(context), pool, ledger, budget=budget, aliases=aliases,
                                      version=lane_version)
         context, trace = packet.build(indicator, pool, evidence_map, cap=cap, keyword_fill=keyword_fill,
-                                      lane=lane_step, semantic=evidence_map.get('semantic'))
+                                      lane=lane_step, semantic=evidence_map.get('semantic'),
+                                      same_area=bool(evidence_map.get('same_area')))
         map_trace.clear()
         map_trace.update(trace)
         return context, trace.get('evidence_lane')

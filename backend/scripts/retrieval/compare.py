@@ -10,7 +10,8 @@ gets the extracted-evidence lane as a run does; the live map's tags join to thos
 Pages-only (no lane), on a sprint export:
   python scripts/retrieval/compare.py SOURCES.json MAP.json TEST13_EXPORT.json --out results.json
 Measured 25 Nov, keyword search at 200,000 on test 13's inputs: 107 of 111 full / 219 of 225 any with the lane,
-91 / 196 without it.
+91 / 196 without it. Sizes: --caps 60000,100000 --keyword-sizes 60000,100000,200000 compares at equal size; every
+map cap also gets the same-area band (map_same_area, CAPABILITY_MAP_SAME_AREA).
 """
 import argparse, json, os, re, sys, time
 from collections import Counter, defaultdict
@@ -68,6 +69,10 @@ def main():
     ap.add_argument('--inputs', help="A run's frozen inputs (.json.gz): its pages, reviewed evidence, population, "
                                      "period and scope replace SOURCES, and every method gets the evidence lane, as a run does")
     ap.add_argument('--no-lane', action='store_true', help='Leave the evidence lane out (pages-only comparison).')
+    ap.add_argument('--caps', default=str(packet.CAP_CHARS),
+                    help='Map packet caps to compare, comma-separated (default 60000). Each cap gets the map alone, the '
+                         'map with the same-area band (same-area-1) and, with --embedding, both with semantic search.')
+    ap.add_argument('--keyword-sizes', default='200000', help='Keyword packet sizes, comma-separated (default 200000).')
     a = ap.parse_args()
     run_inputs = {}
     if a.inputs:
@@ -94,17 +99,25 @@ def main():
                     entry['quotes'].add(row['quote'])
     rubric = release()
     dedup = {'deduplicate': document_structure.DEDUPLICATE_VERSION, 'repeat_skip': document_structure.REPEAT_SKIP_VERSION}
-    policies = {
-        'keyword_200k': ({'mode': 'bm25', **dedup, 'keyword_chars': 200000}, None),
-        'map': ({'mode': 'map', **dedup}, {'pages': pages_map, 'cap_chars': packet.CAP_CHARS, 'semantic': None}),
-    }
+    search = None
     if a.embedding and os.path.isfile(os.path.join(a.embedding, 'tokenizer.json')):
         from django.test.utils import override_settings
         override_settings(CAPABILITY_EMBEDDING_PATH=a.embedding,
                           CAPABILITY_EMBEDDING_MODEL='BAAI/bge-small-en-v1.5').enable()
         search = semantic.configured({})
-        policies['map_semantic'] = ({'mode': 'map', **dedup}, {'pages': pages_map, 'cap_chars': packet.CAP_CHARS,
-                                                               'semantic': search})
+    policies = {}
+    for size in (int(x) for x in a.keyword_sizes.split(',') if x.strip()):
+        policies[f'keyword_{size // 1000}k'] = ({'mode': 'bm25', **dedup, 'keyword_chars': size}, None)
+    caps = [int(x) for x in a.caps.split(',') if x.strip()]
+    for cap in caps:
+        suffix = '' if caps == [packet.CAP_CHARS] else f'_{cap // 1000}k'
+        for label, same_area in (('map', False), ('map_same_area', True)):
+            for sem_label, sem in (('', None), ('_semantic', search)):
+                if sem_label and sem is None:
+                    continue
+                name = label.replace('map', 'map' + sem_label, 1) + suffix
+                policies[name] = ({'mode': 'map', **dedup}, {'pages': pages_map, 'cap_chars': cap, 'semantic': sem,
+                                                             'same_area': same_area})
     from apps.evidence_map import spec as _spec
     joined = sum(1 for x in sources if _spec.text_hash(x['text'] or '') in pages_map)
     print(f'map tags joined to {joined} of {len(sources)} pages (by page text); tagged pages in the map: {len(pages_map)}',

@@ -877,6 +877,10 @@ CAPABILITY_MAP_CAP_CHARS = int(os.getenv('CAPABILITY_MAP_CAP_CHARS', '').strip()
 # the fill to tags for other indicators closest in meaning to a requirement (apps/evidence_map/semantic.py; local
 # embeddings, CAPABILITY_EMBEDDING_PATH). A run refuses to start in 'semantic' when the model is not provisioned.
 CAPABILITY_MAP_FILL = os.getenv('CAPABILITY_MAP_FILL', 'keyword').strip().lower() or 'keyword'
+# Map mode's same-area band (apps/evidence_map/packet.py, same-area-1): after an indicator's own tags, its packet also
+# takes pages tagged direct or supporting for the other indicators of the same area, inside the tagged share. Off by
+# default until measured (scripts/retrieval/compare.py, map_same_area).
+CAPABILITY_MAP_SAME_AREA = os.getenv('CAPABILITY_MAP_SAME_AREA', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # The prompt shape whose map a run uses (one: all areas in one request per chunk; areas: one request per area).
 EVIDENCE_MAP_SHAPE = os.getenv('EVIDENCE_MAP_SHAPE', 'one').strip() or 'one'
 # Keyword mode only (CAPABILITY_RETRIEVAL_MODE=bm25): characters of keyword evidence per key indicator, 18,000 by
