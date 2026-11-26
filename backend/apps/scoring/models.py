@@ -798,9 +798,10 @@ class CapabilityExplanation(models.Model):
 
 
 class CapabilityPublication(models.Model):
-    """Which completed result of a sprint its college sees (capability/publication.py). InGage staff choose; nothing
-    is published by itself, a final result included. Append-only history: the newest row of a sprint is the current
-    choice, and a row with no run withdraws it. Never read to decide a score."""
+    """Which completed result of a sprint its college sees (capability/publication.py). A result publishes itself once
+    its reports pass the draft gate (published_by empty); staff can publish another or withdraw it. Append-only
+    history: the newest row of a sprint is the current choice, and a row with no run withdraws it. Never read to
+    decide a score."""
     id = models.BigAutoField(primary_key=True)
     sprint = models.ForeignKey('sprints.Sprint', on_delete=models.PROTECT, related_name='capability_publications')
     run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, null=True, blank=True, related_name='publications')

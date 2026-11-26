@@ -158,7 +158,7 @@ export function WorkspaceShell({ page, children }: { page: PageKey; children: Re
               {staff && resultPage && (shown.preview || shown.newer) && (
                 <div className="callout ws-publication-note" role="status"><Icon name="help" />
                   <p>{shown.preview
-                    ? <><strong>Not published.</strong> You are seeing the newest result; the college sees nothing until a result is published.</>
+                    ? <><strong>Not published.</strong> You are seeing the newest result; the college sees nothing until a result is published{runs.data?.auto_publish ? ' (it publishes itself once its reports are written and pass the checks)' : ''}.</>
                     : <><strong>A newer result is not published.</strong> The college still sees the published one.</>}
                   {' '}<NavLink to={pathOf('assessment')}>Choose what the college sees</NavLink></p>
                 </div>

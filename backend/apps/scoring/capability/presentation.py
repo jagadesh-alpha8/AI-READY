@@ -7,6 +7,7 @@ templates print what this returns. The front end's workspace/useResult.ts shapes
 
 Design: claude/ai-ready-leadership-report-design.md (AI Readiness project).
 """
+import math
 import re
 from functools import lru_cache
 
@@ -42,6 +43,19 @@ def _counted(record):
 def _sentence(text):
     text = re.sub(r'\s+', ' ', str(text or '')).strip()
     return text[0].upper() + text[1:] if text else ''
+
+
+SHORT_QUOTE = 6   # words: a shorter quotation ("The firewall is upgraded to") tells a reader nothing
+
+
+def _readable_cite(cite, cites):
+    """The citation a report prints: the chosen one, or, when its quotation is too short to read alone, the longest
+    other quotation of the same requirement; with none long enough, the source alone (its quotation blank)."""
+    words = lambda c: len(str((c or {}).get('quote') or '').split())
+    if cite is None or words(cite) >= SHORT_QUOTE:
+        return cite
+    longer = max((c for c in cites if words(c) >= SHORT_QUOTE), key=words, default=None)
+    return longer or {**cite, 'quote': ''}
 
 
 def _quote(text, limit=190):
@@ -118,6 +132,12 @@ def _best_cite(cites, credit):
     return best[2]
 
 
+def whole(value):
+    """A score as the reports and the screens print it: rounded half up (62.5 prints 63, as the website's
+    Math.round does; Python's round() would print 62)."""
+    return int(math.floor(float(value or 0) + 0.5))
+
+
 def _doc_names(payload):
     names = set()
     for d in payload.get('source_manifest') or []:
@@ -127,14 +147,29 @@ def _doc_names(payload):
     return sorted(names, key=len, reverse=True)
 
 
+def _plain(explanation):
+    """A requirement's text on the plain fallback: flagged since explanations-0.3, and recognisable in older stored
+    text by its form ("Your <document>, page N records: \"...\".")."""
+    return bool(explanation.get('fallback')) or bool(
+        re.match(r'^Your .+, page \d+ records: "', str(explanation.get('found') or '')))
+
+
+def _no_prefix(text):
+    """The reports print "Next" in front of a practice's next step: an older stored fallback began "Next step:"."""
+    t = re.sub(r'^\s*Next step:\s*', '', text or '')
+    return t[:1].upper() + t[1:]
+
+
 def clean_text(text, names):
     """Model-written explanation text, made easier to read: NAAC criterion file codes ("criteria 1 - 1.4.1") become
     plain words, and a document named again in the same passage becomes "the same document"."""
     t = re.sub(r'\s+', ' ', str(text or '')).strip()
     if not t:
         return ''
-    t = re.sub(r'\b[Cc]riteria\s+\d+\s*-\s*[0-9]+(?:\.[0-9]+)*[a-z]?\b|\b[Cc]riteria\s+\d+\s*-\s*[a-z]\b',
-               'the NAAC criterion files', t)
+    code = r'[Cc]riteria\s+\d+\s*-\s*(?:[0-9]+(?:\.[0-9]+)*[a-z]?|[a-z])\b'
+    # "Document criteria 1 - 1.4.2 notes ..." (the model naming one file): one file, so "A NAAC criterion file notes".
+    t = re.sub(r'\b([Dd])ocument\s+' + code, lambda m: ('A' if m.group(1) == 'D' else 'a') + ' NAAC criterion file', t)
+    t = re.sub(r'\b' + code, 'the NAAC criterion files', t)
     t = re.sub(r'(the NAAC criterion files)(,? (?:and|or) the NAAC criterion files)+', r'\1', t)
     for name in names:
         pattern = re.compile(r'(\b[Tt]he\s+)?' + re.escape(name))
@@ -241,6 +276,33 @@ def _and(lines):
     return (', and '.join(parts) + '.') if parts else ''
 
 
+#: A "done when" line that points back at the practice before it ("those decisions", "that guidance"): 40 of 216
+#: do, and most second practices of a stage read as a sequel; that reads well after the first, not alone.
+POINTS_BACK = re.compile(r'\b(?:those|these|such|that|it|its)\b(?! is| was| are| has)', re.I)
+
+
+def _unless_same(line, other):
+    """line, or '' when it says the same as other (four in five of its words of four letters or more are in other)."""
+    words = lambda t: set(re.findall(r'[a-z]{4,}', (t or '').lower()))
+    mine, theirs = words(line), words(other)
+    return '' if mine and len(mine & theirs) >= 0.8 * len(mine) else line
+
+
+def _standalone(requirements):
+    """The step's "done when" lines; a first line that points back at a practice the step doesn't include is
+    replaced by that practice's own stand-alone "we looked for" sentence (practice_labels_v1.json)."""
+    lines = []
+    for n, r in enumerate(requirements):
+        line = r['done_when']
+        # The second practice of a stage (F2, A2, O2) is written as a sequel to the first ("the pathway includes...").
+        if n == 0 and (r['id'].endswith('2') or POINTS_BACK.search(line)):
+            looked = practice_label(r['id'])[1]
+            if looked:
+                line = looked[:1].lower() + looked[1:].rstrip('.') + '.' if not looked[1:2].isupper() else looked
+        lines.append(line)
+    return lines
+
+
 def step_view(action):
     """A step as the reports print it: the title, its kind, what it builds on, who leads it and when it is done."""
     owner = action.get('owner') or {}
@@ -258,7 +320,9 @@ def step_view(action):
         builds = action.get('builds_on') or ''
     return {'title': title, 'kind': KIND_LABELS.get(action.get('kind') or '', ''), 'builds_on': builds, 'lead': lead,
             'done_when': [r['done_when'] for r in action.get('requirements') or [] if r.get('done_when')],
-            'done_when_text': _and([r['done_when'] for r in action.get('requirements') or [] if r.get('done_when')]),
+            # In rubric order (F1 before F2), whatever order the step was chosen in: the second line refers to the first.
+            'done_when_text': _and(_standalone(sorted((r for r in action.get('requirements') or [] if r.get('done_when')),
+                                                      key=lambda r: r['id']))),
             'start': action.get('kind') == 'start', 'written': written, 'first_step': action.get('first_step') or '',
             'have': action.get('have') or [], 'related': action.get('related') or []}
 
@@ -288,9 +352,11 @@ def card_view(area, step, word):
 
 
 def level(score):
-    band = tier_for(score)
-    # Counted from the score as printed (a reader subtracts: "21 out of 100", so 19 to 40), never below one point.
-    to_next = max(1, int(round(score + band['points_to_next'])) - int(round(score))) if band['next'] else 0
+    """The level of a score as printed: from the whole number the reader sees (39.6 prints "40", so Prepared), so a
+    number and its level never disagree; the points to the next level are counted from it too."""
+    printed = whole(score)
+    band = tier_for(printed)
+    to_next = max(1, whole(band['points_to_next'])) if band['next'] else 0
     return {'name': band['current'], 'stars': band['stars'], 'meaning': band['meaning'],
             'next': band['next'], 'next_stars': band['stars'] + 1 if band['next'] else None,
             'points_to_next': to_next}
@@ -360,7 +426,7 @@ def build(payload):
                     partly += 1
                 cites = (record or {}).get('citations') or [c for p in (record or {}).get('parts') or []
                                                             for c in p.get('citations') or []]
-                cite = _best_cite(cites, cr)
+                cite = _readable_cite(_best_cite(cites, cr), cites)
                 if cr >= 0.5:
                     for c in cites:
                         q = quote_quality(c.get('quote'), cr)
@@ -371,18 +437,24 @@ def build(payload):
                 rows.append({'id': condition['id'], 'label_short': label, 'looked_for': looked_for,
                              'text': _sentence(condition['text']), 'status': status,
                              'label': next_steps.label(condition['id'], cr, not_started),
-                             'done_when': next_steps.done_when(condition) if cr < 1 else '',
+                             # Printed alone ("Next: Done when ..."), so it stands alone (_standalone); left out where
+                             # it would only repeat the "We looked for" line above it.
+                             'done_when': _unless_same(
+                                 _standalone([{'id': condition['id'], 'done_when': next_steps.done_when(condition)}])[0],
+                                 looked_for) if cr < 1 else '',
                              'stage': STAGE_WORDS.get(condition['id'].rsplit('.', 1)[-1][:1], ''),
                              'quote': _quote(cite['quote'], 260) if cite and cr > 0 else '',
                              'source': pages.get(str(cite.get('source_id')), '') if cite and cr > 0 else '',
-                             'found': clean_text(explanation.get('found'), names),
-                             'next_step': clean_text(explanation.get('next_step'), names),
+                             # A requirement still on the plain fallback has no written finding (its fallback only
+                             # restated the quotation): the quotation below says it, with its document and page.
+                             'found': '' if _plain(explanation) else clean_text(explanation.get('found'), names),
+                             'next_step': _no_prefix(clean_text(explanation.get('next_step'), names)),
                              'follow_up': explanation.get('follow_up') or ''})
             iscore = indicator_scores.get(indicator['code'], {}).get('score')
             exp = indicator.get('explanation') or indicator_scores.get(indicator['code'], {}).get('explanation') or {}
             subareas.append({'code': indicator['code'], 'name': AREA_TITLES.get(indicator['code'], indicator.get('name', '')),
                              'score': iscore, 'stars': level(iscore or 0)['stars'], 'requirements': rows,
-                             'level_index': min(4, int((iscore or 0) // 20)), 'nothing': not iscore,
+                             'level_index': min(4, whole(iscore) // 20), 'nothing': not iscore,
                              'marks': [r['status'] for r in rows],
                              'summary': clean_text(' '.join(x for x in (exp.get('found'), exp.get('text')) if x), names)})
         quote = None
@@ -431,7 +503,7 @@ def build(payload):
         area['step'] = by_area_step.get(area['code'])
         area['card'] = card_view(area, area['step'], word)
         area['card_page'] = 2 + n // CARDS_PER_PAGE
-        area['level_index'] = min(4, int(area['score'] // 20))
+        area['level_index'] = min(4, whole(area['score']) // 20)
         area['confirmed'] = area['score']
         area['to_confirm'] = area['held'] if area['held'] >= 0.5 else 0.0
     page_of = {a['code']: a['card_page'] for a in ordered}
@@ -448,7 +520,7 @@ def build(payload):
         picks += [('Also strong', ordered[1])] if len(ordered) > 2 and ordered[1]['score'] > 0 else []
         picks += [('Weakest', ordered[-1])]
         summary_lines = [{'label': l, 'area': a['name'], 'fact': a['card']['headline']} for l, a in picks]
-    shown_whole = int(round(min(100.0, score + held_points)))
+    shown_whole = whole(min(100.0, score + held_points))
     if strengths:
         summary = f"Your documents show the most in {strengths[0]['name']}"
         summary += f", followed by {strengths[1]['name']}." if len(strengths) > 1 else '.'
@@ -460,8 +532,8 @@ def build(payload):
     return {'institution': (payload.get('scope') or {}).get('institution', {}).get('assessed_name')
             or payload['profile'].get('name', ''),
             'final': final, 'stage_label': 'Final result' if final else 'Stage 1 result: from your documents',
-            'score': score, 'score_whole': int(round(score)), 'level': overall, 'levels': levels_table(),
-            'held_points': held_points, 'held_whole': int(round(held_points)),
+            'score': score, 'score_whole': whole(score), 'level': overall, 'levels': levels_table(),
+            'held_points': held_points, 'held_whole': whole(held_points),
             'held_share_text': ('a quarter' if abs(float(reserve.get('share') or 0) - 0.25) < 1e-9
                                 else f"{float(reserve.get('share') or 0) * 100:g}%"),
             'shown_score': min(100.0, score + held_points),
@@ -474,14 +546,14 @@ def build(payload):
             'routes': routes, 'requirements': sum(a['requirements'] for a in areas),
             'cards': ordered, 'card_pages': [ordered[i:i + CARDS_PER_PAGE] for i in range(0, len(ordered), CARDS_PER_PAGE)],
             'summary_lines': summary_lines, 'start_here': [a for a in actions if a.get('start_here')],
-            'basics': {'score': basics, 'whole': int(round(basics)), 'level': level(basics)['name'],
+            'basics': {'score': basics, 'whole': whole(basics), 'level': level(basics)['name'],
                        'reaches_next': bool(overall['next']) and level(basics)['stars'] > overall['stars']},
             'institution_word': word, 'stage1': not final,
-            'confirmed_whole': int(round(score)), 'shown_whole': shown_whole,
+            'confirmed_whole': whole(score), 'shown_whole': shown_whole,
             'to_next_if_confirmed': max(0, levels_table()[min(4, overall['stars'])]['from'] - shown_whole)
             if overall['next'] else 0,
             'pages': sum(len(d.get('pages') or []) for d in payload.get('source_manifest') or []),
-            'level_index': min(4, int(score // 20)),
+            'level_index': min(4, whole(score) // 20),
             # The bracket under the overall bar: from the score to the next level, or across what is to be confirmed.
             'next_note_width': (100 * overall['points_to_next'] / max(1.0, 100 - score)) if overall['next'] else 0,
             'held_note_width': 100 * min(held_points, 100 - score) / max(1.0, 100 - score),

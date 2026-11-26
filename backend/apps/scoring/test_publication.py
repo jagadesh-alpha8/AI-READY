@@ -1,10 +1,13 @@
-"""The published result and the draft gate (capability/publication.py), on the product's own flow."""
+"""The published result and the draft gate (capability/publication.py), on the product's own flow: staff publishing
+(CAPABILITY_AUTO_PUBLISH off, as flow.SETTINGS has it) and results publishing themselves (on, the default)."""
+from unittest.mock import patch
+
 from django.test import override_settings
 from rest_framework.test import APIClient, APITestCase
 
 from . import test_next_steps as steps_tests
 from . import test_product_flow as flow
-from .models import CapabilityExecution, CapabilityExplanation, CapabilityPublication, CapabilityRun
+from .models import CapabilityExecution, CapabilityExplanation, CapabilityPublication, CapabilityRun, SecondLayerJob
 
 
 @override_settings(**flow.SETTINGS)
@@ -194,3 +197,91 @@ class PublicationTests(APITestCase):
         state = self.readiness(run).data
         self.assertFalse(state['ready'])
         self.assertIn('earlier version (explanations-0.2)', state['reasons'][0])
+
+
+@override_settings(**{**flow.SETTINGS, 'CAPABILITY_AUTO_PUBLISH': True})
+class AutomaticPublicationTests(APITestCase):
+    """Siddharth, 26 Nov: the report should come out by itself after the sprint. A completed result has its text
+    written by jobs that start on their own, one after the other, and publishes itself once its reports pass the
+    draft gate; a final result then replaces the Stage 1 one, never the other way round; a staff withdrawal stops it."""
+    publication_rules = True
+    setUp_flow = flow.ProductFlowTests.setUp
+    for _name in [n for n in dir(flow.ProductFlowTests) if n.startswith('reply_') or n in (
+            'model', 'service', 'assess', 'post', 'run_queued', 'document')]:
+        locals()[_name] = getattr(flow.ProductFlowTests, _name)
+    del _name
+    reply_next_step = steps_tests.NextStepsFlowTests.reply_next_step
+    setUp = PublicationTests.setUp
+    publish = PublicationTests.publish
+    readiness = PublicationTests.readiness
+
+    def assess_and_queue(self):
+        with patch(f'{flow.JOBS}.dispatch', side_effect=lambda job_id, task_id: self.queued.append(job_id)), \
+                self.captureOnCommitCallbacks(execute=True):
+            return self.assess()
+
+    def shown(self):
+        return self.client.get(self.base).data['published']
+
+    def test_a_result_publishes_itself_once_its_reports_are_written(self):
+        provisional = self.assess_and_queue()
+        self.assertIsNone(self.shown())   # nothing yet: the text is being written
+        self.assertEqual([SecondLayerJob.objects.get(pk=j).operation for j in self.queued], ['next_steps'])
+        self.assertEqual([j.operation for j in self.run_queued()], ['next_steps', 'explain'])
+        shown = self.shown()
+        self.assertEqual((shown['run_id'], shown['stage'], shown['published_by']), (str(provisional.pk), 'provisional', None))
+        self.assertTrue(self.readiness(provisional).data['ready'])
+        self.assertEqual(self.client.get(f'{self.base}/{provisional.pk}/report', {'audience': 'summary'}).status_code, 200)
+
+        # Closing the follow-up stage: the final result's text is written, then it replaces the Stage 1 result.
+        self.post(f'{self.base}/{provisional.pk}/second-layer/jobs', {'operation': 'rejudge', 'options': {'close': True}},
+                  key='close', expect=202)
+        done = self.run_queued()
+        self.assertEqual([j.operation for j in done], ['rejudge', 'next_steps', 'explain'])
+        self.assertTrue(all(j.options.get('final') for j in done[1:]))
+        final = CapabilityRun.objects.get(pk=done[0].final_run_id)
+        shown = self.shown()
+        self.assertEqual((shown['run_id'], shown['stage']), (str(final.pk), 'final'))
+        self.assertTrue(self.readiness(final).data['ready'])
+        # A Stage 1 result never takes the place of a final one.
+        from .capability.publication import publish_if_ready
+        self.assertIsNone(publish_if_ready(provisional.pk))
+        self.assertEqual(self.shown()['run_id'], str(final.pk))
+
+    def test_a_staff_withdrawal_stops_it(self):
+        provisional = self.assess_and_queue()
+        self.run_queued()
+        self.assertEqual(self.shown()['run_id'], str(provisional.pk))
+        self.publish(None)   # staff withdraw
+        from .capability.publication import keep_going, publish_if_ready
+        self.assertIsNone(publish_if_ready(provisional.pk))
+        self.assertIsNone(keep_going(provisional))
+        self.assertIsNone(self.shown())
+        self.publish(provisional)   # staff choose again
+        self.assertEqual(self.shown()['published_by'], self.staff.get_full_name() or self.staff.email)
+
+    def test_text_that_fails_its_checks_stops_the_chain(self):
+        with override_settings(CAPABILITY_AUTO_PUBLISH=False):
+            provisional = self.assess_and_queue()
+        # The explanations were written but an area is on plain wording: no next job, nothing published.
+        from .capability import explanations
+        CapabilityExplanation.objects.create(
+            run=provisional, event_id=provisional.events.get(state='completed').pk, version=explanations.VERSION,
+            payload={'version': explanations.VERSION, 'areas': {'AIQIF-C1': {'fallback': True}}, 'indicators': {},
+                     'requirements': {}, 'fallbacks': ['AIQIF-C1']})
+        from .capability.publication import keep_going
+        with patch(f'{flow.JOBS}.dispatch', side_effect=lambda job_id, task_id: self.queued.append(job_id)), \
+                self.captureOnCommitCallbacks(execute=True):
+            job = keep_going(provisional)
+        self.assertIsNotNone(job)   # the next steps are still missing: that job starts
+        self.assertEqual(job.operation, 'next_steps')
+        self.run_queued()
+        self.assertFalse(self.readiness(provisional).data['ready'])
+        self.assertIsNone(self.shown())
+        self.assertIsNone(keep_going(provisional))   # written at the current versions, still not ready: staff decide
+
+    @override_settings(CAPABILITY_AUTO_PUBLISH=False)
+    def test_switched_off_staff_publish(self):
+        self.assess_and_queue()
+        self.assertEqual(self.queued, [])
+        self.assertIsNone(self.shown())

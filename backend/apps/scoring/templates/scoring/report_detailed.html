@@ -30,9 +30,9 @@
 {% for r in t.requirements %}<div class="prow"><div class="pm"><i class="mk {{ r.status }}"></i></div><div class="pb"><div class="ps"><strong>{{ r.label_short }}</strong><span class="st {{ r.status }}">{% if r.status == 'shown' %}In place{% elif r.status == 'partly' %}Partly in place{% elif r.label == 'Not started' %}Not started{% else %}Not found{% endif %}</span></div>
 <p class="lf"><em>We looked for</em> {{ r.looked_for }}</p>
 {% if r.found %}<p class="found"><em>We found</em> {{ r.found }}</p>{% endif %}
-{% if r.quote %}<p class="q">“{{ r.quote }}” <small>{{ r.source }}</small></p>{% endif %}
+{% if r.quote %}<p class="q">“{{ r.quote }}” <small>{{ r.source }}</small></p>{% elif r.source %}<p class="q"><small>{{ r.source }}</small></p>{% endif %}
 {% if r.follow_up and v.stage1 %}<p class="nx"><em>To be confirmed</em> {{ r.follow_up }}</p>{% endif %}
-{% if r.status != 'shown' %}<p class="nx"><em>Next</em> {% if r.next_step %}{{ r.next_step }}{% else %}Done when {{ r.done_when }}{% endif %}</p>{% endif %}
+{% if r.status != 'shown' and r.next_step or r.status != 'shown' and r.done_when %}<p class="nx"><em>Next</em> {% if r.next_step %}{{ r.next_step }}{% else %}Done when {{ r.done_when }}{% endif %}</p>{% endif %}
 </div></div>{% endfor %}</div>{% endfor %}
 {% if forloop.last %}<div class="aboutin">{% include "scoring/report_about.html" %}</div>{% endif %}
 </section>{% endfor %}

@@ -26,6 +26,8 @@ export interface CapabilityPage<T> {
   enabled: boolean;
   /** The run list only: the result the college sees (capability/publication.py), or null when none is published. */
   published?: Published | null;
+  /** The run list only: results publish themselves once their reports pass the draft checks (CAPABILITY_AUTO_PUBLISH). */
+  auto_publish?: boolean;
 }
 
 /** The result InGage staff published for the college. A final result names its Stage 1 run. */

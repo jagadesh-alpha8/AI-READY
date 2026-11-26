@@ -57,3 +57,48 @@ class PresentationRuleTests(SimpleTestCase):
         result['indicators'] = [i for i in result['indicators'] if i['code'] != 'AIQIF-C3.4']
         self.assertEqual({a['area_code']: a['code'] for a in p.choose_actions(result, records, areas)}['AIQIF-C3'],
                          'AIQIF-C3.2')
+
+
+class ReadingFixesTests(SimpleTestCase):
+    """26 Nov, from test 13's rendered reports: one rounding for the reports and the screens, and text that reads."""
+
+    def test_scores_round_half_up_like_the_screens(self):
+        from .capability.presentation import whole
+        self.assertEqual([whole(62.5), whole(12.5), whole(26.14), whole(None)], [63, 13, 26, 0])
+
+    def test_a_document_named_by_its_criterion_code_reads_as_words(self):
+        from .capability.presentation import clean_text
+        self.assertEqual(clean_text('Document criteria 1 - 1.4.2 notes action-taken reports.', []),
+                         'A NAAC criterion file notes action-taken reports.')
+
+    def test_older_fallback_text_is_not_printed_as_a_finding(self):
+        from .capability.presentation import _no_prefix, _plain
+        self.assertTrue(_plain({'found': 'Your Student Report, page 125 records: "Sl. No.: 5".'}))
+        self.assertFalse(_plain({'found': 'The Student Report records placements.'}))
+        self.assertEqual(_no_prefix('Next step: show an AI-relevant opportunity is identified.'),
+                         'Show an AI-relevant opportunity is identified.')
+
+    def test_a_quotation_too_short_to_read_is_replaced_or_left_out(self):
+        from .capability.presentation import _readable_cite
+        short = {'quote': 'The firewall is upgraded to', 'source_id': 'p1'}
+        longer = {'quote': 'The institution upgraded its firewall after the audit of its network security.', 'source_id': 'p2'}
+        self.assertEqual(_readable_cite(short, [short, longer]), longer)
+        self.assertEqual(_readable_cite(short, [short]), {'quote': '', 'source_id': 'p1'})
+
+    def test_a_number_and_its_level_never_disagree(self):
+        from .capability.presentation import level
+        self.assertEqual((level(39.6)['name'], level(39.4)['name']), ('Prepared', 'Getting there'))
+        self.assertEqual((level(26.14)['points_to_next'], level(39.4)['points_to_next']), (14, 1))
+
+    def test_a_done_when_line_stands_alone_and_keeps_rubric_order(self):
+        from .capability.next_steps import done_when
+        from .capability.engine import release
+        from .capability.presentation import _and, _standalone, step_view
+        by = {c['id']: c for i in release()['indicators'] for c in i['conditions']}
+        alone = _and(_standalone([{'id': 'AIQIF-C1.2.F2', 'done_when': done_when(by['AIQIF-C1.2.F2'])}]))
+        self.assertNotIn('those', alone)
+        self.assertTrue(alone.startswith('there is a set route'))
+        step = step_view({'requirements': [{'id': i, 'done_when': done_when(by[i])}
+                                           for i in ('AIQIF-C4.2.F2', 'AIQIF-C4.2.F1')]})
+        self.assertLess(step['done_when_text'].index('aimed at a named academic role'),
+                        step['done_when_text'].index('for that role'))

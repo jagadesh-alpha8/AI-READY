@@ -73,7 +73,7 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
           {closed && !view.final ? (
             <>
               <h2>Your final result is being prepared.</h2>
-              <p>The follow-up questions are closed. InGage checks your final result before it is shown here; until then this is your Stage 1 result.</p>
+              <p>The follow-up questions are closed. Your final result appears here as soon as its reports are written; until then this is your Stage 1 result.</p>
             </>
           ) : closed ? (
             <>
@@ -206,7 +206,7 @@ function NextStepBox({ v, sprintId, runId, final, closed, left }: {
       <section className="v5-next" aria-label="Your next step">
         <div className="eb">Your next step</div>
         <h2>Your final result is being prepared.</h2>
-        <p>The follow-up questions are closed. InGage checks your final result before it is shown here; until then this is your Stage 1 result.</p>
+        <p>The follow-up questions are closed. Your final result appears here as soon as its reports are written; until then this is your Stage 1 result.</p>
       </section>
     );
   }

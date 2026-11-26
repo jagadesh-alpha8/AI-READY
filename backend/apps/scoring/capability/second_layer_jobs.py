@@ -17,8 +17,9 @@ and credit):
                (explanations.explain; one call per area, at most two); started on its own after a final result is
                published when SECOND_LAYER_EXPLAIN_AFTER_PUBLISH is on
     next_steps write the next steps for the provisional run, or with options.final for its final result
-               (next_steps.write; one call per chosen action, a second only to fix the first, at most eighteen); never
-               started on its own
+               (next_steps.write; one call per chosen action, a second only to fix the first, at most eighteen); with
+               CAPABILITY_AUTO_PUBLISH on, next_steps and then explain start on their own, one after the other, after a
+               Stage 1 run completes and after the final result is published (publication.keep_going)
 
 Every model call goes through SecondLayerMeter: it is reserved against the job (which must still be running) and
 against the run's SecondLayerBudget, whose limits are frozen when the first job starts (SECOND_LAYER_MAX_HTTP_CALLS
@@ -465,7 +466,8 @@ def run_rejudge(job, meter):
             summary['note'] = ('Follow-up stage closed: published as the final result.' if changed else
                                'Follow-up stage closed: published as the final result; no answer changed the Stage 1 '
                                'result.')
-            if enabled() and settings.SECOND_LAYER_EXPLAIN_AFTER_PUBLISH:
+            if enabled() and settings.SECOND_LAYER_EXPLAIN_AFTER_PUBLISH and not settings.CAPABILITY_AUTO_PUBLISH:
+                # With automatic publication on, this job's own completion starts the writing (publication.keep_going).
                 options = {'final': True}
                 explain_next = SecondLayerJob.objects.create(
                     run=job.run, operation='explain', options=options, idempotency_key=f'explain-final-{job.pk}',
@@ -541,6 +543,10 @@ def run_second_layer_job(job_id, task_id):
             meter = SecondLayerMeter(get_ai_service(), job)
             with usage_scope(sprint=job.run.sprint, stage='capability_second_layer', capability_run=job.run):
                 RUNNERS[job.operation](job, meter)
+        # Done: write what the shown result's reports still need, or publish it (publication.keep_going never raises).
+        if SecondLayerJob.objects.filter(pk=job.pk, status='completed').exists():
+            from .publication import keep_going
+            keep_going(job.run)
     except ExecutionStopped:
         finish(job_id, 'cancelled', 'inference_stopped')
     except ExecutionDeadlineExceeded:

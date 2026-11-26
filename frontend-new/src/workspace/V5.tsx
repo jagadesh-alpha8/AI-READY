@@ -186,9 +186,9 @@ function Practice({ p, stage1 }: { p: ScreenPractice; stage1: boolean }) {
         <div className="v5-ps"><strong>{p.label_short}</strong><span className={`v5-st ${p.status}`}>{p.label === 'Not started' ? 'Not started' : STATUS[p.status]}</span></div>
         <p><em>We looked for</em> {p.looked_for}</p>
         {p.found && <p><em>We found</em> {p.found}</p>}
-        {p.quote && <p className="v5-q">“{p.quote}” <small>{p.source}</small></p>}
+        {p.quote ? <p className="v5-q">“{p.quote}” <small>{p.source}</small></p> : p.source && <p className="v5-q"><small>{p.source}</small></p>}
         {stage1 && p.follow_up && <p><em>To be confirmed</em> {p.follow_up}</p>}
-        {p.status !== 'shown' && <p><em>Next</em> {p.next_step || `Done when ${p.done_when}`}</p>}
+        {p.status !== 'shown' && (p.next_step || p.done_when) && <p><em>Next</em> {p.next_step || `Done when ${p.done_when}`}</p>}
       </div>
     </div>
   );

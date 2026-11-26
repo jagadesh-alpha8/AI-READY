@@ -28,7 +28,11 @@ Explanations never change a score: they are stored beside the run (CapabilityExp
 import json
 import re
 
-VERSION = 'explanations-0.4'
+VERSION = 'explanations-0.5'
+#: 0.5 (26 Nov 2026): a weak area's card lists "the closest things you have" (presentation.card_view: the starting
+#: points its next step was written from), so its writer is given them and writes the verdict from them; written after
+#: the next steps (publication.keep_going). In 0.4 a verdict could name an ERP portal and a firewall as the area's
+#: assets while the card beside it listed a plagiarism policy.
 MAX_QUOTES = 4
 QUOTE_CHARS = 400
 MAX_FIELD_CHARS = 700
@@ -71,7 +75,9 @@ For the area as a whole, also write the card the leadership report prints:
 - verdict: one or two sentences that stand alone, in the third person, beginning "The {institution_word} has" (institution_word is given): first what is there, named (a programme, policy, office, system), then what is not yet there. Rule 7's "you" does not apply here. No numbers.
 - headline: one short fact for the report's front page, at most twelve words, no numbers, naming the area's strongest thing or, for a weak area, its plainest gap ("Quality is audited every year.", "No written guidance on AI use was found.").
 - strengths: two or three things the {institution_word} has in this area, each one sentence that names the thing (a programme, policy, office, system, partner, project) as the quotation does, citing exactly one quotation (condition_id and quote_id) from a requirement with some credit. Empty when nothing in the area has credit.
-- gaps: two or three things not yet there, each one short sentence a principal understands, listing the condition_ids of the requirements it is about (requirements not shown in full). Begin with the most basic."""
+- gaps: two or three things not yet there, each one short sentence a principal understands, listing the condition_ids of the requirements it is about (requirements not shown in full). Begin with the most basic.
+
+Some weak areas come with closest_things_on_the_card: the starting points the card lists under "The closest things you have" in place of strengths. For such an area the verdict's first part names those things (as they are named there) and says plainly that they do not yet cover AI where that is so; it never presents anything else as what the area has. The headline then names the plainest gap."""
 
 
 def _entry(extra=None):
@@ -247,9 +253,27 @@ def area_input(area, target):
                                       'not_yet_shown': results.count('not yet shown')}})
     labels = sorted({f'the {g} files' for g in groups.values() if g} |
                     {n for d, n in names.items() if not groups.get(d)})
-    return {'area': area, 'name': pillars.get(area, area), 'indicators': indicators,
-            'institution_word': target.get('institution_word') or 'institution',
-            'documents_searched': {'count': len(names), 'names': labels[:20]}}
+    out = {'area': area, 'name': pillars.get(area, area), 'indicators': indicators,
+           'institution_word': target.get('institution_word') or 'institution',
+           'documents_searched': {'count': len(names), 'names': labels[:20]}}
+    closest = closest_on_card(area, target)
+    if closest:
+        out['closest_things_on_the_card'] = [c['text'] for c in closest]
+    return out
+
+
+def closest_on_card(area, target):
+    """What a weak area's card lists under "The closest things you have" (presentation.card_view), from its written
+    next step: [] for an area at or above CLOSEST_BELOW, or with no written step that builds on something."""
+    from .presentation import CLOSEST_BELOW
+    score = (target.get('area_scores') or {}).get(area)
+    if score is None or score >= CLOSEST_BELOW:
+        return []
+    for key, step in ((target.get('next_steps') or {}).get('actions') or {}).items():
+        if key.split(':', 1)[0].rsplit('.', 1)[0] == area and step.get('kind') != 'start':
+            return [{'text': x['text'], 'sources': x.get('sources') or []}
+                    for x in (step.get('have') or []) + (step.get('related') or [])][:MAX_CARD_ITEMS]
+    return []
 
 
 def institution_word(profile):
@@ -609,6 +633,11 @@ def fallback_summary(requirements, name):
 # ------------------------------------------------------------------ a run
 
 
+def next_steps_stored(run_id, event_id):
+    from .next_steps import stored
+    return stored(run_id, event_id)
+
+
 def build_target(run):
     """What the explanations read for a completed run (provisional or final), from this database."""
     from .action_plan import build as build_plan
@@ -623,7 +652,11 @@ def build_target(run):
             'names': document_names(inputs.get('manifest')), 'groups': document_groups(inputs.get('manifest')),
             'merge': (inputs.get('second_layer') or {}).get('merge') or [],
             'institution_word': institution_word(inputs.get('profile')),
-            'plan': build_plan(inputs['rubric'], records)}
+            'plan': build_plan(inputs['rubric'], records),
+            # A weak area's card lists its step's starting points (closest_on_card): the writer sees them.
+            'area_scores': {p['code']: p['score'] for p in
+                            ((event.payload.get('result') or {}).get('documented') or {}).get('pillars') or []},
+            'next_steps': next_steps_stored(str(run.pk), event.pk)[1]}
 
 
 def _explain_area(area, target, model, take_call, skip_error=None):
@@ -722,7 +755,7 @@ def explain(target, model, *, max_calls=None, concurrency=1, skip_error=None):
             out['errors'][area] = result['errors']
         out['calls'] += result['calls']
         out['fallbacks'] += result['fallbacks']
-        out['areas'][area] = result['passed']['area']
+        out['areas'][area] = {**result['passed']['area'], 'closest_seen': bool(closest_on_card(area, target))}
         out['indicators'].update(result['passed']['indicators'])
         out['requirements'].update(result['passed']['requirements'])
     return out
@@ -769,6 +802,7 @@ def import_cards(target, base, cards, written_by):
         else:
             area_text.pop('fallback', None)
             out['fallbacks'] = [f for f in out['fallbacks'] if f != area]
+        area_text['closest_seen'] = bool(closest_on_card(area, target))
         out['areas'][area] = area_text
     out['errors'] = problems
     return out, problems
@@ -816,6 +850,7 @@ def attach(assessment, explanations, closed=False):
             if out_e is not None:
                 out_e.update({k: e.get(k) for k in AREA_FIELDS if e.get(k)})
                 out_e['fallback'] = bool(e.get('fallback'))
+                out_e['closest_seen'] = bool(e.get('closest_seen'))
             return out_e
         documented['pillars'] = [{**p, 'explanation': for_area(p.get('code'))} for p in documented.get('pillars') or []]
         result['documented'] = documented

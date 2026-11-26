@@ -92,8 +92,9 @@ class CapabilityRunsView(APIView):
         response.data['enabled'] = settings.CAPABILITY_ASSESSMENT_ENABLED
         # The result the college sees (publication.py), wherever it sits in the list: the screens show this run, not
         # the newest completed one.
-        from .publication import current, describe
+        from .publication import automatic, current, describe
         response.data['published'] = describe(current(sprint.pk))
+        response.data['auto_publish'] = automatic()   # results publish themselves once their reports are ready
         # The review questions' count is its own call now (ReviewStatusView): it rebuilt the whole review queue,
         # which re-reads every page of the sprint, on every run-list call.
         return response

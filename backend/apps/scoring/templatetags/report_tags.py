@@ -2,6 +2,8 @@
 from django import template
 from django.utils.html import format_html
 
+from apps.scoring.capability.presentation import whole as _whole  # half up, as the screens
+
 register = template.Library()
 
 
@@ -25,7 +27,7 @@ def pct(value):
 @register.filter
 def whole(value):
     try:
-        return str(int(round(float(value))))
+        return str(_whole(value))
     except (TypeError, ValueError):
         return '—'
 
@@ -42,7 +44,7 @@ def tone(value):
 
 @register.filter
 def points(value):
-    v = max(1, int(round(float(value or 0))))
+    v = max(1, _whole(value))
     return f'{v} point' + ('' if v == 1 else 's')
 
 
@@ -104,4 +106,4 @@ def tilecolour(score):
         s = float(score or 0)
     except (TypeError, ValueError):
         s = 0.0
-    return '#FFFFFF' if s <= 0 else TILES[min(4, int(s // 20))]
+    return '#FFFFFF' if s <= 0 else TILES[min(4, _whole(s) // 20)]   # the level of the number printed on it
