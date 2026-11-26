@@ -23,7 +23,7 @@ const REPORTS = [
   { audience: 'summary' as const, icon: 'file', title: 'Leadership report',
     text: 'Your level and stars, the nine areas at a glance, where you are strong, where to focus and what to do next.', meta: 'Six pages · for leadership and the board' },
   { audience: 'detailed' as const, icon: 'assessment', title: 'Detailed report',
-    text: 'Every practice in all nine areas: what your documents show, the quotation and its document, and the next step.', meta: 'Every practice · for the teams doing the work' },
+    text: 'Every practice in all nine areas: what your documents show, the document and page it was found on, and the next step.', meta: 'Every practice · for the teams doing the work' },
 ];
 
 /** Handoff outputs (6.17) and which ones the backend produces today. */

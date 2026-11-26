@@ -6,6 +6,9 @@ import { Icon } from './Icon';
 import { ActionCard, ChecklistLine } from './ResultParts';
 import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
+import { NextLevelV5 } from './V5';
+import type { ScreenView } from '../types/capability';
+import './v5.css';
 
 /**
  * Results › Recommended actions: the leadership report's first steps (4 to 6) in full, as the server finished them
@@ -20,7 +23,9 @@ function Body({ sprint }: { sprint: Sprint }) {
   const [area, setArea] = useState('all');
   if (cap.loading) return <Loading label="Loading your actions…" />;
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
-  if (!view) return <NoResult cap={cap}>Your actions appear once the assessment has run.</NoResult>;
+  if (!view) return <NoResult cap={cap}>Your steps appear once your documents have been read.</NoResult>;
+  const v5 = view.run.next_steps?.presentation;
+  if (v5?.steps.length) return <StepsV6 v={v5} />;
 
   const inSteps = new Set(view.actions.flatMap((a) => a.requirements.map((r) => r.id)));
   // The rest of the checklist, area by area, leaving out what the first steps already cover.
@@ -57,5 +62,34 @@ function Body({ sprint }: { sprint: Sprint }) {
         </section>
       )}
     </>
+  );
+}
+
+/** Plan › Steps (merged design, 27 Nov): what gets you to the next level, then the nine steps as built, the three to
+ * start with first. */
+function StepsV6({ v }: { v: ScreenView }) {
+  const first = new Set(v.start_here.map((s) => s.area_code));
+  const steps = [...v.steps.filter((s) => first.has(s.area_code)), ...v.steps.filter((s) => !first.has(s.area_code))];
+  return (
+    <div className="v5">
+      <NextLevelV5 v={v} />
+      <section className="surface surface-pad v6-steps">
+        <h2>{steps.length === 9 ? 'Nine steps' : `${steps.length} steps`}</h2>
+        <ol>
+          {steps.map((s) => (
+            <li key={s.area_code}>
+              <div className="v6-step-tags">{s.kind && <span className="v5-kind dark">{s.kind}</span>}
+                {first.has(s.area_code) && <span className="v6-start">Start here</span>}<span className="muted">{s.area}</span></div>
+              <strong>{s.title}</strong>
+              <dl>
+                {s.builds_on && <div><dt>Builds on</dt><dd>{s.builds_on}</dd></div>}
+                {s.lead && <div><dt>Lead</dt><dd>{s.lead}</dd></div>}
+                <div><dt>Done when</dt><dd>{s.done_when_text}</dd></div>
+              </dl>
+            </li>
+          ))}
+        </ol>
+      </section>
+    </div>
   );
 }

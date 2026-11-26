@@ -6,22 +6,24 @@ import { useSprint } from '../context/SprintContext';
 import { useAccess } from '../hooks/useAccess';
 import { useResource } from '../hooks/useResource';
 import { getEvidenceRequestSummary } from '../services/evidenceRequests';
-import { listRuns } from '../services/capability';
-import { shownRun } from '../utils/capability';
+import { JOURNEY, useJourney } from './journey';
 import type { EvidenceRequestSummary } from '../types/api';
 import type { PageKey } from '../utils/access';
 import { roleLabel } from '../utils/access';
 import { initials } from '../utils/format';
 import { pathOf } from '../navigation';
 import { Icon } from './Icon';
-import { JOURNEY_STEPS, SECTIONS, sectionOf, visibleTabs } from './sections';
+import { SECTIONS, sectionOf, tabOf, visibleTabs } from './sections';
 
 /** True inside the workspace: the old screens' own page headings give way to the section heading and tabs. */
 export const InWorkspace = createContext(false);
 
 const STAFF_ROLES = new Set(['super_admin', 'consultant']);
 
-/** Sidebar, header, section heading and tabs of Harsha's workspace design, around every signed-in screen. */
+const Beta = () => <span className="tag ws-beta">Beta</span>;
+
+/** Sidebar, header, progress bar, heading and tabs of the merged website design (27 Nov 2026: Harsha's six
+ * workspaces around our result screens), around every signed-in screen. */
 export function WorkspaceShell({ page, children }: { page: PageKey; children: ReactNode }) {
   const { user, logout } = useAuth();
   const { canSee } = useAccess();
@@ -30,33 +32,41 @@ export function WorkspaceShell({ page, children }: { page: PageKey; children: Re
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const section = sectionOf(page);
-  const tabs = visibleTabs(section).filter((t) => canSee(t.page));
   const staff = STAFF_ROLES.has(user?.role || '');
+  const tabs = visibleTabs(section, staff).filter((t) => canSee(t.page));
+  const tab = tabOf(page);
+  const journey = useJourney(sprint);
 
   useEffect(() => setMenuOpen(false), [location.pathname]);
   useEffect(() => {
-    const tab = tabs.find((t) => t.page === page);
     document.title = `${tab && tabs.length > 1 ? `${tab.label} · ` : ''}${section.label} · AI READY`;
-  }, [page, section, tabs]);
+  }, [page, section, tab, tabs.length]);
 
   const summary = useResource<EvidenceRequestSummary>(getEvidenceRequestSummary, `er-summary:${user?.id}`, canSee('requests'));
   const waiting = (summary.data?.assigned_to_me || 0) + (summary.data?.awaiting_my_review || 0);
   const institutionName = sprint?.institution_name || 'No institution yet';
   const manyInstitutions = new Set(sprints.map((s) => s.institution_id)).size > 1;
-  const stepIndex = JOURNEY_STEPS.findIndex((s) => s.key === section.key);
-  // How far the college has got, from the result the screens show (a light list call): the published result, or for
-  // staff the newest completed run while nothing is published. A result means the documents and the assessment are
-  // done; a final result means the results step is done too.
-  // Staff also need it on the Overview (not a journey page), for the "not published" note.
-  const resultPage = stepIndex >= 0 || page === 'overview';
-  const runs = useResource(() => listRuns(sprint!.id), `ws-journey:${sprint?.id}:${page}`, !!sprint && (stepIndex >= 0 || (staff && resultPage)));
-  const shown = shownRun(runs.data?.results || [], runs.data?.published, staff);
-  const reached = shown.stage === 'final' ? 3 : shown.id ? 2 : -1;
-  const isDone = (i: number) => (i < stepIndex || i <= reached) && i !== stepIndex;
+  // Staff see a note on the result pages when what they see is not what the college sees.
+  const resultPage = ['overview', 'results', 'plan', 'assessment'].includes(section.key);
+  const shown = journey.shown;
 
   const firstPage = (key: string) => {
     const s = SECTIONS.find((x) => x.key === key)!;
-    return visibleTabs(s).find((t) => canSee(t.page))?.page;
+    return visibleTabs(s, staff).find((t) => canSee(t.page))?.page;
+  };
+  const navItem = (s: (typeof SECTIONS)[number]) => {
+    const target = firstPage(s.key);
+    if (!target) return null;
+    return (
+      <NavLink key={s.key} to={pathOf(target)} className={() => (section.key === s.key ? 'active' : '')}
+        aria-current={section.key === s.key ? 'page' : undefined}>
+        <Icon name={s.icon} />{s.label}
+        {s.key === 'documents' && waiting > 0 && <span className="count" aria-label={`${waiting} waiting for you`}>{waiting}</span>}
+        {s.key === 'assessment' && journey.stage1 && !journey.closed && (journey.open ?? 0) > 0 && (
+          <span className="ws-nav-dot" title="Follow-up questions to answer" aria-label="Follow-up questions to answer" />
+        )}
+      </NavLink>
+    );
   };
 
   return (
@@ -80,27 +90,13 @@ export function WorkspaceShell({ page, children }: { page: PageKey; children: Re
           </label>
           <div className="nav-label">Workspace</div>
           <nav className="nav" aria-label="Sections">
-            {SECTIONS.filter((s) => !s.staff && s.key !== 'help').map((s) => {
-              const target = firstPage(s.key);
-              if (!target) return null;
-              return (
-                <NavLink key={s.key} to={pathOf(target)} className={() => (section.key === s.key ? 'active' : '')}
-                  aria-current={section.key === s.key ? 'page' : undefined}>
-                  <Icon name={s.icon} />{s.label}
-                  {s.key === 'evidence' && waiting > 0 && <span className="count">{waiting}</span>}
-                </NavLink>
-              );
-            })}
+            {SECTIONS.filter((s) => !s.staff && s.key !== 'help').map(navItem)}
           </nav>
           {staff && (
             <>
               <div className="nav-divider" />
-              <div className="nav-label">Manage</div>
-              <nav className="nav">
-                <NavLink to={pathOf(firstPage('admin') || 'admin')} className={() => (section.key === 'admin' ? 'active' : '')}>
-                  <Icon name="settings" />Administration
-                </NavLink>
-              </nav>
+              <div className="nav-label">InGage staff only</div>
+              <nav className="nav" aria-label="Staff sections">{SECTIONS.filter((s) => s.staff).map(navItem)}</nav>
             </>
           )}
           <div className="side-bottom">
@@ -121,7 +117,7 @@ export function WorkspaceShell({ page, children }: { page: PageKey; children: Re
             </div>
             <div className="header-right">
               {canSee('copilot') && (
-                <button className="header-search" onClick={() => navigate(pathOf('copilot'))}><Icon name="search" /><span>Search your evidence</span></button>
+                <button className="header-search ws-search-btn" onClick={() => navigate(pathOf('copilot'))}><Icon name="search" /><span>Search your documents</span></button>
               )}
               {canSee('requests') && (
                 <button className="icon-btn" aria-label={`Requests waiting for you${waiting ? `: ${waiting}` : ''}`} title="Requests waiting for you"
@@ -132,33 +128,35 @@ export function WorkspaceShell({ page, children }: { page: PageKey; children: Re
               <span className="avatar">{initials(user?.name || user?.email)}</span>
             </div>
           </header>
+          {sprint && (
+            <nav className="ws-progress" aria-label="Where your assessment is">
+              <ol>
+                {JOURNEY.map((s, i) => {
+                  const state = i < journey.current ? 'done' : i === journey.current ? 'current' : 'todo';
+                  return (
+                    <li key={s.label} className={state} aria-current={state === 'current' ? 'step' : undefined}>
+                      <NavLink to={pathOf(s.page)}>
+                        <span className="n" aria-hidden="true">{state === 'done' ? <Icon name="check" size={12} /> : i + 1}</span>
+                        <span>{s.label}<span className="ws-sr">{state === 'done' ? ', done' : state === 'current' ? ', current step' : ''}</span></span>
+                      </NavLink>
+                    </li>
+                  );
+                })}
+              </ol>
+            </nav>
+          )}
           <main id="content" tabIndex={-1}>
             <div className="fade">
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">{section.eyebrow}</div>
-                  <h1>{section.title}</h1>
-                  <p>{section.text}</p>
+                  <h1>{tab?.title || section.title}{tab?.beta && <Beta />}</h1>
+                  <p>{tab?.text || section.text}</p>
                 </div>
               </div>
-              {stepIndex >= 0 && (
-                <div className="journey" aria-label="Assessment journey">
-                  {JOURNEY_STEPS.map((s, i) => {
-                    const target = firstPage(s.key);
-                    return (
-                      <button key={s.key} className={isDone(i) ? 'done' : i === stepIndex ? 'current' : ''}
-                        onClick={() => target && navigate(pathOf(target))}>
-                        <span className="step-n">{isDone(i) ? <Icon name="check" /> : i + 1}</span>
-                        <span>{s.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
               {staff && resultPage && (shown.preview || shown.newer) && (
                 <div className="callout ws-publication-note" role="status"><Icon name="help" />
                   <p>{shown.preview
-                    ? <><strong>Not published.</strong> You are seeing the newest result; the college sees nothing until a result is published{runs.data?.auto_publish ? ' (it publishes itself once its reports are written and pass the checks)' : ''}.</>
+                    ? <><strong>Not published.</strong> You are seeing the newest result; the college sees nothing until a result is published{journey.autoPublish ? ' (it publishes itself once its reports are written and pass the checks)' : ''}.</>
                     : <><strong>A newer result is not published.</strong> The college still sees the published one.</>}
                   {' '}<NavLink to={pathOf('assessment')}>Choose what the college sees</NavLink></p>
                 </div>
@@ -167,7 +165,7 @@ export function WorkspaceShell({ page, children }: { page: PageKey; children: Re
                 <div className="tabs" role="tablist" aria-label={`${section.label} views`}>
                   {tabs.map((t) => (
                     <NavLink key={t.page} to={pathOf(t.page)} role="tab" aria-selected={t.page === page}
-                      className={t.page === page ? 'active' : ''}>{t.label}</NavLink>
+                      className={t.page === page ? 'active' : ''}>{t.label}{t.beta && <Beta />}</NavLink>
                   ))}
                 </div>
               )}
