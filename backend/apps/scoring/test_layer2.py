@@ -1025,3 +1025,83 @@ class FinalResultReportTests(FinalResultTests):
         # The review questions' count is its own call (issue 60); the run list no longer builds the review queue.
         self.assertNotIn('review_questions_awaiting', listed.data)
         self.assertEqual(self.client.get(f'{self.base}/review-status').data['review_questions_awaiting'], 0)
+
+
+class HeldPageTests(TestCase):
+    """held-page-rejudge-1: a reply to a "nothing found" question that points at a page the first judge was shown."""
+    def setUp(self):
+        self.rubric = release()
+        self.indicator = self.rubric['indicators'][0]
+        self.code = self.indicator['code']
+        self.cid = self.indicator['conditions'][0]['id']
+        self.packet = [{**CANTEEN, 'text_offset': 0}, {**ANNEXURE, 'text_offset': 0}]
+        self.pointed_quote = 'Dr Rao completed the Certificate Programme in Machine Learning'
+
+    def test_pointers_come_from_attached_documents_and_from_a_specific_answer(self):
+        by_document = layer2.held_pointers('', ['doc-ssr'], self.packet)
+        self.assertEqual([w['id'] for w in by_document], ['page-9', 'page-7'])     # both pages of the attached report
+        self.assertEqual({w['evidence_role'] for w in by_document}, {layer2.HELD_ROLE})
+        by_words = layer2.held_pointers('Dr Rao completed the IIT Madras machine learning certificate programme',
+                                        [], self.packet)
+        self.assertEqual([w['id'] for w in by_words], ['page-7'])
+        self.assertEqual(layer2.held_pointers('Yes, we have this.', [], self.packet), [])   # too little to point with
+        self.assertEqual(layer2.held_pointers(ANSWER, [], self.packet, by_words=False), [])
+        self.assertEqual(layer2.held_pointers('', ['doc-ssr'], self.packet, limit=len(CANTEEN['text']))[0]['id'],
+                         'page-9')
+        self.assertEqual(len(layer2.held_pointers('', ['doc-ssr'], self.packet, limit=len(CANTEEN['text']))), 1)
+
+    def test_the_re_judge_sees_the_pointed_page_first_and_nothing_is_added_twice(self):
+        pointer = layer2.held_pointers('', ['doc-ssr'], self.packet[1:])
+        targets = {self.code: {'conditions': [self.cid], 'windows': pointer}}
+        contexts, audit = layer2.fixed_contexts([{'indicator': self.code, 'source_excerpts': self.packet}], targets)
+        self.assertEqual([w['id'] for w in contexts[self.code]], ['page-7', 'page-9'])
+        self.assertEqual((audit[self.code]['added_windows'], audit[self.code]['pointed_windows']), (0, 1))
+        self.assertNotIn(layer2.HELD_ROLE, {w.get('evidence_role') for w in contexts[self.code]})   # the packet's own
+
+    def test_a_part_rises_on_a_pointed_page_only_when_both_passes_cite_it(self):
+        pointers = {self.code: layer2.held_pointers('', ['doc-ssr'], self.packet[1:])}
+        packets = {self.code: self.packet}
+        cite = {'source_id': 'page-7', 'quote': self.pointed_quote}
+        provisional = [record(self.cid, 0)]
+        one_pass = [record(self.cid, 1, 'full', [cite])]
+        merged, audit = layer2.merge_new_evidence(provisional, one_pass, packets, pointers=pointers)
+        self.assertEqual((merged[0]['credit'], audit[0]['decision'], audit[0]['pointed_parts']), (1, 'replaced', ['a']))
+        merged, audit = layer2.merge_new_evidence(provisional, one_pass, packets)   # no pointer: noise guard holds
+        self.assertEqual((merged[0]['credit'], audit[0]['decision']), (0, 'rise without new evidence'))
+        both = lambda second: [{'condition_id': self.cid, 'credit': 0.5, 'state': 'unknown', 'parts': [
+            {'id': 'a', 'finding': 'full', 'credited_as': 'full', 'second_finding': 'full' if second else 'not_found',
+             'second_credited_as': 'full' if second else 'not_found', 'citations': [cite],
+             'second_citations': [cite] if second else [], 'part_credit': 1.0 if second else 0.5}]}]
+        merged, audit = layer2.merge_new_evidence(provisional, both(False), packets, pointers=pointers)
+        self.assertEqual(audit[0]['decision'], 'rise without new evidence')   # one pass of two is not enough
+        merged, audit = layer2.merge_new_evidence(provisional, both(True), packets, pointers=pointers)
+        self.assertEqual((audit[0]['decision'], audit[0]['pointed_parts']), ('replaced', ['a']))
+
+    def test_the_college_is_not_told_counted_already_and_the_requirement_is_re_judged(self):
+        question = DepthQuestion.objects.create(run_ref='run-held', kind='missing', indicator_code=self.code,
+                                                condition_ids=[self.cid], text='We found nothing for this.', rank=1,
+                                                spec_version='x')
+        response = submit(question, answer='It is in our self-study report, annexure 3.',
+                          document_ids=['00000000-0000-0000-0000-00000000000a'])
+        ssr_pages = [{**ANNEXURE, 'document_id': '00000000-0000-0000-0000-00000000000a'}]
+        packet = [{**w, 'text_offset': 0} for w in ssr_pages]
+        check_response(response, Reply({}), attached=ssr_pages, corpus=ssr_pages,
+                       context=({self.cid: record(self.cid, 0)}, {self.code: packet}))
+        response.refresh_from_db()
+        self.assertTrue(response.supported)
+        self.assertNotIn('already_counted', response.support_check['search'])
+        self.assertFalse(response.follow_up_text.startswith('We had already read'))
+        self.assertEqual(response.support_check['pointed']['version'], layer2.HELD_VERSION)
+        export = {'run_id': 'run-held', 'rubric': self.rubric, 'population': 'All', 'reference_period': '2025-26',
+                  'assessment': {'records': [record(self.cid, 0)],
+                                 'traces': [{'indicator': self.code, 'source_excerpts': packet,
+                                             'judgment': part_judgment.metadata()}]}}
+        seen = {}
+
+        def judge(sources, **kwargs):
+            seen.update(kwargs)
+            return {'records': [record(self.cid, 1, 'full', [{'source_id': ANNEXURE['id'],
+                                                               'quote': self.pointed_quote}])], 'traces': []}
+        result = rejudge_credit(export, service=None, evaluate_fn=judge, sources=ssr_pages)
+        self.assertEqual([w['id'] for w in seen['fixed_contexts'][self.code]], ['page-7'])   # packet only, page first
+        self.assertEqual((result['merge'][0]['decision'], result['merge'][0]['pointed_parts']), ('replaced', ['a']))

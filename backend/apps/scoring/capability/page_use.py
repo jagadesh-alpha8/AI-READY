@@ -22,7 +22,7 @@ The targeted extra search (follow_up.py) adds windows after the first judgment; 
 An identical copy dropped by page deduplication is reported as such, with the kept page it was read as.
 """
 VERSION = 'page-use-2'
-SECOND_LAYER_ROLES = {'answer_attachment', 'answer_search', 'extraction_tag', 'credited_evidence'}
+SECOND_LAYER_ROLES = {'answer_attachment', 'answer_search', 'extraction_tag', 'credited_evidence', 'answer_points_to'}
 AFTER_JUDGMENT_ROLES = {'follow_up_search'}
 NOT_RETRIEVAL_ROLES = {'report_timestamp', 'reviewed_evidence', 'extracted_evidence'}
 DIFFERENCES_SHOWN = 10
