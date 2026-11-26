@@ -67,6 +67,8 @@ class ProductFlowTests(APITestCase):
         self.user = User.objects.create_user(username='coordinator', email='coord@example.com',
                                              role=User.Role.IQAC_COORDINATOR, institution=self.institution)
         self.client.force_authenticate(self.user)
+        from .publication_fixtures import every_result_published
+        every_result_published(self)
         ssr = Document.objects.create(sprint=self.sprint, document_type='naac_ssr', status='processed')
         for n, text in enumerate(PAGES, 1):
             DocumentPage.objects.create(document=ssr, page_number=n, text=text)

@@ -31,6 +31,8 @@ class CapabilityAPITests(APITestCase):
         self.user = User.objects.create_user(username='coordinator', email='coord@example.com',
             role=User.Role.IQAC_COORDINATOR, institution=self.institution)
         self.client.force_authenticate(self.user)
+        from .publication_fixtures import every_result_published
+        every_result_published(self)
         doc = Document.objects.create(sprint=self.sprint, document_type='naac_ssr')
         self.page = DocumentPage.objects.create(document=doc, page_number=1,
             text='Current institutional evidence for every faculty and student in 2025-26.')

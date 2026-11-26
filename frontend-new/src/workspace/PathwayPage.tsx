@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
 import { RequireSprint } from '../components/RequireSprint';
-import { Empty, ErrorState, Loading } from '../components/ui';
+import { ErrorState, Loading } from '../components/ui';
 import { pathOf } from '../navigation';
 import type { Sprint } from '../types/api';
 import { whole } from '../utils/levels';
 import { Icon, Stars } from './Icon';
 import { LevelLadder, NextLevel } from './ResultParts';
+import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
 
 /** Transformation › Your pathway: the five levels, where you are, what the next one takes, and the foundation goals. */
@@ -17,7 +18,7 @@ function Body({ sprint }: { sprint: Sprint }) {
   const { cap, view } = useResultView(sprint.id);
   if (cap.loading) return <Loading label="Loading your pathway…" />;
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
-  if (!view) return <Empty title="No result yet" action={<Link className="btn primary" to={pathOf('assessment')}>Go to the assessment</Link>}>Your pathway appears once the assessment has run.</Empty>;
+  if (!view) return <NoResult cap={cap}>Your pathway appears once the assessment has run.</NoResult>;
   const goals = cap.foundation?.goals || [];
   const routes = cap.foundation?.routes || [];
 

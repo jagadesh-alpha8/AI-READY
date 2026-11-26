@@ -4,6 +4,7 @@ import { Empty, ErrorState, Loading } from '../components/ui';
 import { pathOf } from '../navigation';
 import type { Sprint } from '../types/api';
 import { Icon } from './Icon';
+import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
 
 /**
@@ -25,7 +26,7 @@ function Body({ sprint }: { sprint: Sprint }) {
   if (cap.loading) return <Loading label="Loading the paces…" />;
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
   const plan = cap.foundation;
-  if (!view || !plan) return <Empty title="No result yet" action={<Link className="btn primary" to={pathOf('assessment')}>Go to the assessment</Link>}>The paces appear once the assessment has run.</Empty>;
+  if (!view || !plan) return <NoResult cap={cap}>The paces appear once the assessment has run.</NoResult>;
   if (!plan.goals.length) return <Empty title="Your foundations are in place">Every foundation goal is already shown in your documents. See your pathway for what the next level takes.</Empty>;
 
   const goal = Object.fromEntries(plan.goals.map((g) => [g.id, g]));

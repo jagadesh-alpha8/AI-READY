@@ -89,4 +89,7 @@ h2, h3 { break-after: avoid; page-break-after: avoid; }
 .sub { margin-top: 12px; page-break-inside: auto; }
 .sub h3 { font-size: 10pt; }
 .note { background: #f4f8ed; border: 1px solid #dce5d5; border-radius: 6px; padding: 10px 14px; font-size: 9.5pt; }
-</style>
+{% if draft %}/* The draft gate (capability/publication.py): staff only ever get this; a college can't download a draft. */
+@page { @top-center { content: "DRAFT \00B7  text not yet written and checked \00B7  for InGage review"; font-family: "DM Sans", Helvetica, Arial, sans-serif; font-size: 8pt; font-weight: 700; color: #b42318; } }
+.sheet::before { content: "Draft. The text of this report has not yet been written and checked. It is for InGage review and can't be downloaded by the college."; display: block; background: #fdecea; color: #b42318; border: 1px solid #f3b8b2; border-radius: 4px; padding: 8px 12px; margin-bottom: 18px; font-size: 9pt; font-weight: 600; }
+{% endif %}</style>

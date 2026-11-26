@@ -795,3 +795,28 @@ class CapabilityExplanation(models.Model):
     class Meta:
         ordering = ['created_at']
         indexes = [models.Index(fields=['run', 'event_id'])]
+
+
+class CapabilityPublication(models.Model):
+    """Which completed result of a sprint its college sees (capability/publication.py). InGage staff choose; nothing
+    is published by itself, a final result included. Append-only history: the newest row of a sprint is the current
+    choice, and a row with no run withdraws it. Never read to decide a score."""
+    id = models.BigAutoField(primary_key=True)
+    sprint = models.ForeignKey('sprints.Sprint', on_delete=models.PROTECT, related_name='capability_publications')
+    run = models.ForeignKey(CapabilityRun, on_delete=models.PROTECT, null=True, blank=True, related_name='publications')
+    published_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+')
+    note = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    objects = CapabilityHistoryQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError('Capability publications are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('Capability history cannot be deleted.')
+
+    class Meta:
+        ordering = ['-id']
+        indexes = [models.Index(fields=['sprint', '-id'])]

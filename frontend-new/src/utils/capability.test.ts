@@ -88,3 +88,28 @@ test("a part-credit run's level is its score band, whatever the rubric's badge p
   assert.equal(achievedTier({ tiers: [], badge_policy: 'not_calibrated', score: 0 }), 'Starting out');
   assert.equal(achievedTier({ tiers: [tier('Silver', 'demonstrated')], badge_policy: 'not_calibrated' }), null);
 });
+
+test('the screens show the published run, never just the newest one', async () => {
+  const { shownRun } = await import('./capability.ts');
+  const job = (id: string, status = 'completed', stage: 'provisional' | 'final' = 'provisional', provisional_run_id: string | null = null) =>
+    ({ id, status, stage, provisional_run_id, created_at: '', stalled: false }) as never;
+  const list = [job('new'), job('final', 'completed', 'final', 'stage1'), job('stage1'), job('failed', 'failed')];
+  const pub = (run_id: string, stage: 'provisional' | 'final' = 'provisional', provisional_run_id: string | null = null) =>
+    ({ run_id, stage, provisional_run_id, published_at: '', published_by: null, note: '' });
+
+  // Published final: its Stage 1 run carries the questions; a newer completed run waits for staff.
+  const final = shownRun(list, pub('final', 'final', 'stage1'), false);
+  assert.deepEqual([final.id, final.stage, final.provisionalId, final.published, final.preview], ['final', 'final', 'stage1', true, false]);
+  assert.equal(final.newer && (final.newer as { id: string }).id, 'new');
+  // Published newest: nothing newer.
+  assert.equal(shownRun(list, pub('new'), false).newer, null);
+  // A published run beyond the list's first page is older than the newest on it.
+  assert.equal((shownRun(list, pub('old'), true).newer as { id: string }).id, 'new');
+  // Nothing published: staff preview the newest completed run; a college sees nothing, "being prepared".
+  const preview = shownRun(list, null, true);
+  assert.deepEqual([preview.id, preview.preview, preview.published], ['new', true, false]);
+  const college = shownRun(list, null, false);
+  assert.deepEqual([college.id, college.preparing, college.provisionalId], ['', true, '']);
+  // No completed run at all: nothing to prepare.
+  assert.equal(shownRun([job('x', 'running'), job('y', 'failed')], null, false).preparing, false);
+});

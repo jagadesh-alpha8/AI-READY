@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { RequireSprint } from '../components/RequireSprint';
-import { Empty, ErrorState, Loading } from '../components/ui';
+import { ErrorState, Loading } from '../components/ui';
 import { useResource } from '../hooks/useResource';
 import { pathOf } from '../navigation';
 import { getQuestions } from '../services/capability';
@@ -8,6 +8,7 @@ import type { Sprint } from '../types/api';
 import { whole } from '../utils/levels';
 import { Icon, Stars } from './Icon';
 import { ActionCard, AreaBars, FocusCards, LevelLadder, LevelRing, NextLevel, StrengthCards } from './ResultParts';
+import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
 
 /** The college's dashboard (Vijay, 23 Nov): the level, what you do well, where to focus, and the next step. */
@@ -24,9 +25,9 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
   if (!view) {
     return (
-      <Empty title="No result yet" action={<Link className="btn primary" to={pathOf('uploads')}>Send your documents</Link>}>
+      <NoResult cap={cap} action={<Link className="btn primary" to={pathOf('uploads')}>Send your documents</Link>}>
         Send your institution's documents, then run the assessment. Your readiness level and the areas to focus on appear here.
-      </Empty>
+      </NoResult>
     );
   }
   const progress = questions.data?.progress;
@@ -59,7 +60,12 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
 
         <section className="next-action">
           <div className="eyebrow">Your next best step</div>
-          {closed ? (
+          {closed && !view.final ? (
+            <>
+              <h2>Your final result is being prepared.</h2>
+              <p>The follow-up questions are closed. InGage checks your final result before it is shown here; until then this is your Stage 1 result.</p>
+            </>
+          ) : closed ? (
             <>
               <h2>Plan the road to {view.level.next?.name || 'staying at the top'}.</h2>
               <p>Your final result is ready. Your pathway shows which steps move you up fastest.</p>
