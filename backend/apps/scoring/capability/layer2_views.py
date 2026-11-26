@@ -89,10 +89,19 @@ def serialize_additional(item):
 
 class _RunScoped(APIView):
     permission_classes = [CanManageSprint]
+    # The college's own screens (questions, answers, evidence) follow the result's visibility; the job controls are
+    # the operator's and keep working on an unpublished result, which is how its text gets written.
+    follows_visibility = True
 
     def execution(self, request, sprint_id, run_id):
+        from .publication import require_visible
         sprint = get_authorized_sprint(request.user, sprint_id)
-        return get_object_or_404(CapabilityExecution.objects.select_related('run'), run_id=run_id, sprint=sprint)
+        execution = get_object_or_404(CapabilityExecution.objects.select_related('run'), run_id=run_id, sprint=sprint)
+        # The follow-up stage belongs to a result the college can see: a college login gets no questions, answers or
+        # jobs for a Stage 1 result that is not published to it (staff: every run).
+        if self.follows_visibility:
+            require_visible(request.user, execution)
+        return execution
 
     @staticmethod
     def documents(execution, ids):
@@ -243,6 +252,7 @@ class AdditionalEvidenceView(_RunScoped):
 
 
 class JobsView(_RunScoped):
+    follows_visibility = False
     def get(self, request, sprint_id, run_id):
         execution = self.execution(request, sprint_id, run_id)
         rows = SecondLayerJob.objects.filter(run=execution.run)[:100]
@@ -267,12 +277,14 @@ class JobsView(_RunScoped):
 
 
 class JobView(_RunScoped):
+    follows_visibility = False
     def get(self, request, sprint_id, run_id, job_id):
         execution = self.execution(request, sprint_id, run_id)
         return Response(jobs.summary(get_object_or_404(SecondLayerJob, pk=job_id, run=execution.run)))
 
 
 class JobCancelView(_RunScoped):
+    follows_visibility = False
     def post(self, request, sprint_id, run_id, job_id):
         execution = self.execution(request, sprint_id, run_id)
         job = get_object_or_404(SecondLayerJob, pk=job_id, run=execution.run)

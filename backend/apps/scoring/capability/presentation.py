@@ -48,14 +48,63 @@ def _sentence(text):
 SHORT_QUOTE = 6   # words: a shorter quotation ("The firewall is upgraded to") tells a reader nothing
 
 
+_STOP_END = re.compile(r'\b(to|of|the|a|an|and|or|for|with|in|on|from|by|at|as|that|which|is|are|was|were|has|have|'
+                       r'its|their|our|this|these|between|into|under|than|such|including|other|various|several|both|each|'
+                       r'all|any|some|more|e\.g)$')   # lower case: "Dr. Banushri.A" ends a name, not a sentence
+_TOKEN_CODE = re.compile(r'^(?:[\d.,:/%()-]+|[A-Z]|[A-Z0-9]*\d[A-Z0-9]*|[-–—:|])$')
+_METRIC_HEADING = re.compile(r'\b(?:year-?wise|during the last (?:five|5) years)\b|'
+                             r'^(?:(?:Average |Total )?(?:percentage|number) of|Details of)\b', re.I)   # NAAC metric titles
+
+
+def unreadable(text):
+    """Why a quotation can't be printed for a reader to make sense of, or '' when it can (audit, 26 Nov). The record's
+    quotations are exact text from the college's documents, which is the point of them, but extraction leaves some
+    that are only shards: a sentence cut off mid-clause ("The firewall is upgraded to"), a heading ("LIST OF DOCUMENTS
+    UPLOADED"), a table's header row or a row whose cells came out empty or shifted ("Cycle Info: B | Accreditation:
+    2.58 | | Grade: | CGPA:"), course codes and credit columns, or the extractor's own note on a table ("[Table 1 on
+    page 37 -- columns: ...]"). A filled table row ("Name of the Collaborative Skill Partners: ImaginXP") is kept."""
+    t = re.sub(r'\s+', ' ', str(text or '')).strip()
+    words = t.split()
+    if len(words) < SHORT_QUOTE:
+        return 'too short'
+    if t.startswith('[') or '-- columns:' in t:
+        return 'extraction note'
+    letters = [c for c in t if c.isalpha()]
+    if not letters:
+        return 'no words'
+    cells = [c.strip() for c in t.strip('|').split('|')] if '|' in t else []
+    if len(cells) >= 2:
+        empty = sum(1 for c in cells if not c or re.fullmatch(r'[^:]*:\s*[-–]?', c) or re.fullmatch(r'[-–]+(?::\s*[-–]+)?', c))
+        mirrored = sum(1 for c in cells if ':' in c and c.split(':', 1)[0].strip() == c.split(':', 1)[1].strip())
+        # A row with a whole sentence in it reads as that sentence ("Dr.M.Ramprabha: | Two Days Workshop on ...").
+        if (empty * 3 >= len(cells) or mirrored) and max(len(c.split()) for c in cells) < 12:
+            return 'table row with empty or shifted cells'
+    tokens = [w for w in re.split(r'[\s|]+', t) if w]
+    if tokens and sum(1 for w in tokens if _TOKEN_CODE.match(w)) * 2 > len(tokens):
+        return 'mostly codes and numbers'
+    caps = sum(c.isupper() for c in letters) / len(letters)
+    if caps > 0.7 and len(words) <= 8 and not cells:
+        return 'heading'
+    if not cells and re.match(r'[a-z]', t):
+        return 'starts mid-sentence'
+    if not cells and not re.search(r'[.!?)\u201d"]$', t):
+        if t.count('(') > t.count(')'):
+            return 'cut off mid-sentence'
+        if _STOP_END.search(t.rstrip(',;:')) or re.search(r',\s*\w+$', t) or t.endswith(':'):
+            return 'cut off mid-sentence'
+        if _METRIC_HEADING.search(t) and not re.search(r'\d', t):
+            return 'heading'
+    return ''
+
+
 def _readable_cite(cite, cites):
-    """The citation a report prints: the chosen one, or, when its quotation is too short to read alone, the longest
-    other quotation of the same requirement; with none long enough, the source alone (its quotation blank)."""
-    words = lambda c: len(str((c or {}).get('quote') or '').split())
-    if cite is None or words(cite) >= SHORT_QUOTE:
+    """The citation a report prints: the chosen one, or, when its quotation can't be read on its own (unreadable),
+    the most readable other quotation of the same requirement; with none, the source alone (its quotation blank)."""
+    if cite is None or not unreadable(cite.get('quote')):
         return cite
-    longer = max((c for c in cites if words(c) >= SHORT_QUOTE), key=words, default=None)
-    return longer or {**cite, 'quote': ''}
+    readable = [c for c in cites if c.get('quote') and not unreadable(c.get('quote'))]
+    better = max(readable, key=lambda c: (quote_quality(c.get('quote'), 1), len(str(c.get('quote')))), default=None)
+    return better or {**cite, 'quote': ''}
 
 
 def _quote(text, limit=190):
@@ -430,7 +479,7 @@ def build(payload):
                 if cr >= 0.5:
                     for c in cites:
                         q = quote_quality(c.get('quote'), cr)
-                        if q > 0:
+                        if q > 0 and not unreadable(c.get('quote')):
                             candidates.append((q, -_level_of(condition['id']), c))
                 explanation = (record or {}).get('explanation') or {}
                 label, looked_for = practice_label(condition['id'], condition['text'])

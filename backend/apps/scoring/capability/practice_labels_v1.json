@@ -190,7 +190,7 @@
     "AIQIF-C7.3.O2": {"label": "Effect of a support change", "looked_for": "A follow-up judges what a change to project support achieved."},
 
     "AIQIF-C7.4.F1": {"label": "A work plan with a partner", "looked_for": "A work plan for a collaboration sets out real AI research or application work."},
-    "AIQIF-C7.4.F2": {"label": "The partner's part", "looked_for": "A partner in a collaboration is given responsibility for planned AI work."},
+    "AIQIF-C7.4.F2": {"label": "The partner's part", "looked_for": "A partner in a collaboration is assigned its own part of the planned AI work."},
     "AIQIF-C7.4.A1": {"label": "AI work delivered with a partner", "looked_for": "A record shows AI work actually done with a partner, beyond signing an agreement."},
     "AIQIF-C7.4.A2": {"label": "Partner or beneficiary feedback", "looked_for": "Feedback from a partner or beneficiary judges a piece of AI work that was delivered."},
     "AIQIF-C7.4.O1": {"label": "Benefit against the objective", "looked_for": "A review judges knowledge transfer or a benefit to others against a stated objective."},
