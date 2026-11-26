@@ -124,7 +124,6 @@ def policy(stage='assessment'):
             'cost_policy': 'reserve_utf8_bytes_plus_4096_tokens_at_configured_max_rates'}
 
 
-@transaction.atomic
 def _setting_text(name):
     value = getattr(settings, name, None)
     if isinstance(value, bool):
@@ -168,6 +167,7 @@ def judgment_refusal():
     return None
 
 
+@transaction.atomic
 def start(*, sprint, user, idempotency_key, population=None, reference_period=None, scope_mode=None, refines_run_id=None, confirmed_source_institution=None):
     # Serializes competing keys as well as repeated requests for this sprint (PostgreSQL).
     Sprint.objects.select_for_update().get(pk=sprint.pk)
