@@ -292,6 +292,9 @@ class NextStepsFlowTests(APITestCase):
             self.assertTrue({'evidence_in', 'why', 'records', 'quote'} <= set(p), p['id'])
             if p['status'] != 'missing':
                 self.assertTrue(p['evidence_in'], p['id'])
+        topics = [t for c in v['cards'] for t in c['topics']]
+        self.assertTrue(all(t['definition'] and (t['verdict'] or t['line']) for t in topics))
+        self.assertGreaterEqual(v['pages'], v['documents'])
 
     def test_imported_answers_go_through_the_same_checks(self):
         import io, tempfile
