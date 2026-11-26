@@ -22,9 +22,9 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from apps.extraction.exceptions import AIOutputTruncated, PermanentExtractionError, RecoverableExtractionError
-from apps.extraction.usage import DB_WRITE_LOCK, usage_scope
+from apps.extraction.usage import usage_scope
 
-from . import packet, spec
+from . import packet, spec, tagging
 from .models import MapJob, MapPage
 
 logger = logging.getLogger(__name__)
@@ -139,26 +139,6 @@ def _keep(indicator, candidates, response, rubric, counts):
     return out
 
 
-def add_tags(*, map_version, model, found):
-    """Append checked tags to the pages' stored rows (never to a row that is not tagged)."""
-    added = 0
-    with DB_WRITE_LOCK:
-        for text_hash, tags in found.items():
-            row = MapPage.objects.filter(map_version=map_version, model=model, text_hash=text_hash,
-                                         status=MapPage.Status.TAGGED).first()
-            if row is None:
-                continue
-            existing = {(t.get('indicator'), tuple(t.get('requirements') or []), t.get('strength'),
-                         spec.normal(t.get('quote'))) for t in row.tags}
-            new = [t for t in tags if (t['indicator'], tuple(t['requirements']), t['strength'],
-                                       spec.normal(t['quote'])) not in existing]
-            if new:
-                row.tags = list(row.tags) + new
-                row.save(update_fields=['tags'])
-                added += len(new)
-    return added
-
-
 def run(sprint, *, map_version, model=None, per_requirement=PER_REQUIREMENT, max_cost_usd=0.5, indicators=None,
         service=None, log=None):
     """Check the sprint's candidates, one request per indicator. Returns the MapJob (shape check-1)."""
@@ -196,7 +176,7 @@ def run(sprint, *, map_version, model=None, per_requirement=PER_REQUIREMENT, max
                 say(f'{indicator["code"]}: request failed ({type(exc).__name__}); its pages stay unchecked')
                 continue
             found = _keep(indicator, candidates, response, work['rubric'], counts)
-            added = add_tags(map_version=map_version, model=model, found=found)
+            added = tagging.add_tags(map_version=map_version, model=model, found=found)
             asked[indicator['code']] = sorted({c['hash'] for c in candidates})
             MapJob.objects.filter(pk=job.pk).update(chunks_done=len(asked), requests=len(asked),
                                                     pages_tagged=sum(len(v) for v in asked.values()),

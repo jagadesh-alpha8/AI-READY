@@ -348,3 +348,24 @@ def coverage(sprint, version, model, documents=None):
         counts[row.status if row else 'not_tagged'] += 1
     counts['unreadable'] = sum(d['unreadable'] for d in docs)
     return {'pages': len(hashes), **counts}, rows, hashes
+
+
+def add_tags(*, map_version, model, found):
+    """Append tags that did not come from tagging (each with an `origin`) to the pages' stored rows, never to a
+    row that is not tagged, and never twice. Returns how many were added."""
+    added = 0
+    with DB_WRITE_LOCK:
+        for text_hash, tags in found.items():
+            row = MapPage.objects.filter(map_version=map_version, model=model, text_hash=text_hash,
+                                         status=MapPage.Status.TAGGED).first()
+            if row is None:
+                continue
+            existing = {(t.get('indicator'), tuple(t.get('requirements') or []), t.get('strength'),
+                         spec.normal(t.get('quote'))) for t in row.tags}
+            new = [t for t in tags if (t['indicator'], tuple(t['requirements']), t['strength'],
+                                       spec.normal(t['quote'])) not in existing]
+            if new:
+                row.tags = list(row.tags) + new
+                row.save(update_fields=['tags'])
+                added += len(new)
+    return added
