@@ -7,6 +7,7 @@ templates print what this returns. The front end's workspace/useResult.ts shapes
 
 Design: claude/ai-ready-leadership-report-design.md (AI Readiness project).
 """
+import math
 import re
 from functools import lru_cache
 
@@ -42,6 +43,19 @@ def _counted(record):
 def _sentence(text):
     text = re.sub(r'\s+', ' ', str(text or '')).strip()
     return text[0].upper() + text[1:] if text else ''
+
+
+SHORT_QUOTE = 6   # words: a shorter quotation ("The firewall is upgraded to") tells a reader nothing
+
+
+def _readable_cite(cite, cites):
+    """The citation a report prints: the chosen one, or, when its quotation is too short to read alone, the longest
+    other quotation of the same requirement; with none long enough, the source alone (its quotation blank)."""
+    words = lambda c: len(str((c or {}).get('quote') or '').split())
+    if cite is None or words(cite) >= SHORT_QUOTE:
+        return cite
+    longer = max((c for c in cites if words(c) >= SHORT_QUOTE), key=words, default=None)
+    return longer or {**cite, 'quote': ''}
 
 
 def _quote(text, limit=190):
@@ -118,6 +132,12 @@ def _best_cite(cites, credit):
     return best[2]
 
 
+def whole(value):
+    """A score as the reports and the screens print it: rounded half up (62.5 prints 63, as the website's
+    Math.round does; Python's round() would print 62)."""
+    return int(math.floor(float(value or 0) + 0.5))
+
+
 def _doc_names(payload):
     names = set()
     for d in payload.get('source_manifest') or []:
@@ -127,14 +147,29 @@ def _doc_names(payload):
     return sorted(names, key=len, reverse=True)
 
 
+def _plain(explanation):
+    """A requirement's text on the plain fallback: flagged since explanations-0.3, and recognisable in older stored
+    text by its form ("Your <document>, page N records: \"...\".")."""
+    return bool(explanation.get('fallback')) or bool(
+        re.match(r'^Your .+, page \d+ records: "', str(explanation.get('found') or '')))
+
+
+def _no_prefix(text):
+    """The reports print "Next" in front of a practice's next step: an older stored fallback began "Next step:"."""
+    t = re.sub(r'^\s*Next step:\s*', '', text or '')
+    return t[:1].upper() + t[1:]
+
+
 def clean_text(text, names):
     """Model-written explanation text, made easier to read: NAAC criterion file codes ("criteria 1 - 1.4.1") become
     plain words, and a document named again in the same passage becomes "the same document"."""
     t = re.sub(r'\s+', ' ', str(text or '')).strip()
     if not t:
         return ''
-    t = re.sub(r'\b[Cc]riteria\s+\d+\s*-\s*[0-9]+(?:\.[0-9]+)*[a-z]?\b|\b[Cc]riteria\s+\d+\s*-\s*[a-z]\b',
-               'the NAAC criterion files', t)
+    code = r'[Cc]riteria\s+\d+\s*-\s*(?:[0-9]+(?:\.[0-9]+)*[a-z]?|[a-z])\b'
+    # "Document criteria 1 - 1.4.2 notes ..." (the model naming one file): one file, so "A NAAC criterion file notes".
+    t = re.sub(r'\b([Dd])ocument\s+' + code, lambda m: ('A' if m.group(1) == 'D' else 'a') + ' NAAC criterion file', t)
+    t = re.sub(r'\b' + code, 'the NAAC criterion files', t)
     t = re.sub(r'(the NAAC criterion files)(,? (?:and|or) the NAAC criterion files)+', r'\1', t)
     for name in names:
         pattern = re.compile(r'(\b[Tt]he\s+)?' + re.escape(name))
@@ -290,7 +325,7 @@ def card_view(area, step, word):
 def level(score):
     band = tier_for(score)
     # Counted from the score as printed (a reader subtracts: "21 out of 100", so 19 to 40), never below one point.
-    to_next = max(1, int(round(score + band['points_to_next'])) - int(round(score))) if band['next'] else 0
+    to_next = max(1, whole(score + band['points_to_next']) - whole(score)) if band['next'] else 0
     return {'name': band['current'], 'stars': band['stars'], 'meaning': band['meaning'],
             'next': band['next'], 'next_stars': band['stars'] + 1 if band['next'] else None,
             'points_to_next': to_next}
@@ -360,7 +395,7 @@ def build(payload):
                     partly += 1
                 cites = (record or {}).get('citations') or [c for p in (record or {}).get('parts') or []
                                                             for c in p.get('citations') or []]
-                cite = _best_cite(cites, cr)
+                cite = _readable_cite(_best_cite(cites, cr), cites)
                 if cr >= 0.5:
                     for c in cites:
                         q = quote_quality(c.get('quote'), cr)
@@ -375,8 +410,10 @@ def build(payload):
                              'stage': STAGE_WORDS.get(condition['id'].rsplit('.', 1)[-1][:1], ''),
                              'quote': _quote(cite['quote'], 260) if cite and cr > 0 else '',
                              'source': pages.get(str(cite.get('source_id')), '') if cite and cr > 0 else '',
-                             'found': clean_text(explanation.get('found'), names),
-                             'next_step': clean_text(explanation.get('next_step'), names),
+                             # A requirement still on the plain fallback has no written finding (its fallback only
+                             # restated the quotation): the quotation below says it, with its document and page.
+                             'found': '' if _plain(explanation) else clean_text(explanation.get('found'), names),
+                             'next_step': _no_prefix(clean_text(explanation.get('next_step'), names)),
                              'follow_up': explanation.get('follow_up') or ''})
             iscore = indicator_scores.get(indicator['code'], {}).get('score')
             exp = indicator.get('explanation') or indicator_scores.get(indicator['code'], {}).get('explanation') or {}
@@ -448,7 +485,7 @@ def build(payload):
         picks += [('Also strong', ordered[1])] if len(ordered) > 2 and ordered[1]['score'] > 0 else []
         picks += [('Weakest', ordered[-1])]
         summary_lines = [{'label': l, 'area': a['name'], 'fact': a['card']['headline']} for l, a in picks]
-    shown_whole = int(round(min(100.0, score + held_points)))
+    shown_whole = whole(min(100.0, score + held_points))
     if strengths:
         summary = f"Your documents show the most in {strengths[0]['name']}"
         summary += f", followed by {strengths[1]['name']}." if len(strengths) > 1 else '.'
@@ -460,8 +497,8 @@ def build(payload):
     return {'institution': (payload.get('scope') or {}).get('institution', {}).get('assessed_name')
             or payload['profile'].get('name', ''),
             'final': final, 'stage_label': 'Final result' if final else 'Stage 1 result: from your documents',
-            'score': score, 'score_whole': int(round(score)), 'level': overall, 'levels': levels_table(),
-            'held_points': held_points, 'held_whole': int(round(held_points)),
+            'score': score, 'score_whole': whole(score), 'level': overall, 'levels': levels_table(),
+            'held_points': held_points, 'held_whole': whole(held_points),
             'held_share_text': ('a quarter' if abs(float(reserve.get('share') or 0) - 0.25) < 1e-9
                                 else f"{float(reserve.get('share') or 0) * 100:g}%"),
             'shown_score': min(100.0, score + held_points),
@@ -474,10 +511,10 @@ def build(payload):
             'routes': routes, 'requirements': sum(a['requirements'] for a in areas),
             'cards': ordered, 'card_pages': [ordered[i:i + CARDS_PER_PAGE] for i in range(0, len(ordered), CARDS_PER_PAGE)],
             'summary_lines': summary_lines, 'start_here': [a for a in actions if a.get('start_here')],
-            'basics': {'score': basics, 'whole': int(round(basics)), 'level': level(basics)['name'],
+            'basics': {'score': basics, 'whole': whole(basics), 'level': level(basics)['name'],
                        'reaches_next': bool(overall['next']) and level(basics)['stars'] > overall['stars']},
             'institution_word': word, 'stage1': not final,
-            'confirmed_whole': int(round(score)), 'shown_whole': shown_whole,
+            'confirmed_whole': whole(score), 'shown_whole': shown_whole,
             'to_next_if_confirmed': max(0, levels_table()[min(4, overall['stars'])]['from'] - shown_whole)
             if overall['next'] else 0,
             'pages': sum(len(d.get('pages') or []) for d in payload.get('source_manifest') or []),
