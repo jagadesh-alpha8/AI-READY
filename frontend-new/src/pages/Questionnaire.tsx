@@ -1,11 +1,12 @@
 import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { RequireSprint } from '../components/RequireSprint';
 import { Empty, ErrorState, Loading, Notice, PageHeading, PageLink, Panel, Pill, Stat, Table, Tabs } from '../components/ui';
 import { useAccess } from '../hooks/useAccess';
 import { useCapability } from '../hooks/useCapability';
 import { usePolling, useResource } from '../hooks/useResource';
 import {
-  addAdditionalEvidence, answerFollowUp, answerQuestion, cancelSecondLayerJob, getNextQuestion, getResponse,
+  addAdditionalEvidence, answerFollowUp, answerQuestion, cancelSecondLayerJob, getNextQuestion, getQuestions, getResponse,
   listAdditionalEvidence, listSecondLayerJobs, markToCheck, startSecondLayerJob,
   type AdditionalEvidenceItem, type Layer2Next, type Layer2Progress, type Layer2Questions, type Layer2Response, type SecondLayerJob,
   type SecondLayerJobList, type SecondLayerOperation,
@@ -13,7 +14,7 @@ import {
 import { startExtraction, uploadDocument } from '../services/documents';
 import { decideReviewCase, getReviewBatch, startReviewBatch } from '../services/facts';
 import type { Sprint } from '../types/api';
-import type { Run } from '../types/capability';
+import type { Run, ScreenPractice } from '../types/capability';
 import type { ReviewBatch, ReviewCase } from '../types/workflow';
 import { DEMO_MODE } from '../config/env';
 import { areaTitle } from '../utils/areaTitles';
@@ -53,6 +54,7 @@ export function Questionnaire() {
 }
 
 function Body({ sprint }: { sprint: Sprint }) {
+  const { staff } = useAccess();
   const [tab, setTab] = useState<Tab>(DEMO_MODE ? 'line2' : 'line1');
   const cap = useCapability(sprint.id);
   return (
@@ -62,9 +64,15 @@ function Body({ sprint }: { sprint: Sprint }) {
       <Tabs tabs={TABS} value={tab} onChange={setTab} label="Questionnaire" />
       {tab === 'line1' && <LineOne sprint={sprint} />}
       {tab !== 'line1' && (cap.loading ? <Loading /> : cap.error ? <ErrorState error={cap.error} /> : !cap.run.data ? (
-        <Empty title="No Stage 1 result yet" action={<PageLink to="assessment" className="primary-action">Go to the assessment</PageLink>}>
-          The follow-up questions and additional evidence belong to a completed assessment run. Finish the evidence review, then run the assessment.
-        </Empty>
+        staff ? (
+          <Empty title="No Stage 1 result yet" action={<PageLink to="assessment" className="primary-action">Go to the assessment</PageLink>}>
+            The follow-up questions and additional evidence belong to a completed assessment run. Finish the evidence review, then run the assessment.
+          </Empty>
+        ) : (
+          <Empty title="Your follow-up questions come with your Stage 1 result">
+            Once your documents have been read and your Stage 1 result is out, the questions appear here.
+          </Empty>
+        )
       ) : tab === 'line2'
         ? <LineTwo sprint={sprint} run={cap.run.data} runId={cap.provisionalId} onFinal={() => void cap.runs.refetch()} />
         : <AdditionalEvidence sprint={sprint} run={cap.run.data} runId={cap.provisionalId} closed={cap.stage === 'final'} />)}
@@ -247,6 +255,18 @@ function ReviewItem({ sprint, item, position, total, onSkip, onDone }: {
 function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; runId: string; onFinal: () => void }) {
   const { staff } = useAccess();
   const next = useResource<Layer2Questions>(() => getNextQuestion(sprint.id, runId), `l2:${runId}`);
+  // A question opened by name (?question=…), from a practice not found on the Results page or from Your answers.
+  const [params, setParams] = useSearchParams();
+  const asked = params.get('question') || '';
+  const listed = useResource<Layer2Questions>(() => getQuestions(sprint.id, runId), `l2-list:${runId}:${asked}`, !!asked);
+  const chosen = asked ? listed.data?.questions?.find((q) => q.id === asked && !q.response && q.status === 'open') : undefined;
+  const clearAsked = () => { const p = new URLSearchParams(params); p.delete('question'); setParams(p, { replace: true }); };
+  // What Stage 1 found for each practice, from the result view the Results page shows (merged design, 27 Nov).
+  const practices = useMemo(() => {
+    const m = new Map<string, ScreenPractice>();
+    for (const c of run.next_steps?.presentation?.cards || []) for (const t of c.topics) for (const p of t.practices) m.set(p.id, p);
+    return m;
+  }, [run]);
   const [answered, setAnswered] = useState<Layer2Response[]>([]);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
   const p = next.data?.progress;
@@ -271,7 +291,9 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
     <>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
       {p?.final_run_id && (
-        <Notice tone="success">The follow-up stage is closed and the {FINAL_SCORE} has been published (run {p.final_run_id.slice(0, 8)}). Reports, recommendations and plan comparison now use it.</Notice>
+        staff
+          ? <Notice tone="success">The follow-up stage is closed and the {FINAL_SCORE} has been published (run {p.final_run_id.slice(0, 8)}). Reports, recommendations and plan comparison now use it.</Notice>
+          : <Notice tone="success">The follow-up questions are closed and your final result is out. It is on your Overview, and your answers stay under Your answers.</Notice>
       )}
       {notice && !p?.final_run_id && (
         <Panel title={notice.title}>
@@ -296,12 +318,20 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
         staff
           ? <Empty title="No follow-up questions yet">Questions for this run have not been planned yet. They are planned by themselves once the Stage 1 result is published; “Plan follow-up questions” above starts it by hand.</Empty>
           : <Empty title="Your follow-up questions are being prepared">They appear here once they are ready. This page updates by itself.</Empty>
+      ) : chosen ? (
+        <>
+          <p className="ws-row"><button type="button" className="text-btn" onClick={clearAsked}>Back to the most important question</button></p>
+          <QuestionItem key={`chosen:${chosen.id}`} sprint={sprint} runId={runId} found={practices}
+            item={{ type: 'question', text: chosen.text, question: chosen, response_id: null }}
+            position={(p.answered || 0) + 1} total={p.questions}
+            onDone={(r, text) => { if (r) setAnswered((a) => [r, ...a]); setMsg({ tone: 'success', text }); clearAsked(); void next.refetch(); }} />
+        </>
       ) : !next.data?.next ? (
-        <Empty title="All questions answered" action={<PageLink to="cri" className="primary-action">See the report</PageLink>}>
+        <Empty title="All questions answered" action={<PageLink to="areas" className="primary-action">See your nine areas</PageLink>}>
           {p.checks_waiting ? `${p.checks_waiting} answer(s) are still being checked against the documents.` : 'Every question has an answer or was skipped.'}
         </Empty>
       ) : (
-        <QuestionItem key={`${next.data.next.type}:${next.data.next.response_id || next.data.next.question.id}`} sprint={sprint} runId={runId} item={next.data.next}
+        <QuestionItem key={`${next.data.next.type}:${next.data.next.response_id || next.data.next.question.id}`} sprint={sprint} runId={runId} item={next.data.next} found={practices}
           position={(p.answered || 0) + 1} total={p.questions}
           onDone={(r, text) => { if (r) setAnswered((a) => [r, ...a]); setMsg({ tone: 'success', text }); void next.refetch(); }} />
       )}
@@ -574,10 +604,33 @@ const OPTIONS: { key: Option; label: string; help: string }[] = [
   { key: 'check', label: 'I need to check', help: 'Saved for later. The question waits at the end of the list.' },
 ];
 
-function QuestionItem({ sprint, runId, item, position, total, onDone }: {
+/** "What we found at Stage 1" beside a question (merged design, 27 Nov): its practices looked up in the result
+ * view by the question's condition_ids, which are the same practice ids. */
+function StageOneFound({ ids, found }: { ids: string[]; found: Map<string, ScreenPractice> }) {
+  const ps = ids.map((id) => found.get(id)).filter((p): p is ScreenPractice => !!p);
+  if (!ps.length) return null;
+  const missing = ps.every((p) => p.status === 'missing');
+  return (
+    <div className="ws-found">
+      <strong>What we found at Stage 1</strong>
+      {missing ? (
+        <p>{ps.length === 1 ? 'Nothing in the documents you sent shows this yet.' : `Nothing in the documents you sent shows ${ps.length === 2 ? 'either of these' : 'any of these'} yet.`}</p>
+      ) : ps.map((p) => (
+        <p key={p.id}>
+          {ps.length > 1 && <b>{p.label_short}: </b>}
+          {p.status === 'missing' ? 'Not found in the documents you sent.' : [p.found, p.why].filter(Boolean).join(' ') || (p.status === 'shown' ? 'In place.' : 'Partly in place.')}
+          {!!p.evidence_in?.length && <small> {p.evidence_in.join('; ')}</small>}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function QuestionItem({ sprint, runId, item, position, total, onDone, found }: {
   sprint: Sprint; runId: string; item: Layer2Next; position: number; total: number; onDone: (r: Layer2Response | null, text: string) => void;
+  found?: Map<string, ScreenPractice>;
 }) {
-  const { can } = useAccess();
+  const { can, staff } = useAccess();
   const [option, setOption] = useState<Option | ''>(item.question.to_check ? 'check' : '');
   const [answer, setAnswer] = useState('');
   const [files, setFiles] = useState<File[]>([]);
@@ -625,10 +678,12 @@ function QuestionItem({ sprint, runId, item, position, total, onDone }: {
         <span className="eyebrow" style={{ margin: 0 }}>{followUp ? 'One follow-up' : `Question ${position} of ${total}`} · {pillarName(item.question.indicator_code.split('.')[0])}</span>
         <span className="ws-row">
           {item.question.to_check && <span className="tag">Marked to check</span>}
-          {!followUp && !!points && <span className="tag">Up to {pointsLabel(points)}</span>}
+          {/* Points to two decimals are for staff; a college's screens carry no decimals (merged design, 27 Nov). */}
+          {staff && !followUp && !!points && <span className="tag">Up to {pointsLabel(points)}</span>}
         </span>
       </div>
       <h2 className="question-text" style={{ marginTop: 12, whiteSpace: 'pre-line', fontSize: 17, lineHeight: 1.5 }}>{item.text}</h2>
+      {!followUp && found && <StageOneFound ids={item.question.condition_ids} found={found} />}
       <form onSubmit={(e) => { e.preventDefault(); void send(false); }}>
         {!followUp && OPTIONS.map((o) => (
           <label key={o.key} className={`choice ${option === o.key ? 'selected' : ''}`}>

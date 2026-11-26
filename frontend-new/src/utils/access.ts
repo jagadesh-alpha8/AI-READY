@@ -73,6 +73,7 @@ export const PAGE_ROLES = {
   aiqif: ALL_ROLES, // sprint-facts: AI-QIF indicator tags (expert queue: Super Admin)
   baseline: ALL_ROLES, // baseline-approval
   questionnaire: ALL_ROLES, // A2 second layer: review items, follow-up questions, additional evidence
+  answers: ALL_ROLES, // the follow-up answers given so far (merged website design, 27 Nov)
   actions: 'all', // ai-recommendations: grounded advice and action tracking
   plancompare: 'all', // transformation-plan: compare a written plan with the assessment
   institutions: STAFF, // institution management

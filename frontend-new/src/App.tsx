@@ -47,6 +47,7 @@ import { PathwayPage } from './workspace/PathwayPage';
 import { AssessmentPage } from './workspace/AssessmentPage';
 import { ActionsPage } from './workspace/ActionsPage';
 import { PacePage } from './workspace/PacePage';
+import { AnswersPage } from './workspace/AnswersPage';
 
 const PAGES: Record<PageKey, () => JSX.Element> = {
   overview: OverviewPage,
@@ -78,6 +79,7 @@ const PAGES: Record<PageKey, () => JSX.Element> = {
   aiqif: AIQIFTagging,
   baseline: BaselineApproval,
   questionnaire: Questionnaire,
+  answers: AnswersPage,
   actions: DEMO_MODE ? ActionsPage : RecommendedActions,
   plancompare: PlanComparison,
   institutions: Institutions,

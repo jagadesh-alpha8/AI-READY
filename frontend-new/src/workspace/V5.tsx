@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { pathOf } from '../navigation';
-import type { ScreenCard, ScreenPractice, ScreenStep, ScreenView } from '../types/capability';
+import type { ScreenPractice, ScreenStep, ScreenView } from '../types/capability';
 
 const STAR = 'M12 2.6l2.9 6.1 6.6.9-4.8 4.6 1.2 6.6L12 17.6 6.1 20.8l1.2-6.6L2.5 9.6l6.6-.9z';
 
@@ -22,7 +22,7 @@ export function StarsV5({ stars, size = 20 }: { stars: number; size?: number }) 
   );
 }
 
-const round = (n: number | null | undefined) => Math.round(n ?? 0);
+export const round = (n: number | null | undefined) => Math.round(n ?? 0);
 const clamp = (n: number) => Math.max(0, Math.min(100, n));
 
 /** A bar on the 0-100 scale with the four level lines; `extra` (to be confirmed) as a lighter part. */
@@ -149,36 +149,9 @@ export function StepV5({ s, stage1 }: { s: ScreenStep; stage1: boolean }) {
   );
 }
 
-export function AreaCardV5({ a, stage1, open, onToggle }: { a: ScreenCard; stage1: boolean; open: boolean; onToggle: () => void }) {
-  const practices = a.topics.reduce((n, t) => n + t.practices.length, 0);
-  return (
-    <section className={`v5-card${open ? ' open' : ''}`} id={a.code}>
-      <button className="v5-card-head" aria-expanded={open} onClick={onToggle}>
-        <div className="t"><strong>{a.name}</strong><span>{a.definition}</span></div>
-        <div className="r"><BarV5 score={a.score} extra={stage1 ? a.to_confirm : 0} />
-          <b>{round(a.score)}{stage1 && a.to_confirm >= 0.5 && <small className="plus">+{round(a.to_confirm)}</small>}</b>
-          <span>{a.level}</span><i aria-hidden="true">{open ? '−' : '+'}</i></div>
-      </button>
-      {open && (
-        <div className="v5-card-body">
-          {a.card.verdict && <p className="v5-verdict">{a.card.verdict}</p>}
-          <div className="v5-cols">
-            <div><h4>{a.card.strengths_title}</h4>
-              {a.card.strengths.length ? <ul className="well">{a.card.strengths.map((x) => <li key={x.text}>{x.text}{x.source && <small>{x.source}</small>}</li>)}</ul>
-                : <p className="muted">Nothing in the documents you sent yet.</p>}</div>
-            <div><h4>What’s missing</h4><ul className="miss">{a.card.gaps.map((g) => <li key={g}>{g}</li>)}</ul></div>
-          </div>
-          {a.step && <StepV5 s={a.step} stage1={stage1} />}
-          <Link className="text-btn v5-all" to={`${pathOf('areas')}?area=${a.code}&practices=1`}>See all {practices} practices in this area</Link>
-        </div>
-      )}
-    </section>
-  );
-}
-
 const STATUS: Record<string, string> = { shown: 'In place', partly: 'Partly in place', missing: 'Not found' };
 
-function Practice({ p, stage1 }: { p: ScreenPractice; stage1: boolean }) {
+export function Practice({ p, stage1, followUp }: { p: ScreenPractice; stage1: boolean; followUp?: string }) {
   // The page cites the documents as the detailed report does (26 Nov); the passage behind a finding is one click away.
   const [passage, setPassage] = useState(false);
   const where = p.evidence_in?.length ? p.evidence_in.join('; ') : p.source;
@@ -197,35 +170,10 @@ function Practice({ p, stage1 }: { p: ScreenPractice; stage1: boolean }) {
         )}
         {passage && p.quote && <p className="v5-q">“{p.quote}” <small>{p.source}</small></p>}
         {p.status === 'missing' && p.records && <p><em>Records that would show it</em> {p.records}</p>}
+        {followUp && <p><Link className="text-btn v5-fu" to={followUp}>Answer this in the follow-up questions</Link></p>}
         {stage1 && p.follow_up && <p><em>To be confirmed</em> {p.follow_up}</p>}
         {p.status !== 'shown' && (p.next_step || p.done_when) && <p><em>Next</em> {p.next_step || `Done when ${p.done_when}`}</p>}
       </div>
     </div>
   );
-}
-
-export function PracticesV5({ a, stage1 }: { a: ScreenCard; stage1: boolean }) {
-  return (
-    <>
-      <Link className="text-btn" to={pathOf('areas')}>Back to the nine areas</Link>
-      <div className="v5-phead">
-        <div><h1>{a.name}</h1><p className="muted">{a.definition}</p></div>
-        <div className="r"><BarV5 score={a.score} extra={stage1 ? a.to_confirm : 0} />
-          <b>{round(a.score)}{stage1 && a.to_confirm >= 0.5 && <small className="plus">+{round(a.to_confirm)}</small>}</b><span>{a.level}</span></div>
-      </div>
-      <p className="muted v5-pnote">Four topics, six practices in each, listed from the basics to checking results. For every practice: what we looked for, what we found and where, and what to do next.</p>
-      {a.topics.map((t) => (
-        <section key={t.code} className="v5-topic">
-          <div className="v5-thead"><h3>{t.name}</h3><b>{round(t.score)}</b></div>{/* no circles: Harsha, 26 Nov */}
-          {t.practices.map((p) => <Practice key={p.id} p={p} stage1={stage1} />)}
-        </section>
-      ))}
-    </>
-  );
-}
-
-/** The area cards, strongest first; one open at a time (the first, or the one named in the address). */
-export function AreaCardsV5({ v, initial }: { v: ScreenView; initial?: string }) {
-  const [open, setOpen] = useState(initial || v.cards[0]?.code || '');
-  return <div className="v5-cards">{v.cards.map((a) => <AreaCardV5 key={a.code} a={a} stage1={v.stage1} open={open === a.code} onToggle={() => setOpen(open === a.code ? '' : a.code)} />)}</div>;
 }

@@ -81,7 +81,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
       title: 'Final result', state: final ? 'done' : 'waiting',
       text: final ? `Published: ${whole(score)} out of 100.` : finalWaiting ? 'Being prepared: your final result appears as soon as its reports are written.'
         : 'Published when you finish the follow-up questions.',
-      link: final ? { to: pathOf('cri'), label: 'See result' } : undefined,
+      link: final ? { to: pathOf('areas'), label: 'See result' } : undefined,
     },
   ];
 
@@ -137,7 +137,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
               </div>
               <p className="muted" style={{ marginTop: 12 }}>{level.meaning}</p>
               <div className="ws-row" style={{ marginTop: 18 }}>
-                <Link className="primary-action" to={pathOf(final ? 'cri' : open ? 'questionnaire' : 'cri')}>{final ? 'See your result' : open ? 'Answer the follow-up questions' : 'See your result'}</Link>
+                <Link className="primary-action" to={pathOf(final ? 'areas' : open ? 'questionnaire' : 'areas')}>{final ? 'See your result' : open ? 'Answer the follow-up questions' : 'See your result'}</Link>
                 <Link className="secondary-button" to={pathOf('reports')}>Reports</Link>
               </div>
             </>
