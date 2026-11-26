@@ -45,6 +45,17 @@ CANDIDATES = 60             # ranks per route that enter fusion, as in evidence_
 ROUTE_CAP = 8               # key indicators one additional-evidence submission can reach
 SUPPORT = ('supported', 'partly', 'not_supported')
 COUNTS = ('supported', 'partly')
+#: held-page-rejudge-1 (Siddharth, 27 Nov): an answer to a "nothing found" question that points at text the first pass
+#: already had in the requirement's packet. The search leaves packet text out (it is not new), so before this a judge's
+#: miss on a page it was shown was final: the college was told the document was "counted already" and nothing was
+#: re-judged. Now those packet windows are put first in the re-judge's packet, and a part may rise on them when both
+#: judging passes cite them (merge_new_evidence).
+HELD_VERSION = 'held-page-rejudge-1'
+HELD_ROLE = 'answer_points_to'
+HELD_CHARS = 6000            # packet text an answer can point at for one requirement
+POINTER_WORDS = 4            # distinct content words a typed answer needs before its words alone point at packet text
+POINTER_PICKS = 3            # packet windows a typed answer can point at by its words
+POINTER_SHARE = 0.5          # ... each scoring at least this share of the best match
 NO_SUPPORT_FOLLOW_UP = ('Please attach a document that shows this. An answer is counted only when a document '
                         'supports it.')
 _RANK = {'full': 2, 'related': 1, 'digital_only': 1, 'not_found': 0, 'contradicted': 0}
@@ -208,6 +219,43 @@ def search_with_answer(query, attached, corpus, *, packet=(), attachment_limit=A
     for source, a, b in _ranked(query, rest, ranker, covered, corpus_limit, kept=kept, exclude=attached_ids):
         windows.append(_window(source, a, b, 'answer_search'))
     return windows
+
+
+def held_pointers(answer, document_ids, packet, *, limit=HELD_CHARS, by_words=True):
+    """Copies (role HELD_ROLE) of the provisional packet windows a reply to a "nothing found" question points at: the
+    windows from documents it attached, ranked by its words, then, when it wrote at least POINTER_WORDS distinct content
+    words, the POINTER_PICKS packet windows its words match best (by_words False: attached documents only, as with
+    SECOND_LAYER_CORPUS_SUPPORT off). The text is the packet's own, so these are pointers for the credit path
+    (fixed_contexts puts them first), never new evidence. At most `limit` characters."""
+    from .evidence_retrieval import terms
+    windows = [w for w in packet or () if (w.get('text') or '').strip() and w.get('evidence_role') != 'report_timestamp']
+    if not windows:
+        return []
+    documents = {str(d) for d in document_ids or ()}
+    words = set(terms(answer or ''))
+    scores = _lexical(answer, [w['text'] for w in windows]) if words else [0.0] * len(windows)
+    order = sorted(range(len(windows)), key=lambda n: (-scores[n], n))
+    from_documents = [n for n in order if str(windows[n].get('document_id')) in documents]
+    matched = []
+    if by_words and len(words) >= POINTER_WORDS and scores and max(scores) > 0:
+        best = max(scores)
+        matched = [n for n in order if scores[n] > 0 and scores[n] >= POINTER_SHARE * best][:POINTER_PICKS]
+    out, used, seen = [], 0, set()
+    for n in from_documents + matched:
+        if n in seen:
+            continue
+        size = len(windows[n]['text'])
+        if used + size > limit:
+            continue
+        seen.add(n)
+        used += size
+        out.append({**windows[n], 'evidence_role': HELD_ROLE})
+    return out
+
+
+def _same_window(a, b):
+    return a.get('id') == b.get('id') and (a.get('text_offset') or 0) == (b.get('text_offset') or 0) \
+        and _norm(a.get('text')) == _norm(b.get('text'))
 
 
 def page_windows(sources, pages, role='extraction_tag'):
@@ -492,9 +540,15 @@ def fixed_contexts(traces, targets, limit=NEW_CHARS):
         if code not in packets:
             raise Layer2Error(f'No provisional packet for {code} in the run trace.')
         packet = packets[code]
+        pointers = [w for w in target['windows'] if w.get('evidence_role') == HELD_ROLE]
+        front = [w for w in packet if any(_same_window(w, p) for p in pointers)]
+        if front:   # held-page-rejudge-1: what the college pointed at goes first; the text is the packet's own
+            packet = front + [w for w in packet if not any(w is f for f in front)]
         covered, added, used, restated = _spans(packet), [], 0, 0
         kept = [_shingles(w.get('text')) for w in packet]
         for window in target['windows']:
+            if window.get('evidence_role') == HELD_ROLE:
+                continue
             if limit - used < MIN_PIECE:
                 break
             start = window.get('text_offset', 0)
@@ -517,7 +571,8 @@ def fixed_contexts(traces, targets, limit=NEW_CHARS):
                 used += b - a
         contexts[code] = packet + added
         audit[code] = {'conditions': target['conditions'], 'provisional_windows': len(packet),
-                       'added_windows': len(added), 'added_chars': used, 'restatements_skipped': restated}
+                       'added_windows': len(added), 'added_chars': used, 'restatements_skipped': restated,
+                       **({'pointed_windows': len(front), 'pointed_version': HELD_VERSION} if front else {})}
     return contexts, audit
 
 
@@ -650,8 +705,26 @@ def held_lowerings(candidates, max_per_document):
     return {cid for cid, found in candidates.items() if any(counts[d] > max_per_document for d in found['documents'])}
 
 
+def _in(citation, windows):
+    quote = _norm(citation.get('quote'))
+    return bool(quote) and any(citation.get('source_id') in (w.get('id'), None) and quote in _norm(w.get('text'))
+                               for w in windows)
+
+
+def pointed_rise(part, pointers):
+    """held-page-rejudge-1: a part rests on what the college pointed at when its citations in each judging pass that
+    ran include a passage from those windows. Both passes, not either: the text was already judged once, so one pass
+    finding it now is what ordinary run-to-run variation looks like."""
+    if not pointers:
+        return False
+    first = any(_in(c, pointers) for c in part.get('citations') or [])
+    if 'second_citations' not in part and 'second_credited_as' not in part:
+        return first
+    return first and any(_in(c, pointers) for c in part.get('second_citations') or [])
+
+
 def merge_new_evidence(provisional, rejudged, packets, *, rubric=None, lowering='flag', max_per_document=3,
-                       source_documents=None):
+                       source_documents=None, pointers=None):
     """(records, audit). packets: {indicator code: provisional packet}.
 
     Works part by part. A part takes its re-judged result only when its credit rose AND it cites a passage that was
@@ -668,7 +741,11 @@ def merge_new_evidence(provisional, rejudged, packets, *, rubric=None, lowering=
     max_per_document requirements, none of its lowerings are applied: they are held for review (held_lowerings).
     Every other contradiction, and every contradiction with lowering='flag', is flagged for review and changes
     nothing. Noise cannot lower a score: a re-judgment that merely finds less than before keeps the provisional result.
-    A requirement whose re-judgment failed keeps its provisional record and is reported as not re-judged."""
+    A requirement whose re-judgment failed keeps its provisional record and is reported as not re-judged.
+
+    pointers: {indicator code: packet windows a reply to a "nothing found" question pointed at} (held-page-rejudge-1).
+    A part that rose and cites them in both passes counts as resting on new evidence ('pointed_parts'): the college
+    pointing at a page is the new information, though its text is old."""
     if lowering not in LOWERING:
         raise ValueError(f'lowering must be one of {", ".join(LOWERING)}.')
     second = {r['condition_id']: r for r in rejudged}
@@ -699,7 +776,10 @@ def merge_new_evidence(provisional, rejudged, packets, *, rubric=None, lowering=
         twin_parts = twin.get('parts') or []
         gates = _gates(cid, twin_parts)
         rose = {p['id']: _part_credit(p) > _part_credit(old_parts.get(p['id'])) for p in twin_parts}
-        new = {p['id']: any(is_new(c, packet) for c in _part_citations(p)) for p in twin_parts}
+        pointed_here = (pointers or {}).get(codes.get(cid) or cid.rsplit('.', 1)[0]) or []
+        pointed = {p['id']: rose.get(p['id']) and not any(is_new(c, packet) for c in _part_citations(p))
+                   and pointed_rise(p, pointed_here) for p in twin_parts}
+        new = {p['id']: any(is_new(c, packet) for c in _part_citations(p)) or pointed[p['id']] for p in twin_parts}
         unlocked_by_gate = any(p['id'] in gates and rose[p['id']] and new[p['id']]
                                and _missing_in_a_pass(old_parts.get(p['id'])) for p in twin_parts)
         chosen, taken, unlocked, reverted = [], [], [], []
@@ -742,7 +822,9 @@ def merge_new_evidence(provisional, rejudged, packets, *, rubric=None, lowering=
                'second_credit': twin.get('credit') or 0, 'final_credit': new_credit if take else old_credit,
                'new_evidence_parts': taken, 'unlocked_parts': unlocked if take else [],
                'reverted_parts': reverted, 'contradicted_parts': contradicted,
-               'lowered_parts': lowered if take else [], 'lowering_held': cid in held}
+               'lowered_parts': lowered if take else [], 'lowering_held': cid in held,
+               **({'pointed_parts': [pid for pid in taken if pointed.get(pid)], 'pointed_version': HELD_VERSION}
+                  if any(pointed.get(pid) for pid in taken) else {})}
         if cid in candidates:
             # What the institution sent that contradicts the credit: for the report's explanation and for review. The
             # merge audit travels with the final run (inputs.second_layer.merge).
