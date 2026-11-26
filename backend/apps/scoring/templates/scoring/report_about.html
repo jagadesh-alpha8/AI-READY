@@ -1,0 +1,17 @@
+{% load report_tags %}<h1 class="h1s">About this assessment</h1><div class="two"><div>
+<h2>How it works</h2>
+<ol class="how"><li>You sent your documents: {{ v.documents|thousands }} documents, {{ v.pages|thousands }} pages.</li>
+<li>Every page was read against {{ v.requirements }} practices in nine areas of AI readiness, four topics to an area.</li>
+<li>A practice counts when a passage in your documents shows it, and counts in part when the passage shows part of it. Each finding keeps its quotation, document and page in the detailed report.</li>
+<li>Follow-up questions let you confirm how far each practice goes. An answer counts when a document supports it.</li>
+<li>An area's score is the share of its practices shown. The overall score combines the nine areas.</li></ol>
+<h2>Stage 1 and final</h2>
+<p>The Stage 1 result comes from your documents alone.{% if v.held_share_text and v.held_points %} {{ v.held_share_text|capfirst }} of the credit for each well-evidenced practice is to be confirmed by your follow-up answers.{% endif %} The final result is published once the questions are closed. An answer can raise a score, and it can also lower one.</p>
+</div><div>
+<h2>What this result can't tell you</h2>
+<ul class="limits"><li>Scores come only from the documents you sent. Something the {{ v.institution_word }} does but has not written down will show as missing. Send the document and it can be counted.</li>
+<li>The levels are provisional until more institutions have been assessed.</li>
+<li>Completing a step changes the score only when a new assessment reads the documents that show it. We suggest a new assessment every 6 to 12 months.</li></ul>
+</div></div>
+<h2>The five levels</h2>
+<table class="levels">{% for l in v.levels %}<tr><td class="lvs">{{ l.stars|starsvg:3.2 }}</td><td><strong>{{ l.name }}</strong></td><td>{{ l.from }} to {% if l.to is not None %}{{ l.to }}{% else %}100{% endif %}</td><td>{{ l.meaning }}</td></tr>{% endfor %}</table>

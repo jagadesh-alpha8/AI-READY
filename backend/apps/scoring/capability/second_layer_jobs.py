@@ -17,7 +17,7 @@ and credit):
                (explanations.explain; one call per area, at most two); started on its own after a final result is
                published when SECOND_LAYER_EXPLAIN_AFTER_PUBLISH is on
     next_steps write the next steps for the provisional run, or with options.final for its final result
-               (next_steps.write; one call per chosen action, a second only to fix the first, at most twelve); never
+               (next_steps.write; one call per chosen action, a second only to fix the first, at most eighteen); never
                started on its own
 
 Every model call goes through SecondLayerMeter: it is reserved against the job (which must still be running) and
@@ -508,7 +508,8 @@ def run_next_steps(job, meter):
     except ValueError as exc:
         raise Layer2Error(str(exc))
     # A failed request leaves its action on the plain checklist; a spent budget or a cancelled job still stops it.
-    written = write(target, metered_model(meter), max_calls=12,
+    # One step in each of the nine areas, a second call only to fix the first.
+    written = write(target, metered_model(meter), max_calls=18,
                     skip_error=lambda exc: recoverable_failure(exc) and not isinstance(exc, ProviderQuotaExhausted))
     with transaction.atomic():
         commit_point(job.pk, lock_run=True)

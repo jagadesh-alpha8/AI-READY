@@ -9,7 +9,7 @@ export interface Tab { page: PageKey; label: string; internal?: boolean }
 export interface Section { key: string; icon: string; label: string; eyebrow: string; title: string; text: string; tabs: Tab[]; staff?: boolean }
 
 export const SECTIONS: Section[] = [
-  { key: 'overview', icon: 'grid', label: 'Overview', eyebrow: 'Campus workspace', title: 'Your AI readiness, in focus.',
+  { key: 'overview', icon: 'grid', label: 'Overview', eyebrow: 'Campus workspace', title: 'Your AI readiness',
     text: 'Where you stand, what you do well, and what to do next.', tabs: [{ page: 'overview', label: 'Overview' }] },
   { key: 'institution', icon: 'building', label: 'Institution', eyebrow: 'Foundation', title: 'Institution workspace',
     text: 'One institutional profile, a shared scope and the right people.',

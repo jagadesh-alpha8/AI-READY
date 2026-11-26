@@ -8,9 +8,10 @@ templates print what this returns. The front end's workspace/useResult.ts shapes
 Design: claude/ai-ready-leadership-report-design.md (AI Readiness project).
 """
 import re
+from functools import lru_cache
 
 from .action_plan import LEVEL_MEANINGS, tier_for, tiers
-from .report_projection import AREA_TITLES, PILLARS
+from .report_projection import AREA_DEFINITIONS, AREA_TITLES, PILLARS
 
 STAGE_ORDER = {'F': 0, 'A': 1, 'O': 2}
 STAGE_WORDS = {'F': 'Foundation', 'A': 'In use', 'O': 'Results'}
@@ -68,8 +69,10 @@ _AI_WORDS = re.compile(r'\b(AI|artificial intelligence|machine learning|deep lea
 
 
 def doc_label(filename):
-    """A document's name as a reader sees it: no extension, single spaces."""
-    return re.sub(r'\s+', ' ', re.sub(r'\.[A-Za-z0-9]{2,4}$', '', str(filename or ''))).strip()
+    """A document's name as a reader sees it, the same everywhere (explanations._readable): no extension, single
+    spaces, and a file uploaded under a group named with it ("criteria 3 - b (13).pdf" is "Criteria 3 (b)")."""
+    from .explanations import _readable
+    return _readable(str(filename or ''))[0]
 
 
 def display_quote(text, limit=190):
@@ -152,13 +155,18 @@ def _join(names):
     return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
-def choose_actions(result, records, areas, focus, total_weight, limit=6, per_area=2):
-    """What to do next: for each key indicator, the practices at its first unfinished stage (at most two), with the
-    overall points they would add when shown in full. The areas with the most to gain and the focus areas get their
-    best action first; then the largest gains, at most two per area and six in all. The code's choice, never the
-    model's: next_steps.py writes text only for the actions chosen here."""
-    candidates = []
-    for indicator in result['indicators']:
+def choose_actions(result, records, areas, focus=None, total_weight=None, start_here=3):
+    """What to do next: one step in every area (build brief, part B). In each key indicator the candidate is its
+    first unfinished stage (at most two practices), worth the overall points they would add when shown in full. An
+    area's step is its candidate at the earliest stage (the basics first), then worth the most points; on a tie, the
+    key indicator with more already in place (more to build on), then rubric order. Steps run weakest area first; the first `start_here` are "Where to start". The code's
+    choice, never the model's: next_steps.py writes text only for the steps chosen here."""
+    if total_weight is None:
+        total_weight = sum(float(i.get('weight_units') or 0) for i in result['indicators'])
+    scores = {i['code']: float(i.get('score') or 0)
+              for i in ((result.get('documented') or {}).get('indicators') or [])}
+    best = {}
+    for order, indicator in enumerate(result['indicators']):
         conditions = indicator['conditions']
         if not conditions:
             continue
@@ -171,32 +179,121 @@ def choose_actions(result, records, areas, focus, total_weight, limit=6, per_are
         weight = (float(indicator.get('weight_units') or 0) / total_weight) if total_weight else 1 / max(1, len(result['indicators']))
         points = sum((1 - cr) / len(conditions) * 100 * weight for _, cr in chosen)
         area = indicator.get('pillar') or indicator['code'].rsplit('.', 1)[0]
-        candidates.append({'title': AREA_TITLES.get(indicator['code'], indicator.get('name', '')), 'code': indicator['code'],
-                           'area_code': area, 'area': PILLARS.get(area, area), 'points': points,
-                           'step': STAGE_STEP.get(first, 'Show'),
-                           'conditions': [{'id': c['id'], 'text': c['text']} for c, _ in chosen]})
-    candidates.sort(key=lambda a: -a['points'])
-    picked, count = [], {}
-    priority = [a['code'] for a in sorted(areas, key=lambda a: -a['room'])[:3]] + [a['code'] for a in focus]
-    for code in dict.fromkeys(priority):
-        best = next((a for a in candidates if a['area_code'] == code and a not in picked), None)
-        if best and len(picked) < limit:
-            picked.append(best)
-            count[code] = count.get(code, 0) + 1
-    for a in candidates:
-        if len(picked) >= limit:
-            break
-        if a not in picked and count.get(a['area_code'], 0) < per_area:
-            picked.append(a)
-            count[a['area_code']] = count.get(a['area_code'], 0) + 1
-    return sorted(picked, key=lambda a: -a['points'])
+        candidate = {'title': AREA_TITLES.get(indicator['code'], indicator.get('name', '')), 'code': indicator['code'],
+                     'area_code': area, 'area': PILLARS.get(area, area), 'points': points,
+                     'step': STAGE_STEP.get(first, 'Show'),
+                     'conditions': [{'id': c['id'], 'text': c['text']} for c, _ in chosen]}
+        # The basics first (Siddharth, 26 Nov: "finishing the basics in every area"), then the most points, then
+        # the key indicator with more already in place, then rubric order.
+        rank = (-first, round(points, 6), scores.get(indicator['code'], 0.0), -order)
+        if area not in best or rank > best[area][0]:
+            best[area] = (rank, candidate)
+    area_score = {a['code']: a['score'] for a in areas}
+    picked = sorted((c for _, c in best.values()), key=lambda a: (area_score.get(a['area_code'], 0.0), a['area_code']))
+    for n, action in enumerate(picked):
+        action['start_here'] = n < start_here
+    return picked
+
+
+@lru_cache(maxsize=1)
+def _labels():
+    from pathlib import Path
+    import json
+    return json.loads(Path(__file__).with_name('practice_labels_v1.json').read_text())['conditions']
+
+
+def practice_label(condition_id, text=''):
+    """(label, looked_for) for a practice: the short label and the sentence that stands on its own, else the rubric's
+    sentence."""
+    row = _labels().get(condition_id) or {}
+    return row.get('label') or _sentence(text), row.get('looked_for') or _sentence(text)
+
+
+KIND_LABELS = {'extend': 'Extend', 'name': 'Name', 'start': 'Start'}
+#: A card's strengths are titled "The closest things you have" below this area score: what there is barely counts.
+CLOSEST_BELOW = 10
+#: How many cards share a leadership report page, after page 1 (the v5 mock: two, in larger type).
+CARDS_PER_PAGE = 2
+NOTHING_YET = 'Nothing in the documents you sent yet'
+
+
+def basics_score(result, records):
+    """The overall score if the basics (the first two practices of every topic, the set-up stage) were shown in full,
+    everything else as credited: "Finishing the basics in every area would bring you to about N" (Siddharth, 26 Nov).
+    From the credits the documents show, before anything is held for the follow-up answers."""
+    total = sum(float(i.get('weight_units') or 0) for i in result['indicators'])
+    if not total:
+        return 0.0
+    score = 0.0
+    for indicator in result['indicators']:
+        conditions = indicator['conditions']
+        if not conditions:
+            continue
+        credits = [1.0 if _level_of(c['id']) == 0 else _credit(records.get(c['id'])) for c in conditions]
+        score += float(indicator.get('weight_units') or 0) / total * 100 * sum(credits) / len(conditions)
+    return score
+
+
+def _and(lines):
+    """Two "done when" lines as one, ending in a full stop: "a policy is in force, and it sets a limit on its use."
+    """
+    parts = [l.strip().rstrip('.') for l in lines if l and l.strip()]
+    return (', and '.join(parts) + '.') if parts else ''
+
+
+def step_view(action):
+    """A step as the reports print it: the title, its kind, what it builds on, who leads it and when it is done."""
+    owner = action.get('owner') or {}
+    lead = owner.get('name') or ''
+    if lead:
+        lead += ' (suggested)' if owner.get('suggested') else ' (named in your documents)'
+    labels = [practice_label(r['id'])[0] for r in action.get('requirements') or []]
+    written = bool(action.get('generated'))
+    lower = lambda l: l if l[1:2].isupper() else l[:1].lower() + l[1:]   # "AI ..." keeps its capitals
+    title = action.get('action') if written else ('Put in place: ' + ' and '.join(lower(l) for l in labels)
+                                                   if labels else action.get('title', ''))
+    if written and action.get('kind') == 'start':
+        builds = NOTHING_YET
+    else:
+        builds = action.get('builds_on') or ''
+    return {'title': title, 'kind': KIND_LABELS.get(action.get('kind') or '', ''), 'builds_on': builds, 'lead': lead,
+            'done_when': [r['done_when'] for r in action.get('requirements') or [] if r.get('done_when')],
+            'done_when_text': _and([r['done_when'] for r in action.get('requirements') or [] if r.get('done_when')]),
+            'start': action.get('kind') == 'start', 'written': written, 'first_step': action.get('first_step') or '',
+            'have': action.get('have') or [], 'related': action.get('related') or []}
+
+
+def card_view(area, step, word):
+    """An area's card: the model's verdict, strengths and gaps (explanations-0.4) where written and checked, else a
+    plain fallback from the record (the reports are then a draft: publication.readiness). A weak area's strengths
+    become "The closest things you have": the starting points its step was checked against."""
+    exp = area.get('explanation') or {}
+    written = bool(exp.get('verdict')) and not exp.get('fallback')
+    strengths = [{'text': x['text'], 'source': x.get('source') or ''} for x in exp.get('strengths') or []] \
+        if written else []
+    if not written and area.get('quote'):
+        strengths = [{'text': f"\u201c{area['quote']['text']}\u201d", 'source': area['quote']['source']}]
+    gaps = [g['text'] for g in exp.get('gaps') or []] if written else \
+        [practice_label(m['id'])[0] for m in (area.get('missing') or [])[:3]]
+    title = 'What you do well'
+    if area['score'] < CLOSEST_BELOW:
+        title = 'The closest things you have'
+        if step and step['written'] and not step['start']:
+            near = [{'text': x['text'], 'source': ', '.join(x.get('sources') or [])}
+                    for x in (step['have'] or []) + (step['related'] or [])][:3]
+            strengths = near or strengths
+    return {'written': written, 'verdict': exp.get('verdict') or area.get('summary_short') or '',
+            'headline': exp.get('headline') or '', 'strengths_title': title, 'strengths': strengths[:3],
+            'gaps': gaps[:3]}
 
 
 def level(score):
     band = tier_for(score)
+    # Counted from the score as printed (a reader subtracts: "21 out of 100", so 19 to 40), never below one point.
+    to_next = max(1, int(round(score + band['points_to_next'])) - int(round(score))) if band['next'] else 0
     return {'name': band['current'], 'stars': band['stars'], 'meaning': band['meaning'],
             'next': band['next'], 'next_stars': band['stars'] + 1 if band['next'] else None,
-            'points_to_next': max(0, int(-(-band['points_to_next'] // 1))) if band['next'] else 0}
+            'points_to_next': to_next}
 
 
 def levels_table():
@@ -270,7 +367,9 @@ def build(payload):
                         if q > 0:
                             candidates.append((q, -_level_of(condition['id']), c))
                 explanation = (record or {}).get('explanation') or {}
-                rows.append({'text': _sentence(condition['text']), 'status': status,
+                label, looked_for = practice_label(condition['id'], condition['text'])
+                rows.append({'id': condition['id'], 'label_short': label, 'looked_for': looked_for,
+                             'text': _sentence(condition['text']), 'status': status,
                              'label': next_steps.label(condition['id'], cr, not_started),
                              'done_when': next_steps.done_when(condition) if cr < 1 else '',
                              'stage': STAGE_WORDS.get(condition['id'].rsplit('.', 1)[-1][:1], ''),
@@ -283,6 +382,8 @@ def build(payload):
             exp = indicator.get('explanation') or indicator_scores.get(indicator['code'], {}).get('explanation') or {}
             subareas.append({'code': indicator['code'], 'name': AREA_TITLES.get(indicator['code'], indicator.get('name', '')),
                              'score': iscore, 'stars': level(iscore or 0)['stars'], 'requirements': rows,
+                             'level_index': min(4, int((iscore or 0) // 20)), 'nothing': not iscore,
+                             'marks': [r['status'] for r in rows],
                              'summary': clean_text(' '.join(x for x in (exp.get('found'), exp.get('text')) if x), names)})
         quote = None
         for _, _, c in sorted(candidates, key=lambda x: (-x[0], -x[1])):
@@ -296,7 +397,8 @@ def build(payload):
         ratio = credit / counted if counted else 1.0
         shown = min(100.0, pillar['score'] * ratio)
         exp = pillar.get('explanation') or {}
-        areas.append({'code': code, 'name': PILLARS.get(code, code), 'score': pillar['score'], 'shown': shown,
+        areas.append({'code': code, 'name': PILLARS.get(code, code), 'definition': AREA_DEFINITIONS.get(code, ''),
+                      'explanation': exp, 'score': pillar['score'], 'shown': shown,
                       'held': max(0.0, shown - pillar['score']), 'level': level(pillar['score']),
                       'requirements': sum(len(i['conditions']) for i in indicators), 'in_place': in_place,
                       'partly': partly, 'quote': quote,
@@ -320,6 +422,33 @@ def build(payload):
         gathered += action['points']
     reserve = result.get('depth_reserve') or {}
     held_points = float(reserve.get('still_held_points') or 0)
+    # The redesigned reports (v5 mocks, 26 Nov): cards strongest first, two to a page after page 1; one step per area.
+    from .explanations import institution_word
+    word = institution_word(payload.get('profile'))
+    by_area_step = {a['area_code']: step_view(a) for a in actions}
+    ordered = sorted(areas, key=lambda a: -a['score'])
+    for n, area in enumerate(ordered):
+        area['step'] = by_area_step.get(area['code'])
+        area['card'] = card_view(area, area['step'], word)
+        area['card_page'] = 2 + n // CARDS_PER_PAGE
+        area['level_index'] = min(4, int(area['score'] // 20))
+        area['confirmed'] = area['score']
+        area['to_confirm'] = area['held'] if area['held'] >= 0.5 else 0.0
+    page_of = {a['code']: a['card_page'] for a in ordered}
+    score_of = {a['code']: a['score'] for a in areas}
+    for action in actions:
+        action['view'] = by_area_step[action['area_code']]
+        action['card_page'] = page_of.get(action['area_code'])
+        action['area_score'] = score_of.get(action['area_code'], 0.0)
+    basics = basics_score(result, records)
+    summary_lines = []
+    if ordered:
+        # Nothing is "strong" at 0: then only the weakest line, which names the plainest gap.
+        picks = [('Strongest', ordered[0])] if ordered[0]['score'] > 0 else []
+        picks += [('Also strong', ordered[1])] if len(ordered) > 2 and ordered[1]['score'] > 0 else []
+        picks += [('Weakest', ordered[-1])]
+        summary_lines = [{'label': l, 'area': a['name'], 'fact': a['card']['headline']} for l, a in picks]
+    shown_whole = int(round(min(100.0, score + held_points)))
     if strengths:
         summary = f"Your documents show the most in {strengths[0]['name']}"
         summary += f", followed by {strengths[1]['name']}." if len(strengths) > 1 else '.'
@@ -343,6 +472,49 @@ def build(payload):
             'started': [a for a in sorted(areas, key=lambda a: -a['score']) if a['score'] > 0 or a['partly']],
             'not_started': [a for a in areas if not (a['score'] > 0 or a['partly'])], 'to_next_points': gathered, 'summary': summary,
             'routes': routes, 'requirements': sum(a['requirements'] for a in areas),
+            'cards': ordered, 'card_pages': [ordered[i:i + CARDS_PER_PAGE] for i in range(0, len(ordered), CARDS_PER_PAGE)],
+            'summary_lines': summary_lines, 'start_here': [a for a in actions if a.get('start_here')],
+            'basics': {'score': basics, 'whole': int(round(basics)), 'level': level(basics)['name'],
+                       'reaches_next': bool(overall['next']) and level(basics)['stars'] > overall['stars']},
+            'institution_word': word, 'stage1': not final,
+            'confirmed_whole': int(round(score)), 'shown_whole': shown_whole,
+            'to_next_if_confirmed': max(0, levels_table()[min(4, overall['stars'])]['from'] - shown_whole)
+            if overall['next'] else 0,
+            'pages': sum(len(d.get('pages') or []) for d in payload.get('source_manifest') or []),
+            'level_index': min(4, int(score // 20)),
+            # The bracket under the overall bar: from the score to the next level, or across what is to be confirmed.
+            'next_note_width': (100 * overall['points_to_next'] / max(1.0, 100 - score)) if overall['next'] else 0,
+            'held_note_width': 100 * min(held_points, 100 - score) / max(1.0, 100 - score),
             'in_place': sum(a['in_place'] for a in areas), 'partly': sum(a['partly'] for a in areas),
             'documents': len(payload.get('source_manifest') or []),
             'reference_period': payload.get('reference_period') or ''}
+
+
+def for_screens(view):
+    """What the website's Overview, Readiness areas and practices screens print: the same pieces as the reports
+    (build brief: one set of pieces, so the reports and the website can't drift apart), trimmed to what they show."""
+    def step(s):
+        return None if not s else {k: s[k] for k in ('title', 'kind', 'builds_on', 'lead', 'done_when_text', 'start',
+                                                    'written', 'first_step')}
+    cards = []
+    for a in view['cards']:
+        cards.append({
+            'code': a['code'], 'name': a['name'], 'definition': a['definition'], 'score': a['score'],
+            'level': a['level']['name'], 'level_index': a['level_index'], 'to_confirm': a['to_confirm'],
+            'card': a['card'], 'step': step(a.get('step')),
+            'topics': [{'code': t['code'], 'name': t['name'], 'score': t['score'], 'marks': t['marks'],
+                        'practices': [{k: r.get(k) for k in ('id', 'label_short', 'looked_for', 'status', 'label',
+                                                             'found', 'quote', 'source', 'next_step', 'done_when',
+                                                             'follow_up')} for r in t['requirements']]}
+                       for t in a['subareas']]})
+    return {
+        'stage1': view['stage1'], 'level': view['level'], 'levels': view['levels'], 'level_index': view['level_index'],
+        'score': view['score'], 'confirmed_whole': view['confirmed_whole'], 'shown_whole': view['shown_whole'],
+        'held_whole': view['held_whole'], 'held_points': view['held_points'],
+        'to_next_if_confirmed': view['to_next_if_confirmed'], 'summary_lines': view['summary_lines'],
+        'basics': view['basics'], 'documents': view['documents'], 'requirements': view['requirements'],
+        'institution_word': view['institution_word'], 'cards': cards,
+        'start_here': [{'area': a['area'], 'area_code': a['area_code'], **step(a['view'])} for a in view['start_here']],
+        'steps': [{'area': a['area'], 'area_code': a['area_code'], 'area_score': a['area_score'], **step(a['view'])}
+                  for a in view['actions']],
+    }

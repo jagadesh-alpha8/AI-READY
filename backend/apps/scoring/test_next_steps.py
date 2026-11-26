@@ -49,12 +49,12 @@ class LabelTests(SimpleTestCase):
 
 def given(credited=True):
     passages = [
-        {'id': 'P1', 'role': 'credited' if credited else 'seen', 'where': 'Self-Study Report, page 141',
+        {'id': 'P1', 'role': 'credited' if credited else 'seen', 'where': 'Self-Study Report, page 141', 'close': True,
          'source_id': 's1', 'text': 'The e-Varsity ERP digitises student, faculty and staff data. The Board of '
                                     'Studies approved 3 new electives in 2023.'},
-        {'id': 'P2', 'role': 'seen', 'where': 'Annual Quality Assurance Report, page 9', 'source_id': 's2',
+        {'id': 'P2', 'role': 'seen', 'where': 'Annual Quality Assurance Report, page 9', 'source_id': 's2', 'close': True,
          'text': 'The Internal Quality Assurance Cell reviews feedback every semester.'},
-        {'id': 'P3', 'role': 'related', 'where': 'Self-Study Report, page 113', 'source_id': 's3',
+        {'id': 'P3', 'role': 'related', 'where': 'Self-Study Report, page 113', 'source_id': 's3', 'close': False,
          'text': 'Faculty attended a workshop on Turnitin and DrillBit plagiarism checking.'},
     ]
     return {'college': {'name': 'Vels Institute', 'type': 'university', 'size': {}}, 'area': 'Data and infrastructure',
@@ -67,7 +67,7 @@ def given(credited=True):
 
 
 def good(credited=True):
-    return {'action': 'Turn your e-Varsity ERP records into a register of the data your offices hold.',
+    return {'kind': 'extend', 'builds_on': 'your e-Varsity ERP records', 'action': 'Turn your e-Varsity ERP records into a register of the data your offices hold.',
             'have': [{'text': 'Your "e-Varsity ERP digitises student, faculty and staff data".', 'passage_ids': ['P1']}]
             if credited else [],
             'related': [{'text': 'The Internal Quality Assurance Cell already reviews feedback; a starting point, '
@@ -115,12 +115,39 @@ class ValidationTests(SimpleTestCase):
             (lambda o: o['owner'].update(kind='suggested_role', name='Prof. K. Rao', passage_id=''), 'never name a person'),
             (lambda o: o.update(action=''), 'action is empty'),
             (lambda o: o.update(action='Improve all departments.'), 'wider than the passages'),
+            (lambda o: o.pop('kind'), 'kind must be'),
+            (lambda o: o.update(kind='begin'), 'kind must be'),
+            (lambda o: o.update(kind='start'), 'have and related must then be empty'),
+            (lambda o: o.update(builds_on=''), 'name what the step builds on'),
+            (lambda o: o.update(action=' '.join(['Turn'] + ['your'] * 22)), 'at most 20 words'),
+            (lambda o: o.update(kind='name', have=[], related=[]), 'cite it under have or related'),
+            (lambda o: o.update(have=[], related=[{'text': 'A workshop, a start.', 'passage_ids': ['P3']}]),
+             'real starting point'),
         ]
         for change, words in cases:
             with self.subTest(words=words):
                 self.assert_rejected(change, words)
         # Nothing credited: "have" stays empty; what they can build on goes under related.
         self.assert_rejected(lambda o: None, 'have must be empty', given(credited=False))
+
+    def test_the_three_kinds(self):
+        for kind in ('extend', 'name'):
+            text, problems = self.check(dict(good(), kind=kind))
+            self.assertEqual((problems, text['kind']), ([], kind))
+        start = dict(good(credited=False), kind='start', related=[], builds_on='')
+        text, problems = self.check(start, given(credited=False))
+        self.assertEqual((problems, text['kind']), ([], 'start'))
+
+    def test_degree_names_are_not_people(self):
+        for degree in ('B.Tech', 'M.Tech', 'B.Sc', 'M.Phil', 'B.Com', 'M.Pharm', 'B.Ed'):
+            self.assertIsNone(ns.PERSON.search(f'Add a practical to the {degree} in Data Science.'), degree)
+        for person in ('Ask K. Rao to lead it.', 'Dr. Raman leads it.', 'Ask S.Kumar.'):
+            self.assertIsNotNone(ns.PERSON.search(person), person)
+
+    def test_every_generic_owner_passes_as_a_suggested_role(self):
+        for name in ns.GENERIC_OWNERS.values():
+            output = dict(good(), owner={'name': name, 'kind': 'suggested_role', 'passage_id': ''})
+            self.assertEqual(self.check(output)[1], [], name)
 
     def test_a_suggested_generic_role_passes(self):
         output = good()
@@ -130,6 +157,45 @@ class ValidationTests(SimpleTestCase):
         self.assertEqual(problems, [])
         self.assertEqual(text['owner'], {'name': 'the office responsible for quality assurance', 'suggested': True,
                                          'source': None})
+
+
+class PacketTests(SimpleTestCase):
+    """What the writer is given: the closest passages from everything the assessment read, credited or not."""
+
+    def test_a_step_builds_on_what_another_area_read_even_uncredited(self):
+        filler = [{'id': f'f{n}', 'text': f'The library holds {n} journals and a reading room for students.'}
+                  for n in range(20)]
+        traces = [
+            {'indicator': 'AIQIF-C2.1', 'source_excerpts': [
+                {'id': 'own', 'text': 'Students sign an undertaking at admission.'}, *filler[:10]]},
+            {'indicator': 'AIQIF-C9.2', 'source_excerpts': [
+                {'id': 'lib', 'text': 'Plagiarism Detection Software: 1. Turnitin 2. DrillBit'},
+                {'id': 'pol', 'text': 'Policies: Mentor-Mentee Policy, Plagiarism Policy, IT Infrastructure Policy.'},
+                {'id': 'dup', 'text': 'Policies: Mentor-Mentee Policy, Plagiarism Policy, IT Infrastructure Policy.'},
+                *filler[10:]]},
+        ]
+        everything = ns.pool(traces)
+        target = {'records': {}, 'pages': {e['id']: f'page {e["id"]}' for t in traces for e in t['source_excerpts']},
+                  'packets': {t['indicator']: t['source_excerpts'] for t in traces}, 'pool': everything,
+                  'closeness': ns.Closeness([e['text'] for e in everything]), 'parts': {}, 'not_started': frozenset(),
+                  'college': {'name': 'College'}}
+        action = {'code': 'AIQIF-C2.1', 'title': 'Responsible-use guidance', 'area': 'Responsible and safe AI',
+                  'area_code': 'AIQIF-C2', 'step': 'Set up',
+                  'conditions': [{'id': 'AIQIF-C2.1.F1', 'text': 'Effective institutional guidance explicitly addresses AI use.'}]}
+        given = ns.packet(action, target)
+        related = [p['source_id'] for p in given['passages'] if p['role'] == 'related']
+        # Neither page earned credit and both sat in another key indicator's packet; the same text twice is one.
+        self.assertEqual(sorted(related[:2]), ['lib', 'pol'])
+        self.assertNotIn('dup', related)
+        self.assertFalse(any(p.get('credited_elsewhere') for p in given['passages']))
+        # The library's journals are far from the gap and are left out.
+        self.assertFalse(any(p['source_id'].startswith('f') for p in given['passages']))
+
+    def test_every_key_indicator_has_its_records_words(self):
+        from .capability.engine import release
+        codes = {i['code'] for i in release()['indicators']}
+        self.assertEqual(set(ns._builds_on_file()), codes)
+        self.assertTrue(all(len(ns.builds_on(c)) >= 8 for c in codes))
 
 
 class WriteTests(SimpleTestCase):
@@ -177,8 +243,10 @@ class NextStepsFlowTests(APITestCase):
         """A careful writer: credits only from credited passages, a generic owner, plain words."""
         self.packets = getattr(self, 'packets', []) + [payload]
         credited = [p['id'] for p in payload['passages'] if p['role'] == 'credited']
-        others = [p['id'] for p in payload['passages'] if p['role'] != 'credited']
-        return {'action': f"Put this in place in your {payload['topic'].lower()} work, building on what you have.",
+        others = [p['id'] for p in payload['passages'] if p['role'] != 'credited' and p.get('close')]
+        return {'kind': 'extend' if credited or others else 'start',
+                'builds_on': 'what you already have' if credited or others else '',
+                'action': f"Put this in place in your {payload['topic'].lower()} work, building on what you have.",
                 'have': [{'text': 'You already have part of this on record.', 'passage_ids': credited[:1]}] if credited else [],
                 'related': [{'text': 'This is a starting point, not the practice itself.', 'passage_ids': others[:1]}]
                 if others else [],
@@ -190,15 +258,69 @@ class NextStepsFlowTests(APITestCase):
     def detail(self, run):
         return self.client.get(f'{self.base}/{run.pk}').data
 
+    def test_the_command_reads_a_report_export_without_the_database_run(self):
+        import io, tempfile
+        from django.core.management import call_command
+        run = self.assess()
+        export = self.client.get(f'{self.base}/{run.pk}/report', {'file': 'json'}).content
+        with tempfile.NamedTemporaryFile('wb', suffix='.json') as handle:
+            handle.write(export)
+            handle.flush()
+            out = io.StringIO()
+            call_command('capability_next_steps', '--export', handle.name, '--packets', stdout=out)
+        steps = json.loads(out.getvalue())
+        shown = [a['area'] for a in self.detail(run)['next_steps']['actions']]
+        self.assertEqual([s['area'] for s in steps], shown)   # the same nine-at-most choice as the screens
+        self.assertTrue(all(s['practices'] and s['passages'] for s in steps))
+        self.assertEqual(CapabilityNextSteps.objects.count(), 0)   # nothing written, nothing saved
+
+    def test_the_screens_get_the_reports_own_view(self):
+        """Part E: the run detail carries the report's view for the website (presentation.for_screens), so the
+        Overview, area cards and practices screens print what the PDFs print."""
+        run = self.assess()
+        shown = self.detail(run)['next_steps']
+        v = shown['presentation']
+        self.assertEqual([s['area'] for s in v['steps']], [a['area'] for a in shown['actions']])
+        self.assertEqual(len(v['cards']), len({a['area_code'] for a in v['steps']} | {c['code'] for c in v['cards']}))
+        self.assertEqual(sorted(c['score'] for c in v['cards'])[::-1], [c['score'] for c in v['cards']])  # strongest first
+        practices = [p for c in v['cards'] for t in c['topics'] for p in t['practices']]
+        self.assertTrue(practices and all(p['label_short'] and p['looked_for'] for p in practices))
+        self.assertEqual(len(v['start_here']), min(3, len(v['steps'])))
+        self.assertNotIn('traces', json.dumps(v))
+
+    def test_imported_answers_go_through_the_same_checks(self):
+        import io, tempfile
+        from django.core.management import call_command
+        run = self.assess()
+        actions = self.detail(run)['next_steps']['actions']
+        good_one = {'kind': 'start', 'builds_on': '', 'action': 'Start a short written plan for this.', 'have': [], 'related': [],
+                    'not_found': 'We did not find this in your documents.',
+                    'first_step': 'Ask the people involved to write down how it works today.',
+                    'owner': {'name': 'the office responsible for quality assurance', 'kind': 'suggested_role',
+                              'passage_id': ''}}
+        answers = {actions[0]['title']: good_one, actions[1]['title']: dict(good_one, action='You lack a plan.')}
+        with tempfile.NamedTemporaryFile('w', suffix='.json') as handle:
+            json.dump(answers, handle)
+            handle.flush()
+            call_command('capability_next_steps', str(run.pk), '--import', handle.name, '--save',
+                         '--written-by', 'test', stdout=io.StringIO())
+        row = CapabilityNextSteps.objects.get(run=run)
+        self.assertEqual((row.model, list(row.payload['actions'])), ('test', [actions[0]['key']]))
+        self.assertIn(actions[1]['key'], row.payload['fallbacks'])   # failed the checks: plain checklist
+        shown = self.detail(run)['next_steps']['actions']
+        self.assertEqual([a['generated'] for a in shown[:2]], [True, False])
+
     def test_written_once_shown_everywhere_and_never_regenerated(self):
         run = self.assess()
         before = self.detail(run)
         steps = before['next_steps']
         # Without written steps: the code's choice with the plain checklist wording.
         self.assertFalse(steps['written'])
-        self.assertTrue(4 <= len(steps['actions']) <= 6 or len(steps['actions']) == len(
-            [k for k in {a['code'] for a in steps['actions']}]), steps['actions'])
-        self.assertLessEqual(len(steps['actions']), 6)
+        # One step in every area with something still open, weakest area first; the first three are "Where to start".
+        areas = [a['area_code'] for a in steps['actions']]
+        self.assertEqual(len(areas), len(set(areas)))
+        self.assertLessEqual(len(areas), 9)
+        self.assertEqual([a['start_here'] for a in steps['actions']], [n < 3 for n in range(len(areas))])
         for a in steps['actions']:
             self.assertFalse(a['generated'])
             self.assertTrue(a['owner']['suggested'])
@@ -231,8 +353,9 @@ class NextStepsFlowTests(APITestCase):
         for _ in range(2):
             self.detail(run)
         html = self.client.get(f'{self.base}/{run.pk}/report', {'file': 'html', 'audience': 'summary'})
-        self.assertIn('Ask the people involved to write down how it works today.', html.content.decode())
-        self.assertIn('Done when:', html.content.decode())
+        # The v5 card prints the step's title, what it builds on, who leads it and when it is done.
+        self.assertIn('Put this in place in your', html.content.decode())
+        self.assertIn('<dt>Done when</dt>', html.content.decode())
         self.assertEqual(CapabilityNextSteps.objects.filter(run=run).count(), 1)
         self.assertEqual(SecondLayerJob.objects.filter(run=run, operation='next_steps').count(), 1)
 

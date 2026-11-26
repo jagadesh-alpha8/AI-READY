@@ -135,7 +135,9 @@ class ProductFlowTests(APITestCase):
                     'text': 'This is shown.' if full else 'This is partly shown.' if credited else 'Not yet shown.',
                     'looked': 'We read the documents listed for this area.' if gap else '',
                     'next_step': 'Add a record that shows what is missing.' if gap else ''})
-        return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '', 'next_step': ''},
+        from .test_explanations import card
+        return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '',
+                         'next_step': '', **card(payload)},
                 'indicators': indicators, 'requirements': requirements}
 
     def reply_capability_advice(self, payload):
@@ -530,7 +532,9 @@ class ProductFlowTests(APITestCase):
         self.run_queued()
         questions = list(DepthQuestion.objects.filter(run_ref=str(provisional.pk)).order_by('rank'))
         depth_qs = [q for q in questions if q.kind == 'depth']
-        self.assertEqual({q.condition_ids[0] for q in depth_qs}, set(credited))
+        # questions-0.4: an owner practice in place has nothing left to ask in depth (its owner is its whole point).
+        from .capability.depth import OWNER_PRACTICES
+        self.assertEqual({q.condition_ids[0] for q in depth_qs}, set(credited) - OWNER_PRACTICES)
         rubric = release()
         gaps = {i['code'] for i in rubric['indicators'] for c in i['conditions'] if (records[c['id']].get('credit') or 0) < 1}
         self.assertEqual({q.indicator_code for q in questions if q.kind == 'missing'}, gaps)
@@ -559,7 +563,8 @@ class ProductFlowTests(APITestCase):
         self.assertEqual((member.status, lead.status), ('linked', 'open'))
         self.assertNotEqual(lead.indicator_code, member.indicator_code)
         involved = set(lead.condition_ids) | set(member.condition_ids)
-        free = [c for c in credited if c not in involved and all(q.status == 'open' for q in by_condition.get(c, []))]
+        free = [c for c in credited if c not in involved and c in by_condition
+                and all(q.status == 'open' for q in by_condition[c])]   # an owner in place has no depth question
         backed, dont_know, typed, already = free[0], free[1], free[2], free[3]
         respond = lambda q, body: self.post(f'{self.base}/{provisional.pk}/questions/{q.pk}/responses', body, expect=201)
         # 1. An answer a new document backs: should earn back held credit.

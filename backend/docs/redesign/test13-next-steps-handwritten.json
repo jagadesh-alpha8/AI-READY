@@ -1,0 +1,261 @@
+{
+ "Responsible-use guidance": {
+  "kind": "extend",
+  "action": "Extend your Plagiarism Policy, and the Turnitin and DrillBit checks, to cover AI use.",
+  "have": [],
+  "related": [
+   {
+    "text": "Your written policies include a Plagiarism Policy and an IT Infrastructure Policy: a starting point for AI guidance, not AI guidance itself.",
+    "passage_ids": [
+     "P6"
+    ]
+   },
+   {
+    "text": "Your library already runs Turnitin and DrillBit for plagiarism checks, which can also carry a rule on AI use.",
+    "passage_ids": [
+     "P12"
+    ]
+   },
+   {
+    "text": "You have a Code of Ethics for research with an ethics committee, which can take AI use into its remit.",
+    "passage_ids": [
+     "P11"
+    ]
+   }
+  ],
+  "not_found": "We did not find guidance in force that deals with AI use, or that sets a limit on unsafe or inappropriate use of AI.",
+  "first_step": "Add a short section on AI to the Plagiarism Policy: what AI use is allowed in coursework and research, what is not, and how a breach is handled.",
+  "owner": {
+   "name": "the office responsible for academic integrity",
+   "kind": "suggested_role",
+   "passage_id": ""
+  },
+  "builds_on": "your Plagiarism Policy and the Turnitin and DrillBit checks"
+ },
+ "Advanced student skills": {
+  "kind": "extend",
+  "action": "Add a marked practical task to the machine learning unit of Advanced Data Analysis Tools.",
+  "have": [],
+  "related": [
+   {
+    "text": "Advanced Data Analysis Tools already teaches machine learning, from decision trees to the basics of deep learning, with a focus on practical application.",
+    "passage_ids": [
+     "P2",
+     "P3"
+    ]
+   }
+  ],
+  "not_found": "We did not find a practical task in this pathway that is assessed and marked.",
+  "first_step": "Ask the teachers of Advanced Data Analysis Tools to set one assessed practical in the machine learning unit and keep the marks with the course file.",
+  "owner": {
+   "name": "Board of Studies",
+   "kind": "named_in_documents",
+   "passage_id": "P9"
+  },
+  "builds_on": "the machine learning unit of Advanced Data Analysis Tools"
+ },
+ "Security and recovery": {
+  "kind": "name",
+  "action": "Name who is responsible for the security of your servers and the ERP portal, and how they are restored.",
+  "have": [
+   {
+    "text": "Your servers, computers, routers and switches already link the campus digitally.",
+    "passage_ids": [
+     "P1"
+    ]
+   },
+   {
+    "text": "Staff and students reach the ERP portal through a cloud server at all times.",
+    "passage_ids": [
+     "P3"
+    ]
+   }
+  ],
+  "related": [
+   {
+    "text": "Virus scans, maintenance contracts and software updates are already carried out regularly; a starting point, not a named owner or a recovery procedure.",
+    "passage_ids": [
+     "P10"
+    ]
+   }
+  ],
+  "not_found": "We did not find a person or office named as responsible for the security of these systems, or a written recovery procedure.",
+  "first_step": "Ask the team that maintains the servers and the ERP portal to write a one-page recovery procedure and to say who keeps it up to date.",
+  "owner": {
+   "name": "the office responsible for IT and data",
+   "kind": "suggested_role",
+   "passage_id": ""
+  },
+  "builds_on": "your servers and the ERP portal"
+ },
+ "Role-specific faculty skills": {
+  "kind": "extend",
+  "action": "Build on the IQAC's AI workshops with a short course, and a practice task, for one teaching role.",
+  "have": [],
+  "related": [
+   {
+    "text": "The IQAC has run a two-day workshop on Artificial Intelligence and Image Processing using MATLAB and Simulink: a starting point, but not aimed at one role.",
+    "passage_ids": [
+     "P3"
+    ]
+   },
+   {
+    "text": "You have already held an FDP on Cognitive Computing, which shows the format can carry an AI topic.",
+    "passage_ids": [
+     "P15"
+    ]
+   }
+  ],
+  "not_found": "We did not find an AI learning offer for faculty aimed at a named role, or a practice task that builds a specific AI skill for that role.",
+  "first_step": "Choose one role, such as course coordinators, and ask the IQAC to plan a short AI session for it with one hands-on task they would use in their own work.",
+  "owner": {
+   "name": "Internal Quality Assurance Cell",
+   "kind": "named_in_documents",
+   "passage_id": "P3"
+  },
+  "builds_on": "the IQAC's workshops on Artificial Intelligence"
+ },
+ "AI in teaching and assessment": {
+  "kind": "extend",
+  "action": "Add an activity supported by AI to one course, with a note on what AI use is allowed.",
+  "have": [],
+  "related": [
+   {
+    "text": "You already run a B.Tech in Artificial Intelligence and Machine Learning.",
+    "passage_ids": [
+     "P1"
+    ]
+   },
+   {
+    "text": "Your teaching already uses the LMS, blended teaching and flipped classrooms, where an activity supported by AI can sit.",
+    "passage_ids": [
+     "P5"
+    ]
+   }
+  ],
+  "not_found": "We did not find a course design that sets out an activity supported by AI, or instructions telling students what use of AI is acceptable in it.",
+  "first_step": "Ask one teacher in the programme to add an activity supported by AI to a course file, with a short note to students on what AI use is allowed and what is not.",
+  "owner": {
+   "name": "the body responsible for approving curricula",
+   "kind": "suggested_role",
+   "passage_id": ""
+  },
+  "builds_on": "your B.Tech in Artificial Intelligence and Machine Learning, and the LMS"
+ },
+ "Measuring educational and business benefits": {
+  "kind": "extend",
+  "action": "Give the ImaginXP partnership for the B.Tech in AI a stated outcome and a way to measure it.",
+  "have": [],
+  "related": [
+   {
+    "text": "ImaginXP is one of your skill partners for the B.Tech in Artificial Intelligence and Machine Learning: an AI initiative to attach an outcome to.",
+    "passage_ids": [
+     "P1"
+    ]
+   },
+   {
+    "text": "You already say that analysing the effectiveness, impact and outcomes of collaborative initiatives is critical, which is the habit this step needs.",
+    "passage_ids": [
+     "P11"
+    ]
+   }
+  ],
+  "not_found": "We did not find an AI initiative with a stated intended outcome, or a way of measuring that outcome set out in advance.",
+  "first_step": "Write down with ImaginXP what the partnership should achieve for students, how you will measure it, and when you will measure it.",
+  "owner": {
+   "name": "IQAC",
+   "kind": "named_in_documents",
+   "passage_id": "P13"
+  },
+  "builds_on": "the ImaginXP partnership for the B.Tech in Artificial Intelligence and Machine Learning"
+ },
+ "Decision-making and accountability": {
+  "kind": "extend",
+  "action": "Add AI decisions to the route your departments use to report to the IQAC.",
+  "have": [
+   {
+    "text": "Your departments already report audit findings to the IQAC on the same day.",
+    "passage_ids": [
+     "P1"
+    ]
+   }
+  ],
+  "related": [
+   {
+    "text": "Corrective measures from your audits are already discussed in the IQAC meeting, a route an AI decision can follow.",
+    "passage_ids": [
+     "P12"
+    ]
+   }
+  ],
+  "not_found": "We did not find a set route for taking a digital or AI decision to a higher level.",
+  "first_step": "Write a short note saying which AI decisions a department may take itself and which go to the IQAC, and record it in the IQAC minutes.",
+  "owner": {
+   "name": "IQAC",
+   "kind": "named_in_documents",
+   "passage_id": "P6"
+  },
+  "builds_on": "the route by which departments report to the IQAC"
+ },
+ "Research collaboration and public benefit": {
+  "kind": "extend",
+  "action": "Add a short plan for AI work to one industry MoU, naming what the partner will do.",
+  "have": [],
+  "related": [
+   {
+    "text": "Each of your industry MoUs already has a Single Point of Contact and stated goals, with progress monitored.",
+    "passage_ids": [
+     "P14"
+    ]
+   },
+   {
+    "text": "Your staff already file AI patents, such as one on airport security clearance with deep learning, which could become joint work.",
+    "passage_ids": [
+     "P3"
+    ]
+   }
+  ],
+  "not_found": "We did not find a collaboration with a work plan for AI work, or a partner given responsibility for it.",
+  "first_step": "Ask the Single Point of Contact for one industry MoU to agree with the partner a one-page plan for an AI project, saying what each side will do.",
+  "owner": {
+   "name": "the office responsible for research and innovation",
+   "kind": "suggested_role",
+   "passage_id": ""
+  },
+  "builds_on": "your industry MoUs and their Single Point of Contact"
+ },
+ "Testing, feedback and improvement": {
+  "kind": "name",
+  "action": "Keep one register of the actions from feedback and audits, with an owner for each.",
+  "have": [
+   {
+    "text": "Your stakeholder feedback is already collected and analysed.",
+    "passage_ids": [
+     "P1"
+    ]
+   },
+   {
+    "text": "Your academic audit is verified by an external expert and signed by the Head of the Department.",
+    "passage_ids": [
+     "P2"
+    ]
+   }
+  ],
+  "related": [
+   {
+    "text": "You already prepare an action taken report on stakeholder feedback, a starting point for the register.",
+    "passage_ids": [
+     "P14"
+    ]
+   }
+  ],
+  "not_found": "We did not find a register of follow-up actions that names who owns each one.",
+  "first_step": "Add an owner and a date to each item in the next action taken report on feedback, and keep the items in one list that is checked at each review.",
+  "owner": {
+   "name": "the office responsible for quality assurance",
+   "kind": "suggested_role",
+   "passage_id": ""
+  },
+  "builds_on": "your action taken report on stakeholder feedback"
+ }
+}

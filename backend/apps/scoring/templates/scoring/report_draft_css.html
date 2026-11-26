@@ -1,0 +1,4 @@
+{% if draft %}/* The draft gate (capability/publication.py): staff only ever get this; a college can't download a draft. */
+@page { @top-center { content: "DRAFT \00B7  text not yet written and checked \00B7  for InGage review"; font-family: "DM Sans", Helvetica, Arial, sans-serif; font-size: 8pt; font-weight: 700; color: #b42318; } }
+.draftbar { display: block; background: #fdecea; color: #b42318; border: 1px solid #f3b8b2; border-radius: 4px; padding: 6px 10px; margin-bottom: 10px; font-size: 8.5pt; font-weight: 600; }
+{% endif %}

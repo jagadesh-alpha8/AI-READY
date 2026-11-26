@@ -268,7 +268,38 @@ def plan_questions(depth_targets, missing_targets, records_by_id, model, *, max_
 #: missing-evidence question, in the order starting capability, repeated use, results. A fact two requirements both
 #: need is asked once and counts for both (judge_run). Ranked by the points each question can earn, spread across
 #: areas when tied. No total cap unless DEPTH_MAX_QUESTIONS is set.
-PLAN_VERSION = 'questions-0.2'
+PLAN_VERSION = 'questions-0.4'
+
+#: questions-0.4 (26 Nov 2026, Siddharth): follow-up questions ask who is responsible only where a practice that
+#: requires a named person or office is not in place (credit below 1). These are the rubric's ten owner practices
+#: ("a responsible owner / custodian / lead is assigned"; C7.4.F2, a partner's responsibility, is not one). Nowhere
+#: else: the 'owner' dimension is dropped from every depth question, and a depth question that asks who is
+#: responsible is rejected. The owner ask is the practice's line in the missing-evidence question, fixed wording
+#: unless the model's line itself asks who is responsible. The answer counts with a document, as every answer does.
+#: The fixed owner ask, used when the model's line doesn't itself ask who is responsible: what the thing is, in
+#: the college's terms, so the line stands alone (the rubric's "that priority" points at another row).
+OWNER_ITEMS = {
+    'AIQIF-C1.1.F2': 'the digital or AI priority in your plan',
+    'AIQIF-C2.2.F1': 'personal or sensitive data your institution holds',
+    'AIQIF-C2.3.F2': 'each AI service or tool you use',
+    'AIQIF-C6.2.F2': "your institution's datasets and data systems",
+    'AIQIF-C6.3.F1': 'the security of your computing systems',
+    'AIQIF-C7.1.F2': 'your AI research or applied project',
+    'AIQIF-C8.1.F2': 'your digital service',
+    'AIQIF-C9.1.F2': 'producing your indicator-based review',
+    'AIQIF-C9.2.F2': 'keeping your evidence records',
+    'AIQIF-C9.4.F2': 'each action that follows from feedback or a review',
+}
+OWNER_PRACTICES = frozenset(OWNER_ITEMS)
+OWNER_ASK = re.compile(r'\bwho (?:is|are|was|were|will be) (?:responsible|accountable|in charge)|'
+                       r'\bresponsib(?:le|ility) for\b|\bowners?(?:ship)?\b|\bcustodians?\b|'
+                       r'\bnamed? (?:person|officer|office|lead)\b', re.I)   # not "responsible use of AI"
+
+
+def owner_item(cid):
+    """The fixed owner ask for an owner practice not in place: who, and the record that names them."""
+    return (f'Who is responsible for {OWNER_ITEMS[cid]}: the person or office, and the order, circular or minutes '
+            f'that names them')
 STAGE_ORDER = {'F': 0, 'A': 1, 'O': 2}
 STAGE_NAMES = {'F': 'starting capability', 'A': 'repeated use', 'O': 'results and review'}
 
@@ -300,6 +331,9 @@ only in part.
    what it means in everyday terms. For example, not "A sampled-use review records the disposition of a policy
    exception" but "a record of a check on how AI was actually being used, showing what was decided when someone used
    it outside the policy".
+   - Where a requirement is marked ask_who_is_responsible, the sentence asks who is responsible for it (the person
+     or office) and for the order, circular or minutes that names them. Ask who is responsible nowhere else: not in
+     questions, and not in any other missing item.
 No rubric codes, no jargon, no scores or points."""
 
 
@@ -389,7 +423,11 @@ def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=N
     levels = {c['id']: c.get('level', 'F') for c in rubric_indicator['conditions']}
     worth = points_per_credit(rubric_indicator)
     from .action_plan import missing_parts
-    dims_of = {cid: list(indicator['conditions'][cid]['dimensions']) for cid in credited}
+    # questions-0.4: ownership is asked only through an owner practice's missing-evidence line, never in depth. An
+    # owner practice credited at half or more has no depth question at all (who, and the order that names them, is
+    # the whole practice), so it is judged on its own quotes like any requirement with nothing left to ask.
+    dims_of = {cid: [] if cid in OWNER_PRACTICES else
+               [d for d in indicator['conditions'][cid]['dimensions'] if d != 'owner'] for cid in credited}
     quotes_of = {cid: evidence_quotes(records_by_id[cid]) for cid in credited}
     payload = {
         'indicator': indicator['name'], 'where_colleges_usually_keep_it': indicator.get('where', ''),
@@ -397,11 +435,12 @@ def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=N
             {'condition_id': cid, 'requirement': indicator['conditions'][cid]['assertion'],
              'stage': STAGE_NAMES.get(levels[cid]), 'quotes': quotes_of[cid],
              'dimensions': [{'id': d, 'name': by_dim[d]['name'], 'what_an_auditor_asks': by_dim[d]['ask']}
-                            for d in dims_of[cid]], 'max_questions': cap} for cid in credited],
+                            for d in dims_of[cid]], 'max_questions': cap} for cid in credited if dims_of[cid]],
         'requirements_not_yet_shown': [
             {'condition_id': cid, 'requirement': indicator['conditions'][cid]['assertion'],
              'stage': STAGE_NAMES.get(levels[cid]),
              'records_that_would_show_it': indicator['conditions'][cid]['evidence_forms'],
+             **({'ask_who_is_responsible': True} if cid in OWNER_PRACTICES else {}),
              **({'shown_in_part': True, 'still_needed': missing_parts(records_by_id[cid])}
                 if (records_by_id[cid].get('credit') or 0) > 0 else {})} for cid in missing]}
     all_dims = sorted({d for ds in dims_of.values() for d in ds})
@@ -436,6 +475,9 @@ def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=N
     for row in response.get('questions') or []:
         cid, text = row.get('condition_id'), ' '.join((row.get('text') or '').split())
         if cid not in per_condition or per_condition[cid] >= cap or not _plain_enough(text):
+            continue
+        if OWNER_ASK.search(text):   # questions-0.4: no owner questions outside the owner practices' lines
+            notes.append(f'{cid}: a depth question asked who is responsible; left out.')
             continue
         dims = list(dict.fromkeys(d for d in row.get('dimension_ids') or []
                                   if d in dims_of[cid] and d not in answered[cid]))
@@ -479,14 +521,15 @@ def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=N
         items = {}
         for row in response.get('missing_items') or []:
             cid, text = row.get('condition_id'), ' '.join((row.get('text') or '').split())
-            if cid in missing and cid not in items and _plain_enough(text):
+            if cid in missing and cid not in items and _plain_enough(text) and \
+                    bool(OWNER_ASK.search(text)) == (cid in OWNER_PRACTICES):
                 items[cid] = text.rstrip('.')
         lines = []
         for n, cid in enumerate(missing, 1):
             entry = indicator['conditions'][cid]
             text = items.get(cid)
             if text is None:
-                text = entry['assertion'].rstrip('.')
+                text = owner_item(cid) if cid in OWNER_PRACTICES else entry['assertion'].rstrip('.')
                 notes.append(f'{cid}: fixed wording for the missing-evidence item.')
             lines.append(f'{n}. {text[0].upper() + text[1:]} (for example: {"; ".join(entry["evidence_forms"])}).')
         keep = f'\nColleges usually keep these with {where}.' if where else ''

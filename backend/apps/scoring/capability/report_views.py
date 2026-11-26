@@ -231,7 +231,9 @@ class CapabilityReportView(RunView):
             content = json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2)
         elif audience in {'summary', 'detailed'}:
             template = 'scoring/report_leadership.html' if audience == 'summary' else 'scoring/report_detailed.html'
-            content = render_to_string(template, {'v': view, 'exported': payload['exported_at'], 'draft': draft})
+            from .presentation import NOTHING_YET
+            content = render_to_string(template, {'v': view, 'exported': payload['exported_at'], 'draft': draft,
+                                                  'nothing_yet': NOTHING_YET})
             if file_format == 'pdf':
                 pdf = html_to_pdf(content)
                 if pdf is None and audience == 'summary':

@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 NOT_PUBLISHED = 'This result has not been published to your institution yet.'
 READINESS_CACHE_SECONDS = 7 * 24 * 3600
+THIN_STEPS = 3   # this many "start" steps (nothing in the documents to build on) earns staff a warning
 
 
 class PublicationError(ValueError):
@@ -196,8 +197,15 @@ def _readiness(execution, view):
         return {'ready': False, 'reasons': reasons, 'warnings': warnings, 'explanations': exp, 'next_steps': None}
     actions = shown['actions']
     unwritten = [a['key'] for a in actions if not a.get('generated')]
+    starts = [a for a in actions if a.get('generated') and a.get('kind') == 'start']
+    if len(starts) >= THIN_STEPS:
+        # Nothing in the documents to build on for several areas: usually the documents, not the college (only
+        # accreditation documents sent, no operational records). Worth asking before the report goes out.
+        warnings.append(f"{len(starts)} of the {len(actions)} steps start from nothing in the documents "
+                        f"({', '.join(a['area'] for a in starts)}). Consider asking the college for its operational "
+                        'records in those areas before publishing.')
     st = {'written': steps is not None, 'version': (steps or {}).get('version'), 'steps': len(actions),
-          'written_steps': len(actions) - len(unwritten)}
+          'written_steps': len(actions) - len(unwritten), 'start_steps': len(starts)}
     if actions and steps is None:
         reasons.append('The next steps have not been written.')
     elif actions and steps.get('version') != next_steps.VERSION:

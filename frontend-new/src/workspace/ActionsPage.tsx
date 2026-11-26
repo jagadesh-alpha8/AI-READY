@@ -3,7 +3,7 @@ import { RequireSprint } from '../components/RequireSprint';
 import { Empty, ErrorState, Loading } from '../components/ui';
 import type { Sprint } from '../types/api';
 import { Icon } from './Icon';
-import { ActionCard, ChecklistLine, pts } from './ResultParts';
+import { ActionCard, ChecklistLine } from './ResultParts';
 import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
 
@@ -34,11 +34,10 @@ function Body({ sprint }: { sprint: Sprint }) {
   if (!view.actions.length && !rest.length) {
     return <Empty title="No actions needed">Everything the assessment looks for is shown in your documents. Keep the evidence current.</Empty>;
   }
-  const total = view.actions.reduce((n, a) => n + a.points, 0);
   return (
     <>
       <div className="callout"><Icon name="target" />
-        <p>{view.actions.length ? `Your first ${view.actions.length} steps are the ones in your leadership report; together about ${pts(total)} are at stake. ` : ''}
+        <p>{view.actions.length ? 'One step in each area, weakest area first, the same as in your leadership report. ' : ''}
           Below them is everything else still to show, area by area. A step counts once a fresh assessment reads the document that shows it.</p>
       </div>
       <div className="filter-pills" role="group" aria-label="Filter by area">

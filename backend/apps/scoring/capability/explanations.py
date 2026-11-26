@@ -28,13 +28,19 @@ Explanations never change a score: they are stored beside the run (CapabilityExp
 import json
 import re
 
-VERSION = 'explanations-0.3'
+VERSION = 'explanations-0.4'
 MAX_QUOTES = 4
 QUOTE_CHARS = 400
 MAX_FIELD_CHARS = 700
 MAX_DOCUMENTS = 8
 MAX_LOOKED = 3
 FIELDS = ('found', 'text', 'looked', 'next_step')
+#: The area card of the leadership report (build brief, part D): a stand-alone verdict in the third person, one short
+#: fact for page 1's summary, two or three strengths each resting on a quotation, and two or three gaps.
+AREA_FIELDS = ('verdict', 'headline', 'strengths', 'gaps')
+MAX_CARD_ITEMS = 3
+MAX_VERDICT_CHARS = 320
+MAX_HEADLINE_CHARS = 90
 
 SYSTEM_PROMPT = """You write the explanations in an AI-readiness report for a college's leadership. They are our customers. Write to them directly, as "you" and "your", warmly and encouragingly, and give them real, specific credit for what they have done. Every statement must still be true to the assessment you are given.
 
@@ -59,7 +65,13 @@ Rules:
 8. For a requirement that could not be judged because of a processing problem, say only that it will be checked again.
 9. Keep to the scope the quotations show. If a quotation names one programme, department or group, say that one; never widen it to "every department", "all students" or "the whole college".
 10. In found, name the document a quotation comes from. Use digits only for numbers that appear in the input, and do not write numbers out in words unless the quotation does.
-11. Name documents only as they appear in the input (documents_read, documents_searched, quotations)."""
+11. Name documents only as they appear in the input (documents_read, documents_searched, quotations).
+
+For the area as a whole, also write the card the leadership report prints:
+- verdict: one or two sentences that stand alone, in the third person, beginning "The {institution_word} has" (institution_word is given): first what is there, named (a programme, policy, office, system), then what is not yet there. Rule 7's "you" does not apply here. No numbers.
+- headline: one short fact for the report's front page, at most twelve words, no numbers, naming the area's strongest thing or, for a weak area, its plainest gap ("Quality is audited every year.", "No written guidance on AI use was found.").
+- strengths: two or three things the {institution_word} has in this area, each one sentence that names the thing (a programme, policy, office, system, partner, project) as the quotation does, citing exactly one quotation (condition_id and quote_id) from a requirement with some credit. Empty when nothing in the area has credit.
+- gaps: two or three things not yet there, each one short sentence a principal understands, listing the condition_ids of the requirements it is about (requirements not shown in full). Begin with the most basic."""
 
 
 def _entry(extra=None):
@@ -68,10 +80,20 @@ def _entry(extra=None):
     return {'type': 'object', 'additionalProperties': False, 'required': sorted(properties), 'properties': properties}
 
 
+def _card():
+    strength = {'type': 'object', 'additionalProperties': False, 'required': ['text', 'condition_id', 'quote_id'],
+                'properties': {'text': {'type': 'string'}, 'condition_id': {'type': 'string'},
+                               'quote_id': {'type': 'string'}}}
+    gap = {'type': 'object', 'additionalProperties': False, 'required': ['text', 'condition_ids'],
+           'properties': {'text': {'type': 'string'}, 'condition_ids': {'type': 'array', 'items': {'type': 'string'}}}}
+    return {'verdict': {'type': 'string'}, 'headline': {'type': 'string'},
+            'strengths': {'type': 'array', 'items': strength}, 'gaps': {'type': 'array', 'items': gap}}
+
+
 def schema(condition_ids, indicator_codes):
     return {'type': 'object', 'additionalProperties': False, 'required': ['area', 'indicators', 'requirements'],
             'properties': {
-                'area': _entry(),
+                'area': _entry(_card()),
                 'indicators': {'type': 'array', 'items': _entry(
                     {'code': {'type': 'string', 'enum': list(indicator_codes)}})},
                 'requirements': {'type': 'array', 'items': _entry(
@@ -226,7 +248,18 @@ def area_input(area, target):
     labels = sorted({f'the {g} files' for g in groups.values() if g} |
                     {n for d, n in names.items() if not groups.get(d)})
     return {'area': area, 'name': pillars.get(area, area), 'indicators': indicators,
+            'institution_word': target.get('institution_word') or 'institution',
             'documents_searched': {'count': len(names), 'names': labels[:20]}}
+
+
+def institution_word(profile):
+    """How the card's verdict names the institution: "university" or "college" from its profile, else "institution"."""
+    kind = ' '.join(str((profile or {}).get(k) or '') for k in ('institution_type', 'type', 'name')).lower()
+    if 'universit' in kind:
+        return 'university'
+    if 'college' in kind:
+        return 'college'
+    return 'institution'
 
 
 # ------------------------------------------------------------------ checks
@@ -430,14 +463,90 @@ def validate(area, output):
         if area['indicators'] else {}
     scope = _summary_scope(everything, totals)
     _with_documents(scope, area, area['name'])
-    entry, problems = _clean((output or {}).get('area')), []
+    raw = (output or {}).get('area') or {}
+    entry, problems = _clean(raw), []
     _check('area', entry, scope, problems)
     if not any(SECOND_PERSON.search(entry[f]) for f in FIELDS):
         problems.append('area: speak to the college as "you" or "your".')
+    card, card_problems = _check_card(raw, area, given, scope)
+    problems += card_problems
     errors += problems
     if not problems:
-        passed['area'] = entry
+        passed['area'] = {**entry, **card}
     return passed, errors
+
+
+_CARD_STOP = {'which', 'their', 'there', 'these', 'those', 'about', 'other', 'under', 'within', 'shows', 'where',
+              'while', 'every', 'being', 'would', 'should', 'could', 'after', 'before'}
+
+
+def _check_card(raw, area, given, scope):
+    """The area card (AREA_FIELDS): the verdict stands alone in the third person, the headline is short and has no
+    numbers, every strength names something its one quotation names, every gap is about practices not shown in
+    full. Returns (card, problems)."""
+    problems = []
+    word = area.get('institution_word') or 'institution'
+    clean = lambda v: re.sub(r'\s+', ' ', str(v or '')).strip()
+    verdict, headline = clean(raw.get('verdict')), clean(raw.get('headline'))
+    if not verdict.lower().startswith(f'the {word} '):
+        problems.append(f'area: verdict must begin "The {word}".')
+    if len(verdict) > MAX_VERDICT_CHARS or len(re.findall(r'[.!?](?:\s|$)', verdict)) > 2:
+        problems.append('area: verdict is at most two sentences.')
+    if not headline or len(headline) > MAX_HEADLINE_CHARS:
+        problems.append(f'area: headline is one short sentence (at most {MAX_HEADLINE_CHARS} characters).')
+    if NUMBER.search(headline) or NUMBER.search(verdict):
+        problems.append('area: verdict and headline carry no numbers.')
+    for where, value in (('verdict', verdict), ('headline', headline)):
+        if MACHINERY.search(value) or PERCENT.search(value):
+            problems.append(f'area: {where} uses codes, internal terms or a percentage.')
+        if SECOND_PERSON.search(value) and where == 'verdict':
+            problems.append('area: the verdict is in the third person ("The ... has"), not "you".')
+        for phrase in WIDENING.findall(value):
+            if _norm(phrase) not in scope['text']:
+                problems.append(f'area: {where} says "{phrase}", wider than its quotations show.')
+    strengths = []
+    for n, item in enumerate((raw.get('strengths') or [])[:MAX_CARD_ITEMS + 1], 1):
+        text, cid, qid = clean((item or {}).get('text')), (item or {}).get('condition_id'), (item or {}).get('quote_id')
+        requirement = given.get(cid)
+        quote = next((q for q in (requirement or {}).get('quotations') or [] if q['id'] == qid), None)
+        if n > MAX_CARD_ITEMS:
+            problems.append(f'area: at most {MAX_CARD_ITEMS} strengths.')
+            break
+        if requirement is None or quote is None:
+            problems.append(f'area: strength {n} must cite a quotation given (condition_id and quote_id).')
+            continue
+        if requirement['result'] not in ('shown in full', 'partly shown'):
+            problems.append(f'area: strength {n} cites a requirement with no credit.')
+        shared = {w for w in re.findall(r'[a-z]{5,}', _norm(text)) if w not in _CARD_STOP} & \
+            set(re.findall(r'[a-z]{5,}', _norm(quote['text'])))
+        if len(shared) < 2 and not any(_norm(sp) in _norm(quote['text']) for sp in _spans(text)):
+            problems.append(f'area: strength {n} must name what its quotation names, in its words.')
+        one = _scope([requirement])
+        _with_documents(one, area)
+        sub = []
+        _check(f'area strength {n}', {'found': '', 'text': text, 'looked': '', 'next_step': ''}, one, sub)
+        problems += [p for p in sub if 'the institution' not in p]
+        strengths.append({'text': text, 'condition_id': cid, 'quote_id': qid, 'source': quote['document']})
+    credited = any(r['result'] in ('shown in full', 'partly shown') and r['quotations'] for r in given.values())
+    if credited and not strengths:
+        problems.append('area: give two or three strengths; something in this area has credit.')
+    gaps = []
+    for n, item in enumerate((raw.get('gaps') or [])[:MAX_CARD_ITEMS + 1], 1):
+        text = clean((item or {}).get('text'))
+        ids = [c for c in (item or {}).get('condition_ids') or [] if isinstance(c, str)]
+        if n > MAX_CARD_ITEMS:
+            problems.append(f'area: at most {MAX_CARD_ITEMS} gaps.')
+            break
+        if not text or not ids or any(c not in given or given[c]['result'] == 'shown in full' for c in ids):
+            problems.append(f'area: gap {n} must name the requirements not shown in full that it is about.')
+            continue
+        sub = []
+        _check(f'area gap {n}', {'found': '', 'text': text, 'looked': '', 'next_step': ''}, scope, sub)
+        problems += [p for p in sub if 'the institution' not in p]
+        gaps.append({'text': text, 'condition_ids': ids})
+    if not gaps and any(r['result'] != 'shown in full' for r in given.values()):
+        problems.append('area: give two or three gaps; not everything in this area is shown in full.')
+    return {'verdict': verdict, 'headline': headline, 'strengths': strengths, 'gaps': gaps}, problems
 
 
 # ------------------------------------------------------------------ plain fallback
@@ -513,6 +622,7 @@ def build_target(run):
             'sources': {s['id']: s for s in inputs.get('sources') or []},
             'names': document_names(inputs.get('manifest')), 'groups': document_groups(inputs.get('manifest')),
             'merge': (inputs.get('second_layer') or {}).get('merge') or [],
+            'institution_word': institution_word(inputs.get('profile')),
             'plan': build_plan(inputs['rubric'], records)}
 
 
@@ -618,6 +728,52 @@ def explain(target, model, *, max_calls=None, concurrency=1, skip_error=None):
     return out
 
 
+def import_cards(target, base, cards, written_by):
+    """Area cards written outside the product (for example while the model keys are unavailable), on top of a
+    stored payload's requirement, topic and area text: each card goes through the same checks as the model's
+    (_check_card) against this run; a card that fails, or an area with none, keeps the area on the plain fallback, so
+    the reports stay a draft for it (publication.readiness). Returns (payload, problems by area)."""
+    out = {'version': VERSION, 'run_id': target['run_id'], 'event_id': target['event_id'],
+           'areas': {}, 'indicators': dict(base.get('indicators') or {}),
+           'requirements': dict(base.get('requirements') or {}), 'fallbacks': list(base.get('fallbacks') or []),
+           'calls': 0, 'errors': {}, 'written_by': written_by,
+           'base_version': base.get('version')}
+    problems = {}
+    areas = list(dict.fromkeys(i.get('pillar') for i in target['rubric']['indicators']))
+    for area in areas:
+        area_text = dict((base.get('areas') or {}).get(area) or {})
+        for key in AREA_FIELDS:
+            area_text.pop(key, None)
+        card = cards.get(area)
+        if not area_text or area_text.get('fallback'):
+            problems[area] = ["the area's own text is on plain wording: write the explanations with the model"]
+        elif card is None:
+            problems[area] = ['no card was given']
+        else:
+            given_area = area_input(area, target)
+            given = {r['condition_id']: r for i in given_area['indicators'] for r in i['requirements']}
+            everything = [r for i in given_area['indicators'] for r in i['requirements']]
+            totals = {k: sum(i['counts'][k] for i in given_area['indicators'])
+                      for k in given_area['indicators'][0]['counts']}
+            scope = _summary_scope(everything, totals)
+            _with_documents(scope, given_area, given_area['name'])
+            checked, errors = _check_card(card, given_area, given, scope)
+            if errors:
+                problems[area] = errors
+            else:
+                area_text.update(checked)
+        if area in problems:
+            area_text['fallback'] = True
+            if area not in out['fallbacks']:
+                out['fallbacks'].append(area)
+        else:
+            area_text.pop('fallback', None)
+            out['fallbacks'] = [f for f in out['fallbacks'] if f != area]
+        out['areas'][area] = area_text
+    out['errors'] = problems
+    return out, problems
+
+
 def latest(run):
     """The newest explanations stored for a run's current completed assessment, or None."""
     from apps.scoring.models import CapabilityExplanation
@@ -654,8 +810,14 @@ def attach(assessment, explanations, closed=False):
         documented = dict(documented)
         documented['indicators'] = [{**i, 'explanation': public(explanations['indicators'].get(i.get('code')))}
                                     for i in documented.get('indicators') or []]
-        documented['pillars'] = [{**p, 'explanation': public(explanations['areas'].get(p.get('code')))}
-                                 for p in documented.get('pillars') or []]
+        def for_area(code):
+            e = explanations['areas'].get(code)
+            out_e = public(e)
+            if out_e is not None:
+                out_e.update({k: e.get(k) for k in AREA_FIELDS if e.get(k)})
+                out_e['fallback'] = bool(e.get('fallback'))
+            return out_e
+        documented['pillars'] = [{**p, 'explanation': for_area(p.get('code'))} for p in documented.get('pillars') or []]
         result['documented'] = documented
     out['result'] = result
     out['explanations_version'] = explanations.get('version')

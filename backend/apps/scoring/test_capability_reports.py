@@ -166,12 +166,13 @@ class CapabilityReportTests(APITestCase):
         self.prepare_run()
         url = f'/api/v1/sprints/{self.sprint.pk}/capability-runs/{self.run.pk}/report'
         before = list(self.run.events.values_list('id', 'payload'))
-        for audience, heading in (('summary', 'Your nine readiness areas'), ('detailed', 'Detailed AI readiness report')):
+        for audience, heading in (('summary', 'Where you stand, overall and in each of the nine areas'),
+                                  ('detailed', 'the detailed report')):
             html = self.client.get(url, {'audience': audience})
             self.assertEqual(html.status_code, 200)
             body = html.content.decode()
             self.assertIn(heading, body)
-            self.assertIn('★', body)
+            self.assertIn('aria-label="1 of 5 stars"', body)
             self.assertIn('Starting out', body)
             self.assertNotIn('<script>', body)
             self.assertIn('&lt;script&gt;profile_attack()&lt;/script&gt;', body)

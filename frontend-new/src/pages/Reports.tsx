@@ -21,7 +21,7 @@ import { dateTime, num, pct, tidyText, valueText } from '../utils/format';
 /** The two reports for the institution (23 Nov): a short leadership report and the full detail. */
 const REPORTS = [
   { audience: 'summary' as const, icon: 'file', title: 'Leadership report',
-    text: 'Your level and stars, the nine areas at a glance, where you are strong, where to focus and what to do next.', meta: 'About 7 pages · for leadership and the board' },
+    text: 'Your level and stars, the nine areas at a glance, where you are strong, where to focus and what to do next.', meta: 'Six pages · for leadership and the board' },
   { audience: 'detailed' as const, icon: 'assessment', title: 'Detailed report',
     text: 'Every practice in all nine areas: what your documents show, the quotation and its document, and the next step.', meta: 'Every practice · for the teams doing the work' },
 ];

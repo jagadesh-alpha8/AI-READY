@@ -34,6 +34,11 @@ class Command(BaseCommand):
                             help='Queue the metered background job (as the API does) instead of writing here.')
         parser.add_argument('--final', action='store_true',
                             help="With --job: write the published final result's explanations.")
+        parser.add_argument('--import', dest='cards',
+                            help='Area cards written outside the product ({area code: {verdict, headline, strengths, '
+                                 'gaps}}), checked against this run and laid on its newest stored explanations. '
+                                 'No model call.')
+        parser.add_argument('--written-by', default='hand-written, checked by explanations._check_card')
 
     def handle(self, *args, **options):
         from apps.scoring.capability.depth import default_model
@@ -45,6 +50,8 @@ class Command(BaseCommand):
             return self.queue(run, final=options['final'])
         if options['final']:
             raise CommandError('--final goes with --job; without it, pass the final run id itself.')
+        if options['cards']:
+            return self.import_cards(run, options)
         try:
             target = build_target(run)
         except ValueError as exc:
@@ -59,6 +66,35 @@ class Command(BaseCommand):
             CapabilityExplanation.objects.create(run=run, event_id=target['event_id'], version=written['version'],
                                                  model=getattr(model, 'model_name', ''), payload=written)
             self.stdout.write('Saved.')
+        if options['out']:
+            with open(options['out'], 'w') as handle:
+                json.dump(written, handle, indent=2, ensure_ascii=False)
+
+    def import_cards(self, run, options):
+        """Area cards written without the model, through the product's own checks (explanations.import_cards)."""
+        from apps.scoring.capability.explanations import build_target, import_cards
+        try:
+            target = build_target(run)
+        except ValueError as exc:
+            raise CommandError(str(exc))
+        base = (CapabilityExplanation.objects.filter(run=run, event_id=target['event_id']).order_by('-created_at')
+                .values_list('payload', flat=True).first())
+        if not base:
+            raise CommandError('This run has no stored explanations to lay the cards on: write them first.')
+        with open(options['cards']) as handle:
+            cards = json.load(handle)
+        if isinstance(cards, dict) and isinstance(cards.get('areas'), dict) and 'version' in cards:
+            cards = cards['areas']   # a whole explanations payload: its areas' cards
+        written, problems = import_cards(target, base, cards, options['written_by'])
+        passed = len(written['areas']) - len(problems)
+        self.stdout.write(f'{passed} of {len(written["areas"])} area cards pass the checks.')
+        for area, errors in problems.items():
+            self.stdout.write(f'  {area}: {errors[0]}' + (f' (and {len(errors) - 1} more)' if len(errors) > 1 else ''))
+        if options['save']:
+            CapabilityExplanation.objects.create(run=run, event_id=target['event_id'], version=written['version'],
+                                                 model=options['written_by'][:100], payload=written)
+            self.stdout.write('Saved.' + (' The areas that failed stay on plain wording, so the reports stay a '
+                                          'draft until they are written.' if problems else ''))
         if options['out']:
             with open(options['out'], 'w') as handle:
                 json.dump(written, handle, indent=2, ensure_ascii=False)
