@@ -4,10 +4,11 @@ import { Empty, ErrorState, Loading } from '../components/ui';
 import { useCapability } from '../hooks/useCapability';
 import { useResource } from '../hooks/useResource';
 import { pathOf } from '../navigation';
-import { getQuestions, type Layer2Question, type Layer2Response } from '../services/capability';
+import { getQuestions, type Layer2Question } from '../services/capability';
 import type { Sprint } from '../types/api';
 import { pillarName } from '../utils/capability';
 import { dateTime, tidyText } from '../utils/format';
+import { answerState } from '../utils/answers';
 
 /**
  * Assessment › Your answers (merged website design, 27 Nov 2026): every follow-up question answered so far, with
@@ -15,14 +16,6 @@ import { dateTime, tidyText } from '../utils/format';
  */
 export function AnswersPage() {
   return <RequireSprint>{(sprint) => <Body sprint={sprint} />}</RequireSprint>;
-}
-
-/** What came of an answer, in a few words. */
-export function answerState(r: Layer2Response): { label: string; tone: 'ok' | 'wait' | 'none' } {
-  if (r.kind === 'dont_know') return { label: 'Skipped', tone: 'none' };
-  if (r.choice === 'not_yet') return { label: 'Not yet in place', tone: 'none' };
-  if (r.status === 'pending') return { label: 'Being checked against your documents', tone: 'wait' };
-  return r.supported ? { label: 'Supported by a document', tone: 'ok' } : { label: 'No supporting document found', tone: 'none' };
 }
 
 const question = (q: Layer2Question) => q.text.split('\n')[0];

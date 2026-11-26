@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { RequireSprint } from '../components/RequireSprint';
 import { Empty, ErrorState, Loading, Notice, PageHeading, PageLink, Panel, Pill, Stat, Table, Tabs } from '../components/ui';
@@ -8,7 +8,7 @@ import { usePolling, useResource } from '../hooks/useResource';
 import {
   addAdditionalEvidence, answerFollowUp, answerQuestion, cancelSecondLayerJob, getNextQuestion, getQuestions, getResponse,
   listAdditionalEvidence, listSecondLayerJobs, markToCheck, startSecondLayerJob,
-  type AdditionalEvidenceItem, type Layer2Next, type Layer2Progress, type Layer2Questions, type Layer2Response, type SecondLayerJob,
+  type AdditionalEvidenceItem, type Layer2Next, type Layer2Question, type Layer2Progress, type Layer2Questions, type Layer2Response, type SecondLayerJob,
   type SecondLayerJobList, type SecondLayerOperation,
 } from '../services/capability';
 import { startExtraction, uploadDocument } from '../services/documents';
@@ -21,6 +21,7 @@ import { areaTitle } from '../utils/areaTitles';
 import { FINAL_SCORE, newKey, pillarName } from '../utils/capability';
 import { errorMessage } from '../utils/errors';
 import { dateTime, humanize, tidyText, valueText } from '../utils/format';
+import { answerState, littleAfter } from '../utils/answers';
 
 /**
  * The questionnaire of the new flow (Siddharth / Harsha, 12 Nov 2026), one item at a time, each with an answer box,
@@ -56,12 +57,15 @@ export function Questionnaire() {
 function Body({ sprint }: { sprint: Sprint }) {
   const { staff } = useAccess();
   const [tab, setTab] = useState<Tab>(DEMO_MODE ? 'line2' : 'line1');
+  // The facts to check before the assessment live under Documents › Facts to check; a college doesn't meet them
+  // again here (merged design, 27 Nov). Staff keep the tab.
+  const tabs = staff ? TABS : TABS.filter((t) => t.key !== 'line1');
   const cap = useCapability(sprint.id);
   return (
     <>
       <PageHeading page="questionnaire" />
       {QUESTIONNAIRE_NOTICE && <Notice tone="info">{QUESTIONNAIRE_NOTICE}</Notice>}
-      <Tabs tabs={TABS} value={tab} onChange={setTab} label="Questionnaire" />
+      <Tabs tabs={tabs} value={tab} onChange={setTab} label="Questionnaire" />
       {tab === 'line1' && <LineOne sprint={sprint} />}
       {tab !== 'line1' && (cap.loading ? <Loading /> : cap.error ? <ErrorState error={cap.error} /> : !cap.run.data ? (
         staff ? (
@@ -258,13 +262,21 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
   // A question opened by name (?question=…), from a practice not found on the Results page or from Your answers.
   const [params, setParams] = useSearchParams();
   const asked = params.get('question') || '';
-  const listed = useResource<Layer2Questions>(() => getQuestions(sprint.id, runId), `l2-list:${runId}:${asked}`, !!asked);
-  const chosen = asked ? listed.data?.questions?.find((q) => q.id === asked && !q.response && q.status === 'open') : undefined;
+  // Every question in order with its latest answer: the list on the left (merged design, 27 Nov).
+  const listed = useResource<Layer2Questions>(() => getQuestions(sprint.id, runId), `l2-list:${runId}`);
   const clearAsked = () => { const p = new URLSearchParams(params); p.delete('question'); setParams(p, { replace: true }); };
+  const openQuestion = (id: string) => { const p = new URLSearchParams(params); p.set('question', id); setParams(p); };
+  const refresh = () => { void next.refetch(); void listed.refetch(); };
   // What Stage 1 found for each practice, from the result view the Results page shows (merged design, 27 Nov).
   const practices = useMemo(() => {
     const m = new Map<string, ScreenPractice>();
     for (const c of run.next_steps?.presentation?.cards || []) for (const t of c.topics) for (const p of t.practices) m.set(p.id, p);
+    return m;
+  }, [run]);
+  // Each topic's area and plain name, for the question's heading and the list.
+  const topics = useMemo(() => {
+    const m = new Map<string, { area: string; topic: string }>();
+    for (const c of run.next_steps?.presentation?.cards || []) for (const t of c.topics) m.set(t.code, { area: c.name, topic: t.name });
     return m;
   }, [run]);
   const [answered, setAnswered] = useState<Layer2Response[]>([]);
@@ -279,7 +291,7 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
       .then((fresh) => {
         setAnswered((all) => all.map((r) => fresh.find((f) => f.id === r.id) || r));
         // A check that asks a follow-up puts it back in the queue as next.type = "follow_up".
-        if (fresh.some((f) => f.status === 'checked')) void next.refetch();
+        if (fresh.some((f) => f.status === 'checked')) refresh();
       });
   }, pending.length > 0, 8000);
   // The questions are planned by themselves once the Stage 1 result is published: wait for them.
@@ -287,53 +299,70 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
 
   if (next.loading && !next.data) return <Loading />;
   if (next.error) return <ErrorState error={next.error} onRetry={() => void next.refetch()} />;
+  const all = (listed.data?.questions || []).filter((q) => q.status !== 'linked');
+  const closed = !!p?.final_run_id || !!p?.closed;
+  const followUp = !asked && !closed && next.data?.next?.type === 'follow_up' ? next.data.next : null;
+  const selected = all.find((q) => q.id === asked)
+    || (!closed && next.data?.next?.type === 'question' ? all.find((q) => q.id === next.data!.next!.question.id) : undefined)
+    || (closed ? all[0] : undefined);
+  const at = selected ? all.indexOf(selected) : -1;
+  const done = (r: Layer2Response | null, text: string) => {
+    if (r) setAnswered((a) => [r, ...a]);
+    setMsg({ tone: 'success', text });
+    clearAsked();
+    refresh();
+  };
   return (
     <>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
-      {p?.final_run_id && (
+      {closed && p?.final_run_id && (
         staff
           ? <Notice tone="success">The follow-up stage is closed and the {FINAL_SCORE} has been published (run {p.final_run_id.slice(0, 8)}). Reports, recommendations and plan comparison now use it.</Notice>
           : <Notice tone="success">The follow-up questions are closed and your final result is out. It is on your Overview, and your answers stay under Your answers.</Notice>
       )}
-      {notice && !p?.final_run_id && (
-        <Panel title={notice.title}>
+      {notice && !closed && (
+        <details className="fu-rules">
+          <summary><strong>{notice.title}</strong> {notice.rules[0]}</summary>
           <p>{notice.intro}</p>
           <ul>{notice.rules.map((rule) => <li key={rule}>{rule}</li>)}</ul>
-        </Panel>
+        </details>
       )}
-      <SecondLayerJobs sprint={sprint} runId={runId} progress={p} onChange={() => void next.refetch()} onFinal={onFinal} />
+      {staff && <SecondLayerJobs sprint={sprint} runId={runId} progress={p} onChange={refresh} onFinal={onFinal} />}
       {!DEMO_MODE && staff && <div className="stat-grid">
         <Stat label="Questions" value={p?.questions ?? 0} note={`${p?.linked ? `${p.linked} more answered through linked questions · ` : ''}Stage 1 result, run ${runId.slice(0, 8)}${run.id === runId ? ` · ${dateTime(run.created_at)}` : ''}`} />
         <Stat label="Answered or skipped" value={p?.answered ?? 0} note={`${p?.open ?? 0} open`} />
         <Stat label="Checks waiting" value={p?.checks_waiting ?? 0} note="Answers are checked against the documents" />
         <Stat label="Follow-ups open" value={p?.follow_ups_open ?? 0} note="At most one per answer" />
       </div>}
-      {p && p.questions > 0 && !p.final_run_id && (
-        <Panel>
-          <ProgressLine done={p.answered} total={p.questions} label="Questions answered" />
-          <p className="muted">Questions come in order of the points they can earn, highest first. You can stop whenever you like; unanswered questions earn nothing back.</p>
-        </Panel>
-      )}
-      {p?.final_run_id ? null : !p?.questions ? (
+      {!p?.questions && !closed ? (
         staff
           ? <Empty title="No follow-up questions yet">Questions for this run have not been planned yet. They are planned by themselves once the Stage 1 result is published; “Plan follow-up questions” above starts it by hand.</Empty>
           : <Empty title="Your follow-up questions are being prepared">They appear here once they are ready. This page updates by itself.</Empty>
-      ) : chosen ? (
-        <>
-          <p className="ws-row"><button type="button" className="text-btn" onClick={clearAsked}>Back to the most important question</button></p>
-          <QuestionItem key={`chosen:${chosen.id}`} sprint={sprint} runId={runId} found={practices}
-            item={{ type: 'question', text: chosen.text, question: chosen, response_id: null }}
-            position={(p.answered || 0) + 1} total={p.questions}
-            onDone={(r, text) => { if (r) setAnswered((a) => [r, ...a]); setMsg({ tone: 'success', text }); clearAsked(); void next.refetch(); }} />
-        </>
-      ) : !next.data?.next ? (
-        <Empty title="All questions answered" action={<PageLink to="areas" className="primary-action">See your nine areas</PageLink>}>
-          {p.checks_waiting ? `${p.checks_waiting} answer(s) are still being checked against the documents.` : 'Every question has an answer or was skipped.'}
-        </Empty>
       ) : (
-        <QuestionItem key={`${next.data.next.type}:${next.data.next.response_id || next.data.next.question.id}`} sprint={sprint} runId={runId} item={next.data.next} found={practices}
-          position={(p.answered || 0) + 1} total={p.questions}
-          onDone={(r, text) => { if (r) setAnswered((a) => [r, ...a]); setMsg({ tone: 'success', text }); void next.refetch(); }} />
+        <div className="fu-grid">
+          <QuestionList questions={all} current={followUp ? '' : selected?.id || ''} topics={topics} onOpen={openQuestion}
+            answered={p?.answered ?? 0} total={p?.questions ?? all.length} closed={closed} />
+          <div className="fu-main">
+            {followUp ? (
+              <QuestionItem key={`fu:${followUp.response_id}`} sprint={sprint} runId={runId} item={followUp} found={practices} topics={topics}
+                position={0} total={all.length} onDone={done} />
+            ) : selected && !closed && !selected.response ? (
+              <QuestionItem key={`q:${selected.id}`} sprint={sprint} runId={runId} found={practices} topics={topics}
+                item={{ type: 'question', text: selected.text, question: selected, response_id: null }}
+                position={at + 1} total={all.length} onDone={done}
+                onPrevious={at > 0 ? () => openQuestion(all[at - 1].id) : undefined} />
+            ) : selected ? (
+              <AnsweredQuestion q={selected} position={at + 1} total={all.length} found={practices} topics={topics} closed={closed}
+                onPrevious={at > 0 ? () => openQuestion(all[at - 1].id) : undefined}
+                onNext={!closed && next.data?.next ? clearAsked : at < all.length - 1 ? () => openQuestion(all[at + 1].id) : undefined} />
+            ) : (
+              <Empty title="All questions answered" action={<PageLink to="areas" className="primary-action">See your nine areas</PageLink>}>
+                {p?.checks_waiting ? `${p.checks_waiting} answer(s) are still being checked against the documents.` : 'Every question has an answer.'}
+              </Empty>
+            )}
+            {!staff && <SecondLayerJobs sprint={sprint} runId={runId} progress={p} onChange={refresh} onFinal={onFinal} />}
+          </div>
+        </div>
       )}
       {answered.length > 0 && (
         <Panel title="Your answers this session" sub="A typed answer counts only when supporting evidence is found for it">
@@ -596,14 +625,6 @@ function CollegeFinish({ progress: p, active, enabled, busy, msg, onClear, onFin
   );
 }
 
-type Option = 'yes' | 'partly' | 'not_yet' | 'check';
-const OPTIONS: { key: Option; label: string; help: string }[] = [
-  { key: 'yes', label: 'Yes, with supporting evidence', help: 'Attach the document that shows it.' },
-  { key: 'partly', label: 'Partially in place', help: 'Attach what you have, and say what is still missing.' },
-  { key: 'not_yet', label: 'Not yet in place', help: 'Recorded for your improvement plan. It does not lower your score.' },
-  { key: 'check', label: 'I need to check', help: 'Saved for later. The question waits at the end of the list.' },
-];
-
 /** "What we found at Stage 1" beside a question (merged design, 27 Nov): its practices looked up in the result
  * view by the question's condition_ids, which are the same practice ids. */
 function StageOneFound({ ids, found }: { ids: string[]; found: Map<string, ScreenPractice> }) {
@@ -626,88 +647,183 @@ function StageOneFound({ ids, found }: { ids: string[]; found: Map<string, Scree
   );
 }
 
-function QuestionItem({ sprint, runId, item, position, total, onDone, found }: {
+type Topics = Map<string, { area: string; topic: string }>;
+
+/** The first sentence of a question, for the list: a missing-evidence question names its topic instead. */
+function listLabel(q: Layer2Question, topics: Topics) {
+  const t = topics.get(q.indicator_code);
+  if (q.kind === 'missing') {
+    const n = q.condition_ids.length;
+    const name = !t ? 'this topic' : /^[A-Z]{2}/.test(t.topic) ? t.topic : t.topic[0].toLowerCase() + t.topic.slice(1);
+    return `What your documents did not show about ${name} (${n} practice${n === 1 ? '' : 's'})`;
+  }
+  const first = q.text.split('\n')[0].split(/(?<=[.?!])\s/)[0];
+  return first.length > 120 ? `${first.slice(0, 117).trimEnd()}…` : first;
+}
+
+const answerTag = (q: Layer2Question & { response: Layer2Response | null }, closed = false) =>
+  q.response ? (q.response.status === 'pending' ? ['Being checked', 'blue'] : q.response.choice === 'not_yet' ? ['Not yet', 'gray'] : ['Answered', ''])
+    : closed ? ['Not answered', 'gray'] : q.to_check ? ['To check', 'amber'] : ['Open', 'gray'];
+
+/** The list beside the question (merged design, 27 Nov): most important first, with a marker where answers stop
+ * adding much. Choosing a question opens it. */
+function QuestionList({ questions, current, topics, onOpen, answered, total, closed }: {
+  questions: (Layer2Question & { response: Layer2Response | null })[]; current: string; topics: Topics;
+  onOpen: (id: string) => void; answered: number; total: number; closed: boolean;
+}) {
+  const little = closed ? -1 : littleAfter(questions);
+  return (
+    <aside className="fu-list" aria-label="All follow-up questions">
+      <div className="fu-list-head"><h2>Most important first</h2><span className="tag">{answered} of {total} answered</span></div>
+      <p className="muted">Questions that can confirm the most come first.</p>
+      <ol>
+        {questions.map((q, i) => {
+          const [label, tone] = answerTag(q, closed);
+          const t = topics.get(q.indicator_code);
+          return (
+            <li key={q.id}>
+              {i === little && (
+                <p className="fu-little">From question {i + 1} on, each answer adds little. Answer them if you have the documents to hand.</p>
+              )}
+              <button type="button" className={q.id === current ? 'on' : ''} aria-current={q.id === current ? 'true' : undefined} onClick={() => onOpen(q.id)}>
+                <span className="q">{listLabel(q, topics)}</span>
+                <span className="m"><small>{t?.area || pillarName(q.indicator_code.split('.')[0])}</small><span className={`tag ${tone}`}>{label}</span></span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </aside>
+  );
+}
+
+/** A question's heading: the area and topic, and where it sits in the list. */
+function QuestionHead({ q, position, total, topics, extra }: { q: Layer2Question; position: number; total: number; topics: Topics; extra?: ReactNode }) {
+  const t = topics.get(q.indicator_code);
+  return (
+    <div className="fu-head">
+      <span>{t ? `${t.area}: ${t.topic}` : pillarName(q.indicator_code.split('.')[0])}</span>
+      <span className="ws-row">{extra}{position > 0 && <span>Question {position} of {total}</span>}</span>
+    </div>
+  );
+}
+
+/** A question's text: the first line as the question, the numbered practices of a missing-evidence question below. */
+function QuestionText({ text }: { text: string }) {
+  const [first, ...rest] = text.split('\n');
+  return (
+    <>
+      <h2 className="fu-q">{first}</h2>
+      {rest.length > 0 && <div className="fu-q-rest">{rest.map((line, i) => <p key={i}>{line}</p>)}</div>}
+    </>
+  );
+}
+
+/** An answered question, read only: after finishing, every question is shown this way (merged design, 27 Nov). */
+function AnsweredQuestion({ q, position, total, found, topics, closed, onPrevious, onNext }: {
+  q: Layer2Question & { response: Layer2Response | null }; position: number; total: number; found: Map<string, ScreenPractice>;
+  topics: Topics; closed: boolean; onPrevious?: () => void; onNext?: () => void;
+}) {
+  const r = q.response;
+  return (
+    <section className="question-card fu-card">
+      <QuestionHead q={q} position={position} total={total} topics={topics} />
+      <QuestionText text={q.text} />
+      <StageOneFound ids={q.condition_ids} found={found} />
+      <div className="fu-answer">
+        <strong>Your answer</strong>
+        {r ? (
+          <>
+            <p><span className={`tag ${answerTag(q)[1]}`}>{answerState(r).label}</span></p>
+            {r.answer && <p>{tidyText(r.answer)}</p>}
+            <p className="muted">{r.document_ids.length ? `${r.document_ids.length} document${r.document_ids.length === 1 ? '' : 's'} attached` : 'No document attached'} · {dateTime(r.created_at)}</p>
+          </>
+        ) : <p className="muted">{closed ? 'Not answered before the questions closed.' : 'Not answered yet.'}</p>}
+      </div>
+      <div className="fu-nav">
+        {onPrevious ? <button type="button" className="text-btn" onClick={onPrevious}>Previous question</button> : <span />}
+        {onNext && <button type="button" className="text-btn" onClick={onNext}>{closed ? 'Next question' : 'Go to the next open question'}</button>}
+      </div>
+    </section>
+  );
+}
+
+function QuestionItem({ sprint, runId, item, position, total, onDone, found, topics, onPrevious }: {
   sprint: Sprint; runId: string; item: Layer2Next; position: number; total: number; onDone: (r: Layer2Response | null, text: string) => void;
-  found?: Map<string, ScreenPractice>;
+  found?: Map<string, ScreenPractice>; topics: Topics; onPrevious?: () => void;
 }) {
   const { can, staff } = useAccess();
-  const [option, setOption] = useState<Option | ''>(item.question.to_check ? 'check' : '');
   const [answer, setAnswer] = useState('');
   const [files, setFiles] = useState<File[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [noDocOk, setNoDocOk] = useState(false);
   const followUp = item.type === 'follow_up';
   const points = item.question.points_at_stake;
-  const withDocs = option === 'yes' || option === 'partly' || followUp;
+  const manage = can('sprint.manage');
 
-  const send = async (skip = false) => {
+  /** save: an answer (with its documents); check: "I need to check"; none: "We do not have this". */
+  const send = async (how: 'save' | 'check' | 'none') => {
     setError('');
-    if (!skip && !followUp && !option) { setError('Choose one of the options.'); return; }
-    setBusy(true);
+    if (how === 'save' && !files.length && !noDocOk) {
+      if (!answer.trim()) { setError('Attach the document that shows this, or say where to find it.'); return; }
+      setNoDocOk(true);
+      setError('An answer counts only when a document supports it. Attach one, or press Save again to send the answer without a document: it is recorded, but earns nothing.');
+      return;
+    }
+    setBusy(how);
     try {
-      if (option === 'check' && !skip && !followUp) {
+      if (how === 'check') {
         await markToCheck(sprint.id, runId, item.question.id, true);
         onDone(null, 'Saved for later: this question waits at the end of the list.');
         return;
       }
-      if (!skip && withDocs && !files.length && !noDocOk) {
-        if (!answer.trim()) { setError('Attach a document, or describe what is in place.'); return; }
-        setNoDocOk(true);
-        setError('An answer counts only when a document supports it. Attach one, or press Save again to send the answer without a document: it is recorded, but earns nothing.');
-        return;
-      }
-      const document_ids = !skip && withDocs && files.length ? await uploadAll(sprint.id, files) : [];
-      const choice = skip || followUp ? undefined : (option as 'yes' | 'partly' | 'not_yet');
-      const body = { answer: skip ? '' : answer.trim(), document_ids, skip, ...(choice ? { choice } : {}) };
+      const document_ids = how === 'save' && files.length ? await uploadAll(sprint.id, files) : [];
+      const body = how === 'none'
+        ? { answer: answer.trim(), document_ids: [], choice: 'not_yet' as const }
+        : { answer: answer.trim(), document_ids, ...(followUp ? {} : { choice: 'yes' as const }) };
       const res = followUp && item.response_id
         ? await answerFollowUp(sprint.id, runId, item.response_id, body)
         : await answerQuestion(sprint.id, runId, item.question.id, body);
-      onDone(res.data, skip ? 'Skipped.' : option === 'not_yet' ? 'Recorded as not yet in place.'
+      onDone(res.data, how === 'none' ? 'Recorded as not yet in place. It does not lower your score.'
         : res.data.status === 'pending' ? 'Saved. Your answer is checked against your documents once they have been read.' : 'Saved.');
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(false);
+      setBusy('');
     }
   };
 
   return (
-    <section className="question-card">
-      <div className="question-head" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <span className="eyebrow" style={{ margin: 0 }}>{followUp ? 'One follow-up' : `Question ${position} of ${total}`} · {pillarName(item.question.indicator_code.split('.')[0])}</span>
-        <span className="ws-row">
-          {item.question.to_check && <span className="tag">Marked to check</span>}
+    <section className="question-card fu-card">
+      <QuestionHead q={item.question} position={followUp ? 0 : position} total={total} topics={topics}
+        extra={<>
+          {followUp && <span className="tag blue">One more thing about your answer</span>}
+          {item.question.to_check && <span className="tag amber">Marked to check</span>}
           {/* Points to two decimals are for staff; a college's screens carry no decimals (merged design, 27 Nov). */}
           {staff && !followUp && !!points && <span className="tag">Up to {pointsLabel(points)}</span>}
-        </span>
-      </div>
-      <h2 className="question-text" style={{ marginTop: 12, whiteSpace: 'pre-line', fontSize: 17, lineHeight: 1.5 }}>{item.text}</h2>
+        </>} />
+      <QuestionText text={item.text} />
       {!followUp && found && <StageOneFound ids={item.question.condition_ids} found={found} />}
-      <form onSubmit={(e) => { e.preventDefault(); void send(false); }}>
-        {!followUp && OPTIONS.map((o) => (
-          <label key={o.key} className={`choice ${option === o.key ? 'selected' : ''}`}>
-            <input type="radio" name={`answer-${item.question.id}`} value={o.key} checked={option === o.key}
-              onChange={() => { setOption(o.key); setError(''); setNoDocOk(false); }} />
-            <span><strong>{o.label}</strong><small style={{ display: 'block' }}>{o.help}</small></span>
-          </label>
-        ))}
-        {(withDocs || option === 'not_yet') && (
-          <label className="field" style={{ marginTop: 20, display: 'block' }}>
-            <span>{option === 'not_yet' ? 'Anything you plan (optional)' : 'What is in place, and where is it documented?'}</span>
-            <textarea rows={3} maxLength={4000} value={answer} onChange={(e) => { setAnswer(e.target.value); setNoDocOk(false); }}
-              style={{ width: '100%' }} placeholder={option === 'not_yet' ? 'e.g. planned for the 2027 academic year' : 'e.g. 42 of 60 faculty completed the NPTEL course; certificates attached'} />
-          </label>
+      <form onSubmit={(e) => { e.preventDefault(); void send('save'); }}>
+        <h3 className="fu-label">The document that shows this</h3>
+        <UploadBox files={files} onChange={(f) => { setFiles(f); setNoDocOk(false); }} required={false} />
+        <label className="field fu-field">
+          <span><strong>Your answer</strong> <span className="muted">(tells us where to look in the document)</span></span>
+          <textarea rows={3} maxLength={4000} value={answer} onChange={(e) => { setAnswer(e.target.value); setNoDocOk(false); }}
+            placeholder="For example: “The IT Policy, section 6, sets out the weekly backup and the restore test.”" />
+        </label>
+        {error && <Notice tone={noDocOk ? 'warn' : 'error'}>{error}</Notice>}
+        {manage && (
+          <div className="fu-actions">
+            <button className="btn primary" disabled={!!busy}>{busy === 'save' ? 'Saving…' : 'Save and go to the next question'}</button>
+            {!followUp && <button type="button" className="btn" disabled={!!busy} onClick={() => void send('check')}
+              title="Saved for later: the question waits at the end of the list">I need to check</button>}
+            {!followUp && <button type="button" className="btn" disabled={!!busy} onClick={() => void send('none')}
+              title="Recorded for your improvement plan. It does not lower your score.">We do not have this</button>}
+          </div>
         )}
-        {withDocs && <div style={{ marginTop: 14 }}><UploadBox files={files} onChange={(f) => { setFiles(f); setNoDocOk(false); }} required={false} /></div>}
-        {error && <div style={{ marginTop: 14 }}><Notice tone={noDocOk ? 'warn' : 'error'}>{error}</Notice></div>}
-        <div className="question-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 22, gap: 12, flexWrap: 'wrap' }}>
-          <button type="button" className="text-btn" disabled={busy} onClick={() => void send(true)}
-            title="Moves on without an answer; this question earns nothing">Skip this question</button>
-          {can('sprint.manage') && (
-            <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : option === 'check' ? 'Save for later' : 'Save & continue'}</button>
-          )}
-        </div>
+        {onPrevious && <div className="fu-nav"><span /><button type="button" className="text-btn" onClick={onPrevious}>Previous question</button></div>}
       </form>
     </section>
   );
