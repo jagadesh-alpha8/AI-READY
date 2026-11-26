@@ -212,8 +212,9 @@ class CapabilityReportView(RunView):
         payload['report_view'] = build_report_view(payload, actions)
         if audience in {'summary', 'detailed'}:
             from .presentation import build
+            from .quote_context import for_run as sentences_for
             try:
-                view = build(payload)
+                view = build(payload, sentences_for(run, None, event.pk))
                 payload['presentation'] = view
             except Exception:   # a run shaped in a way the new reports don't expect: serve the older report instead
                 logger.exception('presentation failed for run %s; serving the older %s report', run.pk, audience)

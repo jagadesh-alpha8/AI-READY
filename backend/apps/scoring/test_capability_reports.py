@@ -196,6 +196,39 @@ class CapabilityReportTests(APITestCase):
         self.assertIn('leadership', fallback['Content-Disposition'])
         self.assertEqual(list(self.run.events.values_list('id', 'payload')), before)
 
+    def test_reports_print_whole_sentences_for_cut_off_quotations(self):
+        """quote-context-1: a quotation cut at a line end prints as the whole sentence, found on the run's own frozen
+        page; the stored record keeps the judge's quotation."""
+        from .capability.storage import create_run, checkpoint, publish
+        from .capability.evaluation import evaluate
+        from . import test_recommendations as rec
+        self.page.text = ('IT infrastructure, 2025-26.\nThe firewall is upgraded to\nSonicall NSA 4700 from Sophos NXG550 '
+                          'for every faculty and student.')
+        self.page.save()
+        self.run = create_run(institution_id=self.institution.pk, sprint_id=self.sprint.pk,
+                              population='All faculty and students', reference_period='2025-26')
+        checkpoint(institution_id=self.institution.pk, run_id=self.run.pk, state='running')
+        evaluation = evaluate([], service=None, population='All', reference_period='2025-26')
+        for row in evaluation['records']:
+            row.update(reason=rec.EVALUATED_UNKNOWN, validation_issue='')
+        known = next(r for r in evaluation['records'] if r['condition_id'] == 'AIQIF-C6.1.F1')
+        shard = 'The firewall is upgraded to'
+        known.update(state='met', reason='Synthetic.', validation_issue='', scope_supported=True, period_supported=True,
+                     citations=[{'source_id': str(self.page.pk), 'quote': shard}])
+        publish(institution_id=self.institution.pk, run_id=self.run.pk, evaluation=evaluation,
+                inference={'provider': 'none', 'model': 'none', 'settings': {}, 'calls': []})
+        from .models import CapabilityExecution
+        CapabilityExecution.objects.create(run=self.run, sprint=self.sprint, status='completed',
+                                           idempotency_key=str(self.run.pk), request_hash=self.run.inputs_hash)
+        url = f'/api/v1/sprints/{self.sprint.pk}/capability-runs/{self.run.pk}/report'
+        view = json.loads(self.client.get(url, {'audience': 'detailed', 'file': 'json'}).content)
+        rows = {r['id']: r for a in view['presentation']['areas'] for s in a['subareas'] for r in s['requirements']}
+        self.assertEqual(rows['AIQIF-C6.1.F1']['quote'],
+                         'The firewall is upgraded to Sonicall NSA 4700 from Sophos NXG550 for every faculty and student.')
+        stored = next(r for r in self.run.events.filter(state='completed').last().payload['records']
+                      if r['condition_id'] == 'AIQIF-C6.1.F1')
+        self.assertEqual(stored['citations'][0]['quote'], shard)
+
     def test_default_leadership_report_is_readable_without_changing_assessment(self):
         import pymupdf
         before = list(self.run.events.values_list('id', 'payload'))
