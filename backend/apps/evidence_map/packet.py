@@ -259,6 +259,8 @@ def build(indicator, sources, frozen_map, *, cap=CAP_CHARS, keyword_fill, lane=N
                 source, start, end, tag, _ = rows.pop(0)
                 trace = {'step': strength, 'requirement': requirement, 'requirements': tag.get('requirements') or [],
                          'quote_found': tag.get('quote_found'), 'reason': tag.get('reason')}
+                if tag.get('origin'):
+                    trace['origin'] = tag['origin']
                 if packet.add(source, start, end, trace, tagged_limit):
                     used_docs[requirement].add(source.get('document_id'))
                 elif packet.used + (end - start) > tagged_limit:

@@ -308,8 +308,15 @@ def _call(service, system, content, sprint, document):
             time.sleep(min(30, max(1, exc.retry_after or 2)))
 
 
+def kept_tags(row):
+    """Tags on a stored row that did not come from tagging (the requirement check, judged runs): a new tagging
+    answer for the page keeps them."""
+    return [t for t in (row.tags if row else []) or [] if t.get('origin')]
+
+
 def save(job, pages, results):
-    """Store one chunk's pages. A tagged row is never replaced by a failure."""
+    """Store one chunk's pages. A tagged row is never replaced by a failure, and tags that did not come from
+    tagging (kept_tags) survive a new answer."""
     with DB_WRITE_LOCK:
         for page in pages:
             result = results.get(page['number']) or {'error': 'no result'}
@@ -322,8 +329,9 @@ def save(job, pages, results):
                                                                   'page_type': '', 'error': result['error'][:2000],
                                                                   'page_id': page['id']})
             else:
+                kept = kept_tags(MapPage.objects.filter(**key).first())
                 MapPage.objects.update_or_create(**key, defaults={'status': MapPage.Status.TAGGED,
-                                                                  'tags': result['tags'],
+                                                                  'tags': result['tags'] + kept,
                                                                   'page_type': result['page_type'], 'error': '',
                                                                   'page_id': page['id']})
 
