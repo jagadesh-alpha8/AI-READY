@@ -102,3 +102,43 @@ class ReadingFixesTests(SimpleTestCase):
                                            for i in ('AIQIF-C4.2.F2', 'AIQIF-C4.2.F1')]})
         self.assertLess(step['done_when_text'].index('aimed at a named academic role'),
                         step['done_when_text'].index('for that role'))
+
+
+class UnreadableQuotationTests(SimpleTestCase):
+    """The kinds of shard extraction leaves in a record's quotations (test 13, 26 Nov), and rows that read fine."""
+
+    def test_shards_are_caught_and_real_rows_and_sentences_kept(self):
+        from .capability.presentation import unreadable
+        shards = {
+            'The firewall is upgraded to': 'too short',
+            'LIST OF DOCUMENTS UPLOADED': 'too short',
+            '[Table 1 on page 37 -- columns: Number of students | Number of Computers available to students]': 'extraction note',
+            'Cycle Info: B | Accreditation: 2.58 | | Grade: | CGPA: | | Upload Peer Team Report:': 'table row with empty or shifted cells',
+            '2021-22: 2021-22 | Dr.P.Brindha Devi: Dr.P.Prabakaran | One Day Workshop on Machine Learning | -: - | 3500: 5000':
+                'table row with empty or shifted cells',
+            '24DBBA28 | | ADVANCED DATA ANALYSIS TOOLS | L T P O C 4 0 0 2 4 |': 'mostly codes and numbers',
+            'VISTAS ERP portal accessed through the cloud server enables staff and students to access their': 'cut off mid-sentence',
+            'Calculation of OBE, FPI, and CAS: Shifted from manual to automated in ERP, improving': 'cut off mid-sentence',
+            'A comprehensive Academic Audit questionnaire containing 52 indicators (covering various areas': 'cut off mid-sentence',
+            'which is employed to track staff attendance and student mentor-mentee system periodically.': 'starts mid-sentence',
+            'Institution for teaching and non-teaching staff year-wise during the last five years': 'heading',
+            'Percentage of Programmes where syllabus revision was carried out during the last five years': 'heading',
+        }
+        for text, reason in shards.items():
+            self.assertEqual(unreadable(text), reason, text)
+        for text in (
+                'S.No: 5. | Name of the Collaborative Skill Partners: ImaginXP, Maharastra | Courses Offered: 1. BBA Fintech',
+                'Cycle: Cycle 1 | Grade: A | CGPA: 3.01 | Year of Accreditation: 2019 | Validity from: 29/03/2019',
+                'Dr.M.Ramprabha: | Two Days Workshop on Artificial Intelligence and Image Processing using MATLAB organized '
+                'by the Internal Quality Assurance Cell on 3rd and 4th October 2019.',
+                'An AI-Powered Auto-Grading System to minimize Teacher workload and enhance Acade - Dr. Banushri.A',
+                'During the last two years, more than 500 computers have been added to the stock.',
+                'Currently, VISTAS Incubation Cell has incubated 18 companies and created 40 jobs.'):
+            self.assertEqual(unreadable(text), '', text)
+
+    def test_a_shard_gives_way_to_a_readable_quotation_or_the_source_alone(self):
+        from .capability.presentation import _readable_cite
+        shard = {'source_id': 'a', 'quote': 'The firewall is upgraded to'}
+        good = {'source_id': 'b', 'quote': 'The firewall was upgraded to a SonicWall NSA 4700 in 2023 for the campus.'}
+        self.assertEqual(_readable_cite(shard, [shard, good]), good)
+        self.assertEqual(_readable_cite(shard, [shard]), {**shard, 'quote': ''})   # the page reference stays

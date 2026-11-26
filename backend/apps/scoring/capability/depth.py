@@ -500,7 +500,8 @@ def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=N
             continue
         if per_condition[cid] >= cap:
             continue
-        thing = indicator['conditions'][cid]['assertion'].rstrip('.')
+        from .presentation import practice_label   # the stand-alone sentence, as in the missing-evidence items
+        thing = practice_label(cid, indicator['conditions'][cid]['assertion'])[1].rstrip('.')
         text = (f'About your evidence that {thing[0].lower() + thing[1:]}: '
                 + ' '.join(by_dim[d]['ask'] for d in open_dims)
                 + ' Please share a document that shows this' + (f' (colleges usually keep it with {where.split(";")[0]})'
@@ -529,7 +530,11 @@ def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=N
             entry = indicator['conditions'][cid]
             text = items.get(cid)
             if text is None:
-                text = owner_item(cid) if cid in OWNER_PRACTICES else entry['assertion'].rstrip('.')
+                # The practice's stand-alone sentence (practice_labels_v1.json), not the rubric's, which reads as
+                # jargon to a college ("records the disposition of a policy exception").
+                from .presentation import practice_label
+                text = owner_item(cid) if cid in OWNER_PRACTICES else \
+                    practice_label(cid, entry['assertion'])[1].rstrip('.')
                 notes.append(f'{cid}: fixed wording for the missing-evidence item.')
             lines.append(f'{n}. {text[0].upper() + text[1:]} (for example: {"; ".join(entry["evidence_forms"])}).')
         keep = f'\nColleges usually keep these with {where}.' if where else ''
