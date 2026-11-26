@@ -90,7 +90,7 @@ def unreadable(text):
     if not cells and not re.search(r'[.!?)\u201d"]$', t):
         if t.count('(') > t.count(')'):
             return 'cut off mid-sentence'
-        if _STOP_END.search(t.rstrip(',;:')) or re.search(r',\s*\w+$', t) or t.endswith(':'):
+        if _STOP_END.search(t.rstrip(',;:')) or re.search(r',\s*\w+$', t) or t.endswith((':', ',', ';')):
             return 'cut off mid-sentence'
         if _METRIC_HEADING.search(t) and not re.search(r'\d', t):
             return 'heading'
@@ -421,14 +421,16 @@ def levels_table():
     return out
 
 
-def build(payload):
-    """The view the new reports print. payload: the report payload with explanations attached."""
+def build(payload, sentences=None):
+    """The view the new reports print. payload: the report payload with explanations attached. sentences: whole
+    sentences for cut-off quotations (quote_context.sentences), printed in their place; none for a payload alone."""
+    from .quote_context import record_whole
     assessment = payload['assessment']
     result = assessment['result']
     stage = payload.get('assessment_stage') or {}
     final = stage.get('stage') == 'final'
     score = next((float(result[k]) for k in ('score', 'exact_score', 'lower') if result.get(k) is not None), 0.0)
-    records = {r['condition_id']: r for r in assessment['records']}
+    records = {r['condition_id']: record_whole(r, sentences) for r in assessment['records']}
     pages = {str(p['page_id']): f"{doc_label(d['filename'])}, page {p.get('number', '?')}"
              for d in payload.get('source_manifest') or [] for p in d.get('pages', [])}
     plan = (payload.get('deterministic_plan') or {}).get('priority_plan') or {}

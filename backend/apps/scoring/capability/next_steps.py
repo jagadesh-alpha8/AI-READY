@@ -240,11 +240,13 @@ def for_screens(run_id, event_id, assessment, manifest, profile, plan, final, pr
     """The next steps the run detail sends to the screens: the same actions and checklist the reports print
     (presentation.build), so the front end shows them instead of working them out itself."""
     from .presentation import build as present
+    from .quote_context import for_run as sentences_for
     steps_id, steps = stored(run_id, event_id)
     not_started_ids = not_started_for(provisional_run_id) if final else frozenset()
     view = present({'assessment': assessment, 'source_manifest': manifest, 'profile': profile or {},
                     'deterministic_plan': plan, 'assessment_stage': {'stage': 'final' if final else 'provisional'},
-                    'next_steps': steps, 'not_started': sorted(not_started_ids)})
+                    'next_steps': steps, 'not_started': sorted(not_started_ids)},
+                   sentences_for(run_id, None, event_id))
     from .presentation import for_screens as screens
     return {'version': (steps or {}).get('version'), 'written': view['next_steps_written'], 'actions': view['actions'],
             'checklist': {a['code']: a['missing'] for a in view['areas']}, 'presentation': screens(view)}
