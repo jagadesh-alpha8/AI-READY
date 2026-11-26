@@ -66,6 +66,9 @@ class Command(BaseCommand):
             CapabilityExplanation.objects.create(run=run, event_id=target['event_id'], version=written['version'],
                                                  model=getattr(model, 'model_name', ''), payload=written)
             self.stdout.write('Saved.')
+            from apps.scoring.capability.publication import publish_if_ready
+            if publish_if_ready(run.pk):
+                self.stdout.write('Its reports pass the draft checks: published for the college.')
         if options['out']:
             with open(options['out'], 'w') as handle:
                 json.dump(written, handle, indent=2, ensure_ascii=False)
@@ -95,6 +98,9 @@ class Command(BaseCommand):
                                                  model=options['written_by'][:100], payload=written)
             self.stdout.write('Saved.' + (' The areas that failed stay on plain wording, so the reports stay a '
                                           'draft until they are written.' if problems else ''))
+            from apps.scoring.capability.publication import publish_if_ready
+            if publish_if_ready(run.pk):
+                self.stdout.write('Its reports pass the draft checks: published for the college.')
         if options['out']:
             with open(options['out'], 'w') as handle:
                 json.dump(written, handle, indent=2, ensure_ascii=False)

@@ -14,7 +14,7 @@ export function NoResult({ cap, children, action }: {
   if (cap.shown.preparing) {
     return (
       <Empty title="Your result is being prepared">
-        InGage checks every result before it is shown to you. It appears here as soon as it is published.
+        It appears here as soon as its reports are written.
       </Empty>
     );
   }

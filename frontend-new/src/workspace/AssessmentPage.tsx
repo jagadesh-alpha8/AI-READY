@@ -68,7 +68,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
     {
       title: 'Stage 1 result', state: hasResult ? 'done' : cap.running || preparing || processed > 0 ? 'current' : 'waiting',
       text: cap.running ? 'Reading your documents now. This takes a while; you can leave this page.'
-        : preparing ? 'Your result is being prepared. InGage checks it before it is shown to you.'
+        : preparing ? 'Your result is being prepared. It appears as soon as its reports are written.'
         : hasResult ? (final ? 'Done: your documents were read and scored.' : `From your documents: ${whole(score)} out of 100.`) : 'We read your documents against 216 practices in nine areas.',
     },
     {
@@ -79,7 +79,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
     },
     {
       title: 'Final result', state: final ? 'done' : 'waiting',
-      text: final ? `Published: ${whole(score)} out of 100.` : finalWaiting ? 'Being prepared: InGage checks your final result before it is shown to you.'
+      text: final ? `Published: ${whole(score)} out of 100.` : finalWaiting ? 'Being prepared: your final result appears as soon as its reports are written.'
         : 'Published when you finish the follow-up questions.',
       link: final ? { to: pathOf('cri'), label: 'See result' } : undefined,
     },
@@ -123,7 +123,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
           ) : preparing ? (
             <>
               <h2>Your result is being prepared</h2>
-              <p className="muted" style={{ marginTop: 8 }}>Your documents have been read. InGage checks every result before it is shown to you; it appears on your Overview as soon as it is published.</p>
+              <p className="muted" style={{ marginTop: 8 }}>Your documents have been read. Your result appears on your Overview as soon as its reports are written.</p>
             </>
           ) : hasResult && level ? (
             <>

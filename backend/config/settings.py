@@ -958,6 +958,9 @@ SECOND_LAYER_JOBS_ENABLED = os.getenv('SECOND_LAYER_JOBS_ENABLED', 'false').stri
 # provisional run it is started from the API (operation 'explain').
 SECOND_LAYER_EXPLAIN_AFTER_PUBLISH = os.getenv('SECOND_LAYER_EXPLAIN_AFTER_PUBLISH', 'true').strip().lower() in (
     '1', 'true', 'yes', 'on')
+# Results publish themselves once their reports pass the draft gate, with their text written by jobs started on their
+# own (capability/publication.py; Siddharth, 26 Nov 2026). Off: InGage staff publish from the staff panel.
+CAPABILITY_AUTO_PUBLISH = os.getenv('CAPABILITY_AUTO_PUBLISH', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
 SECOND_LAYER_MAX_HTTP_CALLS = int(os.environ['SECOND_LAYER_MAX_HTTP_CALLS']) if os.getenv('SECOND_LAYER_MAX_HTTP_CALLS') else None
 SECOND_LAYER_MAX_COST_USD = os.getenv('SECOND_LAYER_MAX_COST_USD', '').strip() or None
 SECOND_LAYER_MAX_DURATION_SECONDS = int(os.environ['SECOND_LAYER_MAX_DURATION_SECONDS']) if os.getenv('SECOND_LAYER_MAX_DURATION_SECONDS') else None

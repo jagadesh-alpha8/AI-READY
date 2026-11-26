@@ -84,11 +84,17 @@ class Command(BaseCommand):
                                                model=(getattr(model, 'model_name', '') if model else
                                                       options['written_by'])[:100], payload=written)
             self.stdout.write('Saved.')
+            self.published(run)
         if options['out']:
             with open(options['out'], 'w') as handle:
                 json.dump(written, handle, indent=2, ensure_ascii=False)
         elif not options['save']:
             self.stdout.write(json.dumps(written['actions'], indent=2, ensure_ascii=False))
+
+    def published(self, run):
+        from apps.scoring.capability.publication import publish_if_ready
+        if publish_if_ready(run.pk):
+            self.stdout.write('Its reports pass the draft checks: published for the college.')
 
     def imported(self, target, path, written_by):
         from apps.scoring.capability.next_steps import VERSION, action_key, packet, validate

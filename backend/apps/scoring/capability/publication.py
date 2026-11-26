@@ -1,9 +1,13 @@
 """Which result a college sees, and whether its reports are ready (build brief, part A; audit finding 5).
 
-The published result. InGage staff choose which completed run of a sprint its college sees; nothing is published by
-itself, a final result included (a final result's text is written after it is published, so it would show the plain
-fallback first). Every choice is a CapabilityPublication row; the newest row of a sprint is the current one, and a
-row with no run withdraws it. A college login (any role that is not InGage staff) may read a completed run only when
+The published result. Since 26 Nov 2026 (Siddharth: "shouldn't the report be auto generated post sprint?") results
+publish themselves (CAPABILITY_AUTO_PUBLISH, on by default; keep_going below): when a Stage 1 run completes, and after
+every second-layer job of it, the result the college should see (the final result once there is one, else the Stage 1
+run) has its report text written, one job at a time (explanations, then next steps), and is published as soon as its
+reports pass the draft gate below. A Stage 1 result never replaces a published final result, and once staff withdraw
+a result nothing is published automatically until staff publish one again. Staff can still publish an older result or
+withdraw one. Every choice is a CapabilityPublication row (published_by empty when automatic); the newest row of a
+sprint is the current one, and a row with no run withdraws it. A college login (any role that is not InGage staff) may read a completed run only when
 it is the published run or, when that run is a final result, its Stage 1 run (the Reports page offers both, and the
 follow-up questions belong to the Stage 1 run). Runs that have not completed carry no score and stay readable, so
 a college still sees its own run in progress. Staff read every run.
@@ -18,6 +22,7 @@ cannot download a report that is not ready; staff can, and it is marked Draft on
 """
 import logging
 
+from django.conf import settings
 from django.db import transaction
 from rest_framework.exceptions import PermissionDenied
 
@@ -26,6 +31,7 @@ logger = logging.getLogger(__name__)
 NOT_PUBLISHED = 'This result has not been published to your institution yet.'
 READINESS_CACHE_SECONDS = 7 * 24 * 3600
 THIN_STEPS = 3   # this many "start" steps (nothing in the documents to build on) earns staff a warning
+AUTO_NOTE = 'Published automatically: its reports passed the draft checks.'
 
 
 class PublicationError(ValueError):
@@ -216,3 +222,98 @@ def _readiness(execution, view):
         reasons.append(f"{n} of the {len(actions)} next steps {'are' if n != 1 else 'is'} on the plain checklist; "
                        'write the next steps again.')
     return {'ready': not reasons, 'reasons': reasons, 'warnings': warnings, 'explanations': exp, 'next_steps': st}
+
+
+# ------------------------------------------------------------------ publishing by itself
+
+def automatic():
+    return bool(getattr(settings, 'CAPABILITY_AUTO_PUBLISH', True))
+
+
+def shown_target(provisional_run_id):
+    """The run the college should see for a Stage 1 run: its final result once published, else the Stage 1 run."""
+    from .layer2_service import final_run_id
+    return final_run_id(str(provisional_run_id)) or str(provisional_run_id)
+
+
+def publish_if_ready(run_id):
+    """Publish a completed run by itself when its reports pass the draft gate. Returns the new row, or None when it
+    is not ready, already published, would replace a final result with a Stage 1 one, or staff withdrew the result."""
+    from apps.scoring.models import CapabilityExecution
+    if not automatic():
+        return None
+    execution = (CapabilityExecution.objects.filter(run_id=run_id).select_related('sprint', 'run')
+                 .defer('run__inputs').first())
+    if execution is None or execution.status != 'completed' or not readiness(execution)['ready']:
+        return None
+    now = current(execution.sprint_id)
+    if now is not None:
+        if now.run_id is None and now.published_by_id is not None:
+            return None   # staff withdrew the result: they choose the next one
+        if str(now.run_id) == str(run_id):
+            return None
+        if now.run_id is not None and _stage_of(now.run_id)[0] == 'final' and _stage_of(run_id)[0] != 'final':
+            return None   # never back from a final result to a Stage 1 one
+    try:
+        row, changed = publish(execution.sprint, str(run_id), None, AUTO_NOTE)
+    except PublicationError:
+        logger.warning('automatic publication refused for run %s', run_id, exc_info=True)
+        return None
+    if changed:
+        logger.info('Run %s published automatically for sprint %s', run_id, execution.sprint_id)
+    return row if changed else None
+
+
+def keep_going(provisional_run):
+    """After a Stage 1 run completes, or any second-layer job of it completes: write what the shown result's reports
+    still need, one job at a time, or publish it when they pass the draft gate. Never raises: the work that called it
+    has already succeeded. A job that ends with text still on plain wording stops the chain (its readiness says why);
+    each job is keyed by run and event, so the same job is never queued twice."""
+    if not automatic():
+        return None
+    try:
+        return _keep_going(provisional_run)
+    except Exception:
+        logger.exception('automatic publication: could not continue for run %s', getattr(provisional_run, 'pk', None))
+        return None
+
+
+def _keep_going(provisional_run):
+    from apps.scoring.models import CapabilityExecution
+    from . import explanations, next_steps
+    from .execution import AssessmentConflict, AssessmentDisabled
+    from .layer2_service import is_final
+    from .run_view import ensure
+    from .second_layer_jobs import enabled, start
+    from rest_framework.exceptions import ValidationError
+    if is_final(provisional_run):
+        return None
+    target = shown_target(provisional_run.pk)
+    execution = CapabilityExecution.objects.filter(run_id=target).defer('run__inputs').first()
+    if execution is None or execution.status != 'completed':
+        return None
+    state = readiness(execution)
+    if state['ready']:
+        return publish_if_ready(target)
+    exp, steps = state.get('explanations') or {}, state.get('next_steps') or {}
+    if not exp.get('written') or exp.get('version') != explanations.VERSION:
+        operation = 'explain'
+    elif steps and (not steps.get('written') or steps.get('version') != next_steps.VERSION):
+        operation = 'next_steps'
+    else:
+        return None   # written by the current versions but still not ready (text on plain wording): staff decide
+    if not enabled():
+        return None
+    final = target != str(provisional_run.pk)
+    event = ensure(target).event_id
+    try:
+        with transaction.atomic():   # start() locks the run
+            job, _ = start(run=provisional_run, operation=operation, user=None,
+                           key=f'auto-{operation}-{target}-{event}', options={'final': final})
+        return job
+    except AssessmentConflict:
+        return None   # another job is running; its own completion continues from here
+    except (AssessmentDisabled, ValidationError) as exc:
+        logger.warning('automatic publication: %s could not start for run %s: %s', operation, provisional_run.pk,
+                       getattr(exc, 'detail', exc))
+        return None

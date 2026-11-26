@@ -18,14 +18,16 @@ const JOB_TEXT: Record<string, { label: string; text: string }> = {
 
 /**
  * InGage staff only: which result the college sees (capability/publication.py), and whether each result's reports
- * are ready. Nothing is published by itself, a final result included; a college can't download a report that is
- * still a draft.
+ * are ready. With automatic publication on (the default since 26 Nov 2026), a result publishes itself once its report
+ * text is written and passes the checks; staff can publish an older one or withdraw it. A college can't download a
+ * report that is still a draft.
  */
 export function PublishPanel({ sprintId, cap }: { sprintId: string; cap: Cap }) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const completed = (cap.runs.data?.results || []).filter((r) => r.status === 'completed').slice(0, 6);
   const published = cap.published;
+  const automatic = !!cap.runs.data?.auto_publish;
 
   const confirm = async (values: Record<string, string>) => {
     if (!pending) return;
@@ -40,7 +42,8 @@ export function PublishPanel({ sprintId, cap }: { sprintId: string; cap: Cap }) 
     const run = pending.kind === 'publish' ? pending.run.id : null;
     await publishResult(sprintId, run, values.note || '');
     await cap.runs.refetch();
-    setMsg({ tone: 'success', text: run ? 'Published. The college now sees this result.' : 'Withdrawn. The college sees no result until one is published.' });
+    setMsg({ tone: 'success', text: run ? 'Published. The college now sees this result.'
+      : `Withdrawn. The college sees no result until you publish one${automatic ? '; results no longer publish themselves until then' : ''}.` });
   };
 
   return (
@@ -49,8 +52,9 @@ export function PublishPanel({ sprintId, cap }: { sprintId: string; cap: Cap }) 
         <div>
           <h2>What the college sees</h2>
           <p>{published
-            ? `Published: ${published.stage === 'final' ? 'final result' : 'Stage 1 result'} of ${dateTime(completed.find((r) => r.id === published.run_id)?.created_at) || published.run_id.slice(0, 8)}, on ${dateTime(published.published_at)}${published.published_by ? ` by ${published.published_by}` : ''}.`
-            : 'Nothing is published. The college sees no result until you publish one.'}</p>
+            ? `Published: ${published.stage === 'final' ? 'final result' : 'Stage 1 result'} of ${dateTime(completed.find((r) => r.id === published.run_id)?.created_at) || published.run_id.slice(0, 8)}, on ${dateTime(published.published_at)}${published.published_by ? ` by ${published.published_by}` : ' automatically, once its reports passed the checks'}.`
+            : automatic ? 'Nothing is published yet. A result publishes itself once its reports are written and pass the checks; you can also publish one here.'
+              : 'Nothing is published. The college sees no result until you publish one.'}</p>
         </div>
         {published && <button className="secondary-button" onClick={() => setPending({ kind: 'withdraw' })}>Withdraw</button>}
       </div>
