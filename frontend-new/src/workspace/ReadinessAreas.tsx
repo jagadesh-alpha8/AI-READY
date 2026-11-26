@@ -59,10 +59,8 @@ function Body({ sprint }: { sprint: Sprint }) {
             <div>
               <h3 style={{ marginBottom: 8 }}>What's in place</h3>
               {a.explanation && <p style={{ fontSize: 14 }}>{a.explanation}</p>}
-              {a.quote ? (
-                <div style={{ marginTop: 10 }}><p className="ws-quote" style={{ fontSize: 13, fontStyle: 'italic', borderLeft: '3px solid var(--olive)', paddingLeft: 12 }}>“{a.quote.text}”</p>
-                  <small>{a.quote.source}</small></div>
-              ) : !a.explanation && <p className="muted" style={{ fontSize: 14 }}>Nothing in this area was found in your documents yet.</p>}
+              {a.quote ? <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>Evidence found in {a.quote.source}</p>
+                : !a.explanation && <p className="muted" style={{ fontSize: 14 }}>Nothing in this area was found in your documents yet.</p>}
             </div>
             <div>
               <h3 style={{ marginBottom: 8 }}>What to show next</h3>

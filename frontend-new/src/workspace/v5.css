@@ -138,3 +138,7 @@
   .v5-phead { flex-direction: column; }
   .v5-phead .r { grid-template-columns: 1fr 44px 96px; width: 100%; }
 }
+
+/* 26 Nov: documents cited, the passage one click away. */
+.v5-ev { color: var(--mu); font-size: 13px; }
+.v5-passage { font-size: 13px; margin-left: 6px; }

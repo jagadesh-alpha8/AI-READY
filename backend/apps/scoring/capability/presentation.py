@@ -706,9 +706,12 @@ def for_screens(view):
             'level': a['level']['name'], 'level_index': a['level_index'], 'to_confirm': a['to_confirm'],
             'card': a['card'], 'step': step(a.get('step')),
             'topics': [{'code': t['code'], 'name': t['name'], 'score': t['score'], 'marks': t['marks'],
+                        # The website cites documents as the detailed report does (26 Nov); the passage itself stays
+                        # one click away (quote), for a college that wants to check a finding.
                         'practices': [{k: r.get(k) for k in ('id', 'label_short', 'looked_for', 'status', 'label',
-                                                             'found', 'quote', 'source', 'next_step', 'done_when',
-                                                             'follow_up')} for r in t['requirements']]}
+                                                             'found', 'why', 'evidence_in', 'records', 'quote',
+                                                             'source', 'next_step', 'done_when', 'follow_up')}
+                                      for r in t['requirements']]}
                        for t in a['subareas']]})
     return {
         'stage1': view['stage1'], 'level': view['level'], 'levels': view['levels'], 'level_index': view['level_index'],
