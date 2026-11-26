@@ -27,22 +27,118 @@ class PresentationRuleTests(SimpleTestCase):
         self.assertIn('the NAAC criterion files', out)
         self.assertEqual(p.doc_label('NAAC SSR  Latest Self-Study Report.pdf'), 'NAAC SSR Latest Self-Study Report')
 
-    def test_actions_cover_the_areas_with_most_to_gain_first_at_most_two_per_area(self):
+    def test_one_step_per_area_the_basics_first_weakest_area_first(self):
         def indicator(code, weight):
             return {'code': code, 'pillar': code.split('.')[0], 'name': code, 'weight_units': weight,
                     'conditions': [{'id': f'{code}.{s}', 'text': f'practice {s}'} for s in ('F1', 'F2', 'A1', 'A2', 'O1', 'O2')]}
-        result = {'indicators': [indicator(f'AIQIF-C{a}.{i}', 10) for a in (1, 2, 3) for i in (1, 2, 3, 4)]}
-        records = {f'AIQIF-C1.{i}.F{n}': {'credit': 1.0} for i in (1, 2, 3, 4) for n in (1, 2)}   # C1's foundations shown
-        areas = [{'code': f'AIQIF-C{a}', 'room': r} for a, r in ((1, 5), (2, 30), (3, 20))]
-        actions = p.choose_actions(result, records, areas, [], 120, limit=5)
-        self.assertEqual(len(actions), 5)
-        by_area = {}
-        for a in actions:
-            by_area[a['area_code']] = by_area.get(a['area_code'], 0) + 1
-        self.assertLessEqual(max(by_area.values()), 2)
-        c1 = [a for a in actions if a['area_code'] == 'AIQIF-C1']
-        self.assertTrue(all(a['step'] == 'Put in use' for a in c1))   # the first unfinished stage
-        # Each action names the requirements it is about (next_steps.py writes text only for these).
+        result = {'indicators': [indicator(f'AIQIF-C{a}.{i}', 20 if i == 4 else 10) for a in (1, 2, 3, 4) for i in (1, 2, 3, 4)],
+                  'documented': {'indicators': [{'code': 'AIQIF-C3.2', 'score': 10.0}]}}
+        records = {f'AIQIF-C1.{i}.F{n}': {'credit': 1.0} for i in (1, 2, 3, 4) for n in (1, 2)}   # C1's basics shown
+        records['AIQIF-C2.4.F1'] = {'credit': 1.0}                    # C2.4: one basic left, double weight
+        records.update({f'AIQIF-C4.{i}.{s}': {'credit': 1.0} for i in (1, 2, 3, 4)
+                        for s in ('F1', 'F2', 'A1', 'A2', 'O1', 'O2')})  # C4 complete: no step
+        areas = [{'code': f'AIQIF-C{a}', 'score': s, 'room': 0} for a, s in ((1, 40), (2, 3), (3, 20), (4, 100))]
+        actions = p.choose_actions(result, records, areas)
+        self.assertEqual([a['area_code'] for a in actions], ['AIQIF-C2', 'AIQIF-C3', 'AIQIF-C1'])   # weakest first
+        self.assertEqual([a['start_here'] for a in actions], [True, True, True])
+        by = {a['area_code']: a for a in actions}
+        # C1: every basic is shown, so its step is the next stage.
+        self.assertEqual(by['AIQIF-C1']['step'], 'Put in use')
+        self.assertTrue(all(c['id'].rsplit('.', 1)[-1].startswith('A') for c in by['AIQIF-C1']['conditions']))
+        # C2: the basics first, then the most points: C2.4's one basic at double weight ties the others' two; on a tie
+        # rubric order decides.
+        self.assertEqual((by['AIQIF-C2']['code'], by['AIQIF-C2']['step']), ('AIQIF-C2.1', 'Set up'))
+        # C3: at the same stage, the most points (C3.4 has double weight).
+        self.assertEqual(by['AIQIF-C3']['code'], 'AIQIF-C3.4')
         self.assertTrue(all(1 <= len(a['conditions']) <= 2 for a in actions))
-        self.assertTrue(all(c['id'].rsplit('.', 1)[-1].startswith('A') for a in c1 for c in a['conditions']))
-        self.assertEqual(actions, sorted(actions, key=lambda a: -a['points']))
+        self.assertEqual([a['start_here'] for a in p.choose_actions(result, records, areas, start_here=1)],
+                         [True, False, False])
+        # A tie on points and stage goes to the key indicator with more already in place.
+        result['indicators'] = [i for i in result['indicators'] if i['code'] != 'AIQIF-C3.4']
+        self.assertEqual({a['area_code']: a['code'] for a in p.choose_actions(result, records, areas)}['AIQIF-C3'],
+                         'AIQIF-C3.2')
+
+
+class ReadingFixesTests(SimpleTestCase):
+    """26 Nov, from test 13's rendered reports: one rounding for the reports and the screens, and text that reads."""
+
+    def test_scores_round_half_up_like_the_screens(self):
+        from .capability.presentation import whole
+        self.assertEqual([whole(62.5), whole(12.5), whole(26.14), whole(None)], [63, 13, 26, 0])
+
+    def test_a_document_named_by_its_criterion_code_reads_as_words(self):
+        from .capability.presentation import clean_text
+        self.assertEqual(clean_text('Document criteria 1 - 1.4.2 notes action-taken reports.', []),
+                         'A NAAC criterion file notes action-taken reports.')
+
+    def test_older_fallback_text_is_not_printed_as_a_finding(self):
+        from .capability.presentation import _no_prefix, _plain
+        self.assertTrue(_plain({'found': 'Your Student Report, page 125 records: "Sl. No.: 5".'}))
+        self.assertFalse(_plain({'found': 'The Student Report records placements.'}))
+        self.assertEqual(_no_prefix('Next step: show an AI-relevant opportunity is identified.'),
+                         'Show an AI-relevant opportunity is identified.')
+
+    def test_a_quotation_too_short_to_read_is_replaced_or_left_out(self):
+        from .capability.presentation import _readable_cite
+        short = {'quote': 'The firewall is upgraded to', 'source_id': 'p1'}
+        longer = {'quote': 'The institution upgraded its firewall after the audit of its network security.', 'source_id': 'p2'}
+        self.assertEqual(_readable_cite(short, [short, longer]), longer)
+        self.assertEqual(_readable_cite(short, [short]), {'quote': '', 'source_id': 'p1'})
+
+    def test_a_number_and_its_level_never_disagree(self):
+        from .capability.presentation import level
+        self.assertEqual((level(39.6)['name'], level(39.4)['name']), ('Prepared', 'Getting there'))
+        self.assertEqual((level(26.14)['points_to_next'], level(39.4)['points_to_next']), (14, 1))
+
+    def test_a_done_when_line_stands_alone_and_keeps_rubric_order(self):
+        from .capability.next_steps import done_when
+        from .capability.engine import release
+        from .capability.presentation import _and, _standalone, step_view
+        by = {c['id']: c for i in release()['indicators'] for c in i['conditions']}
+        alone = _and(_standalone([{'id': 'AIQIF-C1.2.F2', 'done_when': done_when(by['AIQIF-C1.2.F2'])}]))
+        self.assertNotIn('those', alone)
+        self.assertTrue(alone.startswith('there is a set route'))
+        step = step_view({'requirements': [{'id': i, 'done_when': done_when(by[i])}
+                                           for i in ('AIQIF-C4.2.F2', 'AIQIF-C4.2.F1')]})
+        self.assertLess(step['done_when_text'].index('aimed at a named academic role'),
+                        step['done_when_text'].index('for that role'))
+
+
+class UnreadableQuotationTests(SimpleTestCase):
+    """The kinds of shard extraction leaves in a record's quotations (test 13, 26 Nov), and rows that read fine."""
+
+    def test_shards_are_caught_and_real_rows_and_sentences_kept(self):
+        from .capability.presentation import unreadable
+        shards = {
+            'The firewall is upgraded to': 'too short',
+            'LIST OF DOCUMENTS UPLOADED': 'too short',
+            '[Table 1 on page 37 -- columns: Number of students | Number of Computers available to students]': 'extraction note',
+            'Cycle Info: B | Accreditation: 2.58 | | Grade: | CGPA: | | Upload Peer Team Report:': 'table row with empty or shifted cells',
+            '2021-22: 2021-22 | Dr.P.Brindha Devi: Dr.P.Prabakaran | One Day Workshop on Machine Learning | -: - | 3500: 5000':
+                'table row with empty or shifted cells',
+            '24DBBA28 | | ADVANCED DATA ANALYSIS TOOLS | L T P O C 4 0 0 2 4 |': 'mostly codes and numbers',
+            'VISTAS ERP portal accessed through the cloud server enables staff and students to access their': 'cut off mid-sentence',
+            'Calculation of OBE, FPI, and CAS: Shifted from manual to automated in ERP, improving': 'cut off mid-sentence',
+            'A comprehensive Academic Audit questionnaire containing 52 indicators (covering various areas': 'cut off mid-sentence',
+            'which is employed to track staff attendance and student mentor-mentee system periodically.': 'starts mid-sentence',
+            'Institution for teaching and non-teaching staff year-wise during the last five years': 'heading',
+            'Percentage of Programmes where syllabus revision was carried out during the last five years': 'heading',
+        }
+        for text, reason in shards.items():
+            self.assertEqual(unreadable(text), reason, text)
+        for text in (
+                'S.No: 5. | Name of the Collaborative Skill Partners: ImaginXP, Maharastra | Courses Offered: 1. BBA Fintech',
+                'Cycle: Cycle 1 | Grade: A | CGPA: 3.01 | Year of Accreditation: 2019 | Validity from: 29/03/2019',
+                'Dr.M.Ramprabha: | Two Days Workshop on Artificial Intelligence and Image Processing using MATLAB organized '
+                'by the Internal Quality Assurance Cell on 3rd and 4th October 2019.',
+                'An AI-Powered Auto-Grading System to minimize Teacher workload and enhance Acade - Dr. Banushri.A',
+                'During the last two years, more than 500 computers have been added to the stock.',
+                'Currently, VISTAS Incubation Cell has incubated 18 companies and created 40 jobs.'):
+            self.assertEqual(unreadable(text), '', text)
+
+    def test_a_shard_gives_way_to_a_readable_quotation_or_the_source_alone(self):
+        from .capability.presentation import _readable_cite
+        shard = {'source_id': 'a', 'quote': 'The firewall is upgraded to'}
+        good = {'source_id': 'b', 'quote': 'The firewall was upgraded to a SonicWall NSA 4700 in 2023 for the campus.'}
+        self.assertEqual(_readable_cite(shard, [shard, good]), good)
+        self.assertEqual(_readable_cite(shard, [shard]), {**shard, 'quote': ''})   # the page reference stays

@@ -1,7 +1,51 @@
 /** Wording for capability-run results, matching A1's frontend/src/pages/capability/presentation.ts. */
-import type { ConditionRecord, DepthReserve, Job, Result } from '../types/capability';
+import type { ConditionRecord, DepthReserve, Job, Published, Result } from '../types/capability';
 
 export const isActive = (job?: Pick<Job, 'status'> | null) => !!job && (job.status === 'queued' || job.status === 'running');
+
+/** Which completed run the result screens show (capability/publication.py). */
+export interface ShownRun {
+  /** The run shown, or '' when there is none to show. */
+  id: string;
+  stage: 'provisional' | 'final' | null;
+  /** The Stage 1 run the follow-up questions belong to: the shown run itself, or the one a final result names. */
+  provisionalId: string;
+  /** True when the shown run is the published one. */
+  published: boolean;
+  /** Staff only: the shown run is not published, so the college can't see it. */
+  preview: boolean;
+  /** College: a result exists but none is published yet ("being prepared"). */
+  preparing: boolean;
+  /** A completed run newer than the shown one (staff can publish it). */
+  newer: Job | null;
+}
+
+/**
+ * The published run, wherever it sits in the list. With nothing published, staff see the newest completed run as a
+ * preview and a college sees nothing. Never the newest completed run for a college (audit finding 5).
+ */
+export function shownRun(list: Job[], published: Published | null | undefined, staff: boolean): ShownRun {
+  const newest = list.find((r) => r.status === 'completed') || null;
+  if (published) {
+    const newer = newest && newest.id !== published.run_id
+      && list.findIndex((r) => r.id === newest.id) < list.findIndex((r) => r.id === published.run_id) ? newest : null;
+    return {
+      id: published.run_id, stage: published.stage,
+      provisionalId: (published.stage === 'final' ? published.provisional_run_id : published.run_id) || '',
+      published: true, preview: false, preparing: false,
+      // A published run beyond the first page of the list is older than everything on it.
+      newer: newer || (newest && !list.some((r) => r.id === published.run_id) ? newest : null),
+    };
+  }
+  if (staff && newest) {
+    return {
+      id: newest.id, stage: newest.stage || 'provisional',
+      provisionalId: (newest.stage === 'final' ? newest.provisional_run_id : newest.id) || '',
+      published: false, preview: true, preparing: false, newer: null,
+    };
+  }
+  return { id: '', stage: null, provisionalId: '', published: false, preview: false, preparing: !!newest, newer: null };
+}
 
 /**
  * A2 part-credit runs: the one headline score. Earlier runs: the exact score when every condition is decided,

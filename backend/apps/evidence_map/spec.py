@@ -8,7 +8,10 @@ is given about the rubric", "The prompt (draft 1)", "Output format" and "Checks 
 - The rubric goes in the system prompt (identical for every chunk, so providers can cache it): per requirement its
   sentence, its record-language description (retrieval_profiles_v1.json) and its parts and near-misses
   (rubric_parts_v1.json). No judge rules, no NAAC vocabulary.
-- Two prompt shapes: the whole rubric in one call per chunk ('one'), or one call per area ('areas').
+- Three prompt shapes: the whole rubric in one call per chunk ('one'); one call per area ('areas'); or one call per
+  area that also tells the tagger to check every indicator of the area for each page it tags ('areas-every', 26 Nov:
+  on the Self-Study Report, most of the 'areas' map's within-area misses were pages that serve two or three
+  indicators of one area, tagged for the first only).
 - The map version is a hash of everything that decides what a tag means: prompt, rubric text, output format,
   chunking and shape. The model is recorded beside it, never folded in.
 """
@@ -18,7 +21,14 @@ import re
 from collections import Counter
 
 SPEC_VERSION = 'evidence-map-1'
-SHAPES = ('one', 'areas')
+SHAPES = ('one', 'areas', 'areas-every')
+#: Added to each area's prompt in the 'areas-every' shape.
+EVERY_INDICATOR = """THIS REQUEST COVERS ONE AREA
+The requirements below are every indicator of one area, and the indicators of an area
+overlap. A page that is evidence for one of them is often evidence for another: an audit
+report can show a review, who keeps the records and what was corrected. For each page you
+tag, go through every indicator below and add a tag for each indicator it bears on, with the
+requirements and its own quotation. Do not stop at the first indicator that fits."""
 CHUNK_CHARS = 12000          # page text per request (the size extraction uses); a longer page goes alone
 CARRY_CHARS = 400            # end of the previous page, given as context only
 QUOTE_MIN, QUOTE_MAX = 20, 300
@@ -159,16 +169,34 @@ def system_prompts(shape, rubric, profiles, parts):
     if shape not in SHAPES:
         raise ValueError(f'shape must be one of {", ".join(SHAPES)}.')
     groups = {'all': rubric['indicators']} if shape == 'one' else areas(rubric)
-    return [(name, PROMPT + '\n\nREQUIREMENTS\n' + '\n\n'.join(indicator_block(i, profiles, parts) for i in inds))
+    note = '\n\n' + EVERY_INDICATOR if shape == 'areas-every' else ''
+    return [(name, PROMPT + note + '\n\nREQUIREMENTS\n' + '\n\n'.join(indicator_block(i, profiles, parts) for i in inds))
             for name, inds in groups.items()]
 
 
-def map_version(shape, rubric, profiles, parts):
-    """The map version: everything that decides what a tag means, except the model (recorded beside it)."""
+DEFAULT_EFFORT = 'low'
+
+
+def tagging_effort():
+    """The tagger's effort as configured (EVIDENCE_MAP_AI_EFFORT): 'low' by default, None for the model's own."""
+    from django.conf import settings
+    return getattr(settings, 'EVIDENCE_MAP_AI_EFFORT', DEFAULT_EFFORT)
+
+
+def map_version(shape, rubric, profiles, parts, effort=...):
+    """The map version: everything that decides what a tag means, except the model (recorded beside it).
+
+    The tagger's effort counts too (26 Nov): a pass at another effort is its own map, so it tags every page again
+    instead of skipping the pages a low-effort pass already tagged. The default effort ('low') adds nothing, so the
+    versions of maps made at it are unchanged. effort: as tagging_effort() gives it, unless passed."""
+    effort = tagging_effort() if effort is ... else effort
     block = '\n\n'.join(indicator_block(i, profiles, parts) for i in rubric['indicators'])
-    payload = json.dumps({'spec': SPEC_VERSION, 'prompt': PROMPT, 'rubric': block, 'schema': SCHEMA,
-                          'chunk_chars': CHUNK_CHARS, 'carry_chars': CARRY_CHARS, 'shape': shape},
-                         sort_keys=True, ensure_ascii=False)
+    prompt = PROMPT + ('\n\n' + EVERY_INDICATOR if shape == 'areas-every' else '')
+    fields = {'spec': SPEC_VERSION, 'prompt': prompt, 'rubric': block, 'schema': SCHEMA,
+              'chunk_chars': CHUNK_CHARS, 'carry_chars': CARRY_CHARS, 'shape': shape}
+    if effort != DEFAULT_EFFORT:
+        fields['effort'] = effort or 'model-default'
+    payload = json.dumps(fields, sort_keys=True, ensure_ascii=False)
     return 'em1-' + hashlib.sha256(payload.encode()).hexdigest()[:40]
 
 

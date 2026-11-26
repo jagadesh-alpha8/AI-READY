@@ -124,3 +124,11 @@
 .ws .ws-action h3 { font-size: 15px; }
 .ws .ws-action-n { width: 28px; height: 28px; border-radius: 50%; background: var(--green); color: white; display: grid; place-items: center; font-size: 13px; font-weight: 650; flex-shrink: 0; }
 .ws .ws-action .ws-source { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* What the college sees (PublishPanel): one row per completed result. */
+.ws .ws-publish-list { display: grid; }
+.ws .ws-publish-row { display: flex; gap: 16px; justify-content: space-between; align-items: flex-start; padding: 16px 0; border-top: 1px solid var(--line); }
+.ws .ws-publish-row:first-child { border-top: 0; padding-top: 0; }
+.ws .ws-publish-row p { margin-top: 6px; font-size: 13px; }
+.ws .ws-publish-row .ws-row { flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.ws .ws-publication-note { margin-bottom: 18px; }

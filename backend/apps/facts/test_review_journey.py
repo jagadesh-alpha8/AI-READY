@@ -34,6 +34,8 @@ class ReviewJourneyTests(APITestCase):
         self.user = User.objects.create_user(username='reviewer', email='review@example.test',
             role=User.Role.IQAC_COORDINATOR, institution=self.institution)
         self.client.force_authenticate(self.user)
+        from apps.scoring.publication_fixtures import every_result_published
+        every_result_published(self)
         self.url = f'/api/v1/sprints/{self.sprint.pk}/review-batch'
         self.doc = Document.objects.create(sprint=self.sprint, original_filename='synthetic.pdf', document_type='naac_ssr')
         self.page = DocumentPage.objects.create(document=self.doc, page_number=1, text=POSITIVE)

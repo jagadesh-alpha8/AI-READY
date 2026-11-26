@@ -98,6 +98,11 @@ def run_capability_assessment(run_id, task_id):
                 locked.status = 'completed'
                 locked.heartbeat_at = timezone.now()
                 locked.save(update_fields=['status', 'heartbeat_at'])
+            # A Stage 1 result: write its report text and publish it once that passes the draft gate (never raises).
+            from .capability.publication import keep_going
+            keep_going(execution.run)
+            from apps.evidence_map.tasks import queue_learning
+            queue_learning(execution.run)
     except ExecutionStopped:
         finish(run_id, 'cancelled', 'inference_stopped')
     except ExecutionDeadlineExceeded:

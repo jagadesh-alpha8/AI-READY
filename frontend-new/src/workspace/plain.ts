@@ -34,8 +34,22 @@ export function displayQuote(text: string, limit = 190) {
 const VERB = /\b(is|are|was|were|has|have|had|provides?|conducts?|offers?|organi[sz]ed|established|approved|completed|trained|includes?|uses?|maintains?|supports?|introduced|adopted|enables?|covers?|focus(es|ing)?|participated|delivered|implemented|created|set up)\b/i;
 const AI_WORDS = /\b(AI|artificial intelligence|machine learning|deep learning|generative|neural)\b/i;
 
-/** How well a quotation shows a strength: 0 for headings, titles, codes and table rows. */
+const STOP_END = /\b(to|of|the|a|an|and|or|for|with|in|on|from|by|at|as|that|which|is|are|was|were|has|have|its|their|our|this|these|between|into|under|than|such|including|other|various|several|both|each|all|any|some|more|e\.g)$/;
+const METRIC_HEADING = /\b(?:year-?wise|during the last (?:five|5) years)\b|^(?:(?:Average |Total )?(?:percentage|number) of|Details of)\b/i;
+
+/** A sentence quotation cut off by extraction (presentation.unreadable on the server; table rows are 0 below anyway):
+ * one that starts mid-sentence, stops mid-clause, or is a NAAC metric's title. */
+export function cutOff(text: string) {
+  const t = squash(text);
+  if (/^[a-z]/.test(t)) return true;
+  if (/[.!?)\u201d"]$/.test(t)) return false;
+  return (t.split('(').length > t.split(')').length) || STOP_END.test(t.replace(/[,;:]+$/, '')) || /,\s*\w+$/.test(t)
+    || t.endsWith(':') || (METRIC_HEADING.test(t) && !/\d/.test(t));
+}
+
+/** How well a quotation shows a strength: 0 for headings, titles, codes, table rows and cut-off sentences. */
 export function quoteQuality(text: string, credit: number) {
+  if (cutOff(text)) return 0;
   const t = displayQuote(text);
   const letters = t.replace(/[^A-Za-z]/g, '');
   if (t.length < 40 || !letters || t.startsWith('[') || t.includes('|') || /^(S\.?\s?No|Sl\.?\s?No)/i.test(t)) return 0;

@@ -9,7 +9,7 @@ from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import CanManageSprint
+from apps.accounts.permissions import CanManageSprint, IsInGageStaff
 from apps.scoring.models import CapabilityExecution
 from apps.sprints.access import get_authorized_sprint
 from config.pagination import DefaultPageNumberPagination
@@ -90,6 +90,11 @@ class CapabilityRunsView(APIView):
         page = paginator.paginate_queryset(rows, request, view=self)
         response = paginator.get_paginated_response([summary(row) for row in page])
         response.data['enabled'] = settings.CAPABILITY_ASSESSMENT_ENABLED
+        # The result the college sees (publication.py), wherever it sits in the list: the screens show this run, not
+        # the newest completed one.
+        from .publication import automatic, current, describe
+        response.data['published'] = describe(current(sprint.pk))
+        response.data['auto_publish'] = automatic()   # results publish themselves once their reports are ready
         # The review questions' count is its own call now (ReviewStatusView): it rebuilt the whole review queue,
         # which re-reads every page of the sprint, on every run-list call.
         return response
@@ -114,8 +119,13 @@ class RunView(APIView):
     permission_classes = [CanManageSprint]
 
     def authorized(self, request, sprint_id, run_id):
+        """The run's execution, for a user who may read it: a college login reads a completed run only once it is
+        published to it (publication.require_visible)."""
+        from .publication import require_visible
         sprint = get_authorized_sprint(request.user, sprint_id)
-        return get_object_or_404(CapabilityExecution.objects.select_related('run'), run_id=run_id, sprint=sprint)
+        execution = get_object_or_404(CapabilityExecution.objects.select_related('run'), run_id=run_id, sprint=sprint)
+        require_visible(request.user, execution)
+        return execution
 
     def get(self, request, sprint_id, run_id):
         """The run detail every screen reads (issue 60). By default it is served from the run's display copy
@@ -127,8 +137,13 @@ class RunView(APIView):
         sprint = get_authorized_sprint(request.user, sprint_id)
         execution = get_object_or_404(CapabilityExecution.objects.select_related('run', 'run__view').defer('run__inputs'),
                                       run_id=run_id, sprint=sprint)
-        traces = request.query_params.get('traces') in ('1', 'true')
-        full = traces or request.query_params.get('full') in ('1', 'true')
+        from .publication import is_staff, require_visible
+        require_visible(request.user, execution)   # before the 304: a college never learns an unpublished version
+        staff = is_staff(request.user)
+        # The full detail and the model traces are for InGage staff, like the JSON export (audit, 26 Nov): a college
+        # login asking for them gets the screens' detail.
+        traces = staff and request.query_params.get('traces') in ('1', 'true')
+        full = staff and (traces or request.query_params.get('full') in ('1', 'true'))
         view = ensure(execution.run_id)
         stalled = _stalled(execution)
         version = marker(execution, view, stalled, 'traces' if traces else 'full' if full else 'light')
@@ -143,6 +158,10 @@ class RunView(APIView):
             body = self.full(execution, view, traces)
         else:
             body = self.light(execution, view)
+        if not staff and body.get('partial_decisions'):
+            # A run still going (or stopped) has no published result: its judgments so far are for staff only. The
+            # screens show progress from completed_indicators, never these (audit, 26 Nov).
+            body['partial_decisions'] = []
         return Response({**body, 'version': version}, headers=headers)
 
     def light(self, execution, view):
@@ -269,3 +288,49 @@ class RunEvidenceView(RunView):
         return Response({'run_id': str(run.pk), 'records': records,
             'sources': [s for s in run.inputs['sources'] if s['id'] in cited],
             'note': 'Frozen assessment excerpts. Original files use the existing authenticated document download endpoint.'})
+
+
+class PublishSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField(allow_null=True)
+    note = serializers.CharField(max_length=500, required=False, allow_blank=True)
+
+
+class PublicationView(APIView):
+    """GET: the result the college sees and the history of that choice. POST {run_id, note}: publish a completed run,
+    or withdraw the published one with run_id null. InGage staff only (publication.py)."""
+    permission_classes = [IsInGageStaff]
+
+    def get(self, request, sprint_id):
+        from .publication import current, describe, history
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        return Response({'published': describe(current(sprint.pk)), 'history': history(sprint.pk)})
+
+    def post(self, request, sprint_id):
+        from .publication import PublicationError, describe, history, publish
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        body = PublishSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        run_id = body.validated_data['run_id']
+        try:
+            row, changed = publish(sprint, str(run_id) if run_id else None, request.user,
+                                   body.validated_data.get('note', ''))
+        except PublicationError as exc:
+            raise serializers.ValidationError({'run_id': str(exc)})
+        if changed:
+            logger.info('capability publication: sprint %s now shows %s (by %s)', sprint.pk,
+                        row.run_id or 'nothing', request.user.pk)
+        return Response({'published': describe(row), 'changed': changed, 'history': history(sprint.pk)})
+
+
+class ReportReadinessView(RunView):
+    """Whether this run's summary and detailed reports are ready for the college (publication.readiness): the
+    Reports page marks them Draft for staff, and tells a college they are still being written."""
+
+    def get(self, request, sprint_id, run_id):
+        from .publication import readiness
+        sprint = get_authorized_sprint(request.user, sprint_id)
+        execution = get_object_or_404(CapabilityExecution.objects.select_related('run').defer('run__inputs'),
+                                      run_id=run_id, sprint=sprint)
+        from .publication import require_visible
+        require_visible(request.user, execution)
+        return Response({'run_id': str(execution.run_id), **readiness(execution)})

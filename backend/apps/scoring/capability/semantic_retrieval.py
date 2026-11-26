@@ -180,12 +180,15 @@ def map_policy(routing):
     if fill not in ('keyword', 'semantic'):
         raise SemanticRetrievalUnavailable('CAPABILITY_MAP_FILL must be keyword or semantic.')
     semantic = {}
+    if getattr(settings, 'CAPABILITY_MAP_SAME_AREA', False):
+        semantic['same_area'] = packet.SAME_AREA_VERSION
     if fill == 'semantic':
         # Refuses here, before any model credit, when the image has no fastembed or no provisioned model: a run never
         # starts expecting semantic search it cannot do (24 Nov: hybrid failed on live and the run went out smaller).
         from apps.evidence_map.semantic import policy_entry
-        semantic = {'semantic': policy_entry()}
-    return {'mode': 'map', 'allocation': packet.SEMANTIC_ALLOCATION if semantic else packet.ALLOCATION, 'cap_chars': cap,
+        semantic['semantic'] = policy_entry()
+    return {'mode': 'map', 'allocation': packet.SEMANTIC_ALLOCATION if 'semantic' in semantic else packet.ALLOCATION,
+            'cap_chars': cap,
             'fill_share': '/'.join(map(str, packet.FILL_SHARE)), 'context_share': '/'.join(map(str, packet.CONTEXT_SHARE)),
             'window_chars': packet.WINDOW_CHARS, 'map_shape': shape, **semantic, **routing}
 

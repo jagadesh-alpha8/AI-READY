@@ -1,12 +1,14 @@
 import { useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
+import { AreaCardsV5, PracticesV5 } from './V5';
+import './v5.css';
 import { RequireSprint } from '../components/RequireSprint';
-import { Empty, ErrorState, Loading } from '../components/ui';
-import { pathOf } from '../navigation';
+import { ErrorState, Loading } from '../components/ui';
 import type { Sprint } from '../types/api';
 import { whole } from '../utils/levels';
 import { Stars } from './Icon';
 import { ChecklistLine, pts } from './ResultParts';
+import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
 
 /** Results › Readiness areas: one card per area, what's in place, what's missing, and the next step. */
@@ -17,12 +19,26 @@ export function ReadinessAreas() {
 function Body({ sprint }: { sprint: Sprint }) {
   const { cap, view } = useResultView(sprint.id);
   const { hash } = useLocation();
+  const [params] = useSearchParams();
+  const area = params.get('area') || (hash ? hash.slice(1) : '');
   useEffect(() => {
-    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [hash, view]);
+    if (area && !params.get('practices')) document.getElementById(area)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    else if (params.get('practices')) window.scrollTo({ top: 0 });
+  }, [area, params, view]);
   if (cap.loading) return <Loading label="Loading the areas…" />;
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
-  if (!view) return <Empty title="No result yet" action={<Link className="btn primary" to={pathOf('assessment')}>Go to the assessment</Link>}>Run the assessment to see the nine areas.</Empty>;
+  if (!view) return <NoResult cap={cap}>Run the assessment to see the nine areas.</NoResult>;
+  const v5 = view.run.next_steps?.presentation;
+  if (v5) {
+    const card = params.get('practices') ? v5.cards.find((c) => c.code === area) : undefined;
+    if (card) return <div className="v5"><PracticesV5 a={card} stage1={v5.stage1} /></div>;
+    return (
+      <div className="v5">
+        <p className="muted" style={{ margin: 0 }}>Strongest first. For each: what you do well, what is missing, and one next step.</p>
+        <AreaCardsV5 key={area} v={v5} initial={area} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'grid', gap: 18 }}>

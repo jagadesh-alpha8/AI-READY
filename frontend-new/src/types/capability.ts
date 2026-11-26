@@ -24,6 +24,34 @@ export interface CapabilityPage<T> {
   count: number;
   /** Whether the deployment allows starting assessments (settings.CAPABILITY_ASSESSMENT_ENABLED). */
   enabled: boolean;
+  /** The run list only: the result the college sees (capability/publication.py), or null when none is published. */
+  published?: Published | null;
+  /** The run list only: results publish themselves once their reports pass the draft checks (CAPABILITY_AUTO_PUBLISH). */
+  auto_publish?: boolean;
+}
+
+/** The result InGage staff published for the college. A final result names its Stage 1 run. */
+export interface Published {
+  run_id: string;
+  stage: 'provisional' | 'final';
+  provisional_run_id: string | null;
+  published_at: string;
+  published_by: string | null;
+  note: string;
+}
+
+export interface PublicationHistoryItem { run_id: string | null; withdrawn: boolean; at: string; by: string | null; note: string }
+
+/** Whether a run's leadership and detailed reports are ready for the college (the draft gate). */
+export interface ReportReadiness {
+  run_id: string;
+  ready: boolean;
+  /** Why it is still a draft. */
+  reasons: string[];
+  /** What staff may want to fix; never blocks. */
+  warnings: string[];
+  explanations: { written: boolean; version: string | null; areas_on_plain_wording: string[]; others_on_plain_wording: number } | null;
+  next_steps: { written: boolean; version: string | null; steps: number; written_steps: number } | null;
 }
 
 export interface Citation { source_id: string; quote: string }
@@ -251,14 +279,46 @@ export interface StepSource { text: string; sources: string[] }
  * written text (action, have, related, not_found, first_step, owner) from the next-steps job, else the fallback. */
 export interface NextStepAction {
   key: string; code: string; title: string; area: string; area_code: string; points: number; step: string;
+  /** One of the three weakest areas' steps: "Where to start". */
+  start_here?: boolean;
+  /** How the step starts (written steps only): extend something the college has, name an owner or record, or start. */
+  kind?: 'extend' | 'name' | 'start' | null;
   generated: boolean; action: string | null; have: StepSource[]; related: StepSource[]; not_found: string | null;
   first_step: string | null; owner: { name: string; suggested: boolean; source: string | null };
   requirements: ChecklistItem[];
 }
+/** The reports' own view, trimmed for the screens (presentation.for_screens): one set of pieces for both. */
+export interface ScreenStep {
+  title: string; kind: string; builds_on: string; lead: string; done_when_text: string; start: boolean;
+  written: boolean; first_step: string; area?: string; area_code?: string; area_score?: number;
+}
+export interface ScreenPractice {
+  id: string; label_short: string; looked_for: string; status: 'shown' | 'partly' | 'missing'; label: string;
+  found: string; quote: string; source: string; next_step: string; done_when: string; follow_up: string;
+}
+export interface ScreenCard {
+  code: string; name: string; definition: string; score: number; level: string; level_index: number; to_confirm: number;
+  card: { written: boolean; verdict: string; headline: string; strengths_title: string;
+    strengths: { text: string; source: string }[]; gaps: string[] };
+  step: ScreenStep | null;
+  topics: { code: string; name: string; score: number | null; marks: string[]; practices: ScreenPractice[] }[];
+}
+export interface ScreenView {
+  stage1: boolean; level: { name: string; stars: number; meaning: string; next: string | null; points_to_next: number };
+  levels: { name: string; stars: number; from: number; to: number | null; meaning: string }[]; level_index: number;
+  score: number; confirmed_whole: number; shown_whole: number; held_whole: number; held_points: number;
+  to_next_if_confirmed: number; summary_lines: { label: string; area: string; fact: string }[];
+  basics: { score: number; whole: number; level: string; reaches_next: boolean };
+  documents: number; requirements: number; institution_word: string; cards: ScreenCard[];
+  start_here: ScreenStep[]; steps: ScreenStep[];
+}
+
 export interface NextSteps {
+  /** The reports' view for the screens (presentation.for_screens). */
+  presentation?: ScreenView;
   version: string | null;
   written: boolean;
-  /** The leadership report's first steps (4 to 6), the same everywhere. */
+  /** One step in every area, weakest area first, the same everywhere; the first three are "Where to start". */
   actions: NextStepAction[];
   /** Every requirement not yet done, by area code, foundations first. */
   checklist: Record<string, ChecklistItem[]>;

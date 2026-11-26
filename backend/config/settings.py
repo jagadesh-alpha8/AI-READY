@@ -794,6 +794,10 @@ CAPABILITY_AGREEMENT_PASSES = int(os.getenv('CAPABILITY_AGREEMENT_PASSES', '1'))
 # 'parts' (default): part-level judgment under the accreditation-reviewer standard, scored with partial credit
 # (part_judgment.py). 'conditions': the earlier strict met/unknown judge, kept for comparison runs.
 CAPABILITY_JUDGMENT = os.getenv('CAPABILITY_JUDGMENT', 'parts').strip().lower()
+# A JSON object of settings an assessment on this server must have, e.g.
+# {"CAPABILITY_AI_MODEL": "claude-haiku-5-5", "CAPABILITY_RETRIEVAL_MODE": "map", "EVIDENCE_MAP_SHAPE": "areas-every"}.
+# A run refuses to start while any differs (apps/scoring/capability/execution.settings_not_met). Empty: none.
+CAPABILITY_REQUIRED_SETTINGS = os.getenv('CAPABILITY_REQUIRED_SETTINGS', '').strip()
 # Gemini thinking level for the assessor only; empty = AI_GEMINI_REASONING_EFFORT (which extraction keeps using).
 CAPABILITY_GEMINI_REASONING_EFFORT = os.getenv('CAPABILITY_GEMINI_REASONING_EFFORT', '').strip() or None
 
@@ -877,6 +881,10 @@ CAPABILITY_MAP_CAP_CHARS = int(os.getenv('CAPABILITY_MAP_CAP_CHARS', '').strip()
 # the fill to tags for other indicators closest in meaning to a requirement (apps/evidence_map/semantic.py; local
 # embeddings, CAPABILITY_EMBEDDING_PATH). A run refuses to start in 'semantic' when the model is not provisioned.
 CAPABILITY_MAP_FILL = os.getenv('CAPABILITY_MAP_FILL', 'keyword').strip().lower() or 'keyword'
+# Map mode's same-area band (apps/evidence_map/packet.py, same-area-1): after an indicator's own tags, its packet also
+# takes pages tagged direct or supporting for the other indicators of the same area, inside the tagged share. Off by
+# default until measured (scripts/retrieval/compare.py, map_same_area).
+CAPABILITY_MAP_SAME_AREA = os.getenv('CAPABILITY_MAP_SAME_AREA', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # The prompt shape whose map a run uses (one: all areas in one request per chunk; areas: one request per area).
 EVIDENCE_MAP_SHAPE = os.getenv('EVIDENCE_MAP_SHAPE', 'one').strip() or 'one'
 # Keyword mode only (CAPABILITY_RETRIEVAL_MODE=bm25): characters of keyword evidence per key indicator, 18,000 by
@@ -958,6 +966,9 @@ SECOND_LAYER_JOBS_ENABLED = os.getenv('SECOND_LAYER_JOBS_ENABLED', 'false').stri
 # provisional run it is started from the API (operation 'explain').
 SECOND_LAYER_EXPLAIN_AFTER_PUBLISH = os.getenv('SECOND_LAYER_EXPLAIN_AFTER_PUBLISH', 'true').strip().lower() in (
     '1', 'true', 'yes', 'on')
+# Results publish themselves once their reports pass the draft gate, with their text written by jobs started on their
+# own (capability/publication.py; Siddharth, 26 Nov 2026). Off: InGage staff publish from the staff panel.
+CAPABILITY_AUTO_PUBLISH = os.getenv('CAPABILITY_AUTO_PUBLISH', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
 SECOND_LAYER_MAX_HTTP_CALLS = int(os.environ['SECOND_LAYER_MAX_HTTP_CALLS']) if os.getenv('SECOND_LAYER_MAX_HTTP_CALLS') else None
 SECOND_LAYER_MAX_COST_USD = os.getenv('SECOND_LAYER_MAX_COST_USD', '').strip() or None
 SECOND_LAYER_MAX_DURATION_SECONDS = int(os.environ['SECOND_LAYER_MAX_DURATION_SECONDS']) if os.getenv('SECOND_LAYER_MAX_DURATION_SECONDS') else None
@@ -984,6 +995,11 @@ EVIDENCE_MAP_AI_API_KEY = os.getenv('EVIDENCE_MAP_AI_API_KEY', '').strip()
 EVIDENCE_MAP_AI_MODEL = os.getenv('EVIDENCE_MAP_AI_MODEL', '').strip()
 EVIDENCE_MAP_AI_BASE_URL = os.getenv('EVIDENCE_MAP_AI_BASE_URL', '').strip()
 EVIDENCE_MAP_AI_EFFORT = os.getenv('EVIDENCE_MAP_AI_EFFORT', 'low').strip().lower() or None
+# After a completed tagging pass, the requirement check on the same map (apps/evidence_map/requirement_check.py);
+# after a completed assessment, its credited quotations added to the map (apps/evidence_map/learn.py). Both off.
+EVIDENCE_MAP_AUTO_CHECK = os.getenv('EVIDENCE_MAP_AUTO_CHECK', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+EVIDENCE_MAP_CHECK_MAX_COST_USD = float(os.getenv('EVIDENCE_MAP_CHECK_MAX_COST_USD', '0.5') or 0.5)
+EVIDENCE_MAP_AUTO_LEARN = os.getenv('EVIDENCE_MAP_AUTO_LEARN', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 EVIDENCE_MAP_MAX_COST_USD = float(os.getenv('EVIDENCE_MAP_MAX_COST_USD', '').strip() or 5)
 # Tag a sprint's new pages automatically once its extraction jobs have all finished (apps/evidence_map/tasks.py). Off by
 # default: each pass calls the tagging model (about $1 per VISTAS-sized sprint on Claude Haiku 5.5 or GPT-6 Luna, est.).

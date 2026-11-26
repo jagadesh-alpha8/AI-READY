@@ -45,6 +45,7 @@ SETTINGS = dict(SECURE_SSL_REDIRECT=False, CAPABILITY_ASSESSMENT_ENABLED=True, C
                 CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_TIE_BREAK=True, CAPABILITY_MAX_HTTP_CALLS=108,
                 CAPABILITY_MAX_COST_USD='20', CAPABILITY_OUTPUT_TOKENS=3000, CAPABILITY_REQUEST_TIMEOUT_SECONDS=60,
                 CAPABILITY_RECOMMENDATIONS_ENABLED=True, SECOND_LAYER_JOBS_ENABLED=True,
+                CAPABILITY_AUTO_PUBLISH=False,   # these tests start each job; test_publication covers the automatic chain
                 SECOND_LAYER_MAX_HTTP_CALLS=None, SECOND_LAYER_MAX_COST_USD=None, AI_RATE_LIMIT_ENABLED=False,
                 AI_PROCESSING_MODE='single', AI_BASE_URL='', AI_TEMPERATURE=0, AI_SEED=42,
                 AI_PRICING_JSON='{"test-model":{"input":0.1,"output":0.2}}')
@@ -67,6 +68,8 @@ class ProductFlowTests(APITestCase):
         self.user = User.objects.create_user(username='coordinator', email='coord@example.com',
                                              role=User.Role.IQAC_COORDINATOR, institution=self.institution)
         self.client.force_authenticate(self.user)
+        from .publication_fixtures import every_result_published
+        every_result_published(self)
         ssr = Document.objects.create(sprint=self.sprint, document_type='naac_ssr', status='processed')
         for n, text in enumerate(PAGES, 1):
             DocumentPage.objects.create(document=ssr, page_number=n, text=text)
@@ -133,7 +136,9 @@ class ProductFlowTests(APITestCase):
                     'text': 'This is shown.' if full else 'This is partly shown.' if credited else 'Not yet shown.',
                     'looked': 'We read the documents listed for this area.' if gap else '',
                     'next_step': 'Add a record that shows what is missing.' if gap else ''})
-        return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '', 'next_step': ''},
+        from .test_explanations import card
+        return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '',
+                         'next_step': '', **card(payload)},
                 'indicators': indicators, 'requirements': requirements}
 
     def reply_capability_advice(self, payload):
@@ -528,7 +533,9 @@ class ProductFlowTests(APITestCase):
         self.run_queued()
         questions = list(DepthQuestion.objects.filter(run_ref=str(provisional.pk)).order_by('rank'))
         depth_qs = [q for q in questions if q.kind == 'depth']
-        self.assertEqual({q.condition_ids[0] for q in depth_qs}, set(credited))
+        # questions-0.4: an owner practice in place has nothing left to ask in depth (its owner is its whole point).
+        from .capability.depth import OWNER_PRACTICES
+        self.assertEqual({q.condition_ids[0] for q in depth_qs}, set(credited) - OWNER_PRACTICES)
         rubric = release()
         gaps = {i['code'] for i in rubric['indicators'] for c in i['conditions'] if (records[c['id']].get('credit') or 0) < 1}
         self.assertEqual({q.indicator_code for q in questions if q.kind == 'missing'}, gaps)
@@ -557,7 +564,8 @@ class ProductFlowTests(APITestCase):
         self.assertEqual((member.status, lead.status), ('linked', 'open'))
         self.assertNotEqual(lead.indicator_code, member.indicator_code)
         involved = set(lead.condition_ids) | set(member.condition_ids)
-        free = [c for c in credited if c not in involved and all(q.status == 'open' for q in by_condition.get(c, []))]
+        free = [c for c in credited if c not in involved and c in by_condition
+                and all(q.status == 'open' for q in by_condition[c])]   # an owner in place has no depth question
         backed, dont_know, typed, already = free[0], free[1], free[2], free[3]
         respond = lambda q, body: self.post(f'{self.base}/{provisional.pk}/questions/{q.pk}/responses', body, expect=201)
         # 1. An answer a new document backs: should earn back held credit.

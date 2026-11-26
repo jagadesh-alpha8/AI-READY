@@ -7,6 +7,7 @@ import { useAccess } from '../hooks/useAccess';
 import { useResource } from '../hooks/useResource';
 import { getEvidenceRequestSummary } from '../services/evidenceRequests';
 import { listRuns } from '../services/capability';
+import { shownRun } from '../utils/capability';
 import type { EvidenceRequestSummary } from '../types/api';
 import type { PageKey } from '../utils/access';
 import { roleLabel } from '../utils/access';
@@ -43,11 +44,14 @@ export function WorkspaceShell({ page, children }: { page: PageKey; children: Re
   const institutionName = sprint?.institution_name || 'No institution yet';
   const manyInstitutions = new Set(sprints.map((s) => s.institution_id)).size > 1;
   const stepIndex = JOURNEY_STEPS.findIndex((s) => s.key === section.key);
-  // How far the college has got, from its assessments (a light list call): a result means the documents and the
-  // assessment are done; a final result means the results step is done too.
-  const runs = useResource(() => listRuns(sprint!.id), `ws-journey:${sprint?.id}:${page}`, !!sprint && stepIndex >= 0);
-  const completed = runs.data?.results.filter((r) => r.status === 'completed') || [];
-  const reached = completed.some((r) => r.stage === 'final') ? 3 : completed.length ? 2 : -1;
+  // How far the college has got, from the result the screens show (a light list call): the published result, or for
+  // staff the newest completed run while nothing is published. A result means the documents and the assessment are
+  // done; a final result means the results step is done too.
+  // Staff also need it on the Overview (not a journey page), for the "not published" note.
+  const resultPage = stepIndex >= 0 || page === 'overview';
+  const runs = useResource(() => listRuns(sprint!.id), `ws-journey:${sprint?.id}:${page}`, !!sprint && (stepIndex >= 0 || (staff && resultPage)));
+  const shown = shownRun(runs.data?.results || [], runs.data?.published, staff);
+  const reached = shown.stage === 'final' ? 3 : shown.id ? 2 : -1;
   const isDone = (i: number) => (i < stepIndex || i <= reached) && i !== stepIndex;
 
   const firstPage = (key: string) => {
@@ -149,6 +153,14 @@ export function WorkspaceShell({ page, children }: { page: PageKey; children: Re
                       </button>
                     );
                   })}
+                </div>
+              )}
+              {staff && resultPage && (shown.preview || shown.newer) && (
+                <div className="callout ws-publication-note" role="status"><Icon name="help" />
+                  <p>{shown.preview
+                    ? <><strong>Not published.</strong> You are seeing the newest result; the college sees nothing until a result is published{runs.data?.auto_publish ? ' (it publishes itself once its reports are written and pass the checks)' : ''}.</>
+                    : <><strong>A newer result is not published.</strong> The college still sees the published one.</>}
+                  {' '}<NavLink to={pathOf('assessment')}>Choose what the college sees</NavLink></p>
                 </div>
               )}
               {tabs.length > 1 && (

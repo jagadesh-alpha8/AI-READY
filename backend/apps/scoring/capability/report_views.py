@@ -25,6 +25,18 @@ class ReportUnavailable(APIException):
     default_detail = 'Select a completed assessment to export a capability report.'
 
 
+class ReportDraft(APIException):
+    status_code = 409
+    default_detail = 'This report is still being written. It can be downloaded once its text has been written and checked.'
+    default_code = 'report_draft'
+
+
+class ReportStaffOnly(APIException):
+    status_code = 403
+    default_detail = 'This export is for InGage staff. Your reports are the leadership report and the detailed report.'
+    default_code = 'report_staff_only'
+
+
 class ReportIntegrityError(APIException):
     status_code = 409
     default_detail = 'The saved assessment and advice do not match. Select a matching saved version.'
@@ -115,6 +127,19 @@ class CapabilityReportView(RunView):
         # the earlier reports, kept as InGage's technical appendix.
         if audience not in {'summary', 'detailed', 'leadership', 'evidence'}:
             raise serializers.ValidationError({'audience': 'Choose summary, detailed, leadership or evidence.'})
+        # The draft gate (publication.py). A college login gets only the two reports written for people, as a page or
+        # a PDF, and only once their text is written and checked; the technical appendix and the JSON (every model
+        # packet and the reviewed evidence) are InGage's. Staff get every export; a summary or detailed report that
+        # is not ready yet is marked Draft on every page.
+        from .publication import is_staff, readiness
+        staff = is_staff(request.user)
+        if not staff and (audience not in {'summary', 'detailed'} or file_format == 'json'):
+            raise ReportStaffOnly()
+        draft = False
+        if audience in {'summary', 'detailed'}:
+            draft = not readiness(execution)['ready']
+            if draft and not staff:
+                raise ReportDraft()
         advice_id = request.query_params.get('recommendation_id')
         recommendation = None
         snapshot = completed = None
@@ -135,11 +160,12 @@ class CapabilityReportView(RunView):
         from . import next_steps
         steps_id, steps = next_steps.stored(run.pk, event.pk)
         not_started = sorted(next_steps.not_started(run))
-        pdf_key = (pdf_cache_key(run, event, audience, stage, recommendation, [str(steps_id), not_started])
+        pdf_key = (pdf_cache_key(run, event, audience, stage, recommendation, [str(steps_id), not_started, draft])
                    if file_format == 'pdf' else None)
         cached = cache_get(pdf_key)
         if cached is not None:
-            return report_response(cached['content'], 'pdf', run, cached['audience'], cache='hit')
+            return report_response(cached['content'], 'pdf', run, cached['audience'], cache='hit',
+                                   draft=cached.get('draft', False))
         payload = {'format_version': 'AIQIF-REPORT-0.2', 'exported_at': timezone.now(),
             'run_id': str(run.pk), 'assessment_event_id': event.pk, 'inputs_hash': run.inputs_hash,
             'profile': run.inputs['profile'], 'population': run.inputs['population'], 'rubric': run.inputs['rubric'],
@@ -191,6 +217,8 @@ class CapabilityReportView(RunView):
                 payload['presentation'] = view
             except Exception:   # a run shaped in a way the new reports don't expect: serve the older report instead
                 logger.exception('presentation failed for run %s; serving the older %s report', run.pk, audience)
+                if not staff:   # the older reports are the technical appendix, never a college's
+                    raise ReportUnavailable('This report could not be prepared. InGage has been told.')
                 audience = 'leadership' if audience == 'summary' else 'evidence'
         from apps.demo_mask import mask
         if mask.active():
@@ -203,7 +231,9 @@ class CapabilityReportView(RunView):
             content = json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2)
         elif audience in {'summary', 'detailed'}:
             template = 'scoring/report_leadership.html' if audience == 'summary' else 'scoring/report_detailed.html'
-            content = render_to_string(template, {'v': view, 'exported': payload['exported_at']})
+            from .presentation import NOTHING_YET
+            content = render_to_string(template, {'v': view, 'exported': payload['exported_at'], 'draft': draft,
+                                                  'nothing_yet': NOTHING_YET})
             if file_format == 'pdf':
                 pdf = html_to_pdf(content)
                 if pdf is None and audience == 'summary':
@@ -228,11 +258,11 @@ class CapabilityReportView(RunView):
                     'result': event.payload['result'], 'indicators': indicators, 'actions': actions,
                     'held_note': held_note(event.payload['result'].get('depth_reserve'), closed=stage['closed'])})
         if pdf_key:
-            cache_set(pdf_key, {'content': content, 'audience': audience})
-        return report_response(content, file_format, run, audience, cache='miss' if pdf_key else None)
+            cache_set(pdf_key, {'content': content, 'audience': audience, 'draft': draft})
+        return report_response(content, file_format, run, audience, cache='miss' if pdf_key else None, draft=draft)
 
 
-def report_response(content, file_format, run, audience, cache=None):
+def report_response(content, file_format, run, audience, cache=None, draft=False):
     response = HttpResponse(content, content_type={'json': 'application/json; charset=utf-8',
         'html': 'text/html; charset=utf-8', 'pdf': 'application/pdf'}[file_format])
     response['Content-Disposition'] = f'attachment; filename="capability-{run.pk}-{audience}.{file_format}"'
@@ -241,6 +271,8 @@ def report_response(content, file_format, run, audience, cache=None):
     response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
     if cache:
         response['X-Report-Cache'] = cache
+    if draft:
+        response['X-Report-Draft'] = '1'   # its text is not yet written and checked (publication.readiness)
     from apps.demo_mask import mask
     if mask.active():
         response['X-Name-Mask'] = 'applied'   # made from masked data (CapabilityReportView); see demo_mask.middleware

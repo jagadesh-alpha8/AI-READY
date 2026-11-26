@@ -29,8 +29,23 @@ def writer(area, *, spoil=None):
             if spoil:
                 spoil(entry, requirement)
             requirements.append(entry)
-    return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '', 'next_step': ''},
+    return {'area': {'found': 'Your foundations are good.', 'text': 'You have made a solid start.', 'looked': '',
+                     'next_step': '', **card(area)},
             'indicators': indicators, 'requirements': requirements}
+
+
+def card(area):
+    """A valid area card for an area input: strengths quote their quotation's own words."""
+    reqs = [r for i in area['indicators'] for r in i['requirements']]
+    credited = [r for r in reqs if r['result'] in ('shown in full', 'partly shown') and r['quotations']]
+    missing = [r for r in reqs if r['result'] != 'shown in full']
+    word = area['institution_word']
+    return {'verdict': f'The {word} has made a start in this area. Much of it is not yet in place.',
+            'headline': 'A start has been made here.',
+            'strengths': [{'text': f'It has this on record: "{r["quotations"][0]["text"][:40].strip()}".',
+                           'condition_id': r['condition_id'], 'quote_id': 'Q1'} for r in credited[:2]],
+            'gaps': [{'text': 'A practice here is not yet in place.', 'condition_ids': [r['condition_id']]}
+                     for r in missing[:2]]}
 
 
 class ExplanationTests(SimpleTestCase):
@@ -93,6 +108,77 @@ class ExplanationTests(SimpleTestCase):
         self.assertEqual(written['requirements'][self.full]['quote_ids'], ['Q1'])
         self.assertEqual(set(written['indicators']), {i['code'] for i in self.rubric['indicators']})
         self.assertIn('AIQIF-C1', written['areas'])
+
+    def test_the_area_card_is_checked(self):
+        good = writer(self.area)
+        passed, errors = explanations.validate(self.area, good)
+        self.assertEqual(errors, [])
+        self.assertTrue(passed['area']['verdict'].startswith(f"The {self.area['institution_word']} "))
+        self.assertTrue(all(s['source'] for s in passed['area']['strengths']))
+
+        def broken(change):
+            answer = writer(self.area)
+            change(answer['area'])
+            return explanations.validate(self.area, answer)[1]
+        first = good['area']['strengths'][0]
+        cases = {
+            'must begin': lambda a: a.update(verdict='You have made a start.'),
+            'at most two sentences': lambda a: a.update(verdict=f"The {self.area['institution_word']} has A. B. C. D."),
+            'no numbers': lambda a: a.update(headline='Audited 12 times.'),
+            'one short sentence': lambda a: a.update(headline='x' * 120),
+            'must cite a quotation given': lambda a: a['strengths'].append(dict(first, quote_id='Q9')),
+            'must name what its quotation names': lambda a: a['strengths'].__setitem__(
+                0, dict(first, text='It does good work in many ways overall.')),
+            'not shown in full': lambda a: a.update(gaps=[{'text': 'Something.', 'condition_ids': [self.full]}]),
+            'give two or three strengths': lambda a: a.update(strengths=[]),
+        }
+        for words, change in cases.items():
+            with self.subTest(words=words):
+                self.assertTrue(any(words in e for e in broken(change)), broken(change))
+
+    def test_cards_written_without_the_model_go_through_the_same_checks(self):
+        """capability_explain --import: hand-written cards on a stored payload, checked against the run."""
+        base = explanations.explain(self.target, self.model(writer))
+        for key in explanations.AREA_FIELDS:
+            base['areas']['AIQIF-C1'].pop(key, None)
+        base['version'] = 'explanations-0.3'
+        written, problems = explanations.import_cards(self.target, base, {'AIQIF-C1': card(self.area)}, 'test')
+        self.assertEqual(problems, {})
+        self.assertEqual(written['version'], explanations.VERSION)
+        self.assertTrue(written['areas']['AIQIF-C1']['verdict'].startswith('The '))
+        self.assertEqual(written['requirements'], base['requirements'])   # the rest is the stored text
+        bad = card(self.area)
+        bad['strengths'][0]['condition_id'] = next(r['condition_id'] for i in self.area['indicators']
+                                                   for r in i['requirements'] if r['result'] not in ('shown in full', 'partly shown'))
+        written, problems = explanations.import_cards(self.target, base, {'AIQIF-C1': bad}, 'test')
+        self.assertIn('AIQIF-C1', problems)
+        self.assertTrue(written['areas']['AIQIF-C1']['fallback'])   # the reports stay a draft for it
+        self.assertNotIn('verdict', written['areas']['AIQIF-C1'])
+        written, problems = explanations.import_cards(self.target, base, {}, 'test')
+        self.assertEqual(problems, {'AIQIF-C1': ['no card was given']})
+        base['areas']['AIQIF-C1']['fallback'] = True
+        _, problems = explanations.import_cards(self.target, base, {'AIQIF-C1': card(self.area)}, 'test')
+        self.assertIn('plain wording', problems['AIQIF-C1'][0])
+
+    def test_a_weak_area_card_is_written_from_the_starting_points_it_lists(self):
+        """explanations-0.5: a weak area's card lists its step's starting points; its writer sees the same list."""
+        near = {'text': 'Your Strategic Plan sets an e-governance target, a starting point for AI.', 'sources': ['p. 3']}
+        step = {'kind': 'extend', 'have': [], 'related': [near]}
+        target = {**self.target, 'area_scores': {'AIQIF-C1': 4.0},
+                  'next_steps': {'actions': {'AIQIF-C1.1:AIQIF-C1.1.F2': step}}}
+        self.assertEqual(explanations.area_input('AIQIF-C1', target)['closest_things_on_the_card'], [near['text']])
+        self.assertTrue(explanations.explain(target, self.model(writer))['areas']['AIQIF-C1']['closest_seen'])
+        for other in ({**target, 'area_scores': {'AIQIF-C1': 40.0}},   # not weak: the card lists strengths
+                      {**target, 'next_steps': {'actions': {'AIQIF-C1.1:AIQIF-C1.1.F2': {**step, 'kind': 'start'}}}},
+                      {**target, 'next_steps': None}):   # steps not written yet
+            self.assertNotIn('closest_things_on_the_card', explanations.area_input('AIQIF-C1', other))
+        self.assertFalse(explanations.explain({**target, 'next_steps': None},
+                                              self.model(writer))['areas']['AIQIF-C1']['closest_seen'])
+
+    def test_the_institution_word(self):
+        self.assertEqual(explanations.institution_word({'institution_type': 'deemed university'}), 'university')
+        self.assertEqual(explanations.institution_word({'name': 'ABC Arts College'}), 'college')
+        self.assertEqual(explanations.institution_word({}), 'institution')
 
     def test_every_check_catches_its_claim(self):
         def at(cid, change):

@@ -4,13 +4,14 @@ import { Dummy, Empty, ErrorState, Loading, Notice, PageHeading, Pill, Table } f
 import { useAccess } from '../hooks/useAccess';
 import { useCapability } from '../hooks/useCapability';
 import { usePolling, useResource } from '../hooks/useResource';
-import { downloadCapabilityReport, openCapabilityReport } from '../services/capability';
+import { downloadCapabilityReport, getReportReadiness, openCapabilityReport } from '../services/capability';
 import { Icon } from '../workspace/Icon';
 import { http, saveBlob } from '../services/http';
 import { downloadReport, generateReport, listReports } from '../services/reports';
 import { listSprintFactsPage } from '../services/facts';
 import { listSprintGapsPage } from '../services/gaps';
 import type { Fact, Gap, Report, Sprint } from '../types/api';
+import type { ReportReadiness } from '../types/capability';
 import { DEMO_MODE } from '../config/env';
 import { STAGE_ONE } from '../utils/capability';
 import { toCsv } from '../utils/csv';
@@ -20,7 +21,7 @@ import { dateTime, num, pct, tidyText, valueText } from '../utils/format';
 /** The two reports for the institution (23 Nov): a short leadership report and the full detail. */
 const REPORTS = [
   { audience: 'summary' as const, icon: 'file', title: 'Leadership report',
-    text: 'Your level and stars, the nine areas at a glance, where you are strong, where to focus and what to do next.', meta: 'About 7 pages · for leadership and the board' },
+    text: 'Your level and stars, the nine areas at a glance, where you are strong, where to focus and what to do next.', meta: 'Six pages · for leadership and the board' },
   { audience: 'detailed' as const, icon: 'assessment', title: 'Detailed report',
     text: 'Every practice in all nine areas: what your documents show, the quotation and its document, and the next step.', meta: 'Every practice · for the teams doing the work' },
 ];
@@ -40,7 +41,7 @@ export function Reports() {
 }
 
 function ReportsBody({ sprint }: { sprint: Sprint }) {
-  const { can } = useAccess();
+  const { can, staff } = useAccess();
   const reports = useResource<Report[]>(() => listReports(sprint.id), sprint.id);
   const cap = useCapability(sprint.id);
   const capRunId = cap.run.data?.assessment ? cap.run.data.id : '';
@@ -133,21 +134,8 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
             {rows.map((row) => (
               <section key={row.runId} className="ws-report-group">
                 <h2 className="ws-report-group-title">{row.final ? 'Final result' : STAGE_ONE}{row.when && <small>{row.when}</small>}</h2>
-                <div className="ws-cards ws-cards-2">
-                  {REPORTS.map((r) => (
-                    <article className="ws-card ws-report-card" key={r.audience}>
-                      <div className="ws-report-icon"><Icon name={r.icon} /></div>
-                      <h3>{r.title}</h3>
-                      <p>{r.text}</p>
-                      <small className="ws-source">{r.meta}</small>
-                      <div className="ws-row">
-                        <button className="primary-action" onClick={() => void download(() => openCapabilityReport(sprint.id, row.runId, r.audience))}>Open</button>
-                        <button className="secondary-button" onClick={() => void download(() => downloadCapabilityReport(sprint.id, row.runId, 'pdf', r.audience))}>Download PDF</button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-                <details className="ws-technical">
+                <ReportCards sprintId={sprint.id} runId={row.runId} staff={staff} download={download} />
+                {staff && <details className="ws-technical">
                   <summary>Technical appendix (for InGage)</summary>
                   <p className="muted">Every requirement, model decision and source page, for review and audit.</p>
                   <div className="ws-row">
@@ -157,7 +145,7 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
                       </button>
                     )))}
                   </div>
-                </details>
+                </details>}
               </section>
             ))}
           </>
@@ -200,6 +188,41 @@ function ReportsBody({ sprint }: { sprint: Sprint }) {
         </div>
       </Dummy>
       </>}
+    </>
+  );
+}
+
+/**
+ * The leadership and detailed reports of one result. Their text must be written and checked before a college can
+ * download them (the draft gate, capability/publication.py): until then the college is told they are being written,
+ * and InGage staff can open them marked Draft, with the reasons.
+ */
+function ReportCards({ sprintId, runId, staff, download }: {
+  sprintId: string; runId: string; staff: boolean; download: (fn: () => Promise<void>) => Promise<void>;
+}) {
+  const readiness = useResource<ReportReadiness>(() => getReportReadiness(sprintId, runId), `ws-ready:${runId}`);
+  const ready = !!readiness.data?.ready;
+  const draft = !!readiness.data && !ready;
+  const open = staff || ready;
+  return (
+    <>
+      {draft && (staff
+        ? <Notice tone="warn"><strong>Draft.</strong> {readiness.data!.reasons.join(' ')} The college can't download these reports yet; yours are marked Draft.</Notice>
+        : <Notice tone="info">Your reports are being written. They can be downloaded here as soon as they are ready.</Notice>)}
+      <div className="ws-cards ws-cards-2">
+        {REPORTS.map((r) => (
+          <article className="ws-card ws-report-card" key={r.audience}>
+            <div className="ws-report-icon"><Icon name={r.icon} /></div>
+            <h3>{r.title}{draft && staff && <span className="tag amber" style={{ marginLeft: 8 }}>Draft</span>}</h3>
+            <p>{r.text}</p>
+            <small className="ws-source">{r.meta}</small>
+            <div className="ws-row">
+              <button className="primary-action" disabled={!open || (readiness.loading && !readiness.data)} onClick={() => void download(() => openCapabilityReport(sprintId, runId, r.audience))}>Open</button>
+              <button className="secondary-button" disabled={!open || (readiness.loading && !readiness.data)} onClick={() => void download(() => downloadCapabilityReport(sprintId, runId, 'pdf', r.audience))}>Download PDF</button>
+            </div>
+          </article>
+        ))}
+      </div>
     </>
   );
 }

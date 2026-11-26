@@ -19,6 +19,19 @@ PILLARS = {
     'AIQIF-C8': 'Services and partnerships',
     'AIQIF-C9': 'Measurement and improvement',
 }
+#: One line under each area's name in the reports and on the website (the v5 mocks, 26 Nov 2026; Siddharth: they
+#: stand as drafted; Harsha may correct them against the rubric).
+AREA_DEFINITIONS = {
+    'AIQIF-C1': 'A plan, a budget and a named lead for AI',
+    'AIQIF-C2': 'Rules for using AI fairly and safely',
+    'AIQIF-C3': 'AI in what is taught and how it is taught',
+    'AIQIF-C4': 'Training teachers and staff in AI, and checking it',
+    'AIQIF-C5': 'AI skills for students, and a route to jobs',
+    'AIQIF-C6': 'The computing, data and security AI depends on',
+    'AIQIF-C7': 'AI in research, innovation, patents and start-ups',
+    'AIQIF-C8': 'AI in services, and work with industry partners',
+    'AIQIF-C9': 'Measuring results and acting on them',
+}
 AREA_TITLES = {
     'AIQIF-C1.1': 'AI strategy and priorities', 'AIQIF-C1.2': 'Decision-making and accountability',
     'AIQIF-C1.3': 'Funding and resource planning', 'AIQIF-C1.4': 'Adoption and staff support',

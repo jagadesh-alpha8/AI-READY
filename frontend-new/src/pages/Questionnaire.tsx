@@ -245,6 +245,7 @@ function ReviewItem({ sprint, item, position, total, onSkip, onDone }: {
 // --- line 2: follow-up and "nothing found" questions after the provisional score ---------------------------------
 
 function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; runId: string; onFinal: () => void }) {
+  const { staff } = useAccess();
   const next = useResource<Layer2Questions>(() => getNextQuestion(sprint.id, runId), `l2:${runId}`);
   const [answered, setAnswered] = useState<Layer2Response[]>([]);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -261,6 +262,8 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
         if (fresh.some((f) => f.status === 'checked')) void next.refetch();
       });
   }, pending.length > 0, 8000);
+  // The questions are planned by themselves once the Stage 1 result is published: wait for them.
+  usePolling(() => void next.refetch(), !!next.data && !next.data.progress?.questions && !next.data.progress?.final_run_id, 10000);
 
   if (next.loading && !next.data) return <Loading />;
   if (next.error) return <ErrorState error={next.error} onRetry={() => void next.refetch()} />;
@@ -277,7 +280,7 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
         </Panel>
       )}
       <SecondLayerJobs sprint={sprint} runId={runId} progress={p} onChange={() => void next.refetch()} onFinal={onFinal} />
-      {!DEMO_MODE && <div className="stat-grid">
+      {!DEMO_MODE && staff && <div className="stat-grid">
         <Stat label="Questions" value={p?.questions ?? 0} note={`${p?.linked ? `${p.linked} more answered through linked questions · ` : ''}Stage 1 result, run ${runId.slice(0, 8)}${run.id === runId ? ` · ${dateTime(run.created_at)}` : ''}`} />
         <Stat label="Answered or skipped" value={p?.answered ?? 0} note={`${p?.open ?? 0} open`} />
         <Stat label="Checks waiting" value={p?.checks_waiting ?? 0} note="Answers are checked against the documents" />
@@ -290,7 +293,9 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
         </Panel>
       )}
       {p?.final_run_id ? null : !p?.questions ? (
-        <Empty title="No follow-up questions yet">Questions for this run have not been planned yet. Use “Plan follow-up questions” above (it uses model credits).</Empty>
+        staff
+          ? <Empty title="No follow-up questions yet">Questions for this run have not been planned yet. They are planned by themselves once the Stage 1 result is published; “Plan follow-up questions” above starts it by hand.</Empty>
+          : <Empty title="Your follow-up questions are being prepared">They appear here once they are ready. This page updates by itself.</Empty>
       ) : !next.data?.next ? (
         <Empty title="All questions answered" action={<PageLink to="cri" className="primary-action">See the report</PageLink>}>
           {p.checks_waiting ? `${p.checks_waiting} answer(s) are still being checked against the documents.` : 'Every question has an answer or was skipped.'}
@@ -387,7 +392,7 @@ function jobOutcome(j: SecondLayerJob): string {
 function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
   sprint: Sprint; runId: string; progress?: Layer2Progress; onChange: () => void; onFinal: () => void;
 }) {
-  const { can } = useAccess();
+  const { can, staff } = useAccess();
   const jobs = useResource<SecondLayerJobList>(() => listSecondLayerJobs(sprint.id, runId), `slj:${runId}`);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -406,6 +411,13 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
         if (was && (was === 'queued' || was === 'running') && !isActiveJob(j)) {
           onChange();
           if (j.operation === 'rejudge' && j.status === 'completed' && j.final_run_id) onFinal();
+          // The college is not told about the background jobs (they run by themselves), only that its result is in.
+          if (!staff) {
+            if (j.operation === 'rejudge') setMsg(j.status === 'completed'
+              ? { tone: 'success', text: `Your ${FINAL_SCORE} is being prepared. It appears here once its report is written.` }
+              : { tone: 'error', text: 'Finishing did not go through. Please try again, or tell your InGage contact.' });
+            continue;
+          }
           setMsg(j.status === 'completed'
             ? { tone: 'success', text: `${jobLabel(j)}: ${j.operation === 'explain' ? explainOutcome(j.result) : 'done'}.${j.final_run_id ? ' The final result is published; its explanations start by themselves.' : ''}` }
             : { tone: 'error', text: `${jobLabel(j)}: ${jobOutcome(j)}` });
@@ -437,11 +449,13 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
   if (jobs.error) return <ErrorState error={jobs.error} onRetry={() => void jobs.refetch()} />;
   const manage = can('sprint.manage');
   const p = progress;
+  if (!staff) return <CollegeFinish progress={p} active={active} enabled={!!jobs.data?.enabled} busy={busy} msg={msg}
+    onClear={() => setMsg(null)} onFinish={() => void start('rejudge', { close: true })} manage={manage} />;
   const hasQuestions = !!p?.questions;
   const closed = !!p?.final_run_id;
   // The college can stop whenever it likes (the questionnaire notice says so): publishing closes the follow-up stage
   // once no answer is still waiting for its check. Unanswered questions earn nothing.
-  const canPublish = !!p && !closed && !p.checks_waiting;
+  const canPublish = !!p && !closed && !p.checks_waiting && hasQuestions;
   const budget = jobs.data?.budget;
   const disabled = !jobs.data?.enabled || !!active || !!busy;
   // Final results are explained automatically; the provisional run's explanations are written on request.
@@ -515,6 +529,43 @@ function SecondLayerJobs({ sprint, runId, progress, onChange, onFinal }: {
   );
 }
 
+/**
+ * What a college sees of the follow-up stage (26 Nov): no job controls, budgets or model wording. Its questions are
+ * planned and its answers checked and judged by themselves (publication.keep_going); the college's one decision is
+ * when to finish, which closes the stage and produces the final result.
+ */
+function CollegeFinish({ progress: p, active, enabled, busy, msg, onClear, onFinish, manage }: {
+  progress?: Layer2Progress; active: SecondLayerJob | null; enabled: boolean; busy: string;
+  msg: { tone: 'success' | 'error' | 'info'; text: string } | null; onClear: () => void; onFinish: () => void; manage: boolean;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  if (!p?.questions || p.final_run_id) return msg ? <Notice tone={msg.tone} onClose={onClear}>{msg.text}</Notice> : null;
+  const working = !!active || !!p.checks_waiting;
+  const finishing = active?.operation === 'rejudge' || busy === 'rejudge';
+  return (
+    <Panel title="Finish the follow-up questions" sub={`When you have answered what you can, finish to get your ${FINAL_SCORE} and readiness level.`}
+      actions={manage && !finishing && (
+        <button className="primary-action" disabled={working || !!busy || !enabled} onClick={() => setConfirm(true)}
+          title={working ? 'Available once your latest answers have been checked' : undefined}>Finish and get the final result</button>
+      )}>
+      {msg && <Notice tone={msg.tone} onClose={onClear}>{msg.text}</Notice>}
+      {confirm && (
+        <Notice tone="info">
+          Finish now? After this no more answers or documents can be added, and unanswered questions earn nothing.
+          {!!p.to_check && <strong> {p.to_check} question{p.to_check === 1 ? ' is' : 's are'} still marked “I need to check”.</strong>}{' '}
+          <button className="link-button" onClick={() => { setConfirm(false); onFinish(); }}>Yes, finish</button>{' '}
+          <button className="link-button" onClick={() => setConfirm(false)}>Not yet</button>
+        </Notice>
+      )}
+      <p className="muted">
+        {finishing ? `Your ${FINAL_SCORE} is being prepared. This page updates when it is ready.`
+          : working ? 'Your latest answers are being checked against the documents you attached. You can keep answering meanwhile.'
+          : 'You can stop whenever you like. Answers backed by a document can raise your score; unanswered questions earn nothing back.'}
+      </p>
+    </Panel>
+  );
+}
+
 type Option = 'yes' | 'partly' | 'not_yet' | 'check';
 const OPTIONS: { key: Option; label: string; help: string }[] = [
   { key: 'yes', label: 'Yes, with supporting evidence', help: 'Attach the document that shows it.' },
@@ -550,7 +601,7 @@ function QuestionItem({ sprint, runId, item, position, total, onDone }: {
       if (!skip && withDocs && !files.length && !noDocOk) {
         if (!answer.trim()) { setError('Attach a document, or describe what is in place.'); return; }
         setNoDocOk(true);
-        setError('An answer counts only when a document supports it. Attach one, or press Save again to send the answer on its own.');
+        setError('An answer counts only when a document supports it. Attach one, or press Save again to send the answer without a document: it is recorded, but earns nothing.');
         return;
       }
       const document_ids = !skip && withDocs && files.length ? await uploadAll(sprint.id, files) : [];

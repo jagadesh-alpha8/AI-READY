@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
 import { RequireSprint } from '../components/RequireSprint';
-import { Empty, ErrorState, Loading } from '../components/ui';
+import { ErrorState, Loading } from '../components/ui';
 import { pathOf } from '../navigation';
 import type { Sprint } from '../types/api';
 import { whole } from '../utils/levels';
 import { Icon, Stars } from './Icon';
 import { AreaBars, FocusCards, LevelRing, NextLevel, StrengthCards } from './ResultParts';
+import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
 
 /** Results › Summary: the verdict, the nine areas, strengths, focus and the next level, in plain words. */
@@ -17,13 +18,7 @@ function Body({ sprint }: { sprint: Sprint }) {
   const { cap, view } = useResultView(sprint.id);
   if (cap.loading) return <Loading label="Loading your result…" />;
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
-  if (!view) {
-    return (
-      <Empty title="No result yet" action={<Link className="btn primary" to={pathOf('assessment')}>Go to the assessment</Link>}>
-        Run the assessment on your documents to see your readiness level.
-      </Empty>
-    );
-  }
+  if (!view) return <NoResult cap={cap}>Run the assessment on your documents to see your readiness level.</NoResult>;
   return (
     <>
       {!view.final && (

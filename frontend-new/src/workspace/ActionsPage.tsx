@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { RequireSprint } from '../components/RequireSprint';
 import { Empty, ErrorState, Loading } from '../components/ui';
-import { pathOf } from '../navigation';
 import type { Sprint } from '../types/api';
 import { Icon } from './Icon';
-import { ActionCard, ChecklistLine, pts } from './ResultParts';
+import { ActionCard, ChecklistLine } from './ResultParts';
+import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
 
 /**
@@ -21,7 +20,7 @@ function Body({ sprint }: { sprint: Sprint }) {
   const [area, setArea] = useState('all');
   if (cap.loading) return <Loading label="Loading your actions…" />;
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
-  if (!view) return <Empty title="No result yet" action={<Link className="btn primary" to={pathOf('assessment')}>Go to the assessment</Link>}>Your actions appear once the assessment has run.</Empty>;
+  if (!view) return <NoResult cap={cap}>Your actions appear once the assessment has run.</NoResult>;
 
   const inSteps = new Set(view.actions.flatMap((a) => a.requirements.map((r) => r.id)));
   // The rest of the checklist, area by area, leaving out what the first steps already cover.
@@ -35,11 +34,10 @@ function Body({ sprint }: { sprint: Sprint }) {
   if (!view.actions.length && !rest.length) {
     return <Empty title="No actions needed">Everything the assessment looks for is shown in your documents. Keep the evidence current.</Empty>;
   }
-  const total = view.actions.reduce((n, a) => n + a.points, 0);
   return (
     <>
       <div className="callout"><Icon name="target" />
-        <p>{view.actions.length ? `Your first ${view.actions.length} steps are the ones in your leadership report; together about ${pts(total)} are at stake. ` : ''}
+        <p>{view.actions.length ? 'One step in each area, weakest area first, the same as in your leadership report. ' : ''}
           Below them is everything else still to show, area by area. A step counts once a fresh assessment reads the document that shows it.</p>
       </div>
       <div className="filter-pills" role="group" aria-label="Filter by area">

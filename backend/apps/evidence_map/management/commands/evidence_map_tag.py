@@ -22,7 +22,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('sprint_id')
         parser.add_argument('--shape', choices=spec.SHAPES, default='one',
-                            help="'one': the whole rubric per request; 'areas': one request per area.")
+                            help="'one': the whole rubric per request; 'areas': one request per area; "
+                                 "'areas-every': one per area, checking every indicator of the area per page.")
         parser.add_argument('--max-cost', type=float, default=None,
                             help='Stop starting requests once this many US dollars are spent (default '
                                  'EVIDENCE_MAP_MAX_COST_USD).')

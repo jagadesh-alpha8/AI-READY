@@ -705,6 +705,8 @@ def map_argument(retrieval_policy, evidence_map):
             or policy.get('fill_share') != '/'.join(map(str, packet.FILL_SHARE)) \
             or policy.get('context_share') != '/'.join(map(str, packet.CONTEXT_SHARE)):
         raise ValueError('Frozen evidence-map packet rules do not match this worker.')
+    if policy.get('same_area') not in (None, packet.SAME_AREA_VERSION):
+        raise ValueError('Frozen same-area band does not match this worker.')
     if not isinstance(evidence_map, dict) or 'pages' not in evidence_map:
         raise ValueError('A map-mode run needs its frozen evidence map.')
     semantic = None
@@ -713,7 +715,8 @@ def map_argument(retrieval_policy, evidence_map):
             raise ValueError('Frozen semantic fill does not match this worker.')
         from apps.evidence_map.semantic import configured
         semantic = configured(policy)   # refuses when this worker's embedding model differs from the run's
-    return {'pages': evidence_map['pages'], 'cap_chars': policy['cap_chars'], 'semantic': semantic}
+    return {'pages': evidence_map['pages'], 'cap_chars': policy['cap_chars'], 'semantic': semantic,
+            'same_area': policy.get('same_area') == packet.SAME_AREA_VERSION}
 
 
 def _tag_semantic_version():
@@ -769,7 +772,8 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
                 return evidence_lane(indicator, list(context), pool, ledger, budget=budget, aliases=aliases,
                                      version=lane_version)
         context, trace = packet.build(indicator, pool, evidence_map, cap=cap, keyword_fill=keyword_fill,
-                                      lane=lane_step, semantic=evidence_map.get('semantic'))
+                                      lane=lane_step, semantic=evidence_map.get('semantic'),
+                                      same_area=bool(evidence_map.get('same_area')))
         map_trace.clear()
         map_trace.update(trace)
         return context, trace.get('evidence_lane')
@@ -865,13 +869,27 @@ def _judge_parts(job, attempted, issue, *, service, sources, reviewed_evidence, 
     indicator, context, payload = job['indicator'], job['context'], job['payload']
     data = json.loads(payload)
 
-    def one_pass(conditions=None, base=None):
+    def requested(conditions=None, base=None):
         base = data if base is None else base
         return request_with_split(service=service, items=indicator['conditions'] if conditions is None else conditions,
             identity=lambda item: item['id'],
             payload_for=lambda group: {**base, 'indicator': part_judgment.indicator_with_parts(indicator, group)},
             schema_for=lambda group: part_judgment.schema(indicator, group), rows_for=part_judgment.rows,
             prompt=part_judgment.prompt(), name='capability_parts', result_key='conditions')
+
+    def one_pass(conditions=None, base=None):
+        """A pass, plus one more request for any supplied condition the answer has no row for: the list format
+        (condition-list-1) cannot make the model return every condition, as the keyed object did."""
+        conditions = indicator['conditions'] if conditions is None else conditions
+        response, audit, errors = requested(conditions, base)
+        absent = [c for c in part_judgment.missing(conditions, response) if c['id'] not in errors]
+        if not absent:
+            return response, audit, errors
+        extra, extra_audit, extra_errors = requested(absent, base)
+        wanted = {c['id'] for c in absent}
+        rows = part_judgment.rows(response) + [r for r in part_judgment.rows(extra) if r['condition_id'] in wanted]
+        audit = {**audit, 'missing_rerequested': sorted(wanted), 'missing_recovery': extra_audit}
+        return {'conditions': rows}, audit, {**errors, **extra_errors}
 
     def repaired(records, label):
         """(records, audit or None): one repair request for the requirements whose found parts failed quotation."""

@@ -40,6 +40,11 @@ class SecondLayerJobTests(APITestCase):
         self.user = User.objects.create_user(username='coordinator', email='coord@example.com',
                                              role=User.Role.IQAC_COORDINATOR, institution=self.institution)
         self.client.force_authenticate(self.user)
+        # These tests are about the jobs and answers, so the run counts as published to the college; the rule that a
+        # college answers only on a published result is tested in test_publication.py.
+        visible = patch('apps.scoring.capability.publication.require_visible', lambda user, execution: None)
+        visible.start()
+        self.addCleanup(visible.stop)
         self.doc = Document.objects.create(sprint=self.sprint, document_type='naac_ssr', status='processed')
         self.page = DocumentPage.objects.create(document=self.doc, page_number=1, text=QUOTE)
         base = f'/api/v1/sprints/{self.sprint.pk}/capability-runs'
@@ -186,7 +191,8 @@ class SecondLayerJobTests(APITestCase):
         depth_questions = DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='depth')
         # Both credited requirements are asked about; dimensions the model left out get fixed wording, and a fact
         # asked once counts for both requirements, so there is no fixed count.
-        self.assertEqual({q.condition_ids[0] for q in depth_questions}, set(self.credited))
+        from .capability.depth import OWNER_PRACTICES   # questions-0.4: an owner in place has no depth question
+        self.assertEqual({q.condition_ids[0] for q in depth_questions}, set(self.credited) - OWNER_PRACTICES)
         self.assertEqual(DepthQuestion.objects.filter(run_ref=str(self.run.pk), kind='missing').count(), 36)
         self.assertEqual(job.result['questions'], DepthQuestion.objects.filter(run_ref=str(self.run.pk)).count())
         kinds = list(job.events.values_list('payload__kind', flat=True))

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { RequireSprint } from '../components/RequireSprint';
-import { Empty, ErrorState, Loading } from '../components/ui';
+import { ErrorState, Loading } from '../components/ui';
 import { useResource } from '../hooks/useResource';
 import { pathOf } from '../navigation';
 import { getQuestions } from '../services/capability';
@@ -8,7 +8,14 @@ import type { Sprint } from '../types/api';
 import { whole } from '../utils/levels';
 import { Icon, Stars } from './Icon';
 import { ActionCard, AreaBars, FocusCards, LevelLadder, LevelRing, NextLevel, StrengthCards } from './ResultParts';
+import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
+import { ChartV5, HowToRead, NextLevelV5, ResultV5, WhereToStartV5 } from './V5';
+import { useAccess } from '../hooks/useAccess';
+import { downloadCapabilityReport, getReportReadiness } from '../services/capability';
+import type { ReportReadiness, ScreenView } from '../types/capability';
+import { useState } from 'react';
+import './v5.css';
 
 /** The college's dashboard (Vijay, 23 Nov): the level, what you do well, where to focus, and the next step. */
 export function OverviewPage() {
@@ -24,14 +31,18 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
   if (!view) {
     return (
-      <Empty title="No result yet" action={<Link className="btn primary" to={pathOf('uploads')}>Send your documents</Link>}>
+      <NoResult cap={cap} action={<Link className="btn primary" to={pathOf('uploads')}>Send your documents</Link>}>
         Send your institution's documents, then run the assessment. Your readiness level and the areas to focus on appear here.
-      </Empty>
+      </NoResult>
     );
   }
+  // "Where to start": the steps of the three weakest areas (all nine are on the actions page).
+  const startHere = view.actions.filter((a) => a.start_here).length ? view.actions.filter((a) => a.start_here) : view.actions.slice(0, 3);
   const progress = questions.data?.progress;
   const left = progress?.open ?? 0;
   const closed = !!progress?.final_run_id || view.final;
+  const v5 = view.run.next_steps?.presentation;
+  if (v5) return <OverviewV5 v={v5} sprintId={sprint.id} runId={view.run.id} final={view.final} closed={closed} left={progress ? left : null} />;
 
   return (
     <>
@@ -59,7 +70,12 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
 
         <section className="next-action">
           <div className="eyebrow">Your next best step</div>
-          {closed ? (
+          {closed && !view.final ? (
+            <>
+              <h2>Your final result is being prepared.</h2>
+              <p>The follow-up questions are closed. Your final result appears here as soon as its reports are written; until then this is your Stage 1 result.</p>
+            </>
+          ) : closed ? (
             <>
               <h2>Plan the road to {view.level.next?.name || 'staying at the top'}.</h2>
               <p>Your final result is ready. Your pathway shows which steps move you up fastest.</p>
@@ -101,12 +117,12 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
         <Link className="text-btn" to={pathOf('actions')}>All recommended actions <Icon name="chevron" size={14} /></Link></div>
       <FocusCards view={view} />
 
-      {view.actions.length > 0 && (
+      {startHere.length > 0 && (
         <>
           <div className="spacer" />
-          <div className="section-head"><div><h2>What to do next</h2><p>Your first steps, the same as in your leadership report</p></div>
+          <div className="section-head"><div><h2>Where to start</h2><p>A step in each of your three weakest areas</p></div>
             <Link className="text-btn" to={pathOf('actions')}>All recommended actions <Icon name="chevron" size={14} /></Link></div>
-          <div className="ws-action-list">{view.actions.map((a, i) => <ActionCard key={a.key} a={a} n={i + 1} compact />)}</div>
+          <div className="ws-action-list">{startHere.map((a, i) => <ActionCard key={a.key} a={a} n={i + 1} compact />)}</div>
         </>
       )}
 
@@ -129,5 +145,78 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
         <LevelLadder score={view.score} />
       </section>
     </>
+  );
+}
+
+/** The v5 Overview (approved 26 Nov 2026): how to read the page, the result, one next step chosen by the state,
+ * one chart of the overall score and the nine areas, the next level, and where to start. */
+function OverviewV5({ v, sprintId, runId, final, closed, left }: {
+  v: ScreenView; sprintId: string; runId: string; final: boolean; closed: boolean; left: number | null;
+}) {
+  return (
+    <div className="v5">
+      <HowToRead v={v} />
+      <div className="v5-hero">
+        <ResultV5 v={v} tag={final ? 'Final result' : 'Stage 1 · from your documents'} />
+        <NextStepBox v={v} sprintId={sprintId} runId={runId} final={final} closed={closed} left={left} />
+      </div>
+      <ChartV5 v={v} />
+      <NextLevelV5 v={v} />
+      <WhereToStartV5 v={v} />
+    </div>
+  );
+}
+
+/** One main button, by the state (audit finding 11): the final result goes to the board; at Stage 1 the questions
+ * are the next step; with the questions closed, the final result is being prepared. */
+function NextStepBox({ v, sprintId, runId, final, closed, left }: {
+  v: ScreenView; sprintId: string; runId: string; final: boolean; closed: boolean; left: number | null;
+}) {
+  const { staff } = useAccess();
+  const readiness = useResource<ReportReadiness>(() => getReportReadiness(sprintId, runId), `ws-ready:${runId}`, final);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const open = staff || !!readiness.data?.ready;
+  const get = async (audience: 'summary' | 'detailed') => {
+    setBusy(true);
+    setFailed(false);
+    try { await downloadCapabilityReport(sprintId, runId, 'pdf', audience); } catch { setFailed(true); } finally { setBusy(false); }
+  };
+  if (final) {
+    return (
+      <section className="v5-next" aria-label="Your next step">
+        <div className="eb">Your next step</div>
+        <h2>Take the result to your board.</h2>
+        {open ? (
+          <>
+            <p>The leadership report is six pages. The detailed report lists every practice, with the page it was found on.</p>
+            <div className="row">
+              <button className="btn-ol" disabled={busy} onClick={() => void get('summary')}>Download the leadership report</button>
+              <button className="lnk" disabled={busy} onClick={() => void get('detailed')}>Download the detailed report</button>
+            </div>
+            {busy && <p role="status">Preparing the report…</p>}
+            {failed && <p role="alert">The report could not be downloaded. Try again, or open it from the Reports page.</p>}
+          </>
+        ) : <p>Your reports are being written. They can be downloaded here, and on the Reports page, as soon as they are ready.</p>}
+      </section>
+    );
+  }
+  if (closed) {
+    return (
+      <section className="v5-next" aria-label="Your next step">
+        <div className="eb">Your next step</div>
+        <h2>Your final result is being prepared.</h2>
+        <p>The follow-up questions are closed. Your final result appears here as soon as its reports are written; until then this is your Stage 1 result.</p>
+      </section>
+    );
+  }
+  const more = v.held_whole;
+  return (
+    <section className="v5-next" aria-label="Your next step">
+      <div className="eb">Your next step</div>
+      <h2>Answer the follow-up questions, with a document for each{more > 0 ? `, to confirm up to ${more} more point${more === 1 ? '' : 's'}` : ''}.</h2>
+      <p>An answer counts when a document supports it. Your final result follows once the questions are closed.{left !== null && left > 0 ? ` ${left} question${left === 1 ? '' : 's'} left.` : ''}</p>
+      <div className="row"><Link className="btn-ol" to={pathOf('questionnaire')}>Answer the questions</Link></div>
+    </section>
   );
 }

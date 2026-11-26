@@ -124,6 +124,27 @@ class ChunkAndRequestTests(SimpleTestCase):
         changed = {**profiles, 'AIQIF-C1.1.F1': {**profiles['AIQIF-C1.1.F1'], 'query': 'Another description.'}}
         self.assertNotEqual(one, spec.map_version('one', rubric_, changed, parts))
 
+    def test_another_tagging_effort_is_its_own_map_and_low_changes_nothing(self):
+        rubric_, profiles, parts = spec.rubric_sources()
+        low = spec.map_version('areas', rubric_, profiles, parts, effort='low')
+        self.assertEqual(low, 'em1-4e19100caf0392491a82f228925f1b99ece66668')   # the map tagged on live, 26 Nov
+        medium = spec.map_version('areas', rubric_, profiles, parts, effort='medium')
+        default = spec.map_version('areas', rubric_, profiles, parts, effort=None)
+        self.assertEqual(len({low, medium, default}), 3)
+        with self.settings(EVIDENCE_MAP_AI_EFFORT='medium'):
+            self.assertEqual(spec.map_version('areas', rubric_, profiles, parts), medium)
+
+    def test_the_every_indicator_shape_adds_its_note_to_each_area_and_is_its_own_map(self):
+        rubric_, profiles, parts = spec.rubric_sources()
+        areas = spec.system_prompts('areas', rubric_, profiles, parts)
+        every = spec.system_prompts('areas-every', rubric_, profiles, parts)
+        self.assertEqual([name for name, _ in every], [name for name, _ in areas])
+        self.assertTrue(all(spec.EVERY_INDICATOR in p and spec.EVERY_INDICATOR not in q
+                            for (_, p), (_, q) in zip(every, areas)))
+        self.assertEqual([p.replace('\n\n' + spec.EVERY_INDICATOR, '') for _, p in every], [q for _, q in areas])
+        versions = {spec.map_version(s, rubric_, profiles, parts) for s in spec.SHAPES}
+        self.assertEqual(len(versions), 3)
+
 
 class CheckTests(SimpleTestCase):
     def check(self, rows, pages=None):

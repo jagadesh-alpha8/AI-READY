@@ -1,6 +1,6 @@
 import { http, saveBlob } from './http';
 import { getVersioned } from './runCache';
-import type { CapabilityPage, CapabilityRecommendation, Job, Run } from '../types/capability';
+import type { CapabilityPage, CapabilityRecommendation, Job, PublicationHistoryItem, Published, ReportReadiness, Run } from '../types/capability';
 import type { ActionState, PlanComparison, PlanEvaluationJob } from '../types/workflow';
 
 /** Evidence-based capability assessment runs (A1 backend). Reads are free; starting a run uses model credits. */
@@ -16,6 +16,17 @@ export const getReviewStatus = (sprint: string) =>
 export const startRun = (sprint: string, key: string) =>
   http.post<Job>(root(sprint), { scope_mode: 'default' }, { headers: { 'Idempotency-Key': key } });
 export const cancelRun = (sprint: string, run: string) => http.post<Job>(`${root(sprint)}/${run}/cancel`);
+
+// --- the published result and the draft gate (capability/publication.py) --------------------------------------
+type Publication = { published: Published | null; history: PublicationHistoryItem[]; changed?: boolean };
+/** InGage staff only: the published result and the history of that choice. */
+export const getPublication = (sprint: string) => http.get<Publication>(`${root(sprint)}/publication`);
+/** InGage staff only: publish a completed run for the college, or withdraw the published one (null). */
+export const publishResult = (sprint: string, run: string | null, note = '') =>
+  http.post<Publication>(`${root(sprint)}/publication`, { run_id: run, note });
+/** Whether this run's leadership and detailed reports are ready for the college, and if not, why. */
+export const getReportReadiness = (sprint: string, run: string) =>
+  http.get<ReportReadiness>(`${root(sprint)}/${run}/report-readiness`);
 /** The frozen source excerpts a run cited, optionally for one condition. */
 export const getRunEvidence = (sprint: string, run: string, conditionId?: string) =>
   http.get<{ run_id: string; records: { condition_id: string; state: string; reason: string; citations: { source_id: string; quote: string }[] }[]; sources: { id: string; [k: string]: unknown }[]; note: string }>(
