@@ -12,7 +12,7 @@ import re
 from functools import lru_cache
 
 from .action_plan import LEVEL_MEANINGS, tier_for, tiers
-from .report_projection import AREA_DEFINITIONS, AREA_TITLES, PILLARS
+from .report_projection import AREA_DEFINITIONS, AREA_TITLES, PILLARS, TOPIC_DEFINITIONS
 
 STAGE_ORDER = {'F': 0, 'A': 1, 'O': 2}
 STAGE_WORDS = {'F': 'Foundation', 'A': 'In use', 'O': 'Results'}
@@ -580,6 +580,7 @@ def build(payload):
             iscore = indicator_scores.get(indicator['code'], {}).get('score')
             exp = indicator.get('explanation') or indicator_scores.get(indicator['code'], {}).get('explanation') or {}
             subareas.append({'code': indicator['code'], 'name': AREA_TITLES.get(indicator['code'], indicator.get('name', '')),
+                             'definition': TOPIC_DEFINITIONS.get(indicator['code'], ''),
                              'score': iscore, 'stars': level(iscore or 0)['stars'], 'requirements': rows,
                              'level_index': min(4, whole(iscore) // 20), 'nothing': not iscore,
                              'marks': [r['status'] for r in rows],

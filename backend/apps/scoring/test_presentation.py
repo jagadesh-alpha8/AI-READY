@@ -180,3 +180,13 @@ class DetailedReportTextTests(SimpleTestCase):
                                            'are partly in place; recovery test was not found.')
         self.assertEqual(topic_line([{'label_short': 'A', 'status': 'missing'}]),
                          'None of these practices was found in the documents.')
+
+
+class TopicDefinitionTests(SimpleTestCase):
+    def test_every_topic_has_a_one_line_definition(self):
+        from .capability.engine import release
+        from .capability.report_projection import TOPIC_DEFINITIONS
+        codes = {i['code'] for i in release()['indicators']}
+        self.assertEqual(set(TOPIC_DEFINITIONS), codes)
+        for code, text in TOPIC_DEFINITIONS.items():
+            self.assertLessEqual(len(text.split()), 11, code)
