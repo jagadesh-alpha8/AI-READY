@@ -142,3 +142,41 @@ class UnreadableQuotationTests(SimpleTestCase):
         good = {'source_id': 'b', 'quote': 'The firewall was upgraded to a SonicWall NSA 4700 in 2023 for the campus.'}
         self.assertEqual(_readable_cite(shard, [shard, good]), good)
         self.assertEqual(_readable_cite(shard, [shard]), {**shard, 'quote': ''})   # the page reference stays
+
+
+class DetailedReportTextTests(SimpleTestCase):
+    """The detailed report cites documents instead of quoting them, says why a practice is partly in place, names the
+    records that would show a practice not found, and has a line under each topic (Harsha, 26 Nov)."""
+
+    def test_evidence_is_cited_by_document_and_page(self):
+        from .capability.presentation import evidence_in
+        pages = {'1': 'Self-Study Report, page 114', '2': 'Self-Study Report, page 113', '3': 'AQAR, page 36',
+                 '4': 'Minutes, page 2', '5': 'Syllabi, page 9'}
+        cites = [{'source_id': x} for x in ('1', '3', '2', '1', '9', '4', '5')]
+        self.assertEqual(evidence_in(cites, pages),
+                         ['Self-Study Report, pages 113 and 114', 'AQAR, page 36', 'Minutes, page 2'])
+
+    def test_why_drops_the_result_words(self):
+        from .capability.presentation import _why
+        self.assertEqual(_why('Partly shown, as annual assessments exist, but a logged failure is not yet shown.'),
+                         'Annual assessments exist, but a logged failure is not yet shown.')
+        self.assertEqual(_why('This requirement is partly shown because the plan names no owner.'),
+                         'The plan names no owner.')
+        self.assertEqual(_why('Partly shown.'), '')
+
+    def test_records_that_would_show_a_practice(self):
+        from .capability.presentation import _records_that_show
+        self.assertEqual(_records_that_show('AIQIF-C6.1.O2'), 'Continuity or recovery exercise record')
+        self.assertEqual(_records_that_show('AIQIF-C6.1.A2'),
+                         'Support ticket and resolution or upgrade after a reported shortfall')
+
+    def test_a_topic_without_its_verdict_gets_a_plain_line(self):
+        from .capability.presentation import topic_line
+        rows = [{'label_short': 'Computing access', 'status': 'shown'},
+                {'label_short': 'Usage records', 'status': 'partly'},
+                {'label_short': 'Fixing access problems', 'status': 'partly'},
+                {'label_short': 'Recovery test', 'status': 'missing'}]
+        self.assertEqual(topic_line(rows), 'Computing access is in place; usage records and fixing access problems '
+                                           'are partly in place; recovery test was not found.')
+        self.assertEqual(topic_line([{'label_short': 'A', 'status': 'missing'}]),
+                         'None of these practices was found in the documents.')

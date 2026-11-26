@@ -28,7 +28,7 @@ Explanations never change a score: they are stored beside the run (CapabilityExp
 import json
 import re
 
-VERSION = 'explanations-0.5'
+VERSION = 'explanations-0.6'   # 0.6 (26 Nov): a verdict for each key indicator, for the detailed report
 #: 0.5 (26 Nov 2026): a weak area's card lists "the closest things you have" (presentation.card_view: the starting
 #: points its next step was written from), so its writer is given them and writes the verdict from them; written after
 #: the next steps (publication.keep_going). In 0.4 a verdict could name an ERP portal and a firewall as the area's
@@ -51,12 +51,14 @@ SYSTEM_PROMPT = """You write the explanations in an AI-readiness report for a co
 You receive one area of the assessment: its key indicators and their requirements. For each requirement you get its result, the parts it asks for and how each part was judged, quotations from the college's own documents that the judgment rests on (each with an id), the documents that were read for it, and what is still missing.
 
 For each requirement write four fields:
-- found: when something was credited, begin with what the college has done, in its favour, and name the document: "Your Annual Quality Assurance Report shows you run AI workshops for faculty." List the quotations you rely on in quote_ids. You may quote a few words from a quotation in double quotes, exactly as given. Empty when nothing was credited.
+- found: when something was credited, begin with what the college has done, in its favour, and name the document: "Your Annual Quality Assurance Report shows you run AI workshops for faculty." List the quotations you rely on in quote_ids. You may quote a few words from a quotation in double quotes, exactly as given, as long as they read as a whole phrase: some quotations are cut off by the document's layout ("The firewall is upgraded to"), and those you say in your own words. Empty when nothing was credited.
 - text: how that led to the result, in one or two sentences: shown in full, partly shown (what is shown and what is not yet), or not yet shown.
 - looked: only when something is not shown: that every document was searched, naming at most three of the documents read for it, and that they did not show it. Empty when shown in full.
 - next_step: only when something is not shown: one concrete thing the college could do or record next, in plain words. Empty when shown in full.
 
 For each key indicator, and for the area as a whole, write the same four fields as a short summary of at most three sentences each. Lead with what the college is doing well.
+
+For each key indicator also write a verdict, which the detailed report prints under the indicator's name: one or two sentences in the third person, like the area verdict below (rule 7's "you" does not apply), first what is there, named as its quotations name it (a programme, policy, office, system), then what is not yet there, in everyday words. No numbers. When nothing is credited, say plainly what was not found.
 
 Rules:
 1. Use only what is in the input. Never mention evidence, documents, numbers, dates or activities that are not in it.
@@ -101,7 +103,7 @@ def schema(condition_ids, indicator_codes):
             'properties': {
                 'area': _entry(_card()),
                 'indicators': {'type': 'array', 'items': _entry(
-                    {'code': {'type': 'string', 'enum': list(indicator_codes)}})},
+                    {'code': {'type': 'string', 'enum': list(indicator_codes)}, 'verdict': {'type': 'string'}})},
                 'requirements': {'type': 'array', 'items': _entry(
                     {'condition_id': {'type': 'string', 'enum': list(condition_ids)},
                      'quote_ids': {'type': 'array', 'items': {'type': 'string'}}})}}}
@@ -311,6 +313,15 @@ def _clean(entry):
     return {f: re.sub(r'\s+', ' ', str((entry or {}).get(f) or '')).strip() for f in FIELDS}
 
 
+def _cut_off(span):
+    """A quoted span a reader can't make sense of (26 Nov): it stops on a word that needs more after it ("The firewall is
+    upgraded to") or starts mid-sentence. The quotation check in presentation.unreadable, for a few quoted words."""
+    from .presentation import _STOP_END
+    t = re.sub(r'\s+', ' ', span).strip().rstrip(',;:')
+    return bool(_STOP_END.search(t)) or (len(t.split()) > 3 and bool(re.match(r'[a-z]', t)) and
+                                         not re.match(r'(?:e-|i[A-Z])', t))
+
+
 def _spans(value):
     return [a or b for a, b in QUOTED.findall(value)]
 
@@ -371,6 +382,9 @@ def _check(where, entry, scope, errors):
         for span in _spans(value):
             if not any(_norm(span) in q for q in scope['quotes']):
                 errors.append(f'{where}: {field} quotes words that are not in its quotations.')
+            elif _cut_off(span):
+                errors.append(f'{where}: {field} quotes "{span}", which stops mid-phrase; quote a whole phrase or '
+                              'say it in your own words.')
         if not scope['full'] and OVERCLAIM.search(value):
             errors.append(f'{where}: {field} says fully, completely or entirely, but not everything is shown in full.')
         if THIRD_PERSON.search(value):
@@ -479,9 +493,10 @@ def validate(area, output):
         _check(code, entry, scope, problems)
         if not any(SECOND_PERSON.search(entry[f]) for f in FIELDS):
             problems.append(f'{code}: speak to the college as "you" or "your".')
+        verdict = _topic_verdict(code, summaries[code].get('verdict'), scope, problems)
         errors += problems
         if not problems:
-            passed['indicators'][code] = entry
+            passed['indicators'][code] = {**entry, **({'verdict': verdict} if verdict else {})}
     everything = [r for i in area['indicators'] for r in i['requirements']]
     totals = {k: sum(i['counts'][k] for i in area['indicators']) for k in area['indicators'][0]['counts']} \
         if area['indicators'] else {}
@@ -498,6 +513,24 @@ def validate(area, output):
     if not problems:
         passed['area'] = {**entry, **card}
     return passed, errors
+
+
+def _topic_verdict(code, value, scope, problems):
+    """A key indicator's verdict (explanations-0.6): one or two sentences in the third person, no numbers, codes or
+    widening beyond its quotations. Appends to problems; returns the cleaned text."""
+    verdict = re.sub(r'\s+', ' ', str(value or '')).strip()
+    if not verdict:   # left out: the detailed report prints the topic's plain line, and readiness warns
+        return verdict
+    if len(verdict) > MAX_VERDICT_CHARS or len(re.findall(r'[.!?](?:\s|$)', verdict)) > 2:
+        problems.append(f'{code}: verdict is at most two sentences.')
+    if NUMBER.search(verdict) or PERCENT.search(verdict) or MACHINERY.search(verdict):
+        problems.append(f'{code}: verdict carries no numbers, codes or internal terms.')
+    if SECOND_PERSON.search(verdict):
+        problems.append(f'{code}: the verdict is in the third person, not "you".')
+    sub = []   # widening, quotations and the rest: the summaries' own check
+    _check(f'{code} verdict', {'found': '', 'text': verdict, 'looked': '', 'next_step': ''}, scope, sub)
+    problems += [p for p in sub if 'the institution' not in p]
+    return verdict
 
 
 _CARD_STOP = {'which', 'their', 'there', 'these', 'those', 'about', 'other', 'under', 'within', 'shows', 'where',
@@ -773,7 +806,9 @@ def import_cards(target, base, cards, written_by):
            'base_version': base.get('version')}
     problems = {}
     areas = list(dict.fromkeys(i.get('pillar') for i in target['rubric']['indicators']))
+    topics_wrong = {}
     for area in areas:
+        topic_problems = []
         area_text = dict((base.get('areas') or {}).get(area) or {})
         for key in AREA_FIELDS:
             area_text.pop(key, None)
@@ -791,6 +826,20 @@ def import_cards(target, base, cards, written_by):
             scope = _summary_scope(everything, totals)
             _with_documents(scope, given_area, given_area['name'])
             checked, errors = _check_card(card, given_area, given, scope)
+            # Topic verdicts (explanations-0.6), checked like the model's; one that fails is left out (the detailed
+            # report then prints the topic's plain line) and reported.
+            for indicator in given_area['indicators']:
+                code, wrong = indicator['code'], []
+                text = (card.get('topics') or {}).get(code)
+                if text is None:
+                    continue
+                one = _summary_scope(indicator['requirements'], indicator['counts'])
+                _with_documents(one, given_area, indicator['name'])
+                verdict = _topic_verdict(code, text, one, wrong)
+                if wrong:
+                    topic_problems.extend(wrong)
+                elif code in out['indicators']:
+                    out['indicators'][code] = {**out['indicators'][code], 'verdict': verdict}
             if errors:
                 problems[area] = errors
             else:
@@ -802,10 +851,12 @@ def import_cards(target, base, cards, written_by):
         else:
             area_text.pop('fallback', None)
             out['fallbacks'] = [f for f in out['fallbacks'] if f != area]
+        if topic_problems:
+            topics_wrong[area] = topic_problems
         area_text['closest_seen'] = bool(closest_on_card(area, target))
         out['areas'][area] = area_text
-    out['errors'] = problems
-    return out, problems
+    out['errors'] = {**problems, **{f'{a} topics': p for a, p in topics_wrong.items()}}
+    return out, out['errors']
 
 
 def latest(run):
@@ -833,16 +884,22 @@ def attach(assessment, explanations, closed=False):
         # stage is closed.
         note = follow_up_note(r, closed=closed)
         return {**e, 'follow_up': note} if e and note else e
+    def for_indicator(code):
+        # The topic's verdict (explanations-0.6) travels with it; a summary on plain wording is marked so.
+        e = explanations['indicators'].get(code)
+        out_e = public(e)
+        if out_e is not None:
+            out_e.update({'verdict': e.get('verdict') or None, 'fallback': bool(e.get('fallback'))})
+        return out_e
     out = dict(assessment)
     out['records'] = [{**r, 'explanation': for_record(r)} for r in assessment.get('records') or []]
     result = dict(assessment.get('result') or {})
     if result.get('indicators'):
-        result['indicators'] = [{**i, 'explanation': public(explanations['indicators'].get(i.get('code')))}
-                                for i in result['indicators']]
+        result['indicators'] = [{**i, 'explanation': for_indicator(i.get('code'))} for i in result['indicators']]
     documented = result.get('documented')
     if isinstance(documented, dict):
         documented = dict(documented)
-        documented['indicators'] = [{**i, 'explanation': public(explanations['indicators'].get(i.get('code')))}
+        documented['indicators'] = [{**i, 'explanation': for_indicator(i.get('code'))}
                                     for i in documented.get('indicators') or []]
         def for_area(code):
             e = explanations['areas'].get(code)

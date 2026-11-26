@@ -26,11 +26,17 @@
 {% if forloop.first %}<h1 class="h1s">Area by area</h1><p class="sub">Every practice, what was found, where, and what to do next. Strongest area first.</p>{% endif %}
 <div class="chead dh"><div class="ctitle"><h3>{{ a.name }}</h3><p>{{ a.definition }}</p></div>
 <div class="cright"><div class="cbar"><div class="bar wide">{{ a.score|bar }}</div></div><div class="cscore"><div class="num">{{ a.score|whole }}</div><div class="lvl">{{ a.level.name }}</div></div></div></div>
-{% for t in a.subareas %}<div class="topic"><div class="thead"><h4>{{ t.name }}</h4><span class="strip6">{% for m in t.marks %}<i class="mk {{ m }}"></i>{% endfor %}</span><b>{{ t.score|whole }}</b></div>
+{# The area's card, as in the leadership report (Harsha, 26 Nov): the verdict, what is there, what is missing. #}
+<div class="acard">{% if a.card.verdict %}<p class="verdict">{{ a.card.verdict }}</p>{% endif %}
+<div class="cols"><div><h4>{{ a.card.strengths_title }}</h4>{% if a.card.strengths %}<ul class="well">{% for x in a.card.strengths %}<li>{{ x.text }}{% if x.source %} <small>{{ x.source }}</small>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="none">Nothing in this area was found in the documents yet.</p>{% endif %}</div>
+<div><h4>What’s missing</h4><ul class="miss">{% for g in a.card.gaps %}<li>{{ g }}</li>{% endfor %}</ul></div></div></div>
+{% for t in a.subareas %}<div class="topic"><div class="thead"><h4>{{ t.name }}</h4><b>{{ t.score|whole }}</b></div>
+<p class="tverdict">{{ t.verdict|default:t.line }}</p>
 {% for r in t.requirements %}<div class="prow"><div class="pm"><i class="mk {{ r.status }}"></i></div><div class="pb"><div class="ps"><strong>{{ r.label_short }}</strong><span class="st {{ r.status }}">{% if r.status == 'shown' %}In place{% elif r.status == 'partly' %}Partly in place{% elif r.label == 'Not started' %}Not started{% else %}Not found{% endif %}</span></div>
 <p class="lf"><em>We looked for</em> {{ r.looked_for }}</p>
-{% if r.found %}<p class="found"><em>We found</em> {{ r.found }}</p>{% endif %}
-{% if r.quote %}<p class="q">“{{ r.quote }}” <small>{{ r.source }}</small></p>{% elif r.source %}<p class="q"><small>{{ r.source }}</small></p>{% endif %}
+{% if r.found %}<p class="found"><em>We found</em> {{ r.found }}{% if r.why %} {{ r.why }}{% endif %}</p>{% elif r.why %}<p class="found"><em>We found</em> {{ r.why }}</p>{% endif %}
+{% if r.evidence_in %}<p class="ev"><em>Evidence found in</em> {{ r.evidence_in|join:"; " }}</p>{% endif %}
+{% if r.records %}<p class="lf"><em>Records that would show it</em> {{ r.records }}</p>{% endif %}
 {% if r.follow_up and v.stage1 %}<p class="nx"><em>To be confirmed</em> {{ r.follow_up }}</p>{% endif %}
 {% if r.status != 'shown' and r.next_step or r.status != 'shown' and r.done_when %}<p class="nx"><em>Next</em> {% if r.next_step %}{{ r.next_step }}{% else %}Done when {{ r.done_when }}{% endif %}</p>{% endif %}
 </div></div>{% endfor %}</div>{% endfor %}

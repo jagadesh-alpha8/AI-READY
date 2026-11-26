@@ -97,6 +97,78 @@ def unreadable(text):
     return ''
 
 
+def evidence_in(cites, pages, limit=3):
+    """Where a practice's evidence is, for the detailed report's "Evidence found in" line (26 Nov: the report cites the
+    document and page instead of printing the quotation): each document once, its pages together, in the order the
+    citations come; at most `limit` documents. Unknown pages are left out."""
+    by_doc = {}
+    for c in cites or []:
+        label = pages.get(str(c.get('source_id')))
+        if not label:
+            continue
+        doc, _, page = label.rpartition(', page ')
+        doc = doc or label
+        got = by_doc.setdefault(doc, [])
+        if page and page not in got:
+            got.append(page)
+    out = []
+    for doc, got in list(by_doc.items())[:limit]:
+        nums = sorted(got, key=lambda p: (not p.isdigit(), int(p) if p.isdigit() else 0, p))
+        out.append(doc if not nums else f"{doc}, page {nums[0]}" if len(nums) == 1 else
+                   f"{doc}, pages {', '.join(nums[:-1])} and {nums[-1]}")
+    return out
+
+
+_RESULT_WORDS = re.compile(r'^(?:this (?:requirement|practice) is |it is )?(?:shown in full|partly shown|not yet shown|'
+                           r'not shown)\s*[,.;:]?\s*(?:(?:as|because|since|so)\b\s*)?', re.I)
+
+
+def _why(text):
+    """The written explanation of a partly credited practice, without its opening result words ("Partly shown, as
+    annual assessments exist, but ..." reads "Annual assessments exist, but ..."): the report's badge already says
+    it. Empty when nothing is left."""
+    t = _RESULT_WORDS.sub('', re.sub(r'\s+', ' ', str(text or '')).strip()).strip()
+    return t[:1].upper() + t[1:] if len(t.split()) >= 4 else ''
+
+
+def _records_that_show(cid):
+    """The kinds of record that would show a practice (the depth spec's "for example" list, also used in the
+    follow-up questions), as one phrase: "a continuity or recovery exercise record"."""
+    from .depth import spec
+    try:
+        forms = spec()['indicators'][cid.rsplit('.', 1)[0]]['conditions'][cid]['evidence_forms']
+    except (KeyError, ValueError):
+        return ''
+    forms = [f.strip() for f in forms if f and f.strip()]
+    if not forms:
+        return ''
+    text = forms[0] if len(forms) == 1 else f"{', '.join(forms[:-1])} or {forms[-1]}"
+    return text[:1].upper() + text[1:]
+
+
+STATUS_WORDS = {'shown': 'in place', 'partly': 'partly in place', 'missing': 'not found'}
+
+
+def topic_line(rows):
+    """A topic's plain line when its verdict is not written (explanations-0.6): the practices by status, in the
+    rubric's order, named by their short labels. "Computing access is in place; usage records and fixing access
+    problems are partly in place; no recovery test was found." """
+    groups = {k: [r['label_short'] for r in rows if r['status'] == k] for k in ('shown', 'partly', 'missing')}
+    low = lambda xs: [x[:1].lower() + x[1:] if not x[:2].isupper() else x for x in xs]
+    join = lambda xs: xs[0] if len(xs) == 1 else f"{', '.join(xs[:-1])} and {xs[-1]}"
+    parts = []
+    for key in ('shown', 'partly'):
+        if groups[key]:
+            names = low(groups[key])
+            parts.append(f"{join(names)} {'is' if len(names) == 1 else 'are'} {STATUS_WORDS[key]}")
+    if groups['missing']:
+        if not parts:
+            return 'None of these practices was found in the documents.'
+        parts.append(f"{join(low(groups['missing']))} {'was' if len(groups['missing']) == 1 else 'were'} not found")
+    text = '; '.join(parts)
+    return text[:1].upper() + text[1:] + '.'
+
+
 def _readable_cite(cite, cites):
     """The citation a report prints: the chosen one, or, when its quotation can't be read on its own (unreadable),
     the most readable other quotation of the same requirement; with none, the source alone (its quotation blank)."""
@@ -493,6 +565,12 @@ def build(payload):
                                  looked_for) if cr < 1 else '',
                              'stage': STAGE_WORDS.get(condition['id'].rsplit('.', 1)[-1][:1], ''),
                              'quote': _quote(cite['quote'], 260) if cite and cr > 0 else '',
+                             # The detailed report cites the documents instead of quoting them (Harsha, 26 Nov).
+                             'evidence_in': evidence_in([cite] + [c for c in cites if c is not cite], pages)
+                             if cite and cr > 0 else [],
+                             'why': _why(explanation.get('text')) if status == 'partly' and not _plain(explanation)
+                             else '',
+                             'records': _records_that_show(condition['id']) if status == 'missing' else '',
                              'source': pages.get(str(cite.get('source_id')), '') if cite and cr > 0 else '',
                              # A requirement still on the plain fallback has no written finding (its fallback only
                              # restated the quotation): the quotation below says it, with its document and page.
@@ -505,6 +583,9 @@ def build(payload):
                              'score': iscore, 'stars': level(iscore or 0)['stars'], 'requirements': rows,
                              'level_index': min(4, whole(iscore) // 20), 'nothing': not iscore,
                              'marks': [r['status'] for r in rows],
+                             'verdict': clean_text(exp.get('verdict'), names) if exp.get('verdict') and
+                             not exp.get('fallback') else '',
+                             'line': topic_line(rows),
                              'summary': clean_text(' '.join(x for x in (exp.get('found'), exp.get('text')) if x), names)})
         quote = None
         for _, _, c in sorted(candidates, key=lambda x: (-x[0], -x[1])):
