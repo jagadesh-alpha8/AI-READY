@@ -38,10 +38,9 @@ def targets(records, spec):
         if record.get('state') not in SEARCHABLE or record.get('cause') == NOT_EVALUATED or not record.get('parts'):
             continue
         parts = {p['id']: p for p in spec[record['condition_id']]['parts']}
-        missing = [p for p in record['parts']
-                   if p['finding'] == 'not_found' and p.get('second_finding', 'not_found') == 'not_found']
-        evidenced = sum(1 for p in record['parts'] if p['finding'] != 'not_found' or
-                        p.get('second_finding', 'not_found') != 'not_found')
+        passes = ('finding', 'second_finding', 'third_finding')
+        missing = [p for p in record['parts'] if all(p.get(k, 'not_found') == 'not_found' for k in passes)]
+        evidenced = sum(1 for p in record['parts'] if any(p.get(k, 'not_found') != 'not_found' for k in passes))
         for part in missing:
             chosen.append((-evidenced, order, record['condition_id'], parts[part['id']]))
     chosen.sort(key=lambda row: (row[0], row[1]))

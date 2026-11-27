@@ -380,7 +380,7 @@ def points_per_credit(indicator):
 
 def indicator_targets(records, rubric, min_credit=Fraction(0)):
     """{indicator code: {'credited': [ids], 'missing': [ids]}} in rubric order. credited: credit > 0 and at least
-    min_credit (asked about depth; depth-reserve-v2 asks only from half credit). missing: credit below 1 (no credit,
+    min_credit (asked about depth; depth-reserve-v2 asks from 1/2, v3 from 5/8). missing: credit below 1 (no credit,
     or part credit), in stage order. Requirements a processing failure left unjudged are skipped: they need a rerun,
     not a question."""
     from .decision_causes import NOT_EVALUATED

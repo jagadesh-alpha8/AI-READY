@@ -149,14 +149,14 @@ def _where(source_id, sources, names):
 
 
 def _part_result(part):
-    first, second = part.get('credited_as'), part.get('second_credited_as', part.get('credited_as'))
-    if 'contradicted' in (first, second) and first == second:
+    found = [part.get('credited_as')] + [part[k] for k in ('second_credited_as', 'third_credited_as') if k in part]
+    if 'contradicted' in found and len(set(found)) == 1:
         return 'contradicted by the college\'s own document'
-    if first == second == 'full':
+    if all(x == 'full' for x in found):
         return 'shown'
-    if 'full' in (first, second) or 'related' in (first, second):
+    if 'full' in found or 'related' in found:
         return 'partly shown'
-    if 'digital_only' in (first, second):
+    if 'digital_only' in found:
         return 'shown only in a digital form that is not AI, which this part does not count'
     return 'not shown'
 

@@ -605,8 +605,9 @@ def _part_credit(part):
 
 
 def _part_citations(part):
-    """Every citation a part rests on, from both passes of a combined record."""
-    return list(part.get('citations') or []) + list(part.get('second_citations') or [])
+    """Every citation a part rests on, from every pass of a combined record (two, or three after a tie-break)."""
+    return (list(part.get('citations') or []) + list(part.get('second_citations') or [])
+            + list(part.get('third_citations') or []))
 
 
 def _recredit(parts, cid, digital=False):
@@ -614,11 +615,16 @@ def _recredit(parts, cid, digital=False):
     from .part_judgment import _load, credit
     spec = (_load()[0]['conditions'].get(cid) or {}).get('parts')
     first = credit(parts, spec, digital=digital)
-    if any('second_credited_as' in p for p in parts):
-        second = credit([{**p, 'credited_as': p.get('second_credited_as', p['credited_as'])} for p in parts], spec,
-                        digital=digital)
+    if not any('second_credited_as' in p for p in parts):
+        return first
+    second = credit([{**p, 'credited_as': p.get('second_credited_as', p['credited_as'])} for p in parts], spec,
+                    digital=digital)
+    if not any('third_credited_as' in p for p in parts):
         return round((first + second) / 2, 4)
-    return first
+    # A tie-broken record (mean-credit-of-three-v1): the mean of its three passes.
+    third = credit([{**p, 'credited_as': p.get('third_credited_as', p.get('second_credited_as', p['credited_as']))}
+                    for p in parts], spec, digital=digital)
+    return round((first + second + third) / 3, 4)
 
 
 _EVIDENCED = ('full', 'related')
@@ -637,8 +643,16 @@ def _missing_in_a_pass(part):
     """True when a provisional part was not evidenced in at least one judging pass (so its gate held credit at 0)."""
     if part is None:
         return True
-    return part.get('credited_as') not in _EVIDENCED or part.get('second_credited_as', part.get('credited_as')) \
-        not in _EVIDENCED
+    return any(found not in _EVIDENCED for found in _pass_values(part, 'credited_as'))
+
+
+def _pass_values(part, field):
+    """A part's value of `field` ('finding' or 'credited_as') in each pass that ran: one, two or three."""
+    values = [part.get(field)]
+    for prefix in ('second_', 'third_'):
+        if prefix + field in part:
+            values.append(part[prefix + field])
+    return values
 
 
 def _failed(record):
@@ -657,12 +671,15 @@ LOWERING = ('apply', 'flag')
 
 
 def _contradicting(part, packet):
-    """True when both judging passes found the part contradicted, each citing a passage new to the provisional packet:
-    what the institution sent, not text the provisional judge already read. A tie-broken record has no second
-    finding on its parts (the passes disagreed), so it never qualifies."""
-    return (part.get('finding') == 'contradicted' and part.get('second_finding') == 'contradicted'
-            and any(is_new(c, packet) for c in part.get('citations') or [])
-            and any(is_new(c, packet) for c in part.get('second_citations') or []))
+    """True when every judging pass found the part contradicted (both, or all three after a tie-break), each citing a
+    passage new to the provisional packet: what the institution sent, not text the provisional judge already read. A
+    single-pass record never qualifies."""
+    if 'second_finding' not in part:
+        return False
+    findings = _pass_values(part, 'finding')
+    citations = [part.get('citations')] + [part.get(k) for k in ('second_citations', 'third_citations') if k in part]
+    return (all(f == 'contradicted' for f in findings)
+            and all(any(is_new(c, packet) for c in cites or []) for cites in citations))
 
 
 def lowering_candidates(provisional, rejudged, packets, *, rubric=None, source_documents=None):
@@ -713,14 +730,17 @@ def _in(citation, windows):
 
 def pointed_rise(part, pointers):
     """held-page-rejudge-1: a part rests on what the college pointed at when its citations in each judging pass that
-    ran include a passage from those windows. Both passes, not either: the text was already judged once, so one pass
+    ran include a passage from those windows. Every pass, not one (before mean-credit-of-three-v1 a tie-broken record
+    kept one pass's parts, so one pass sufficed exactly where the passes disagreed): the text was already judged once, so one pass
     finding it now is what ordinary run-to-run variation looks like."""
     if not pointers:
         return False
     first = any(_in(c, pointers) for c in part.get('citations') or [])
     if 'second_citations' not in part and 'second_credited_as' not in part:
         return first
-    return first and any(_in(c, pointers) for c in part.get('second_citations') or [])
+    # Every pass that ran, a tie-break's third included (mean-credit-of-three-v1 keeps all three on the part).
+    others = [part.get(k) for k in ('second_citations', 'third_citations') if k in part]
+    return first and all(any(_in(c, pointers) for c in cites or []) for cites in others)
 
 
 def merge_new_evidence(provisional, rejudged, packets, *, rubric=None, lowering='flag', max_per_document=3,
@@ -833,7 +853,7 @@ def merge_new_evidence(provisional, rejudged, packets, *, rubric=None, lowering=
         marker = {'version': VERSION, **{k: v for k, v in row.items() if k != 'condition_id'}}
         if take:
             marker['rejudge_pass_credits'] = twin.get('pass_credits')
-            full = all(p.get('credited_as') == 'full' and p.get('second_credited_as', 'full') == 'full' for p in chosen)
+            full = all(all(found == 'full' for found in _pass_values(p, 'credited_as')) for p in chosen)
             citations = []
             for p in chosen:   # a contradicted part's quotes stay, as the part judge keeps them for a not-met record
                 citations.extend(c for c in p.get('citations') or [] if c not in citations)

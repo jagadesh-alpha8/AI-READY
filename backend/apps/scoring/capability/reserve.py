@@ -19,12 +19,17 @@ the reserve keep their scores (no depth_share: nothing held).
 """
 from fractions import Fraction
 
-VERSION = 'depth-reserve-v2'
+VERSION = 'depth-reserve-v3'
 #: v2 (22 Nov 2026): credit is held only on requirements with at least MIN_CREDIT, the ones asked about depth.
 #: Test 13 had 51 of 95 credited requirements on related evidence alone (0.125 or 0.25): asking how deep evidence
 #: goes that doesn't yet show the requirement is overboard, so they are asked to complete it in the missing-evidence
 #: question instead and hold nothing. v1 records (no depth_min_credit) keep v1's rule.
-MIN_CREDIT = Fraction(1, 2)
+#: v3 (27 Nov 2026), with the credit rule subject-cap-middle-v2: "subject shown, the rest partly shown" now earns 0.5
+#: in a pass, so half credit no longer means a pass showed the requirement in full. 5/8 is the least that two passes
+#: reach when one shows it in full and the other finds at least related evidence (1 and 0.25), as v2's 1/2 was for
+#: the old rule's (1 and 0); two passes at 0.5 (shown only in part, twice) stay below it and get a missing-evidence
+#: question instead. Each record carries its own depth_min_credit, so v2 records keep 1/2.
+MIN_CREDIT = Fraction(5, 8)
 FRACTION = {'evidenced': Fraction(0), 'substantiated': Fraction(1, 2), 'strong': Fraction(1)}
 LEVELS = ('evidenced', 'substantiated', 'strong')
 

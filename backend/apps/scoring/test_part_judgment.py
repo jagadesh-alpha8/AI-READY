@@ -115,7 +115,9 @@ class JudgeTests(SimpleTestCase):
         r = judged(response(A1=condition({'p1': part('full', QUOTE_PLAN), 'p2': part('related', QUOTE_PLAN),
                                           'p3': part('not_found')})))['A1']
         self.assertEqual(r['state'], 'unknown')
-        self.assertEqual(r['credit'], 0.125)  # subject is a gate; substantive parts (0.25 + 0) / 2
+        # subject is a gate; substantive parts (0.5 + 0) / 2: with the subject in full, related counts 0.5
+        # (subject-cap-middle-v2)
+        self.assertEqual(r['credit'], 0.25)
         self.assertTrue(r['citations'])
 
     def test_unverifiable_quote_counts_as_not_found(self):
@@ -164,15 +166,33 @@ class JudgeTests(SimpleTestCase):
     def test_related_subject_caps_the_condition_at_related_credit(self):
         # subject-cap-v1: "attendance only" for "an assessment is recorded" is not an assessment, however fully the
         # other parts are shown (f5919156 rescored gave such requirements full credit).
-        from apps.scoring.capability.part_judgment import RELATED_CREDIT, credit
+        from apps.scoring.capability.part_judgment import MIDDLE_CREDIT, RELATED_CREDIT, credit
         spec = [{'id': 'p1', 'gate': 'subject'}, {'id': 'p2', 'gate': None}, {'id': 'p3', 'gate': None}]
         found = lambda *levels: [{'id': f'p{i + 1}', 'credited_as': level} for i, level in enumerate(levels)]
         self.assertEqual(credit(found('related', 'full', 'full'), spec), RELATED_CREDIT)
         self.assertEqual(credit(found('related', 'related', 'not_found'), spec), round(RELATED_CREDIT / 2, 4))
         self.assertEqual(credit(found('full', 'full', 'full'), spec), 1.0)
-        self.assertEqual(credit(found('full', 'related', 'full'), spec), round((RELATED_CREDIT + 1) / 2, 4))
+        self.assertEqual(credit(found('full', 'related', 'full'), spec), round((MIDDLE_CREDIT + 1) / 2, 4))
         r = judged(response(F2=condition({'p1': part('related', QUOTE_OWNER), 'p2': part('full', QUOTE_OWNER)})))['F2']
         self.assertEqual(r['credit'], RELATED_CREDIT)
+
+    def test_a_full_subject_lifts_related_evidence_to_the_middle_step(self):
+        # subject-cap-middle-v2 (27 Nov 2026): subject shown in full, the rest partly shown, earns 0.5; a related
+        # subject still caps at 0.25, and a missing gate part still earns nothing.
+        from apps.scoring.capability.part_judgment import CREDIT_RULE, MIDDLE_CREDIT, RELATED_CREDIT, credit, metadata
+        spec = [{'id': 'p1', 'gate': 'subject'}, {'id': 'p2', 'gate': None}]
+        found = lambda *levels: [{'id': f'p{i + 1}', 'credited_as': level} for i, level in enumerate(levels)]
+        self.assertEqual(credit(found('full', 'full'), spec), 1.0)
+        self.assertEqual(credit(found('full', 'related'), spec), MIDDLE_CREDIT)
+        self.assertEqual(credit(found('related', 'full'), spec), RELATED_CREDIT)
+        self.assertEqual(credit(found('related', 'related'), spec), RELATED_CREDIT)
+        self.assertEqual(credit(found('full', 'not_found'), spec), 0.0)
+        self.assertEqual(credit(found('not_found', 'full'), spec), 0.0)
+        ai = [{'id': 'p1', 'gate': 'subject'}, {'id': 'p2', 'gate': 'ai', 'ai_gate': True}]
+        self.assertEqual(credit(found('full', 'digital_only'), ai), 0.0)                 # no AI, no AI credit
+        self.assertEqual(credit(found('full', 'digital_only'), ai, digital=True), 1.0)   # digital groundwork
+        self.assertEqual(metadata()['credit_rule'], CREDIT_RULE)
+        self.assertEqual(metadata()['middle_credit'], MIDDLE_CREDIT)
 
     def test_digital_system_on_an_ai_part_is_groundwork_not_ai_credit(self):
         r = judged(response(A1=condition({'p1': part('digital_only', QUOTE_PLAN), 'p2': part('full', QUOTE_PLAN),
@@ -180,7 +200,7 @@ class JudgeTests(SimpleTestCase):
         self.assertEqual((r['state'], r['credit'], r['digital_credit']), ('unknown', 0.0, 1.0))
         # On a part that does not ask for AI, "digital only" is just related evidence.
         r = judged(response(F2=condition({'p1': part('full', QUOTE_OWNER), 'p2': part('digital_only', QUOTE_OWNER)})))['F2']
-        self.assertEqual((r['credit'], r['digital_credit']), (0.25, 0.25))
+        self.assertEqual((r['credit'], r['digital_credit']), (0.5, 0.5))   # subject in full: the middle step
 
     def test_missing_condition_is_unknown_with_no_credit(self):
         resp = response()
