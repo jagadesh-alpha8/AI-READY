@@ -57,15 +57,13 @@ export function Questionnaire() {
 function Body({ sprint }: { sprint: Sprint }) {
   const { staff } = useAccess();
   const [tab, setTab] = useState<Tab>(DEMO_MODE ? 'line2' : 'line1');
-  // The facts to check before the assessment live under Documents › Facts to check; a college doesn't meet them
-  // again here (merged design, 27 Nov). Staff keep the tab.
-  const tabs = staff ? TABS : TABS.filter((t) => t.key !== 'line1');
+
   const cap = useCapability(sprint.id);
   return (
     <>
       <PageHeading page="questionnaire" />
       {QUESTIONNAIRE_NOTICE && <Notice tone="info">{QUESTIONNAIRE_NOTICE}</Notice>}
-      <Tabs tabs={tabs} value={tab} onChange={setTab} label="Questionnaire" />
+      <Tabs tabs={TABS} value={tab} onChange={setTab} label="Questionnaire" />
       {tab === 'line1' && <LineOne sprint={sprint} />}
       {tab !== 'line1' && (cap.loading ? <Loading /> : cap.error ? <ErrorState error={cap.error} /> : !cap.run.data ? (
         staff ? (
