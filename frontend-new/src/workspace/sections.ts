@@ -44,7 +44,7 @@ export const SECTIONS: Section[] = [
     tabs: [{ page: 'actions', label: 'Steps' },
       { page: 'plan', label: 'Choose a pace', text: 'How quickly to move to the next level, and what each pace asks of you.' },
       { page: 'plancompare', label: 'Check your own plan', beta: true, title: 'Check your own plan',
-        text: 'Compare a plan you have written with what the assessment found.' },
+        text: 'Paste your own AI plan: what in it would count, what would not yet, and what we would change. A limited number of checks per assessment.' },
       { page: 'pathway', label: 'Your pathway', hidden: true },
       { page: 'goals', label: 'Goals and tasks', staff: true }] },
   { key: 'benchmarks', icon: 'target', label: 'Benchmarks', eyebrow: 'InGage staff', title: 'Benchmarks', staff: true,

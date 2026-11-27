@@ -52,6 +52,13 @@ test('held credit follows reserve.record_factor', () => {
   assert.equal(countedShare(rec(0.5, { depth_share: '1/4', depth_min_credit: '1/2' })), 0.75);
   assert.equal(countedShare(rec(0.25, { depth_share: '1/4' })), 0.75);                       // v1 record: no minimum
   assert.equal(countedShare(rec(0, { depth_share: '1/4' })), 1);
+  // depth-reserve-v4: the held share rises from nothing at the line, so more credit never counts for less
+  const v4 = { depth_share: '1/4', depth_min_credit: '5/8', depth_ramp: true };
+  assert.equal(countedShare(rec(0.625, v4)), 1);
+  assert.equal(countedShare(rec(1, v4)), 0.75);
+  assert.ok(Math.abs(countedShare(rec(0.75, v4)) - (1 - 0.25 / 3)) < 1e-9);
+  assert.ok(0.625 * countedShare(rec(0.625, v4)) > 0.583 * countedShare(rec(0.583, v4)));
+  assert.equal(countedShare(rec(0.75, { ...v4, depth_exempt: 'established in follow-up' })), 1);
 });
 
 test('credit label says what is counted while credit is held', () => {

@@ -22,7 +22,8 @@ Pure logic, no database (layer2_service.py holds that side):
   cites a passage whose text was not in its provisional packet (or the condition's missing gate part now rests on
   such a passage). Taking the higher of two judgments of the same packet would raise scores through ordinary
   run-to-run variation alone.
-- check_export_rule: the export must be scored under this worker's part rule, so the score has one scale.
+- check_export_rule: the export must be scored under one part rule this worker can still run; the re-judge then
+  scores under that rule, so the score has one scale.
 """
 import hashlib
 import json
@@ -604,6 +605,17 @@ def _part_credit(part):
     return {'full': 1.0, 'related': RELATED_CREDIT}.get(part.get('credited_as'), 0.0)
 
 
+def _first_citations(part):
+    """The first pass's own citations for a part. A tie-broken part (mean-credit-of-three-v1) keeps them as
+    first_citations, its `citations` being the majority passes' (review of #116, finding 6)."""
+    return part['first_citations'] if 'first_citations' in part else part.get('citations')
+
+
+def _pass_citations(part):
+    """A part's citations in each pass that ran, in pass order."""
+    return [_first_citations(part)] + [part.get(k) for k in ('second_citations', 'third_citations') if k in part]
+
+
 def _part_citations(part):
     """Every citation a part rests on, from every pass of a combined record (two, or three after a tie-break)."""
     return (list(part.get('citations') or []) + list(part.get('second_citations') or [])
@@ -621,7 +633,9 @@ def _recredit(parts, cid, digital=False):
                     digital=digital)
     if not any('third_credited_as' in p for p in parts):
         return round((first + second) / 2, 4)
-    # A tie-broken record (mean-credit-of-three-v1): the mean of its three passes.
+    # A tie-broken record (mean-credit-of-three-v1): the mean of its three passes. Known and left (review of #116,
+    # finding 10): after a re-judge the parts can come from different judgings, so "pass 1" pairs across them, and a
+    # part with two passes beside one with three reuses its second pass as its third (that pass counts twice).
     third = credit([{**p, 'credited_as': p.get('third_credited_as', p.get('second_credited_as', p['credited_as']))}
                     for p in parts], spec, digital=digital)
     return round((first + second + third) / 3, 4)
@@ -677,7 +691,7 @@ def _contradicting(part, packet):
     if 'second_finding' not in part:
         return False
     findings = _pass_values(part, 'finding')
-    citations = [part.get('citations')] + [part.get(k) for k in ('second_citations', 'third_citations') if k in part]
+    citations = _pass_citations(part)
     return (all(f == 'contradicted' for f in findings)
             and all(any(is_new(c, packet) for c in cites or []) for cites in citations))
 
@@ -735,12 +749,13 @@ def pointed_rise(part, pointers):
     finding it now is what ordinary run-to-run variation looks like."""
     if not pointers:
         return False
-    first = any(_in(c, pointers) for c in part.get('citations') or [])
-    if 'second_citations' not in part and 'second_credited_as' not in part:
-        return first
+    # A pass that found nothing cited nothing of its own: combine() fills the part's citations from the second pass
+    # when the first has none, so without this a miss in the first pass read as the second pass citing twice
+    # (review of #116, finding 3).
+    if any(f == 'not_found' for f in _pass_values(part, 'finding')):
+        return False
     # Every pass that ran, a tie-break's third included (mean-credit-of-three-v1 keeps all three on the part).
-    others = [part.get(k) for k in ('second_citations', 'third_citations') if k in part]
-    return first and all(any(_in(c, pointers) for c in cites or []) for cites in others)
+    return all(any(_in(c, pointers) for c in cites or []) for cites in _pass_citations(part))
 
 
 def merge_new_evidence(provisional, rejudged, packets, *, rubric=None, lowering='flag', max_per_document=3,
@@ -862,44 +877,66 @@ def merge_new_evidence(provisional, rejudged, packets, *, rubric=None, lowering=
             # where assessment_consistency would read them as this condition's passes.
             replaced = {k: v for k, v in twin.items() if k not in ('pass_credits', 'agreement')}
             state = 'not_met' if any(p.get('finding') == 'contradicted' for p in chosen) else 'met' if full else 'unknown'
-            records.append({**replaced, 'parts': chosen, 'credit': new_credit, 'state': state,
-                            'digital_credit': max(new_credit, _recredit(chosen, cid, digital=True)),
-                            'citations': citations, 'second_layer': marker})
+            merged = {**replaced, 'parts': chosen, 'credit': new_credit, 'state': state,
+                      'digital_credit': max(new_credit, _recredit(chosen, cid, digital=True)),
+                      'citations': citations, 'second_layer': marker}
+            # No depth hold after a re-judge (depth-reserve-v4; compact re-judge decision 5): a requirement not asked
+            # about depth at Stage 1 has no depth answer to earn the held share back, so it counts in full.
+            from .reserve import EXEMPT, asked_depth
+            if record.get('depth_ramp') and not asked_depth(record):
+                merged['depth_exempt'] = EXEMPT
+            elif record.get('depth_exempt'):
+                merged['depth_exempt'] = record['depth_exempt']
+            records.append(merged)
         else:
             records.append({**record, 'second_layer': marker})
     return records, audit
 
 
 def check_export_rule(records, traces, targets=None):
-    """Refuse an export scored under a different part rule than this worker's. Re-judged requirements are scored
-    under today's rule while copied ones keep the export's, so mixing rules (f5919156 was scored with related evidence
-    at 0.5 and the subject as a share) would put two scales in one score. Checks the traces' part metadata and that
-    each target requirement's recorded credit is what today's rule gives its parts. With targets None, checks every
-    trace and requirement: question planning and additional evidence use that, so an institution is not asked for
-    answers or documents on a run that could never be re-judged."""
-    from .part_judgment import metadata
+    """The part credit rule an export was scored under, or Layer2Error when it cannot be re-judged.
+
+    Re-judged requirements are scored under the export's own rule (part_judgment.under_rule; compact re-judge
+    decision 4, 27 Nov: a run's frozen versions stay runnable until its final result), so it must be one rule this
+    worker can still run (part_judgment.RULES) and the same in every trace checked: mixing rules (f5919156 was scored
+    with related evidence at 0.5 and the subject as a share) would put two scales in one score. The parts version,
+    related credit and parts file must be this worker's, and each target requirement's recorded credit must be what
+    that rule gives its parts. With targets None, checks every trace and requirement: question planning and additional
+    evidence use that, so an institution is not asked for answers or documents on a run that could never be
+    re-judged. Until 27 Nov an export on any rule but the current one was refused, which would have stopped every
+    open follow-up at a release (review of #116, finding 9)."""
+    from .part_judgment import RULES, metadata, parts_hash_matches, under_rule
     current = metadata()
     wanted = None if targets is None else {code for code in targets}
+    rules = set()
     for trace in traces:
         if wanted is not None and trace.get('indicator') not in wanted:
             continue
         recorded = trace.get('judgment') or {}
-        from .part_judgment import parts_hash_matches
-        different = [k for k in ('parts_version', 'related_credit', 'credit_rule') if recorded.get(k) != current[k]]
+        different = [k for k in ('parts_version', 'related_credit') if recorded.get(k) != current[k]]
+        if recorded.get('credit_rule') not in RULES:
+            different.append('credit_rule')
         if not parts_hash_matches(recorded.get('parts_hash')):   # either line-ending form of the same file
             different.append('parts_hash')
         if different:
             raise Layer2Error(f"The export for {trace.get('indicator', 'a key indicator')} was scored with a different "
                               f"part rule ({', '.join(different)} differ from this worker). Use an export from a run "
                               'on the current rule.')
+        rules.add(recorded['credit_rule'])
+    if len(rules) > 1:
+        raise Layer2Error(f"The export was scored under more than one credit rule ({', '.join(sorted(rules))}); it "
+                          'cannot be re-judged as one score. Run a new assessment first.')
+    rule = rules.pop() if rules else current['credit_rule']
     ids = None if targets is None else {cid for t in targets.values() for cid in t['conditions']}
-    for record in records:
-        if ((ids is not None and record.get('condition_id') not in ids) or record.get('validation_issue')
-                or not record.get('parts')):
-            continue
-        if abs(_recredit(record['parts'], record['condition_id']) - (record.get('credit') or 0)) > 1e-3:
-            raise Layer2Error(f"{record['condition_id']}: its recorded credit is not what the current part rule gives "
-                              'its parts. Use an export from a run on the current rule.')
+    with under_rule(rule):
+        for record in records:
+            if ((ids is not None and record.get('condition_id') not in ids) or record.get('validation_issue')
+                    or not record.get('parts')):
+                continue
+            if abs(_recredit(record['parts'], record['condition_id']) - (record.get('credit') or 0)) > 1e-3:
+                raise Layer2Error(f"{record['condition_id']}: its recorded credit is not what its part rule ({rule}) "
+                                  'gives its parts. Use an export from a run on the current rule.')
+    return rule
 
 
 def contradictions(audit):

@@ -279,32 +279,59 @@ export interface PlanEvaluationJob {
   id: string;
   status: string;
   created_at: string;
+  stalled?: boolean;
 }
 
-/** A2 part-credit plan evaluation: one score per phase and how the plan covers the priority plan. */
-export interface PlanEvaluationScores {
-  baseline_score?: number | null;
-  scenarios?: Record<string, { score?: { score?: number | null; gain?: number | null } | null }>;
-  priority_coverage?: {
-    covered: string[]; missed: string[]; outside_priority_plan: string[];
-    target?: number | null; priority_projected_score?: number | null;
-  } | null;
+/** How many plan checks this assessment allows and has used, and how big a plan can be. */
+export interface PlanCheckLimits {
+  used: number;
+  limit: number;
+  remaining: number;
+  max_chars: number;
+  max_actions: number;
+}
+
+/** One action of the college's plan as the check sees it (plan_mapping.py). */
+export interface PlanCheckAction {
+  id: string;
+  title: string;
+  text: string;
+  status: 'adds' | 'needs_more' | 'overlaps' | 'already_shown' | 'documents_only' | 'no_match';
+  label: string;
+  note: string;
+}
+
+/** The check as the college reads it: the same content as the PDF (plan_report.build). */
+export interface PlanCheckPage {
+  institution: string;
+  result_kind: string;
+  checked_on: string;
+  how_to_read: string;
+  score_lines: string[];
+  summary: string;
+  works: { title: string; text: string; note: string }[];
+  not_yet: { title: string; text: string; label: string; note: string }[];
+  changes: { kind: string; operation: 'change' | 'add' | 'drop'; title: string; text: string; why: string;
+    owner: string; done_when: string; area: string; builds_on: string[] }[];
+  kept: number;
+  total: number;
+  constraints: string[];
+  unclear: string[];
+  warnings: string[];
+  recommended: { n: number; text: string; origin: 'kept' | 'changed' | 'added'; owner: string; done_when: string }[];
+  /** Areas outside the plan where the assessment found room to grow (named, never added). */
+  outside: string[];
+  limits: string;
 }
 
 export interface PlanComparison extends PlanEvaluationJob {
   original_text: string;
+  /** A check made before institution-plan-review-1.0: only its old HTML page and JSON. */
+  legacy: boolean;
   error: { error_code: string; next_action: string } | null;
-  original_review?: { evaluation?: PlanEvaluationScores } | null;
-  comparison: null | {
-    original?: { evaluation?: PlanEvaluationScores };
-    improved?: { evaluation?: PlanEvaluationScores };
-    comparison_basis: string;
-    limitations: string[];
-    improvement: {
-      constraint_note: string;
-      changes: { operation: string; action: string; why: string; suggested_owner: string; completion_evidence: string }[];
-    };
-  };
+  page: PlanCheckPage | null;
+  /** What was saved before a check stopped part way: the plan's actions as checked. */
+  original_review: { actions?: PlanCheckAction[] } | null;
 }
 
 // --- benchmark assessment (cycles) ------------------------------------------------------------------------

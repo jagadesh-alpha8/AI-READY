@@ -41,7 +41,7 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     { key: 'pathway', icon: '⇢', label: 'Level pathway' },
     { key: 'actions', icon: '➜', label: 'Recommended actions' },
     { key: 'plan', icon: '▤', label: 'Transformation plan' },
-    { key: 'plancompare', icon: '⇄', label: 'Plan comparison' },
+    { key: 'plancompare', icon: '⇄', label: 'Check your own plan' },
     { key: 'goals', icon: '◆', label: 'Goals & tasks' },
     { key: 'compliance', icon: '⌘', label: 'Compliance mapping' },
   ] },
@@ -67,7 +67,7 @@ export const DEMO_NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     { key: 'cri', icon: '◌', label: 'Results' },
     { key: 'reports', icon: '▧', label: 'Reports' },
     { key: 'pathway', icon: '⇢', label: 'Transformation' },
-    { key: 'plancompare', icon: '⇄', label: 'Plan evaluation' },
+    { key: 'plancompare', icon: '⇄', label: 'Check your own plan' },
   ] },
 ];
 
@@ -102,7 +102,7 @@ export const PAGE_META: Record<PageKey, [eyebrow: string, title: string, text: s
   answers: ['Assessment', 'Your answers', 'Every follow-up question you have answered, and what came of each answer.'],
   questionnaire: ['Assessment', 'Questionnaire', 'One item at a time: first the review items on the evidence, then, after the Stage 1 result, follow-up questions and any evidence we may have missed.'],
   actions: ['Recommendations', 'Recommended actions', 'Grounded advice for the latest assessment, with an owner, feasibility and status for every action.'],
-  plancompare: ['Recommendations', 'Plan comparison', "Compare the institution's own written plan with what the assessment found, and see what to change."],
+  plancompare: ['Recommendations', 'Check your own plan', "Paste your AI plan: see which actions would raise your score once done, which wouldn't yet, and what we would change. A limited number of checks per assessment."],
   apistatus: ['Review', 'Backend status', 'Which screens are fully live, which show sample data waiting for an API, and which wait for a backend decision.'],
   institutions: ['Administration', 'Institutions', 'Manage colleges, their coordinators, departments, systems and leaders, and archive or delete them.'],
   assessmentsetup: ['Benchmark governance', 'Assessment setup', 'Plan templates, benchmark score weights and the college profiles that decide which benchmarks apply.'],
@@ -119,7 +119,7 @@ if (DEMO_MODE) {
     pathway: ['Transformation', 'Your pathway', 'The tier bands, and the requirements that would move the score most.'],
     uploads: ['Evidence', 'Evidence', 'The documents submitted for the assessment.'],
     profile: ['Institution', 'Institution', 'The institution being assessed.'],
-    plancompare: ['Transformation', 'Plan evaluation', "Paste the institution's own plan: see what it would add to the score if its actions were done and shown, and what to change."],
+    plancompare: ['Transformation', 'Check your own plan', "Paste your AI plan: see which actions would raise your score once done, which wouldn't yet, and what we would change. A limited number of checks per assessment."],
   } as Partial<typeof PAGE_META>);
 }
 
