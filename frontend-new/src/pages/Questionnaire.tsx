@@ -760,7 +760,8 @@ function QuestionItem({ sprint, runId, item, position, total, onDone, found, top
   const points = item.question.points_at_stake;
   const manage = can('sprint.manage');
 
-  /** save: an answer (with its documents); check: "I need to check"; none: "We do not have this". */
+  /** save: an answer (with its documents), sent without an answer option, since only the documents decide credit;
+   *  check: "I need to check"; none: "We do not have this" (recorded as not_yet). */
   const send = async (how: 'save' | 'check' | 'none') => {
     setError('');
     if (how === 'save' && !files.length && !noDocOk) {
@@ -779,7 +780,7 @@ function QuestionItem({ sprint, runId, item, position, total, onDone, found, top
       const document_ids = how === 'save' && files.length ? await uploadAll(sprint.id, files) : [];
       const body = how === 'none'
         ? { answer: answer.trim(), document_ids: [], choice: 'not_yet' as const }
-        : { answer: answer.trim(), document_ids, ...(followUp ? {} : { choice: 'yes' as const }) };
+        : { answer: answer.trim(), document_ids };
       const res = followUp && item.response_id
         ? await answerFollowUp(sprint.id, runId, item.response_id, body)
         : await answerQuestion(sprint.id, runId, item.question.id, body);
