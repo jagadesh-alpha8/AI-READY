@@ -10,6 +10,8 @@ Where it applies (decided 25 Nov 2026):
   (report_views), so the PDF never holds the names;
 - binary downloads the mask cannot rewrite (uploaded source documents, the older stored report files) are refused
   while the mask is on, so a letterhead or logo can't leak through them.
+Not masked, for now (27 Nov 2026): the facts check and the follow-up questions (middleware.UNMASKED), whose answers go
+back to the server and on to judging.
 
 A term list is a JSON array of {"find": text, "replace": text}. A find text is matched as a whole word (letters on either
 side stop a match; digits don't), ignoring case,
