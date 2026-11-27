@@ -75,6 +75,8 @@ MIDDLEWARE = [
     # Demo display mask (DEMO_NAME_MASK, off by default): shows the institution under another name in every API
     # response. apps/demo_mask/mask.py.
     'apps.demo_mask.middleware.NameMaskMiddleware',
+    # ...and refuses writes that would save the mask's stand-in names over the real ones (apps/demo_mask/write_guard.py).
+    'apps.demo_mask.write_guard.MaskedWriteGuardMiddleware',
     # Logs API requests that are slow or run many queries (no contents): config/request_diagnostics.py.
     'config.request_diagnostics.RequestDiagnosticsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
