@@ -61,8 +61,9 @@ OLD_RULE = ('This assessment was scored under an earlier credit rule, so follow-
 
 
 def refuse_old_rule(export):
-    """Refuse a whole export scored under a different part rule than this worker's (layer2.check_export_rule with no
-    targets). Re-judging (rejudge_credit) refuses such a run, so question planning and additional evidence refuse it
+    """Refuse a whole export scored under a part rule this worker can no longer run, or under two rules at once
+    (layer2.check_export_rule with no targets). A run on an older rule this worker still runs is accepted: its
+    follow-up is re-judged under its own rule. Re-judging (rejudge_credit) refuses such a run, so question planning and additional evidence refuse it
     first, before the institution answers or uploads anything."""
     assessment = (export or {}).get('assessment') or {}
     try:
@@ -445,9 +446,14 @@ def check_response(response, model, *, attached=None, corpus=None, ranker=RUN_RA
         # held-page-rejudge-1: what the reply points at inside the provisional packet. The judge was shown it and gave
         # no credit, so the credit path puts it first and re-judges; it is not counted as already credited.
         pointers = layer2.held_pointers(response.answer, response.document_ids, packet, by_words=roles is None)
+        # Review of #116, finding 2: the word-matched pointers go to the re-judge only. "Supported" (and dropping the
+        # request for a document) rests on the search windows and on pointers into documents the college attached:
+        # an answer's words match some page of any packet, so they say nothing about whether a document shows it.
+        documents = {str(d) for d in response.document_ids or ()}
+        backed = counted + [w for w in pointers if str(w.get('document_id')) in documents]
         counted = counted + pointers
-        result = {'version': layer2.VERSION, 'model_called': False, 'supported': bool(counted), 'dimensions': [],
-                  'passages': [], 'follow_up': None if (counted or not first) else layer2.NO_SUPPORT_FOLLOW_UP,
+        result = {'version': layer2.VERSION, 'model_called': False, 'supported': bool(backed), 'dimensions': [],
+                  'passages': [], 'follow_up': None if (backed or not first) else layer2.NO_SUPPORT_FOLLOW_UP,
                   'note': 'Judged in the credit path, on the provisional packet plus these passages.'}
         if pointers:
             result['pointed'] = {'version': layer2.HELD_VERSION, 'windows': len(pointers),
@@ -693,7 +699,17 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
                 'final_score': layer2.final_score(deepened, rubric), 'traces': [], 'new_sources': [],
                 'note': ('No new evidence to re-judge; follow-up answers earn back held credit.' if changes
                          else 'No new evidence to re-judge.')}
-    layer2.check_export_rule(records, traces, targets)
+    rule = layer2.check_export_rule(records, traces, targets)
+    from .part_judgment import under_rule
+    with under_rule(rule):   # the run's own credit rule and its tie-break, until its final result
+        return _rejudge_under_rule(export, service, result, records, traces, targets, run, run_ref, rubric, lowering,
+                                   frozen, new_pages, evaluate_fn=evaluate_fn, sources=sources, max_calls=max_calls,
+                                   evaluate_options=evaluate_options, rule=rule)
+
+
+def _rejudge_under_rule(export, service, result, records, traces, targets, run, run_ref, rubric, lowering, frozen,
+                        new_pages, *, evaluate_fn, sources, max_calls, evaluate_options, rule):
+    result = {**result, 'credit_rule': rule}
     contexts, context_audit = layer2.fixed_contexts(traces, targets)
     subset = layer2.subset_rubric(rubric, targets)
     if len(subset['indicators']) > max_calls:
@@ -735,7 +751,7 @@ def with_depth(records, run_ref, share=None):
     nothing come back unchanged."""
     from fractions import Fraction
     from .depth_service import latest_levels
-    from .reserve import run_min_credit, run_share, stamp
+    from .reserve import run_min_credit, run_ramp, run_share, stamp
     run = _run(run_ref)
     if share is None:   # the run's frozen share; else what the records carry
         share = run_share(run.inputs) if run is not None else next(
@@ -747,7 +763,8 @@ def with_depth(records, run_ref, share=None):
     minimum = run_min_credit(run.inputs) if run is not None else max(
         [Fraction(str(r.get('depth_min_credit') or 0)) for r in records] or [Fraction(0)])
     levels = latest_levels(run_ref)
-    out = stamp([dict(r) for r in records], share, levels, min_credit=minimum or None)
+    out = stamp([dict(r) for r in records], share, levels, min_credit=minimum or None,
+                ramp=run_ramp(run.inputs) if run is not None else any(r.get('depth_ramp') for r in records))
     changes = [{'condition_id': r['condition_id'], 'level': r['depth_level'], **({'review': r['depth_review']}
                 if r.get('depth_review') else {})}
                for r in out if (r.get('credit') or 0) > 0 and (levels.get(r['condition_id']) or 'evidenced') != 'evidenced']

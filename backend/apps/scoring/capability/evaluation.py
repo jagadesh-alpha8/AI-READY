@@ -1014,7 +1014,8 @@ def _part_tie_break(indicator, first, second, combined, disagreements, one_pass,
     from .request_recovery import recoverable_failure
     wanted = {d['condition_id'] for d in disagreements}
     group = [c for c in indicator['conditions'] if c['id'] in wanted]
-    audit = {'conditions': sorted(wanted), 'rule': part_judgment.TIE_BREAK_RULE}
+    rule = part_judgment.active_tie_break()   # a re-judge of a subject-cap-v1 run keeps that run's median
+    audit = {'conditions': sorted(wanted), 'rule': rule}
     try:
         answer, recovery, errors = one_pass(group)
     except Exception as exc:
@@ -1035,7 +1036,9 @@ def _part_tie_break(indicator, first, second, combined, disagreements, one_pass,
         cid = record['condition_id']
         deciding = third.get(cid)
         if cid in wanted and deciding is not None:
-            record = part_judgment.add_third(record, deciding, by_first[cid], by_second[cid])
+            record = (part_judgment.median_of_three(by_first[cid], by_second[cid], deciding)
+                      if rule == 'median-credit-of-three-v1'
+                      else part_judgment.add_third(record, deciding, by_first[cid], by_second[cid]))
             resolved.append(cid)
         out.append(record)
     audit['resolved'] = resolved

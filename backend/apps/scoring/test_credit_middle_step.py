@@ -52,7 +52,8 @@ class ThreePassGuardTests(SimpleTestCase):
 
 class ReserveTriggerTests(SimpleTestCase):
     def test_v3_holds_from_five_eighths(self):
-        self.assertEqual(reserve.VERSION, 'depth-reserve-v3')
+        # v4 (review of #116, finding 1) keeps v3's line and makes the hold rise from it; v3 records keep the step.
+        self.assertEqual(reserve.VERSION, 'depth-reserve-v4')
         self.assertEqual(reserve.MIN_CREDIT, Fraction(5, 8))
         held = {'depth_share': '0.25', 'depth_min_credit': str(reserve.MIN_CREDIT)}
         # Shown in full by one pass, at least related by the other (1 and 0.25): held, as in v2.

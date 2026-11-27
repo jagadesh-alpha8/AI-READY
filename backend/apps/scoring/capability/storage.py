@@ -241,8 +241,8 @@ def publish(*, institution_id, run_id, evaluation, inference):
             for key in ('follow_up', 'pass_credits', 'agreement', 'depth_level', 'depth_review'):
                 if key in prior:
                     row[key] = prior[key]
-        from .reserve import run_min_credit, run_share, stamp
-        stamp(validated, run_share(run.inputs), min_credit=run_min_credit(run.inputs))
+        from .reserve import run_min_credit, run_ramp, run_share, stamp
+        stamp(validated, run_share(run.inputs), min_credit=run_min_credit(run.inputs), ramp=run_ramp(run.inputs))
     decisions = {r['condition_id']: r['state'] for r in validated}
     result = assess(decisions, rubric)
     if any('credit' in r for r in validated):

@@ -27,6 +27,8 @@ Arithmetic, per condition (all deterministic):
   median, which let the third pass alone decide a split call: rescored on runs 211e9614 and 890f2b7e, the mean cuts
   the expected gap between identical runs from about 0.95 to 0.81 points, at no extra cost.
 """
+import contextlib
+import contextvars
 import hashlib
 import json
 import re
@@ -53,6 +55,38 @@ RELATED_CREDIT = 0.25
 #: in both). Rescored on those runs: about +2.2 points, 70% of it on requirements with marked real evidence, and no
 #: rise in run-to-run variation. A related subject still caps the condition at RELATED_CREDIT.
 MIDDLE_CREDIT = 0.5
+#: Credit rules a run can be on, with the tie-break each was frozen with. A run's frozen versions stay runnable
+#: until its final result (compact re-judge decision 4, 27 Nov): a follow-up opened on subject-cap-v1 is re-judged
+#: on subject-cap-v1 (under_rule), so one score never mixes two scales. Remove a rule only when no open run uses it.
+RULES = {
+    'subject-cap-v1': {'middle_credit': None, 'tie_break': 'median-credit-of-three-v1'},
+    'subject-cap-middle-v2': {'middle_credit': MIDDLE_CREDIT, 'tie_break': 'mean-credit-of-three-v1'},
+}
+_ACTIVE = contextvars.ContextVar('part_credit_rule', default=None)
+
+
+def active_rule():
+    """The credit rule in force: the one under_rule set (a re-judge of a run on an older rule), else CREDIT_RULE."""
+    return _ACTIVE.get() or CREDIT_RULE
+
+
+def active_tie_break():
+    return (RULES.get(active_rule()) or {}).get('tie_break', TIE_BREAK_RULE)
+
+
+@contextlib.contextmanager
+def under_rule(rule):
+    """Judge and credit under `rule` (a RULES key) inside the block; metadata() then records that rule. Threads that
+    copy the context (evaluation's indicator pool does) inherit it."""
+    if rule not in RULES:
+        raise ValueError(f'Unknown part credit rule {rule!r}.')
+    token = _ACTIVE.set(rule)
+    try:
+        yield rule
+    finally:
+        _ACTIVE.reset(token)
+
+
 #: Two passes whose credits for a condition differ by at least this much count as disagreeing (as do passes with
 #: different states); with tie-breaking on, a third pass decides by median credit.
 CREDIT_GAP = 0.5
@@ -212,10 +246,12 @@ def specification(rubric):
 
 
 def metadata():
+    rule = active_rule()
+    middle = RULES[rule]['middle_credit'] if rule in RULES else MIDDLE_CREDIT
     return {'judgment': JUDGMENT, 'parts_version': VERSION, 'parts_hash': _load()[1],
             'parts_prompt_hash': hashlib.sha256(prompt().encode()).hexdigest(), 'related_credit': RELATED_CREDIT,
-            'middle_credit': MIDDLE_CREDIT, 'output_format': OUTPUT_FORMAT,
-            'credit_rule': CREDIT_RULE}
+            **({'middle_credit': middle} if middle is not None else {}), 'output_format': OUTPUT_FORMAT,
+            'credit_rule': rule}
 
 
 #: Condition and indicator fields the part judge sees. The rubric's prose rules (pass_rule, unknown_rule,
@@ -434,8 +470,10 @@ def credit(parts, spec_parts=None, digital=False):
     gates = {p['id'] for p in (spec_parts or []) if p.get('gate')} or {parts[0]['id']}
     if any(p['id'] in gates and p['credited_as'] not in evidenced for p in parts):
         return 0.0
-    if value.get(parts[0]['credited_as']) == 1.0:
-        value['related'] = MIDDLE_CREDIT   # subject-cap-middle-v2: the subject is shown in full
+    rule = active_rule()
+    middle = RULES[rule]['middle_credit'] if rule in RULES else MIDDLE_CREDIT
+    if middle is not None and value.get(parts[0]['credited_as']) == 1.0:
+        value['related'] = middle   # subject-cap-middle-v2: the subject is shown in full
     substantive = parts[1:] or parts
     mean = sum(value.get(p['credited_as'], 0.0) for p in substantive) / len(substantive)
     if parts[0]['credited_as'] == 'related':
@@ -446,7 +484,6 @@ def credit(parts, spec_parts=None, digital=False):
 def combine(first, second):
     """Two validated passes of the same packet into one record per condition (see module docstring)."""
     from .decision_causes import ASSESSOR_DISAGREEMENT
-    from .evaluation import AGREEMENT_REASON
     other = {r['condition_id']: r for r in second}
     value = {'full': 1.0, 'related': RELATED_CREDIT}
     combined, disagreements = [], []
@@ -473,7 +510,7 @@ def combine(first, second):
         if twin['state'] != record['state']:
             disagreements.append({'condition_id': record['condition_id'], 'first': record['state'], 'second': twin['state'],
                                   'credits': [record['credit'], twin['credit']]})
-            merged.update(state='unknown', reason=AGREEMENT_REASON.format(first=record['state'], second=twin['state']),
+            merged.update(state='unknown', reason=disagreement_reason([record['state'], twin['state']], merged['credit']),
                           cause=ASSESSOR_DISAGREEMENT, scope_supported=False, period_supported=False)
         elif abs(record['credit'] - twin['credit']) >= CREDIT_GAP:
             # Same state, very different credit (for example one pass found a part fully, the other not at all).
@@ -502,14 +539,19 @@ def add_third(merged, third, first, second):
     from .decision_causes import ASSESSOR_DISAGREEMENT
     value = {'full': 1.0, 'related': RELATED_CREDIT}
     third_parts = {p['id']: p for p in third.get('parts') or []}
+    first_parts = {p['id']: p for p in (first or {}).get('parts') or []}
     parts = []
     for part in merged['parts']:
         match = third_parts.get(part['id'], {'credited_as': 'not_found', 'citations': [], 'finding': 'not_found'})
         found = (part.get('credited_as'), part.get('second_credited_as', part.get('credited_as')),
                  match['credited_as'])
+        # combine() fills a part's citations from the second pass when the first cited nothing; keep the first pass's
+        # own, so readers that need each pass (layer2.pointed_rise, _contradicting, map learning) read each pass.
+        own = (first_parts.get(part['id']) or {}).get('citations', part.get('citations')) or []
+        per_pass = (own, part.get('second_citations') or [], match['citations'] or [])
         parts.append({**part, 'third_finding': match['finding'], 'third_credited_as': match['credited_as'],
-                      'third_citations': match['citations'],
-                      'citations': part.get('citations') or part.get('second_citations') or match['citations'],
+                      'third_citations': match['citations'], 'first_citations': own,
+                      'citations': _majority_citations(found, per_pass),
                       'part_credit': round(sum(value.get(x, 0.0) for x in found) / 3, 4)})
     credits = list(merged.get('pass_credits') or [merged['credit'], merged['credit']])[:2] + [third['credit']]
     digital = [merged.get('digital_credit', merged['credit']), third.get('digital_credit', third['credit'])]
@@ -523,17 +565,73 @@ def add_third(merged, third, first, second):
     else:
         settled = next((s for s in states if states.count(s) >= 2 and s != 'met'), None)
     if settled is None:
-        out.update(state='unknown', cause=ASSESSOR_DISAGREEMENT, scope_supported=False, period_supported=False)
+        out.update(state='unknown', cause=ASSESSOR_DISAGREEMENT, scope_supported=False, period_supported=False,
+                   reason=disagreement_reason(states, out['credit']))
     else:
         holder = next(r for r in passes if r['state'] == settled)
         out.update(state=settled, **{k: holder[k] for k in ('reason', 'cause', 'scope_supported', 'period_supported')
                                      if k in holder})
+    # The record cites the pages the majority of passes credited (review of #116, finding 6). Only when no part has a
+    # majority for its credit (a requirement one pass of three credited) does it fall back to every crediting pass's
+    # pages, so a credited record always shows what its credit rests on.
     cited = []
     for part in parts:
         if part['part_credit'] > 0:
-            for c in ((part.get('citations') or []) + (part.get('second_citations') or [])
-                      + (part['third_citations'] or [])):
-                if c not in cited:
-                    cited.append(c)
+            cited.extend(c for c in part['citations'] if c not in cited)
+    if not cited and out['credit'] > 0:
+        for part in parts:
+            if part['part_credit'] > 0:
+                for c in (part['first_citations'] + (part.get('second_citations') or [])
+                          + (part['third_citations'] or [])):
+                    if c not in cited:
+                        cited.append(c)
     out['citations'] = cited
     return out
+
+
+def median_of_three(first, second, third):
+    """median-credit-of-three-v1, the tie-break of subject-cap-v1 runs (kept runnable for their follow-ups): the
+    median credit of the three passes, the parts and citations of the pass that gave it, and the majority state
+    (unknown when all three differ; never met unless the median pass is met)."""
+    from .decision_causes import ASSESSOR_DISAGREEMENT
+    passes = [first, second, third]
+    middle = sorted(passes, key=lambda r: r['credit'])[1]
+    states = [r['state'] for r in passes]
+    majority = next((st for st in states if states.count(st) >= 2), None)
+    record = {**middle, 'credit': middle['credit'], 'pass_credits': [r['credit'] for r in passes],
+              'digital_credit': sorted(r.get('digital_credit', r['credit']) for r in passes)[1],
+              'agreement': 'median of three passes'}
+    if majority is None:
+        record.update(state='unknown', cause=ASSESSOR_DISAGREEMENT, scope_supported=False, period_supported=False)
+    elif majority != middle['state']:
+        record['state'] = majority if majority != 'met' else 'unknown'
+    return record
+
+
+def _majority_citations(found, per_pass):
+    """A tie-broken part's citations: those of the passes whose credited_as is the majority one (none when the majority
+    found nothing); with no majority (full, related and not found once each), the middle pass's, the related one."""
+    majority = next((x for x in found if found.count(x) >= 2), None)
+    if majority is None:
+        majority = 'related' if 'related' in found else found[1]
+    out = []
+    for credited_as, cites in zip(found, per_pass):
+        if credited_as == majority and credited_as in ('full', 'related'):
+            out.extend(c for c in cites if c not in out)
+    return out
+
+
+PART_DISAGREEMENT_REASON = ('The assessment passes of the same evidence disagreed ({states}). Credited at the mean of '
+                            'the passes; routed to review.')
+
+
+def disagreement_reason(states, credit):
+    """The reason on a part-judged record whose passes disagreed on its state (review of #116, finding 11): part
+    judgment credits the mean of the passes, so "Not credited" is said only when the mean is 0."""
+    from .evaluation import AGREEMENT_REASON
+    if not credit:
+        if len(states) == 2:
+            return AGREEMENT_REASON.format(first=states[0], second=states[1])
+        return ('The assessment passes of the same evidence disagreed ({states}). Not credited; routed to review.'
+                .format(states=', '.join(states)))
+    return PART_DISAGREEMENT_REASON.format(states=', '.join(states))

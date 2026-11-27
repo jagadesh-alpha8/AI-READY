@@ -8,10 +8,11 @@ message that says why:
 1. Edits to a masked institution's own records: the institution, its departments, systems and leaders, its benchmark
    profile, and its sprints' details. "Masked" means the mask changes at least one of the institution's stored text
    fields, so other institutions on the same server can still be edited.
-2. Any other write whose JSON body contains a distinctive mask replacement: one with "ABC" in capitals, a bracketed
+2. Any other write whose JSON body contains a distinctive mask replacement: one with "ABC" in capitals and another word, a bracketed
    placeholder ("[campus address]") or a made-up ".example" address. Such text can only have come from a masked screen,
    and judging would read it against documents that name the real institution. The generic replacements ("the
-   founder", "Campus A", a rounded postcode) are left out, because ordinary answers use those words.
+   founder", "Campus A", a rounded postcode) and a bare "ABC" are left out, because ordinary answers use those words.
+   Writes to the screens left unmasked (middleware.UNMASKED) are not checked: they never show a stand-in.
 
 Does nothing while DEMO_NAME_MASK is empty. Reads only JSON bodies; uploads are not checked.
 """
@@ -34,8 +35,10 @@ INSTITUTION_TEXT = ('name', 'short_name', 'university_affiliation', 'location', 
 
 
 def _distinctive(replacement):
-    return bool(re.search(r'\bABC\b', replacement) or re.fullmatch(r'\[[^\]]+\]', replacement)
-                or re.search(r'\.example\b', replacement))
+    """A bare "ABC" (the stand-in for "Vel's" and "Velan") is left out (review of #116, finding 4): it is also the
+    Academic Bank of Credits, which Indian colleges' records and answers name, so "ABC" alone proves nothing."""
+    abc = re.search(r'\bABC\b', replacement) and len(replacement.split()) > 1
+    return bool(abc or re.fullmatch(r'\[[^\]]+\]', replacement) or re.search(r'\.example\b', replacement))
 
 
 def _replacements():
@@ -108,6 +111,11 @@ class MaskedWriteGuardMiddleware:
                 return _refuse('This institution\'s details can\'t be edited while the demo name mask is on: the screens '
                                'show a stand-in name, and saving would write it over the real one. Ask InGage to switch '
                                'the mask off to make this change.')
+        # The screens left unmasked (middleware.UNMASKED: facts check, follow-up questions) never show a stand-in, so
+        # what is written there cannot have come from the mask (review of #116, finding 4).
+        from .middleware import UNMASKED
+        if UNMASKED.match(request.path):
+            return None
         body = _json(request)
         hit = masked_text_in(body) if body is not None else None
         if hit:

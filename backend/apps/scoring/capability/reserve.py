@@ -19,7 +19,6 @@ the reserve keep their scores (no depth_share: nothing held).
 """
 from fractions import Fraction
 
-VERSION = 'depth-reserve-v3'
 #: v2 (22 Nov 2026): credit is held only on requirements with at least MIN_CREDIT, the ones asked about depth.
 #: Test 13 had 51 of 95 credited requirements on related evidence alone (0.125 or 0.25): asking how deep evidence
 #: goes that doesn't yet show the requirement is overboard, so they are asked to complete it in the missing-evidence
@@ -29,7 +28,17 @@ VERSION = 'depth-reserve-v3'
 #: reach when one shows it in full and the other finds at least related evidence (1 and 0.25), as v2's 1/2 was for
 #: the old rule's (1 and 0); two passes at 0.5 (shown only in part, twice) stay below it and get a missing-evidence
 #: question instead. Each record carries its own depth_min_credit, so v2 records keep 1/2.
+#: v4 (27 Nov 2026, review of #116, finding 1): v3 held a quarter of the credit from 5/8 up and nothing below, so a
+#: requirement at 5/8 counted 0.469 and one at 0.583 counted 0.583: more credit could count for less. The held share
+#: now rises smoothly from nothing at 5/8 to the full share at full credit, share x (credit - 5/8) / (3/8), so
+#: counted credit always rises with credit and a fully credited requirement holds what it held before (Siddharth,
+#: 27 Nov). And no hold after a re-judge (compact re-judge decision 5): which requirements are held is fixed at
+#: Stage 1, so a requirement a re-judge takes across 5/8 counts in full (depth_exempt, set by
+#: layer2.merge_new_evidence); one held at Stage 1 stays held, its depth answers deciding how much. v4 records carry
+#: depth_ramp; v3 and older records keep their step.
+VERSION = 'depth-reserve-v4'
 MIN_CREDIT = Fraction(5, 8)
+EXEMPT = 'established in follow-up'
 FRACTION = {'evidenced': Fraction(0), 'substantiated': Fraction(1, 2), 'strong': Fraction(1)}
 LEVELS = ('evidenced', 'substantiated', 'strong')
 
@@ -49,7 +58,12 @@ def frozen_policy():
     """What a new run freezes: the share and this rule's version."""
     share = configured_share()
     return {'version': VERSION, 'mode': 'reserve' if share else 'none', 'share': str(share),
-            'min_credit': str(MIN_CREDIT)}
+            'min_credit': str(MIN_CREDIT), 'ramp': True}
+
+
+def run_ramp(inputs):
+    """True when the run froze depth-reserve-v4 or later (the held share rises smoothly from the line)."""
+    return bool(((inputs or {}).get('depth_policy') or {}).get('ramp'))
 
 
 def run_min_credit(inputs):
@@ -70,10 +84,26 @@ def factor(level, share):
 
 
 def record_factor(record):
+    if record.get('depth_exempt'):
+        return Fraction(1)   # first shown in follow-up (v4): never asked about depth, so nothing is held
     minimum = record.get('depth_min_credit')
-    if minimum and Fraction(str(record.get('credit') or 0)) < Fraction(str(minimum)):
+    credit = Fraction(str(record.get('credit') or 0))
+    if minimum and credit < Fraction(str(minimum)):
         return Fraction(1)   # not asked about depth: nothing held
-    return factor(record.get('depth_level'), record.get('depth_share'))
+    share = Fraction(str(record.get('depth_share') or 0))
+    if record.get('depth_ramp') and minimum and share:
+        line = Fraction(str(minimum))
+        share = share * (min(credit, Fraction(1)) - line) / (1 - line)
+    return factor(record.get('depth_level'), share)
+
+
+def asked_depth(record):
+    """True when the record was asked about depth at Stage 1 (credit at or above its line, with a share held): the
+    requirements whose hold is fixed at Stage 1. A v4 record exactly at the line holds nothing but was still asked."""
+    if not record.get('depth_share') or not (record.get('credit') or 0) > 0 or record.get('depth_exempt'):
+        return False
+    minimum = record.get('depth_min_credit')
+    return not minimum or Fraction(str(record.get('credit') or 0)) >= Fraction(str(minimum))
 
 
 def holds(record):
@@ -111,10 +141,10 @@ def apply(credits, factor_by_id):
     return {cid: Fraction(str(value or 0)) * factor_by_id.get(cid, Fraction(1)) for cid, value in credits.items()}
 
 
-def stamp(rows, share, levels=None, min_credit=None):
-    """Set depth_share (and depth_min_credit) and depth_level on published rows. levels: {condition id: level} from
-    depth judgments (the provisional run's, for a final result); otherwise a row keeps the level it carries, else
-    evidenced. min_credit None keeps what a row carries."""
+def stamp(rows, share, levels=None, min_credit=None, ramp=None):
+    """Set depth_share (and depth_min_credit, depth_ramp) and depth_level on published rows. levels: {condition id:
+    level} from depth judgments (the provisional run's, for a final result); otherwise a row keeps the level it
+    carries, else evidenced. min_credit and ramp None keep what a row carries."""
     if not share:
         return rows
     levels = levels or {}
@@ -122,6 +152,8 @@ def stamp(rows, share, levels=None, min_credit=None):
         row['depth_share'] = str(share)
         if min_credit:
             row['depth_min_credit'] = str(min_credit)
+        if ramp:
+            row['depth_ramp'] = True
         level = levels.get(row['condition_id'], row.get('depth_level') or 'evidenced')
         if level == 'withdrawn':
             row['depth_review'] = 'A follow-up answer appears to contradict the credited evidence; held at evidenced for review.'

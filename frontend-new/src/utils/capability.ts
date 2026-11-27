@@ -151,12 +151,17 @@ const DEPTH_FRACTION: Record<string, number> = { evidenced: 0, substantiated: 0.
 /**
  * Share of a requirement's credit the headline counts (reserve.record_factor): 1 when nothing is held, otherwise
  * (1 - share) + share x depth shown. Credit below depth_min_credit is not asked about depth and holds nothing.
+ * depth-reserve-v4 (depth_ramp): the held share rises from nothing at the line to the full share at full credit;
+ * a requirement first shown in follow-up (depth_exempt) holds nothing.
  */
-export function countedShare(r: Pick<ConditionRecord, 'credit' | 'depth_share' | 'depth_level' | 'depth_min_credit'>): number {
-  const share = fraction(r.depth_share);
-  if (!share || !(r.credit && r.credit > 0)) return 1;
+export function countedShare(
+  r: Pick<ConditionRecord, 'credit' | 'depth_share' | 'depth_level' | 'depth_min_credit' | 'depth_ramp' | 'depth_exempt'>,
+): number {
+  let share = fraction(r.depth_share);
+  if (!share || !(r.credit && r.credit > 0) || r.depth_exempt) return 1;
   const minimum = fraction(r.depth_min_credit);
   if (minimum && r.credit < minimum) return 1;
+  if (r.depth_ramp && minimum) share = (share * (Math.min(r.credit, 1) - minimum)) / (1 - minimum);
   return (1 - share) + share * (DEPTH_FRACTION[r.depth_level || 'evidenced'] ?? 0);
 }
 
