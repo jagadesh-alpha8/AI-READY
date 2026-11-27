@@ -56,7 +56,9 @@ export function Questionnaire() {
 
 function Body({ sprint }: { sprint: Sprint }) {
   const { staff } = useAccess();
-  const [tab, setTab] = useState<Tab>(DEMO_MODE ? 'line2' : 'line1');
+  // ?tab=facts opens the facts check (the Assessment page sends staff here when a run needs the institution confirmed).
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState<Tab>(params.get('tab') === 'facts' || !DEMO_MODE ? 'line1' : 'line2');
 
   const cap = useCapability(sprint.id);
   return (

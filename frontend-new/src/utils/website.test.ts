@@ -29,13 +29,16 @@ test('a college sees no staff tabs, no hidden tabs, and Results has no Summary',
 
 test('the progress bar follows the assessment', () => {
   const sprint = { id: 's' };
-  const at = (run: { shown: boolean; final: boolean; making: boolean }, closed = false) => JOURNEY[journeyOf(sprint, run, closed)]?.label ?? 'done';
+  const at = (run: { shown: boolean; final: boolean; making: boolean; draft?: boolean }, closed = false) => JOURNEY[journeyOf(sprint, run, closed)]?.label ?? 'done';
   assert.equal(journeyOf(null, { shown: false, final: false, making: false }, false), 0);
   assert.equal(at({ shown: false, final: false, making: false }), 'Documents');
   assert.equal(at({ shown: false, final: false, making: true }), 'Stage 1 result');
   assert.equal(at({ shown: true, final: false, making: false }), 'Follow-up questions');
   assert.equal(at({ shown: true, final: false, making: false }, true), 'Final result');
   assert.equal(at({ shown: true, final: true, making: false }), 'done');
+  // Staff looking at an unpublished result: its step is current, not done.
+  assert.equal(at({ shown: true, final: false, making: false, draft: true }), 'Stage 1 result');
+  assert.equal(at({ shown: true, final: true, making: false, draft: true }), 'Final result');
 });
 
 test('a topic is counted in words, never as dots', () => {

@@ -28,8 +28,10 @@ export interface Journey {
   autoPublish: boolean;
 }
 
-export function journeyOf(sprint: Pick<Sprint, 'id'> | null, run: { shown: boolean; final: boolean; making: boolean },
-  closed: boolean): number {
+/** run.draft: InGage staff are looking at a result the college can't see yet, so its step is current, not done. */
+export function journeyOf(sprint: Pick<Sprint, 'id'> | null,
+  run: { shown: boolean; final: boolean; making: boolean; draft?: boolean }, closed: boolean): number {
+  if (run.draft) return run.final ? 4 : 2;
   if (run.final) return JOURNEY.length;
   if (run.shown) return closed ? 4 : 3;
   if (run.making) return 2;
