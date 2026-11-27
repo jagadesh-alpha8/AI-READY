@@ -8,7 +8,7 @@ import { usePolling, useResource } from '../hooks/useResource';
 import {
   addAdditionalEvidence, answerFollowUp, answerQuestion, cancelSecondLayerJob, getNextQuestion, getQuestions, getResponse,
   listAdditionalEvidence, listSecondLayerJobs, markToCheck, startSecondLayerJob,
-  type AdditionalEvidenceItem, type Layer2Next, type Layer2Question, type Layer2Progress, type Layer2Questions, type Layer2Response, type SecondLayerJob,
+  type AdditionalEvidenceItem, type DocumentLine, type Layer2Next, type Layer2Question, type Layer2Progress, type Layer2Questions, type Layer2Response, type SecondLayerJob,
   type SecondLayerJobList, type SecondLayerOperation,
 } from '../services/capability';
 import { startExtraction, uploadDocument } from '../services/documents';
@@ -88,10 +88,41 @@ function Body({ sprint }: { sprint: Sprint }) {
 
 async function uploadAll(sprintId: string, files: File[]): Promise<string[]> {
   const ids: string[] = [];
-  for (const f of files) ids.push((await uploadDocument(sprintId, f, 'unclassified')).data.id);
-  // An answer is checked once its documents are extracted, so start processing exactly these files.
-  if (ids.length) await startExtraction(sprintId, ids);
+  const fresh: string[] = [];
+  for (const f of files) {
+    try {
+      const id = (await uploadDocument(sprintId, f, 'unclassified')).data.id;
+      ids.push(id);
+      fresh.push(id);
+    } catch (err) {
+      // A file already uploaded to this sprint is attached as the copy we hold: sending it again asks for a second
+      // look, which the server matches to the pages it has by their text.
+      const raw = (err as { response?: { data?: { duplicate_document_id?: string | string[] } } }).response?.data
+        ?.duplicate_document_id;
+      const existing = Array.isArray(raw) ? raw[0] : raw;
+      if (!existing) throw err;
+      ids.push(existing);
+    }
+  }
+  // An answer is checked once its documents are extracted, so start processing exactly the new files.
+  if (fresh.length) await startExtraction(sprintId, fresh);
   return ids;
+}
+
+/** What each document did, written when the final result is published. */
+function DocumentLines({ lines, staff }: { lines?: DocumentLine[]; staff: boolean }) {
+  if (!lines?.length) return null;
+  return (
+    <ul className="doc-lines">
+      {lines.map((line, n) => (
+        <li key={`${line.requirement}-${line.document_id}-${line.kind}-${n}`}>
+          {line.text}
+          {staff && line.staff && <details><summary className="muted">Detail for staff</summary>
+            <pre className="muted">{JSON.stringify(line.staff, null, 1)}</pre></details>}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** The prominent upload control used by every item. */
@@ -327,6 +358,12 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
           <ul>{notice.rules.map((rule) => <li key={rule}>{rule}</li>)}</ul>
         </details>
       )}
+      {notice?.how_we_use && !closed && (
+        <section className="fu-rules">
+          <strong>{notice.how_we_use.title}</strong>
+          <ul>{notice.how_we_use.lines.map((line) => <li key={line}>{line}</li>)}</ul>
+        </section>
+      )}
       {staff && <SecondLayerJobs sprint={sprint} runId={runId} progress={p} onChange={refresh} onFinal={onFinal} />}
       {!DEMO_MODE && staff && <div className="stat-grid">
         <Stat label="Questions" value={p?.questions ?? 0} note={`${p?.linked ? `${p.linked} more answered through linked questions · ` : ''}Stage 1 result, run ${runId.slice(0, 8)}${run.id === runId ? ` · ${dateTime(run.created_at)}` : ''}`} />
@@ -380,6 +417,7 @@ function LineTwo({ sprint, run, runId, onFinal }: { sprint: Sprint; run: Run; ru
                 <p className="muted">Already read in the first assessment, so it added nothing new: {r.search.already_counted.map((d) => d.name).join(', ')}</p>
               )}
               {r.follow_up && <p><b>Follow-up asked:</b> {r.follow_up}</p>}
+              <DocumentLines lines={r.document_lines} staff={staff} />
             </article>
           ))}
         </Panel>
@@ -737,6 +775,7 @@ function AnsweredQuestion({ q, position, total, found, topics, closed, onPreviou
             <p><span className={`tag ${answerTag(q)[1]}`}>{answerState(r).label}</span></p>
             {r.answer && <p>{tidyText(r.answer)}</p>}
             <p className="muted">{r.document_ids.length ? `${r.document_ids.length} document${r.document_ids.length === 1 ? '' : 's'} attached` : 'No document attached'} · {dateTime(r.created_at)}</p>
+            <DocumentLines lines={r.document_lines} staff={false} />
           </>
         ) : <p className="muted">{closed ? 'Not answered before the questions closed.' : 'Not answered yet.'}</p>}
       </div>
@@ -911,6 +950,7 @@ function AdditionalEvidence({ sprint, run, runId, closed }: { sprint: Sprint; ru
             {a.note && <p>{tidyText(a.note)}</p>}
             <p className="muted">For: {a.picked.join(', ')}{a.routed_indicators.length ? ` · routed to ${a.routed_indicators.join(', ')}` : ''}{a.over_cap.length ? ` · over the 8-indicator cap: ${a.over_cap.join(', ')}` : ''}</p>
             {a.status === 'checked' && <p className="muted">{a.passages_found} passage(s) found</p>}
+            <DocumentLines lines={a.document_lines} staff={false} />
           </article>
         ))}
       </Panel>

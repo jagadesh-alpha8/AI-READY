@@ -634,19 +634,19 @@ def credit_routes(run_ref):
     for response in depth_answers:
         routes.append({'indicator': response.question.indicator_code, 'conditions': list(response.question.condition_ids),
                        'windows': response.windows, 'documents': list(response.document_ids), 'kind': 'depth',
-                       'from': f'depth-response:{response.pk}'})
+                       'from': f'depth-response:{response.pk}', 'answer': response.answer or ''})
     answers = (DepthResponse.objects.filter(question__run_ref=run_ref, question__kind=DepthQuestion.Kind.MISSING,
                                             status=DepthResponse.Status.CHECKED)
                .exclude(kind=DepthResponse.Kind.DONT_KNOW).select_related('question').order_by('created_at'))
     for response in answers:
         routes.append({'indicator': response.question.indicator_code, 'conditions': list(response.question.condition_ids),
                        'windows': response.windows, 'documents': list(response.document_ids), 'kind': 'missing',
-                       'from': f'response:{response.pk}'})
+                       'from': f'response:{response.pk}', 'answer': response.answer or ''})
     for item in AdditionalEvidence.objects.filter(run_ref=run_ref, status=AdditionalEvidence.Status.CHECKED):
         for code in item.routing.get('indicators', []):
             routes.append({'indicator': code, 'conditions': item.routing.get('conditions', {}).get(code),
                            'windows': item.windows, 'documents': list(item.document_ids), 'kind': 'additional',
-                           'from': f'additional:{item.pk}'})
+                           'from': f'additional:{item.pk}', 'answer': item.note or ''})
     return routes
 
 
@@ -682,7 +682,22 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
     new_documents = sorted({d for t in targets.values() for d in t['documents'] if d not in frozen_documents}
                            | {w['document_id'] for t in targets.values() for w in t['windows']
                               if w.get('document_id') and w['document_id'] not in frozen_documents})
-    new_pages = document_sources(new_documents, sprint_id)[0] if sprint_id is not None and new_documents else []
+    new_pages, _, failed_documents = (document_sources(new_documents, sprint_id) if sprint_id is not None
+                                      and new_documents else ([], True, []))
+    from .compact import frozen_settings
+    follow_up_settings = frozen_settings(run_ref)
+    if follow_up_settings['packet'] == 'compact' and targets:
+        # compact-1 (compact.py): one requirement per request, on a packet built around what the college sent.
+        rule = layer2.check_export_rule(records, traces, targets)
+        from . import compact
+        from .part_judgment import under_rule
+        with under_rule(rule):
+            return compact.rejudge(export=export, service=service, result={**result, 'credit_rule': rule},
+                                   records=records, traces=traces, routes=routes, run=run, run_ref=run_ref,
+                                   rubric=rubric, lowering=lowering, frozen=frozen, new_pages=new_pages,
+                                   evaluate_fn=evaluate_fn, sources=sources, evaluate_options=evaluate_options,
+                                   rule=rule, settings_=follow_up_settings, failed_documents=failed_documents)
+    result['follow_up_settings'] = follow_up_settings
     if new_pages:
         # Pages extraction tagged for the indicator, in the new documents sent for that indicator, join its packet
         # whatever their wording. (The run's own documents went through the extracted-evidence lane in the first layer.)
@@ -805,6 +820,16 @@ def publish_final(result, *, service=None, user=None, inference=None):
                         'new_sources': sorted(s['id'] for s in new_sources)})
     key = 'second-layer-' + signature[:48]
     sprint = provisional_run.sprint
+    lines = result.get('document_lines') or {}
+    if lines and service is not None and hasattr(service, 'extract_structured_data'):
+        # The college reads these lines, so the writer words them from its own pages (compact.write_lines): each is
+        # checked, else its template stands. Outside the transaction: a model call never holds the run's lock.
+        from .compact import write_lines
+
+        def call(system_prompt, user_content, response_schema, schema_name):
+            return service.extract_structured_data(system_prompt=system_prompt, user_content=user_content,
+                                                   response_schema=response_schema, schema_name=schema_name)
+        write_lines(lines, call)
     with transaction.atomic():
         CapabilityRun.objects.select_for_update().get(pk=provisional_run.pk)
         existing = CapabilityExecution.objects.filter(sprint=sprint, idempotency_key=key).select_related('run').first()
@@ -843,4 +868,16 @@ def publish_final(result, *, service=None, user=None, inference=None):
         publish(institution_id=sprint.institution_id, run_id=run.pk,
                 evaluation={'records': result['records'], 'traces': traces},
                 inference=inference or _inference(service, event))
+        save_document_lines(lines)
     return run
+
+
+def save_document_lines(by_route):
+    """Store what each document did (compact.lines) on the answers and submissions it came from, once the final
+    result is published: {route 'from': [line]}."""
+    for origin, rows in by_route.items():
+        kind, _, pk = str(origin).partition(':')
+        if kind in ('response', 'depth-response'):
+            DepthResponse.objects.filter(pk=pk).update(document_lines=rows)
+        elif kind == 'additional':
+            AdditionalEvidence.objects.filter(pk=pk).update(document_lines=rows)

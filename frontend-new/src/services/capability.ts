@@ -126,16 +126,29 @@ export interface Layer2Response {
   submitted_via?: string;
   /** already_counted: attached documents the first assessment had already read for this key indicator. */
   search?: { already_counted?: { document_id: string; name: string }[]; [k: string]: unknown };
+  /** What each document did, once the final result is published (compact re-judge). staff: staff only. */
+  document_lines?: DocumentLine[];
+}
+export interface DocumentLine {
+  document_id: string | null; requirement: string;
+  kind: 'counted' | 'also_counted' | 'already_counted' | 'read_again' | 'lowered' | 'could_not_read' | 'could_not_find'
+    | 'partly_read' | 'no_document' | string;
+  text: string; staff?: Record<string, unknown>;
 }
 export interface AdditionalEvidenceItem {
   id: string; document_ids: string[]; note: string; picked: string[]; routed_indicators: string[]; unknown_picks: string[];
   over_cap: string[]; status: 'pending' | 'checked'; passages_found: number; created_at: string;
+  document_lines?: DocumentLine[];
 }
 export type AnswerChoice = 'yes' | 'partly' | 'not_yet';
 type Reply = { answer?: string; document_ids?: string[]; skip?: boolean; choice?: AnswerChoice };
 
 /** The text shown before the follow-up questions; served by the back end so every screen uses one wording. */
-export interface QuestionnaireNotice { version: string; title: string; intro: string; rules: string[]; closed: boolean; closed_text?: string }
+export interface QuestionnaireNotice {
+  version: string; title: string; intro: string; rules: string[]; closed: boolean; closed_text?: string;
+  /** "How we use your answers" (compact re-judge), worded from the run's frozen settings; null on the whole packet. */
+  how_we_use?: { title: string; version?: string; lines: string[] } | null;
+}
 export interface Layer2Questions {
   next: Layer2Next | null; progress: Layer2Progress; notice?: QuestionnaireNotice;
   /** With ?list=1: every question in order, each with its latest answer (for "Previous"). */

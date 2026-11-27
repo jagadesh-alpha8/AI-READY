@@ -12,7 +12,7 @@ EFFORTS = ('none', 'low', 'medium', 'high', 'xhigh', 'max')
 #: Calls that write or route rather than judge: they never decide a requirement's credit themselves.
 WRITING = frozenset({'depth_question_plan', 'depth_question_links', 'depth_questions', 'answer_check',
                      'score_explanations', 'capability_advice', 'capability_advice_repair', 'institution_plan_parse',
-                     'next_step'})
+                     'next_step', 'document_lines'})
 #: Gemini's reasoning levels for a Claude/OpenAI-style effort name.
 GEMINI_EFFORT = {'none': 'minimal', 'low': 'low', 'medium': 'medium', 'high': 'high', 'xhigh': 'high', 'max': 'high'}
 

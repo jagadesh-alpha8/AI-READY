@@ -967,6 +967,15 @@ SECOND_LAYER_CORPUS_SUPPORT = os.getenv('SECOND_LAYER_CORPUS_SUPPORT', 'true').s
 # lowerings are applied: they are held for review. 'flag': contradictions are listed for review and change nothing.
 SECOND_LAYER_LOWERING = os.getenv('SECOND_LAYER_LOWERING', 'apply').strip().lower()
 SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT = int(os.getenv('SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT', '3'))
+# Compact re-judge for follow-up answers (apps/scoring/capability/compact.py; design 27 Nov). Each run's follow-up
+# stage freezes these the first time it reads them (FollowUpSettings), so switching one changes only later runs, and a
+# switch is a named change in a new standard version. Defaults stay whole / off / hidden until the replay tests pass.
+REJUDGE_PACKET = os.getenv('REJUDGE_PACKET', 'whole').strip().lower()                  # whole | compact
+REJUDGE_OTHER_REQUIREMENTS = os.getenv('REJUDGE_OTHER_REQUIREMENTS', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+REJUDGE_TYPED_ANSWER = os.getenv('REJUDGE_TYPED_ANSWER', 'hidden').strip().lower()     # shown | hidden
+# Compact mode tags uploaded pages with the evidence map when they have no tags yet (about a tenth of a cent a page).
+REJUDGE_TAG_UPLOADS = os.getenv('REJUDGE_TAG_UPLOADS', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+REJUDGE_TAG_MAX_COST_USD = os.getenv('REJUDGE_TAG_MAX_COST_USD', '0.50')
 SECOND_LAYER_JOBS_ENABLED = os.getenv('SECOND_LAYER_JOBS_ENABLED', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Score explanations (capability/explanations.py, Harsha's requirement of 12 Nov 2026): model-written, checked against
 # the run's record. An explain job runs on its own after a final result is published when this is on; for a
