@@ -1,7 +1,7 @@
 import { http, saveBlob } from './http';
 import { getVersioned } from './runCache';
 import type { CapabilityPage, CapabilityRecommendation, Job, PublicationHistoryItem, Published, ReportReadiness, Run } from '../types/capability';
-import type { ActionState, PlanComparison, PlanEvaluationJob } from '../types/workflow';
+import type { ActionState, PlanCheckLimits, PlanComparison, PlanEvaluationJob } from '../types/workflow';
 
 /** Evidence-based capability assessment runs (A1 backend). Reads are free; starting a run uses model credits. */
 const root = (sprint: string) => `/sprints/${sprint}/capability-runs`;
@@ -47,16 +47,20 @@ export const updateActionState = (sprint: string, run: string, advice: string, c
 
 // --- plan evaluations: compare a written plan against the run (uses model credits) ---
 export const listPlanEvaluations = (sprint: string, run: string) =>
-  http.get<CapabilityPage<PlanEvaluationJob>>(`${root(sprint)}/${run}/plan-evaluations`);
+  http.get<CapabilityPage<PlanEvaluationJob> & { limits?: PlanCheckLimits }>(`${root(sprint)}/${run}/plan-evaluations`);
 export const getPlanEvaluation = (sprint: string, run: string, scenario: string) =>
   http.get<PlanComparison>(`${root(sprint)}/${run}/plan-evaluations/${scenario}`);
 export const startPlanEvaluation = (sprint: string, run: string, planText: string, key: string) =>
   http.post<PlanEvaluationJob>(`${root(sprint)}/${run}/plan-evaluations`, { plan_text: planText }, { headers: { 'Idempotency-Key': key } });
 export const cancelPlanEvaluation = (sprint: string, run: string, scenario: string) =>
   http.post<PlanEvaluationJob>(`${root(sprint)}/${run}/plan-evaluations/${scenario}/cancel`);
-export async function downloadPlanEvaluation(sprint: string, run: string, scenario: string, format: 'html' | 'json') {
+/** pdf: the plan check; docx: the recommended plan as a Word file; html: an earlier version's page; json: staff. */
+export async function downloadPlanEvaluation(sprint: string, run: string, scenario: string, format: 'pdf' | 'docx' | 'html' | 'json') {
   const res = await http.get<Blob>(`${root(sprint)}/${run}/plan-evaluations/${scenario}/report`, { params: { file: format }, responseType: 'blob' });
-  saveBlob(res.data, `plan-comparison-${scenario.slice(0, 8)}.${format}`);
+  // The server names the file (and sends the page as HTML where it can't make a PDF).
+  const header = String(res.headers?.['content-disposition'] || '');
+  const named = /filename="([^"]+)"/.exec(header)?.[1];
+  saveBlob(res.data, named || `plan-check-${scenario.slice(0, 8)}.${format}`);
 }
 
 /** summary and detailed: the reports for people (23 Nov); leadership and evidence: InGage's technical appendix. */

@@ -850,6 +850,11 @@ if EXTRACTION_QUEUE:
 
 # Experimental, explicit plan interpretation; shares configured request/cost caps.
 CAPABILITY_PLANS_ENABLED = os.getenv('CAPABILITY_PLANS_ENABLED', 'false').lower() == 'true'
+# Plan checks (capability/plan_mapping.py): how many a sprint allows (failed checks are not counted), and each
+# check's own call and spending ceilings (a check makes about 5 to 12 calls).
+PLAN_EVALUATIONS_PER_SPRINT = int(os.getenv('PLAN_EVALUATIONS_PER_SPRINT', '10'))
+PLAN_REVIEW_MAX_CALLS = int(os.getenv('PLAN_REVIEW_MAX_CALLS', '30'))
+PLAN_REVIEW_MAX_COST_USD = os.getenv('PLAN_REVIEW_MAX_COST_USD', '5')
 
 # Capability retrieval: installing weights never changes the live retrieval policy.
 # Workers never download artifacts or use hosted embedding inference.

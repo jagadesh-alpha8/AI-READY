@@ -1,0 +1,66 @@
+{% load report_tags %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ v.institution }}: your AI plan, checked</title>
+{# The plan check (plan_report.py): what works, what doesn't count yet, what we recommend. Same look as the v5 reports. #}
+<style>
+@page { size:A4; margin:14mm 16mm 16mm 16mm;
+ @bottom-left { content:"{{ v.institution|cssstr }}, AI plan check"; font:7.5pt 'DM Sans','DejaVu Sans',sans-serif; color:#707A73; }
+ @bottom-right { content:counter(page); font:7.5pt 'DM Sans','DejaVu Sans',sans-serif; color:#707A73; } }
+*{box-sizing:border-box}
+body{margin:0 auto;max-width:190mm;font-family:'DM Sans','DejaVu Sans',sans-serif;font-size:9.6pt;line-height:1.45;color:#26332C}
+.top{display:flex;justify-content:space-between;align-items:baseline;border-bottom:.35mm solid #26332C;padding-bottom:1.6mm;margin-bottom:6mm}
+.brand{font-weight:700;font-size:10pt;letter-spacing:.04em} .meta{font-size:8.5pt;color:#535353}
+h1{font-weight:600;font-size:22pt;line-height:1.1;margin:0} .sub{margin:1mm 0 0;color:#535353;font-size:10.5pt}
+h2{font-weight:600;font-size:12pt;margin:7mm 0 2mm;padding-bottom:.8mm;border-bottom:.2mm solid #DCE3DC}
+h2 small{font-weight:400;color:#535353;font-size:8.6pt;margin-left:2mm}
+.howto{background:#F4F8ED;padding:2.6mm 4mm 3mm;margin-top:5mm;border-left:.9mm solid #B9A23C} .howto h3{margin:0 0 1mm;font-size:10pt}
+.howto p{margin:0}
+.result{margin:5mm 0 0;font-size:10.8pt;line-height:1.5} .result p{margin:0 0 1.2mm} .result p:first-child{font-weight:600}
+.summary{margin:3mm 0 0;font-size:10pt;border-left:.6mm solid #0C4320;padding-left:3.5mm}
+.item{padding:2mm 0;border-bottom:.2mm solid #DCE3DC;page-break-inside:avoid} .item:last-child{border-bottom:0}
+.item strong{display:block;font-weight:600;font-size:10pt;line-height:1.3}
+.item .q{display:block;color:#535353;font-size:8.4pt;margin:.4mm 0 .8mm}
+.item p{margin:0}
+.tag{display:inline-block;font-size:7.6pt;font-weight:600;padding:.3mm 1.8mm;border-radius:.6mm;margin-right:1.6mm;vertical-align:1px}
+.ok{background:#0C4320;color:#fff} .no{background:#EDF1E9;color:#26332C;border:.2mm solid #C9D3C6}
+.chg{background:#F4F8ED;padding:2.4mm 3.8mm;margin-top:2mm;page-break-inside:avoid}
+.chg .k{display:inline-block;font-size:7.6pt;font-weight:600;color:#fff;background:#0C4320;padding:.3mm 1.8mm;border-radius:.6mm;margin-right:2mm}
+.chg .k.drop{background:#707A73}
+.chg strong{font-weight:600;font-size:10pt} .chg .text{margin:1.2mm 0 0;font-size:9.8pt}
+.chg dl{display:grid;grid-template-columns:20mm 1fr;margin:1.4mm 0 0;font-size:8.6pt;row-gap:.5mm;column-gap:3mm} .chg dt{color:#535353} .chg dd{margin:0}
+.muted{color:#535353} ol.plan{margin:0;padding-left:6mm} ol.plan li{margin-bottom:1.3mm} ol.plan em{font-style:normal;font-size:8pt;font-weight:600;color:#0C4320;margin-left:1.5mm}
+ol.plan small{display:block;color:#535353;font-size:8.2pt}
+ul.plain{margin:0;padding-left:5mm} ul.plain li{margin-bottom:1mm}
+.foot{margin-top:7mm;padding-top:2mm;border-top:.2mm solid #DCE3DC;font-size:8.2pt;color:#535353}
+</style></head><body>
+<header class="top"><div class="brand">AI-READY</div><div class="meta">Plan check, {{ v.checked_on }}</div></header>
+<h1>{{ v.institution }}</h1><p class="sub">Your AI plan, checked against your {{ v.result_kind }}</p>
+
+<section class="howto"><h3>How to read this</h3><p>{{ v.how_to_read }}</p></section>
+
+<div class="result">{% for line in v.score_lines %}<p>{{ line }}</p>{% endfor %}</div>
+{% if v.summary %}<p class="summary">{{ v.summary }}</p>{% endif %}
+
+<h2>What works<small>{{ v.works|length }} of {{ v.total }} action{{ v.total|pluralize }}</small></h2>
+{% for a in v.works %}<div class="item"><strong><span class="tag ok">Counts</span>{{ a.title }}</strong>{% if a.text %}<span class="q">{{ a.text }}</span>{% endif %}<p>{{ a.note }}</p></div>
+{% empty %}<p class="muted">None of the plan's actions, as written, would leave a record of something your documents do not already show. The recommendations below say what would.</p>{% endfor %}
+
+{% if v.not_yet %}<h2>What doesn't count yet<small>{{ v.not_yet|length }} of {{ v.total }} action{{ v.total|pluralize }}</small></h2>
+{% for a in v.not_yet %}<div class="item"><strong><span class="tag no">{{ a.label }}</span>{{ a.title }}</strong>{% if a.text %}<span class="q">{{ a.text }}</span>{% endif %}{% if a.note %}<p>{{ a.note }}</p>{% endif %}</div>{% endfor %}{% endif %}
+
+<h2>What we recommend<small>{{ v.kept }} action{{ v.kept|pluralize }} kept as you wrote {{ v.kept|pluralize:"it,them" }}</small></h2>
+{% for c in v.changes %}<div class="chg"><span class="k{% if c.operation == 'drop' %} drop{% endif %}">{{ c.kind }}</span><strong>{{ c.title }}</strong>
+{% if c.text %}<p class="text">{{ c.text }}</p>{% endif %}
+<dl>{% if c.why %}<dt>Why</dt><dd>{{ c.why }}</dd>{% endif %}{% if c.owner %}<dt>Owner</dt><dd>{{ c.owner }}</dd>{% endif %}{% if c.done_when %}<dt>Done when</dt><dd>{{ c.done_when }}</dd>{% endif %}{% if c.builds_on %}<dt>Builds on</dt><dd>What your documents show at {{ c.builds_on|join:"; " }}</dd>{% endif %}</dl></div>
+{% empty %}<p class="muted">We recommend no changes: the plan already counts for everything its actions set out to do.</p>{% endfor %}
+{% if v.outside %}<p class="muted" style="margin-top:3mm">Outside the areas your plan covers, the assessment also found room to grow in {{ v.outside|join:", " }}. We have not added these to your plan; your Steps page has one for each area.</p>{% endif %}
+
+{% if v.constraints %}<h2>Kept from your plan</h2><p class="muted" style="margin:0 0 1mm">The recommended version keeps these as you wrote them.</p>
+<ul class="plain">{% for q in v.constraints %}<li>{{ q }}</li>{% endfor %}</ul>{% endif %}
+
+<h2>Your plan with our changes</h2>
+<ol class="plan">{% for a in v.recommended %}<li>{{ a.text }}{% if a.origin == 'changed' %}<em>Changed</em>{% elif a.origin == 'added' %}<em>Added</em>{% endif %}{% if a.owner and a.owner != 'Not stated' or a.done_when %}<small>{% if a.owner and a.owner != 'Not stated' %}Owner: {{ a.owner }}. {% endif %}{% if a.done_when %}Done when: {{ a.done_when }}{% endif %}</small>{% endif %}</li>{% endfor %}</ol>
+
+{% if v.unclear or v.warnings %}<h2>Worth clarifying in your plan</h2><ul class="plain">{% for u in v.unclear %}<li>{{ u }}</li>{% endfor %}{% for w in v.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+
+<p class="foot">{{ v.limits }}</p>
+</body></html>
