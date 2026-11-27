@@ -11,7 +11,7 @@ import { newKey } from '../utils/capability';
 import { listSprintGapsPage } from '../services/gaps';
 import { getSprintOverview } from '../services/sprints';
 import type { Sprint } from '../types/api';
-import { errorMessage } from '../utils/errors';
+import { codeOf, errorMessage } from '../utils/errors';
 import { dateTime } from '../utils/format';
 import { levelFor, whole } from '../utils/levels';
 import { Icon, Stars } from './Icon';
@@ -40,6 +40,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
   // A fresh key each time the dialog opens: one run per confirmation, and a second run is never mistaken for the first.
   const [key, setKey] = useState(newKey);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  const [identity, setIdentity] = useState(false);
 
   if (cap.loading && !cap.runs.data) return <Loading label="Loading your assessment…" />;
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
@@ -96,6 +97,13 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
   return (
     <>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
+      {identity && (
+        <Notice tone="error" onClose={() => setIdentity(false)}>
+          The assessment did not start, and nothing was spent. Your documents name the institution differently from its
+          profile, so first say which institution they belong to: it is the first question in{' '}
+          <Link to={`${pathOf('questionnaire')}?tab=facts`}>the facts check</Link>. Then run the assessment again.
+        </Notice>
+      )}
       <div className="ws-steps" role="list">
         {steps.map((s, i) => (
           <div key={s.title} role="listitem" className={`ws-step ${s.state}`}>
@@ -181,7 +189,17 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
           fields={[]}
           confirmLabel="Run the assessment"
           onSubmit={async () => {
-            await startRun(sprint.id, key);
+            try {
+              await startRun(sprint.id, key);
+            } catch (err) {
+              // The documents name the institution differently from its profile: the run waits for someone to say which
+              // institution they concern (the facts check's first question), and nothing is spent.
+              if (codeOf(err) !== 'source_identity_confirmation_required') throw err;
+              setMsg(null);
+              setIdentity(true);
+              return;
+            }
+            setIdentity(false);
             await cap.runs.refetch();   // the panel shows it running, then the result
           }}
           onClose={() => setConfirming(false)}
