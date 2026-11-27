@@ -7,7 +7,8 @@ frozen in the execution policy. The standard is an accreditation peer reviewer's
 element: a submitted record is evidence of what it states.
 
 Arithmetic, per condition (all deterministic):
-* part credit: full = 1, related = RELATED_CREDIT, not found or contradicted = 0. Gates: if the first part (the
+* part credit: full = 1, related = RELATED_CREDIT (MIDDLE_CREDIT when the subject is full), not found or
+  contradicted = 0. Gates: if the first part (the
   condition's subject) or the AI-specific part of an AI condition has no evidence, or the subject has only related
   evidence and nothing else is evidenced, the condition credit is 0. A digital system that is not AI on an AI part
   earns no AI credit; `digital_credit` counts it as groundwork for the separate digital-groundwork score. A finding other than
@@ -22,7 +23,9 @@ Arithmetic, per condition (all deterministic):
 * two passes: the condition credit is the mean of the two passes' credits; met only when both passes say met; a
   state the passes do not share becomes unknown for review (its averaged credit is kept). Passes disagree when their
   states differ or their credits differ by CREDIT_GAP or more; with tie-breaking, a third pass is run for those and the
-  condition takes the median credit of the three passes (and the majority state, else unknown).
+  condition takes the mean credit of the three passes (add_third; mean-credit-of-three-v1). Until 27 Nov it took the
+  median, which let the third pass alone decide a split call: rescored on runs 211e9614 and 890f2b7e, the mean cuts
+  the expected gap between identical runs from about 0.95 to 0.81 points, at no extra cost.
 """
 import hashlib
 import json
@@ -39,11 +42,17 @@ JUDGMENT = 'parts-v2'
 OUTPUT_FORMAT = 'condition-list-1'
 #: How part findings become a condition's credit (see credit()). subject-cap-v1: a subject found only as related
 #: caps the condition at related credit. Frozen with the run (metadata) so runs on another rule are not mixed.
-CREDIT_RULE = 'subject-cap-v1'
+CREDIT_RULE = 'subject-cap-middle-v2'
 #: Related evidence is adjacent, not partial proof. At 0.5, the VISTAS run (f5919156) gave 29 requirements half
 #: credit on generic institutional paperwork alone (14.75 of 81.5 credited conditions); 0.25 keeps it visible
 #: without letting adjacency pass for half of the requirement.
 RELATED_CREDIT = 0.25
+#: subject-cap-middle-v2 (27 Nov 2026): a related part counts MIDDLE_CREDIT when the condition's subject is shown in
+#: full. "Subject shown, the rest partly shown" earned the same 0.25 as two loosely related pages; full findings are
+#: the judge's most reliable output (runs 211e9614 and 890f2b7e: 28 of 35 direct-evidence requirements at full credit
+#: in both). Rescored on those runs: about +2.2 points, 70% of it on requirements with marked real evidence, and no
+#: rise in run-to-run variation. A related subject still caps the condition at RELATED_CREDIT.
+MIDDLE_CREDIT = 0.5
 #: Two passes whose credits for a condition differ by at least this much count as disagreeing (as do passes with
 #: different states); with tie-breaking on, a third pass decides by median credit.
 CREDIT_GAP = 0.5
@@ -205,7 +214,7 @@ def specification(rubric):
 def metadata():
     return {'judgment': JUDGMENT, 'parts_version': VERSION, 'parts_hash': _load()[1],
             'parts_prompt_hash': hashlib.sha256(prompt().encode()).hexdigest(), 'related_credit': RELATED_CREDIT,
-            'output_format': OUTPUT_FORMAT,
+            'middle_credit': MIDDLE_CREDIT, 'output_format': OUTPUT_FORMAT,
             'credit_rule': CREDIT_RULE}
 
 
@@ -413,7 +422,10 @@ def credit(parts, spec_parts=None, digital=False):
     carries the kind of evidence the condition asks for ("an assessment of faculty is recorded", related: "attendance
     only"; "a verified record of participation", related: "counts without verification"); as a pure gate, attendance
     plus an AI topic earned full credit for "an assessment demonstrates AI literacy" (f5919156 rescored: 8
-    requirements, 2.44 points; test 13: 2, 0.78)."""
+    requirements, 2.44 points; test 13: 2, 0.78).
+
+    A subject found in full lifts each related substantive part to MIDDLE_CREDIT (subject-cap-middle-v2): for a
+    two-part condition, subject full and second part related is 0.5, not 0.25."""
     if not parts:
         return 0.0
     # digital=True is the digital-groundwork measure: a digital system that is not AI counts on an AI part.
@@ -422,6 +434,8 @@ def credit(parts, spec_parts=None, digital=False):
     gates = {p['id'] for p in (spec_parts or []) if p.get('gate')} or {parts[0]['id']}
     if any(p['id'] in gates and p['credited_as'] not in evidenced for p in parts):
         return 0.0
+    if value.get(parts[0]['credited_as']) == 1.0:
+        value['related'] = MIDDLE_CREDIT   # subject-cap-middle-v2: the subject is shown in full
     substantive = parts[1:] or parts
     mean = sum(value.get(p['credited_as'], 0.0) for p in substantive) / len(substantive)
     if parts[0]['credited_as'] == 'related':
@@ -472,3 +486,54 @@ def combine(first, second):
         merged['citations'] = cited if merged['state'] != 'met' or cited else record['citations']
         combined.append(merged)
     return combined, disagreements
+
+
+TIE_BREAK_RULE = 'mean-credit-of-three-v1'
+
+
+def add_third(merged, third, first, second):
+    """A combined record (combine) with a third pass of the same packet added (mean-credit-of-three-v1).
+
+    Each part keeps the first two passes' fields and gains third_finding, third_credited_as and third_citations, so
+    the condition's credit is the mean of the three passes' credits and anything that recomputes it from the parts
+    (layer2._recredit) gets the same number. first, second: the two passes' own records. State: met only when all
+    three passes say met; otherwise the majority state when it is not met, else unknown. A settled state takes its
+    reason, cause and scope and period flags from the first pass that holds it."""
+    from .decision_causes import ASSESSOR_DISAGREEMENT
+    value = {'full': 1.0, 'related': RELATED_CREDIT}
+    third_parts = {p['id']: p for p in third.get('parts') or []}
+    parts = []
+    for part in merged['parts']:
+        match = third_parts.get(part['id'], {'credited_as': 'not_found', 'citations': [], 'finding': 'not_found'})
+        found = (part.get('credited_as'), part.get('second_credited_as', part.get('credited_as')),
+                 match['credited_as'])
+        parts.append({**part, 'third_finding': match['finding'], 'third_credited_as': match['credited_as'],
+                      'third_citations': match['citations'],
+                      'citations': part.get('citations') or part.get('second_citations') or match['citations'],
+                      'part_credit': round(sum(value.get(x, 0.0) for x in found) / 3, 4)})
+    credits = list(merged.get('pass_credits') or [merged['credit'], merged['credit']])[:2] + [third['credit']]
+    digital = [merged.get('digital_credit', merged['credit']), third.get('digital_credit', third['credit'])]
+    passes = [first, second, third]
+    states = [r['state'] for r in passes]
+    out = {**merged, 'parts': parts, 'credit': round(sum(credits) / 3, 4), 'pass_credits': credits,
+           # the first two passes' digital credit is already their mean
+           'digital_credit': round((2 * digital[0] + digital[1]) / 3, 4), 'agreement': 'mean of three passes'}
+    if all(s == 'met' for s in states):
+        settled = 'met'
+    else:
+        settled = next((s for s in states if states.count(s) >= 2 and s != 'met'), None)
+    if settled is None:
+        out.update(state='unknown', cause=ASSESSOR_DISAGREEMENT, scope_supported=False, period_supported=False)
+    else:
+        holder = next(r for r in passes if r['state'] == settled)
+        out.update(state=settled, **{k: holder[k] for k in ('reason', 'cause', 'scope_supported', 'period_supported')
+                                     if k in holder})
+    cited = []
+    for part in parts:
+        if part['part_credit'] > 0:
+            for c in ((part.get('citations') or []) + (part.get('second_citations') or [])
+                      + (part['third_citations'] or [])):
+                if c not in cited:
+                    cited.append(c)
+    out['citations'] = cited
+    return out

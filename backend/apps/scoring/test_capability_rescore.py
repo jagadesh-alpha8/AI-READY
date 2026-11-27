@@ -24,7 +24,7 @@ class RescoreTests(SimpleTestCase):
         records = [{'condition_id': cid, 'state': 'unknown', 'credit': 0.0} for cid in ids]
         # Scored when related evidence was worth 0.5: both parts related in both passes.
         records[0] = {'condition_id': self.related, 'state': 'unknown', 'credit': 0.5,
-                      'parts': [part('p1', 'full', 'full'), part('p2', 'related', 'related')]}
+                      'parts': [part('p1', 'related', 'related'), part('p2', 'related', 'related')]}
         records[1] = {'condition_id': self.withheld, 'state': 'unknown', 'credit': 0.0, 'validation_issue': 'held',
                       'parts': [part('p1', 'full', 'full'), part('p2', 'full', 'full')]}
         self.report = {'rubric': rubric, 'assessment': {'records': records, 'result': {'score': 0.15}}}

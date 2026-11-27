@@ -1006,14 +1006,15 @@ def _parts_summary(records):
 def _part_tie_break(indicator, first, second, combined, disagreements, one_pass, *, context, reviewed_evidence, sources,
                     strict_errors, recover_provider_errors):
     """Third pass for the conditions the two part passes disagree on (different states, or credits CREDIT_GAP or
-    more apart). Each decided condition takes the median credit of the three passes, the parts and citations of the
-    pass that gave it, and the majority state (unknown when all three differ). The median makes one outlying pass
-    unable to move a condition, which is what most run-to-run swings come from."""
+    more apart). Each decided condition takes the mean credit of the three passes (part_judgment.add_third,
+    mean-credit-of-three-v1), with all three passes' findings on its parts. Until 27 Nov it took the median, which on
+    a split call is the third pass alone: four of the five large swings between runs 211e9614 and 890f2b7e went
+    through it. Averaging cuts the expected gap between identical runs from about 0.95 to 0.81 points."""
     from . import part_judgment
     from .request_recovery import recoverable_failure
     wanted = {d['condition_id'] for d in disagreements}
     group = [c for c in indicator['conditions'] if c['id'] in wanted]
-    audit = {'conditions': sorted(wanted), 'rule': 'median-credit-of-three-v1'}
+    audit = {'conditions': sorted(wanted), 'rule': part_judgment.TIE_BREAK_RULE}
     try:
         answer, recovery, errors = one_pass(group)
     except Exception as exc:
@@ -1034,21 +1035,7 @@ def _part_tie_break(indicator, first, second, combined, disagreements, one_pass,
         cid = record['condition_id']
         deciding = third.get(cid)
         if cid in wanted and deciding is not None:
-            passes = [by_first[cid], by_second[cid], deciding]
-            ranked = sorted(passes, key=lambda r: r['credit'])
-            middle = ranked[1]
-            states = [r['state'] for r in passes]
-            majority = next((st for st in states if states.count(st) >= 2), None)
-            record = {**middle, 'credit': middle['credit'], 'pass_credits': [r['credit'] for r in passes],
-                      'digital_credit': sorted(r.get('digital_credit', r['credit']) for r in passes)[1],
-                      'agreement': 'median of three passes'}
-            if majority is None:
-                from .decision_causes import ASSESSOR_DISAGREEMENT
-                record.update(state='unknown', cause=ASSESSOR_DISAGREEMENT, scope_supported=False, period_supported=False)
-            elif majority != middle['state']:
-                # The median pass is in the minority on state: keep its credit, report the majority state, but never
-                # report met without all parts fully evidenced in the credited pass.
-                record['state'] = majority if majority != 'met' else 'unknown'
+            record = part_judgment.add_third(record, deciding, by_first[cid], by_second[cid])
             resolved.append(cid)
         out.append(record)
     audit['resolved'] = resolved

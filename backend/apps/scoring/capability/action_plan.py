@@ -95,7 +95,7 @@ def missing_parts(record):
     spec = {p['id']: p for p in ((_load()[0]['conditions'].get(record['condition_id']) or {}).get('parts') or [])}
     missing = []
     for part in record.get('parts') or []:
-        if part.get('credited_as') == 'full' and part.get('second_credited_as', 'full') == 'full':
+        if all(part.get(k, 'full') == 'full' for k in ('credited_as', 'second_credited_as', 'third_credited_as')):
             continue
         text = (spec.get(part['id']) or {}).get('full') or ''
         if text:
