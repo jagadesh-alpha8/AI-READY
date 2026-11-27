@@ -227,6 +227,10 @@ export interface ConditionRecord {
   depth_share?: string | number | null;
   depth_level?: 'evidenced' | 'substantiated' | 'strong' | string;
   depth_min_credit?: string | number | null;
+  /** depth-reserve-v4: the held share rises smoothly from depth_min_credit to full credit. */
+  depth_ramp?: boolean;
+  /** depth-reserve-v4: first shown in follow-up, so nothing is held ("established in follow-up"). */
+  depth_exempt?: string | null;
   depth_review?: string | null;
 }
 

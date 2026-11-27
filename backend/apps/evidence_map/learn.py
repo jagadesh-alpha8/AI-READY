@@ -1,4 +1,4 @@
-"""Learning from judged runs (learn-1): what a judge credited becomes a tag, so the next packet leads with it.
+"""Learning from judged runs (learn-1; learn-2 needs two crediting passes, see _cited): what a judge credited becomes a tag, so the next packet leads with it.
 
 Only requirements that earned credit in the run count (26 Nov, Siddharth: test 13's judge marked parts as found on
 requirements that ended with no credit, and those must not become tags). For such a requirement, every quotation a
@@ -11,20 +11,27 @@ row). Pairs a reviewer marked not_evidence on a review sheet (scripts/retrieval/
 """
 from . import spec, tagging
 
-VERSION = 'learn-1'
+VERSION = 'learn-2'
 ORIGIN = 'judged_run'
 CREDITED = ('full', 'related', 'digital_only')
 
 
 def _cited(record):
-    """[(citation, part kind)] for a record: its parts' credited citations, else (a condition-judge record) its own."""
+    """[(citation, part kind)] for a record: its parts' credited citations, else (a condition-judge record) its own.
+
+    learn-2 (review of #116, finding 7): a part teaches only when at least two of its passes credited it (its only
+    pass, for a one-pass record). Since passes are averaged, a part one pass of three credited keeps some credit, and
+    a lone pass's quotation is the weak-only case the marked yardstick flags."""
     out = []
     for part in record.get('parts') or []:
-        for key, label in (('citations', 'credited_as'), ('second_citations', 'second_credited_as'),
-                           ('third_citations', 'third_credited_as')):
-            kind = part.get(label)
-            if kind in CREDITED:
-                out += [(c, kind) for c in part.get(key) or []]
+        passes = [('first_citations' if 'first_citations' in part else 'citations', 'credited_as')]
+        passes += [(key, label) for key, label in (('second_citations', 'second_credited_as'),
+                                                   ('third_citations', 'third_credited_as')) if label in part]
+        crediting = [(key, part.get(label)) for key, label in passes if part.get(label) in CREDITED]
+        if len(crediting) < min(2, len(passes)):
+            continue
+        for key, kind in crediting:
+            out += [(c, kind) for c in part.get(key) or []]
     if not record.get('parts'):
         out += [(c, 'full') for c in record.get('citations') or []]
     return out

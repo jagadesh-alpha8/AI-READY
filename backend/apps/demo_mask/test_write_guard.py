@@ -65,9 +65,7 @@ class WriteGuardTests(TestCase):
 
     @override_settings(DEMO_NAME_MASK='vistas')
     def test_a_stand_in_name_in_any_other_write_is_refused(self):
-        run = '22222222-2222-4222-8222-222222222222'
-        answer = f'/api/v1/sprints/{self.sprint.pk}/capability-runs/{run}/questions/{run}/responses'
-        response = self._send('POST', answer, {'answer': 'ABC University has an AI policy.', 'document_ids': []})
+        response = self._send('POST', '/api/v1/notes', {'text': 'ABC University has an AI policy.'})
         self.assertTrue(self._refused(response))
         self.assertIn('"ABC University"', json.loads(response.content)['detail'])
         nested = self._send('POST', f'/api/v1/sprints/{self.sprint.pk}/capability-runs',
@@ -81,6 +79,18 @@ class WriteGuardTests(TestCase):
         answer = f'/api/v1/sprints/{self.sprint.pk}/capability-runs/{run}/questions/{run}/responses'
         for text in (f'{VISTAS} has an AI policy.', 'The founder approved it for Campus A.', 'An abc analysis was done.'):
             self.assertEqual(self._send('POST', answer, {'answer': text}).status_code, 200, text)
+
+    @override_settings(DEMO_NAME_MASK='vistas')
+    def test_a_bare_abc_and_the_unmasked_screens_pass(self):
+        # Review of #116, finding 4: "ABC" alone (the stand-in for "Vel's") is also the Academic Bank of Credits.
+        abc = 'All students are registered on the ABC (Academic Bank of Credits) portal.'
+        self.assertEqual(self._send('POST', '/api/v1/notes', {'text': abc}).status_code, 200)
+        # The follow-up questions and facts check are never masked, so nothing written there came from the mask.
+        run = '22222222-2222-4222-8222-222222222222'
+        answer = f'/api/v1/sprints/{self.sprint.pk}/capability-runs/{run}/questions/{run}/responses'
+        self.assertEqual(self._send('POST', answer, {'answer': 'ABC University has an AI policy.'}).status_code, 200)
+        review = f'/api/v1/sprints/{self.sprint.pk}/review-batch'
+        self.assertEqual(self._send('POST', review, {'note': 'ABC University'}).status_code, 200)
 
     @override_settings(DEMO_NAME_MASK='vistas')
     def test_sign_in_is_never_checked(self):
