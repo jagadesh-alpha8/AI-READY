@@ -53,7 +53,7 @@ function Body({ sprint }: { sprint: Sprint }) {
         <AreaBars view={view} />
       </section>
       <div className="spacer" />
-      <div className="section-head"><div><h2>Where you're strong</h2><p>Quoted from your own documents</p></div></div>
+      <div className="section-head"><div><h2>Where you're strong</h2><p>The areas your documents show most fully</p></div></div>
       <StrengthCards view={view} />
       <div className="spacer" />
       <div className="section-head"><div><h2>Where to focus next</h2></div>

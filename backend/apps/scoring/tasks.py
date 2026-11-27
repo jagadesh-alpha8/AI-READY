@@ -77,7 +77,8 @@ def run_capability_assessment(run_id, task_id):
                     agreement_passes=policy.get('agreement_passes', 1),
                     concurrency=policy.get('indicator_concurrency', 1),
                     judgment=policy.get('judgment', 'conditions'),
-                    tie_break=policy.get('tie_break') in ('majority-of-three-v1', 'median-credit-of-three-v1'),
+                    tie_break=policy.get('tie_break') in ('majority-of-three-v1', 'median-credit-of-three-v1',
+                                                          'mean-credit-of-three-v1'),
                     quote_repair=policy.get('part_quote_repair') == 'quote-repair-v1',
                     evidence_map=inputs.get('evidence_map'),
                     on_indicator=lambda rows, trace: locked_progress(run_id, rows, trace))

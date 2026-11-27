@@ -20,7 +20,8 @@ def _cited(record):
     """[(citation, part kind)] for a record: its parts' credited citations, else (a condition-judge record) its own."""
     out = []
     for part in record.get('parts') or []:
-        for key, label in (('citations', 'credited_as'), ('second_citations', 'second_credited_as')):
+        for key, label in (('citations', 'credited_as'), ('second_citations', 'second_credited_as'),
+                           ('third_citations', 'third_credited_as')):
             kind = part.get(label)
             if kind in CREDITED:
                 out += [(c, kind) for c in part.get(key) or []]

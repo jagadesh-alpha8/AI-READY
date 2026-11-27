@@ -57,6 +57,7 @@ export const PAGE_API_STATUS: Record<PageKey, { status: ApiStatus; pending: Pend
   copilot: { status: 'live', pending: [] },
   assessment: { status: 'partial', pending: p('R-12') },
   questionnaire: { status: 'partial', pending: p('R-10') },
+  answers: { status: 'live', pending: [] },
   baseline: { status: 'live', pending: [] },
   reports: { status: 'partial', pending: p('R-07') },
   cri: { status: 'decision', pending: p('D-01', 'R-12') },

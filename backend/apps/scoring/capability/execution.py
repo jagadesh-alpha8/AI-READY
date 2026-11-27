@@ -43,6 +43,11 @@ def _parts_metadata():
     return {k: v for k, v in metadata().items() if k != 'judgment'}
 
 
+def _part_tie_break_rule():
+    from .part_judgment import TIE_BREAK_RULE
+    return TIE_BREAK_RULE
+
+
 def _stored_version():
     from apps.stored_judgments.store import VERSION
     return VERSION
@@ -112,7 +117,7 @@ def policy(stage='assessment'):
             'gemini_reasoning_effort': effort, **({'model_effort': model_effort} if model_effort else {}),
             **({'writing_effort': writing} if writing else {}),
             'response_recovery_requests': 2, 'agreement_passes': passes, 'indicator_concurrency': concurrency,
-            **({'tie_break': 'median-credit-of-three-v1' if judgment == 'parts' else 'majority-of-three-v1'}
+            **({'tie_break': _part_tie_break_rule() if judgment == 'parts' else 'majority-of-three-v1'}
                if tie_break and stage == 'assessment' else {}),
             **({'judgment': 'parts', **_parts_metadata()} if judgment == 'parts' else {}),
             **({'part_quote_repair': QUOTE_REPAIR_VERSION} if quote_repair and stage == 'assessment' else {}),

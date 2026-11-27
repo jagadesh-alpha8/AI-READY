@@ -287,6 +287,14 @@ class NextStepsFlowTests(APITestCase):
         self.assertTrue(practices and all(p['label_short'] and p['looked_for'] for p in practices))
         self.assertEqual(len(v['start_here']), min(3, len(v['steps'])))
         self.assertNotIn('traces', json.dumps(v))
+        # The website cites documents as the detailed report does; the passage stays one click away (26 Nov).
+        for p in practices:
+            self.assertTrue({'evidence_in', 'why', 'records', 'quote'} <= set(p), p['id'])
+            if p['status'] != 'missing':
+                self.assertTrue(p['evidence_in'], p['id'])
+        topics = [t for c in v['cards'] for t in c['topics']]
+        self.assertTrue(all(t['definition'] and (t['verdict'] or t['line']) for t in topics))
+        self.assertGreaterEqual(v['pages'], v['documents'])
 
     def test_imported_answers_go_through_the_same_checks(self):
         import io, tempfile

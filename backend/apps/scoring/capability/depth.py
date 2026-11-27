@@ -198,6 +198,14 @@ def questions_for_depth_target(target, record, model, *, depth_spec=None):
     return {'answered': answered, 'questions': questions[:cap]}
 
 
+def topic_title(code, fallback=''):
+    """A topic's plain name for the fixed wording ("security and recovery"), not the rubric's ("AI Cybersecurity &
+    Resilience"): the names the reports and the website use (report_projection.AREA_TITLES, 27 Nov)."""
+    from .report_projection import AREA_TITLES
+    title = AREA_TITLES.get(code) or fallback or 'this topic'
+    return title if title[:2].isupper() else title[0].lower() + title[1:]
+
+
 def missing_question(target, *, depth_spec=None):
     """The "do you have anything?" question for one key indicator's uncredited conditions. No model call."""
     depth_spec = depth_spec or spec()
@@ -212,7 +220,8 @@ def missing_question(target, *, depth_spec=None):
         forms = '; '.join(entry['evidence_forms'])
         lines.append(f'{n}. {entry["assertion"]} (for example: {forms})')
     where = f'\nColleges usually file this under {indicator["where"]}.' if indicator.get('where') else ''
-    return (f'For {indicator["name"]}, we did not find records showing the following in the documents submitted:\n'
+    return (f'For {topic_title(target["indicator"], indicator["name"])}, we did not find records showing the following in the '
+            'documents submitted:\n'
             + '\n'.join(lines) + where
             + '\nIf you have documents showing any of these, please upload them and say which item each one supports. '
               'If you do not have them, please say so.')
@@ -371,7 +380,7 @@ def points_per_credit(indicator):
 
 def indicator_targets(records, rubric, min_credit=Fraction(0)):
     """{indicator code: {'credited': [ids], 'missing': [ids]}} in rubric order. credited: credit > 0 and at least
-    min_credit (asked about depth; depth-reserve-v2 asks only from half credit). missing: credit below 1 (no credit,
+    min_credit (asked about depth; depth-reserve-v2 asks from 1/2, v3 from 5/8). missing: credit below 1 (no credit,
     or part credit), in stage order. Requirements a processing failure left unjudged are skipped: they need a rerun,
     not a question."""
     from .decision_causes import NOT_EVALUATED
@@ -540,7 +549,8 @@ def plan_indicator(code, rubric_indicator, records_by_id, model, *, depth_spec=N
         keep = f'\nColleges usually keep these with {where}.' if where else ''
         stake = sum((1 - Fraction(str(records_by_id[cid].get('credit') or 0))) * (1 - share) * worth for cid in missing)
         missing_q = {'condition_ids': list(missing), 'dimension_ids': [], 'points_at_stake': float(round(stake, 2)),
-                     'text': (f'For {indicator["name"]}, your documents did not yet show everything below. If you have '
+                     'text': (f'For {topic_title(code, indicator["name"])}, your documents did not yet show everything '
+                              f'below. If you have '
                               f'a record of any of these, please upload it and tell us which number it supports. If '
                               f'you don\'t, just say so; that helps too.\n' + '\n'.join(lines) + keep)}
     return {'depth': depth_qs, 'missing': missing_q, 'shown_by_evidence': shown, 'notes': notes, 'called': called}

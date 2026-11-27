@@ -1,6 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
-import { AreaCardsV5, PracticesV5 } from './V5';
+import { AreasV6, followUpLinks } from './Areas6';
+import { useResource } from '../hooks/useResource';
+import { getQuestions } from '../services/capability';
 import './v5.css';
 import { RequireSprint } from '../components/RequireSprint';
 import { ErrorState, Loading } from '../components/ui';
@@ -11,7 +13,7 @@ import { ChecklistLine, pts } from './ResultParts';
 import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
 
-/** Results › Readiness areas: one card per area, what's in place, what's missing, and the next step. */
+/** Results › Readiness areas: the nine areas, each with its four topics; a topic opens its six practices (Areas6). */
 export function ReadinessAreas() {
   return <RequireSprint>{(sprint) => <Body sprint={sprint} />}</RequireSprint>;
 }
@@ -19,23 +21,30 @@ export function ReadinessAreas() {
 function Body({ sprint }: { sprint: Sprint }) {
   const { cap, view } = useResultView(sprint.id);
   const { hash } = useLocation();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const area = params.get('area') || (hash ? hash.slice(1) : '');
+  const topic = params.get('topic') || '';
+  const stage1 = !!view && !view.final;
+  // At Stage 1, a practice not found links to its open follow-up question.
+  const questions = useResource(() => getQuestions(sprint.id, cap.provisionalId), `areas-q:${cap.provisionalId}`, stage1 && !!cap.provisionalId);
+  const followUps = useMemo(() => followUpLinks(questions.data?.progress?.closed ? [] : questions.data?.questions), [questions.data]);
+  const set = (key: string, value: string) => {
+    const p = new URLSearchParams(params);
+    if (value) p.set(key, value); else p.delete(key);
+    p.delete('practices');
+    setParams(p, { replace: key === 'area' });
+  };
   useEffect(() => {
-    if (area && !params.get('practices')) document.getElementById(area)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    else if (params.get('practices')) window.scrollTo({ top: 0 });
-  }, [area, params, view]);
+    if (area && !topic) document.getElementById(area)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [area, topic, view]);
   if (cap.loading) return <Loading label="Loading the areas…" />;
   if (cap.error) return <ErrorState error={cap.error} onRetry={() => void cap.runs.refetch()} />;
-  if (!view) return <NoResult cap={cap}>Run the assessment to see the nine areas.</NoResult>;
+  if (!view) return <NoResult cap={cap}>Your nine areas appear here once your documents have been read.</NoResult>;
   const v5 = view.run.next_steps?.presentation;
   if (v5) {
-    const card = params.get('practices') ? v5.cards.find((c) => c.code === area) : undefined;
-    if (card) return <div className="v5"><PracticesV5 a={card} stage1={v5.stage1} /></div>;
     return (
       <div className="v5">
-        <p className="muted" style={{ margin: 0 }}>Strongest first. For each: what you do well, what is missing, and one next step.</p>
-        <AreaCardsV5 key={area} v={v5} initial={area} />
+        <AreasV6 v={v5} area={area} topic={topic} followUps={followUps} onArea={(c) => set('area', c)} onTopic={(c) => set('topic', c)} />
       </div>
     );
   }
@@ -59,10 +68,8 @@ function Body({ sprint }: { sprint: Sprint }) {
             <div>
               <h3 style={{ marginBottom: 8 }}>What's in place</h3>
               {a.explanation && <p style={{ fontSize: 14 }}>{a.explanation}</p>}
-              {a.quote ? (
-                <div style={{ marginTop: 10 }}><p className="ws-quote" style={{ fontSize: 13, fontStyle: 'italic', borderLeft: '3px solid var(--olive)', paddingLeft: 12 }}>“{a.quote.text}”</p>
-                  <small>{a.quote.source}</small></div>
-              ) : !a.explanation && <p className="muted" style={{ fontSize: 14 }}>Nothing in this area was found in your documents yet.</p>}
+              {a.quote ? <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>Evidence found in {a.quote.source}</p>
+                : !a.explanation && <p className="muted" style={{ fontSize: 14 }}>Nothing in this area was found in your documents yet.</p>}
             </div>
             <div>
               <h3 style={{ marginBottom: 8 }}>What to show next</h3>

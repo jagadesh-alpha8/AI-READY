@@ -16,6 +16,7 @@ import { downloadCapabilityReport, getReportReadiness } from '../services/capabi
 import type { ReportReadiness, ScreenView } from '../types/capability';
 import { useState } from 'react';
 import './v5.css';
+import { JOURNEY, useJourney } from './journey';
 
 /** The college's dashboard (Vijay, 23 Nov): the level, what you do well, where to focus, and the next step. */
 export function OverviewPage() {
@@ -42,7 +43,7 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
   const left = progress?.open ?? 0;
   const closed = !!progress?.final_run_id || view.final;
   const v5 = view.run.next_steps?.presentation;
-  if (v5) return <OverviewV5 v={v5} sprintId={sprint.id} runId={view.run.id} final={view.final} closed={closed} left={progress ? left : null} />;
+  if (v5) return <OverviewV5 v={v5} sprint={sprint} runId={view.run.id} final={view.final} closed={closed} left={progress ? left : null} />;
 
   return (
     <>
@@ -58,7 +59,7 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
               <div className="ws-row"><Stars stars={view.level.stars} size={22} /><h3 style={{ margin: 0 }}>{view.level.name}</h3></div>
               <p style={{ marginTop: 10 }}>{view.level.meaning}</p>
               <p className="muted" style={{ marginTop: 10 }}>{view.summary}</p>
-              <Link className="text-btn" style={{ marginTop: 14 }} to={pathOf('cri')}>See your full result <Icon name="chevron" size={14} /></Link>
+              <Link className="text-btn" style={{ marginTop: 14 }} to={pathOf('areas')}>See your full result <Icon name="chevron" size={14} /></Link>
             </div>
           </div>
           <div className="standing-meta">
@@ -150,28 +151,66 @@ function OverviewBody({ sprint }: { sprint: Sprint }) {
 
 /** The v5 Overview (approved 26 Nov 2026): how to read the page, the result, one next step chosen by the state,
  * one chart of the overall score and the nine areas, the next level, and where to start. */
-function OverviewV5({ v, sprintId, runId, final, closed, left }: {
-  v: ScreenView; sprintId: string; runId: string; final: boolean; closed: boolean; left: number | null;
+function OverviewV5({ v, sprint, runId, final, closed, left }: {
+  v: ScreenView; sprint: Sprint; runId: string; final: boolean; closed: boolean; left: number | null;
 }) {
+  // "Step 4 of 5" in the next-step box says the same as the progress bar above (merged design, 27 Nov).
+  const journey = useJourney(sprint);
   return (
     <div className="v5">
       <HowToRead v={v} />
       <div className="v5-hero">
-        <ResultV5 v={v} tag={final ? 'Final result' : 'Stage 1 · from your documents'} />
-        <NextStepBox v={v} sprintId={sprintId} runId={runId} final={final} closed={closed} left={left} />
+        <div>
+          <ResultV5 v={v} tag={final ? 'Final result' : 'Stage 1 · from your documents'} />
+          <p className="muted v6-docs">Read from the {v.documents.toLocaleString('en-IN')} documents{v.pages ? ` (${v.pages.toLocaleString('en-IN')} pages)` : ''} you sent.</p>
+        </div>
+        <NextStepBox v={v} sprintId={sprint.id} runId={runId} final={final} closed={closed} left={left} step={journey.stepNumber} />
       </div>
       <ChartV5 v={v} />
       <NextLevelV5 v={v} />
       <WhereToStartV5 v={v} />
+      <ReportsStrip sprintId={sprint.id} runId={runId} final={final} />
     </div>
+  );
+}
+
+/** The reports, on the Overview at both stages (merged design, 27 Nov): Harsha's placement, our PDFs. */
+function ReportsStrip({ sprintId, runId, final }: { sprintId: string; runId: string; final: boolean }) {
+  const { staff } = useAccess();
+  const readiness = useResource<ReportReadiness>(() => getReportReadiness(sprintId, runId), `ws-ready:${runId}`);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const open = staff || !!readiness.data?.ready;
+  const get = async (audience: 'summary' | 'detailed') => {
+    setBusy(true);
+    setFailed(false);
+    try { await downloadCapabilityReport(sprintId, runId, 'pdf', audience); } catch { setFailed(true); } finally { setBusy(false); }
+  };
+  return (
+    <section className="surface surface-pad v6-reports" aria-label="Your reports">
+      <div>
+        <h2>Your {final ? 'final' : 'Stage 1'} reports</h2>
+        <p className="muted">{open ? 'The leadership report is six pages. The detailed report lists every practice, with the page it was found on.'
+          : 'Your reports are being written. They can be downloaded here as soon as they are ready.'}</p>
+        {busy && <p role="status">Preparing the report…</p>}
+        {failed && <p role="alert">The report could not be downloaded. Try again, or open it from the Reports page.</p>}
+      </div>
+      {open && (
+        <div className="row">
+          <button className="btn" disabled={busy} onClick={() => void get('summary')}>Leadership report (PDF)</button>
+          <button className="btn" disabled={busy} onClick={() => void get('detailed')}>Detailed report (PDF)</button>
+        </div>
+      )}
+    </section>
   );
 }
 
 /** One main button, by the state (audit finding 11): the final result goes to the board; at Stage 1 the questions
  * are the next step; with the questions closed, the final result is being prepared. */
-function NextStepBox({ v, sprintId, runId, final, closed, left }: {
-  v: ScreenView; sprintId: string; runId: string; final: boolean; closed: boolean; left: number | null;
+function NextStepBox({ v, sprintId, runId, final, closed, left, step }: {
+  v: ScreenView; sprintId: string; runId: string; final: boolean; closed: boolean; left: number | null; step: number;
 }) {
+  const eb = `Step ${step} of ${JOURNEY.length}: your next step`;
   const { staff } = useAccess();
   const readiness = useResource<ReportReadiness>(() => getReportReadiness(sprintId, runId), `ws-ready:${runId}`, final);
   const [busy, setBusy] = useState(false);
@@ -185,7 +224,7 @@ function NextStepBox({ v, sprintId, runId, final, closed, left }: {
   if (final) {
     return (
       <section className="v5-next" aria-label="Your next step">
-        <div className="eb">Your next step</div>
+        <div className="eb">{eb}</div>
         <h2>Take the result to your board.</h2>
         {open ? (
           <>
@@ -204,7 +243,7 @@ function NextStepBox({ v, sprintId, runId, final, closed, left }: {
   if (closed) {
     return (
       <section className="v5-next" aria-label="Your next step">
-        <div className="eb">Your next step</div>
+        <div className="eb">{eb}</div>
         <h2>Your final result is being prepared.</h2>
         <p>The follow-up questions are closed. Your final result appears here as soon as its reports are written; until then this is your Stage 1 result.</p>
       </section>
@@ -213,7 +252,7 @@ function NextStepBox({ v, sprintId, runId, final, closed, left }: {
   const more = v.held_whole;
   return (
     <section className="v5-next" aria-label="Your next step">
-      <div className="eb">Your next step</div>
+      <div className="eb">{eb}</div>
       <h2>Answer the follow-up questions, with a document for each{more > 0 ? `, to confirm up to ${more} more point${more === 1 ? '' : 's'}` : ''}.</h2>
       <p>An answer counts when a document supports it. Your final result follows once the questions are closed.{left !== null && left > 0 ? ` ${left} question${left === 1 ? '' : 's'} left.` : ''}</p>
       <div className="row"><Link className="btn-ol" to={pathOf('questionnaire')}>Answer the questions</Link></div>

@@ -84,19 +84,28 @@ class ConditionTieBreakTests(SimpleTestCase):
 
 
 class PartTieBreakTests(SimpleTestCase):
-    def test_majority_of_three_with_parts(self):
+    def test_mean_of_three_with_parts(self):
+        # mean-credit-of-three-v1 (27 Nov 2026): the third pass is averaged in, not left to decide alone.
         records, trace, service = run({A: ['met', 'unknown', 'met'], B: ['unknown', 'met', 'met'],
                                        C: ['met', 'unknown', 'not_met']}, parts=True)
-        self.assertEqual(records[A]['state'], 'met')
-        self.assertEqual(records[A]['credit'], 1.0)          # the two agreeing passes, averaged
-        self.assertEqual(records[B]['state'], 'met')
-        self.assertEqual(records[B]['credit'], 1.0)
+        self.assertEqual(records[A]['credit'], 0.6667)        # (1 + 0 + 1) / 3
+        self.assertEqual(records[B]['credit'], 0.6667)
+        self.assertEqual(records[C]['credit'], 0.3333)
+        # Met only when all three passes say met; a split with no majority other than met goes to review.
+        self.assertEqual(records[A]['state'], 'unknown')
+        self.assertEqual(records[A]['cause'], 'assessor_disagreement')
         self.assertEqual(records[C]['state'], 'unknown')
         self.assertEqual(records[C]['cause'], 'assessor_disagreement')
+        self.assertEqual(records[A]['agreement'], 'mean of three passes')
         self.assertEqual(sorted(service.calls[2]), sorted([A, B, C]))
         self.assertEqual(trace['agreement_audit']['passes'], 3)
         self.assertEqual(records[A]['pass_credits'], [1.0, 0.0, 1.0])
-        self.assertEqual(trace['agreement_audit']['tie_break']['rule'], 'median-credit-of-three-v1')
+        self.assertEqual(trace['agreement_audit']['tie_break']['rule'], 'mean-credit-of-three-v1')
+        # All three passes stay on the parts, so the credit can be recomputed from them (layer 2 does).
+        from .capability.layer2 import _recredit
+        for cid in (A, B, C):
+            self.assertIn('third_credited_as', records[cid]['parts'][0])
+            self.assertAlmostEqual(_recredit(records[cid]['parts'], cid), records[cid]['credit'], places=3)
         # Each pass's own proposals are kept, not only the validated records (test 13: why a second pass's
         # quotations failed could not be seen).
         audit = trace['agreement_audit']
@@ -107,9 +116,16 @@ class PartTieBreakTests(SimpleTestCase):
         self.assertIn('findings', third['response_audit']['model_response']['conditions'][A])
         self.assertEqual(sorted(third['parts']), sorted([A, B, C]))
 
-    def test_one_outlying_pass_cannot_move_a_condition(self):
+    def test_one_outlying_pass_moves_a_condition_by_a_third(self):
         records, trace, service = run({A: ['unknown', 'met', 'unknown']}, parts=True)
-        self.assertEqual((records[A]['state'], records[A]['credit']), ('unknown', 0.0))
+        self.assertEqual((records[A]['state'], records[A]['credit']), ('unknown', 0.3333))
+        self.assertNotEqual(records[A].get('cause'), 'assessor_disagreement')   # two passes agree on unknown
+
+    def test_three_passes_that_all_say_met_stay_met(self):
+        records, trace, service = run({A: ['met', 'unknown', 'met']}, parts=True)
+        self.assertEqual(records[A]['state'], 'unknown')
+        records, trace, service = run({A: ['met', 'met', 'met']}, parts=True)
+        self.assertEqual((records[A]['state'], records[A]['credit']), ('met', 1.0))
 
 
 class TieBreakPolicyTests(SimpleTestCase):
@@ -117,7 +133,7 @@ class TieBreakPolicyTests(SimpleTestCase):
         from .capability.execution import AssessmentDisabled, policy
         with override_settings(CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_TIE_BREAK=True, CAPABILITY_MAX_HTTP_CALLS=140,
                                CAPABILITY_MAX_COST_USD='30'):
-            self.assertEqual(policy()['tie_break'], 'median-credit-of-three-v1')  # part judgment is the default
+            self.assertEqual(policy()['tie_break'], 'mean-credit-of-three-v1')  # part judgment is the default
         with override_settings(CAPABILITY_AGREEMENT_PASSES=2, CAPABILITY_TIE_BREAK=True, CAPABILITY_MAX_HTTP_CALLS=140,
                                CAPABILITY_MAX_COST_USD='30', CAPABILITY_JUDGMENT='conditions'):
             self.assertEqual(policy()['tie_break'], 'majority-of-three-v1')

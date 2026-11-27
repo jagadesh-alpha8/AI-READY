@@ -1,5 +1,6 @@
 """Applies the demo display mask (mask.py) to API responses. Does nothing while DEMO_NAME_MASK is empty."""
 import json
+import re
 
 from django.http import JsonResponse
 
@@ -8,6 +9,12 @@ from . import mask
 TEXT_TYPES = ('application/json', 'text/html', 'text/plain', 'text/csv', 'application/problem+json')
 #: Set by a view whose binary body was made from masked data (the capability report PDFs).
 APPLIED_HEADER = 'X-Name-Mask'
+#: Left unmasked for now (Siddharth, 27 Nov 2026): the facts check and the follow-up questions. People answer these
+#: screens, and what they pick or write goes back to the server and on to judging. The masked name is not in the
+#: stored data, so choosing "ABC University" as the institution the documents belong to was refused, and an answer
+#: written about "ABC University" would be judged against documents that name the real institution.
+UNMASKED = re.compile(r'^/api/v\d+/sprints/[0-9a-f-]+/(review-batch'
+                      r'|capability-runs/[0-9a-f-]+/(questions|responses|additional-evidence))(/|$)')
 
 
 def _masked_json(body):
@@ -29,7 +36,7 @@ class NameMaskMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
-        if not mask.active() or not request.path.startswith('/api/'):
+        if not mask.active() or not request.path.startswith('/api/') or UNMASKED.match(request.path):
             return response
         if 'Content-Disposition' in response:
             response['Content-Disposition'] = mask.text(response['Content-Disposition'])

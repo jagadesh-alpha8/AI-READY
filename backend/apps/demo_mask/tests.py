@@ -177,3 +177,38 @@ class ApiMaskTests(APITestCase):
         self.assertEqual(before.status_code, 200)
         self.assertEqual(blocked.status_code, 403)
         self.assertEqual(blocked.json()['code'], 'demo_mask_download_blocked')
+
+
+@override_settings(DEMO_NAME_MASK='vistas')
+class FollowUpsUnmaskedTests(SimpleTestCase):
+    """The facts check and the follow-up questions show the stored names, so what people pick or write there matches
+    the documents judging reads (27 Nov 2026). Every other API response stays masked."""
+
+    def setUp(self):
+        _reset()
+        self.addCleanup(_reset)
+
+    def _through(self, path):
+        from django.http import JsonResponse
+        from django.test import RequestFactory
+        from .middleware import NameMaskMiddleware
+        body = {'value': 'VELS INSTITUTE OF SCIENCE, TECHNOLOGY AND ADVANCED STUDIES(VISTAS)'}
+        response = NameMaskMiddleware(lambda request: JsonResponse(body))(RequestFactory().get(path))
+        return json.loads(response.content)['value']
+
+    def test_follow_up_and_facts_check_endpoints_are_left_alone(self):
+        sprint, run, item = ('11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222',
+                             '33333333-3333-4333-8333-333333333333')
+        for path in (f'/api/v1/sprints/{sprint}/review-batch', f'/api/v1/sprints/{sprint}/review-batch/source-institution-identity',
+                     f'/api/v1/sprints/{sprint}/capability-runs/{run}/questions',
+                     f'/api/v1/sprints/{sprint}/capability-runs/{run}/questions/{item}/responses',
+                     f'/api/v1/sprints/{sprint}/capability-runs/{run}/responses/{item}/follow-up',
+                     f'/api/v1/sprints/{sprint}/capability-runs/{run}/additional-evidence/'):
+            self.assertIn('VISTAS', self._through(path), path)
+
+    def test_everything_else_is_still_masked(self):
+        sprint, run = '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'
+        for path in (f'/api/v1/sprints/{sprint}/capability-runs', f'/api/v1/sprints/{sprint}/capability-runs/{run}',
+                     f'/api/v1/sprints/{sprint}/capability-runs/{run}/report', f'/api/v1/sprints/{sprint}/overview',
+                     f'/api/v1/sprints/{sprint}/capability-runs/{run}/second-layer/jobs'):
+            self.assertEqual(self._through(path), 'ABC University', path)

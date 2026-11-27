@@ -33,3 +33,10 @@ function detailOf(data: unknown): string {
 /** HTTP status of an API error, if any. */
 export const statusOf = (error: unknown): number | undefined =>
   (error as { response?: { status?: number } } | null)?.response?.status;
+
+/** The machine-readable `code` of an API error body (e.g. "source_identity_confirmation_required"), if any. */
+export const codeOf = (error: unknown): string | undefined => {
+  const data = (error as { response?: { data?: unknown } } | null)?.response?.data;
+  return data && typeof data === 'object' && typeof (data as { code?: unknown }).code === 'string'
+    ? (data as { code: string }).code : undefined;
+};

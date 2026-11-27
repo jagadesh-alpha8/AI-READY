@@ -295,13 +295,18 @@ export interface ScreenStep {
 export interface ScreenPractice {
   id: string; label_short: string; looked_for: string; status: 'shown' | 'partly' | 'missing'; label: string;
   found: string; quote: string; source: string; next_step: string; done_when: string; follow_up: string;
+  /** Since 26 Nov: the reason a practice is only partly in place, where its evidence is (document and pages), and
+   * the records that would show a practice not found. Absent from an older result. */
+  why?: string; evidence_in?: string[]; records?: string;
 }
 export interface ScreenCard {
   code: string; name: string; definition: string; score: number; level: string; level_index: number; to_confirm: number;
   card: { written: boolean; verdict: string; headline: string; strengths_title: string;
     strengths: { text: string; source: string }[]; gaps: string[] };
   step: ScreenStep | null;
-  topics: { code: string; name: string; score: number | null; marks: string[]; practices: ScreenPractice[] }[];
+  /** definition, verdict and line: since 27 Nov (merged website design); absent from an older result. */
+  topics: { code: string; name: string; score: number | null; marks: string[]; practices: ScreenPractice[];
+    definition?: string; verdict?: string; line?: string }[];
 }
 export interface ScreenView {
   stage1: boolean; level: { name: string; stars: number; meaning: string; next: string | null; points_to_next: number };
@@ -310,6 +315,8 @@ export interface ScreenView {
   to_next_if_confirmed: number; summary_lines: { label: string; area: string; fact: string }[];
   basics: { score: number; whole: number; level: string; reaches_next: boolean };
   documents: number; requirements: number; institution_word: string; cards: ScreenCard[];
+  /** Pages in the documents read (since 27 Nov). */
+  pages?: number;
   start_here: ScreenStep[]; steps: ScreenStep[];
 }
 

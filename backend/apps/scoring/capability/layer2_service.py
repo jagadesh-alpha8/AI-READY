@@ -442,14 +442,23 @@ def check_response(response, model, *, attached=None, corpus=None, ranker=RUN_RA
                                             fallback_query=fallback)
         roles = support_roles()
         counted = [w for w in windows if roles is None or w.get('evidence_role') in roles]
+        # held-page-rejudge-1: what the reply points at inside the provisional packet. The judge was shown it and gave
+        # no credit, so the credit path puts it first and re-judges; it is not counted as already credited.
+        pointers = layer2.held_pointers(response.answer, response.document_ids, packet, by_words=roles is None)
+        counted = counted + pointers
         result = {'version': layer2.VERSION, 'model_called': False, 'supported': bool(counted), 'dimensions': [],
                   'passages': [], 'follow_up': None if (counted or not first) else layer2.NO_SUPPORT_FOLLOW_UP,
                   'note': 'Judged in the credit path, on the provisional packet plus these passages.'}
+        if pointers:
+            result['pointed'] = {'version': layer2.HELD_VERSION, 'windows': len(pointers),
+                                 'chars': sum(len(w['text']) for w in pointers)}
         windows = counted
     cited = {p.get('evidence_role') for p in result.get('passages') or []}
     result['search'] = {'ranking': ranking, 'note': note, 'documents_failed': failed,
                         'packet_windows_left_out': len(packet), 'support_from': sorted(r for r in cited if r)}
-    already = already_counted(attached, windows, packet)
+    already = already_counted(attached, [w for w in windows if w.get('evidence_role') != layer2.HELD_ROLE], packet)
+    if already and question.kind != DepthQuestion.Kind.DEPTH and result.get('pointed'):
+        already = []   # not "counted already": the requirement has no credit, and these pages are judged again
     if already:
         result['search']['already_counted'] = already
     result['follow_up'] = better_follow_up(result.get('follow_up'), asked, result, already,
@@ -705,10 +714,13 @@ def rejudge_credit(export, service, *, evaluate_fn=None, sources=None, routes=No
                           max_calls=len(subset['indicators']), fixed_contexts=contexts,
                           **({'quote_repair': True} if repair else {}), **(evaluate_options or {}))
     packets = {t['indicator']: t.get('source_excerpts') or [] for t in traces}
+    pointers = {code: [w for w in t['windows'] if w.get('evidence_role') == layer2.HELD_ROLE]
+                for code, t in targets.items()}
     merged, merge_audit = layer2.merge_new_evidence(
         records, outcome['records'], packets, rubric=rubric, lowering=lowering,
         max_per_document=settings.SECOND_LAYER_LOWERING_MAX_PER_DOCUMENT,
-        source_documents={s['id']: s.get('document_id') for s in new_pages if s.get('id')})
+        source_documents={s['id']: s.get('document_id') for s in new_pages if s.get('id')},
+        pointers={code: w for code, w in pointers.items() if w})
     merged, changes = with_depth(merged, run_ref)
     return {**result, 'targets': {code: t['conditions'] for code, t in targets.items()},
             'context_audit': context_audit, 'merge': merge_audit, 'records': merged, 'depth_changes': changes,
