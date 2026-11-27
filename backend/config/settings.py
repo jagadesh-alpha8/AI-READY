@@ -971,6 +971,13 @@ REJUDGE_TYPED_ANSWER = os.getenv('REJUDGE_TYPED_ANSWER', 'hidden').strip().lower
 # Compact mode tags uploaded pages with the evidence map when they have no tags yet (about a tenth of a cent a page).
 REJUDGE_TAG_UPLOADS = os.getenv('REJUDGE_TAG_UPLOADS', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
 REJUDGE_TAG_MAX_COST_USD = os.getenv('REJUDGE_TAG_MAX_COST_USD', '0.50')
+# The named standard version on every result and report (apps/scoring/capability/standard.py). The name and wording
+# are Harsha's or Vijay's to settle (past cases, open decision 2): until then the placeholder, marked pending.
+AI_READY_STANDARD_NAME = os.getenv('AI_READY_STANDARD_NAME', 'AI-READY Standard 1.0 (November 2026)')
+AI_READY_STANDARD_PENDING = os.getenv('AI_READY_STANDARD_PENDING', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+AI_READY_STANDARD_CHANGES_FILE = os.getenv('AI_READY_STANDARD_CHANGES_FILE', '')
+# Past cases' AI audit (capability/past_cases.py): a stronger model than the judge. Priced before it runs.
+PAST_CASE_AUDIT_MODEL = os.getenv('PAST_CASE_AUDIT_MODEL', 'claude-sonnet-5-5')
 SECOND_LAYER_JOBS_ENABLED = os.getenv('SECOND_LAYER_JOBS_ENABLED', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 # Score explanations (capability/explanations.py, Harsha's requirement of 12 Nov 2026): model-written, checked against
 # the run's record. An explain job runs on its own after a final result is published when this is on; for a

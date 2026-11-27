@@ -184,6 +184,7 @@ class RunView(APIView):
         steps = _next_steps(run.pk, view.event_id, assessment, parts['manifest'], parts['profile'], deterministic,
                             view.stage == 'final', view.provisional_run_id)
         return {**summary(execution, view), 'deterministic_plan': deterministic, 'next_steps': steps,
+                'standard': _standard(execution.run_id),
                 'diagnostics': view.diagnostics if view.event_id is not None else None,
                 'inputs_hash': run.inputs_hash, 'population': parts['population'], 'profile': parts['profile'],
                 'source_manifest': parts['manifest'], 'assessment': assessment, 'partial_decisions': partial,
@@ -213,7 +214,7 @@ class RunView(APIView):
         steps = _next_steps(run.pk, completed.pk if completed else None, assessment, run.inputs['manifest'],
                             run.inputs['profile'], plan, view.stage == 'final', view.provisional_run_id)
         return {**summary(execution, view), 'scope': run.inputs.get('scope'), 'deterministic_plan': plan,
-            'next_steps': steps,
+            'next_steps': steps, 'standard': _standard(execution.run_id),
             'diagnostics': explain(run.inputs, completed.payload) if completed else None,
             'reviewed_evidence': saved_review,
             'review_changes_since_assessment': digest(saved_review) != digest(current_review),
@@ -223,6 +224,15 @@ class RunView(APIView):
             'assessment': assessment,
             'partial_decisions': [] if completed else [r for event in indicators for r in event.payload['records']],
             'error': terminal.payload if terminal else None}
+
+
+def _standard(run_id):
+    """The standard version the run was scored under, and the older-version line (standard.for_run). Reads only
+    the run's frozen standard, not its inputs."""
+    from apps.scoring.models import CapabilityRun
+    from .standard import for_run
+    frozen = CapabilityRun.objects.filter(pk=run_id).values_list('inputs__standard', flat=True).first()
+    return for_run({'standard': frozen} if frozen else {})
 
 
 def _next_steps(run_id, event_id, assessment, manifest, profile, plan, final, provisional_run_id):

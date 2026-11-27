@@ -115,8 +115,21 @@ def publish(sprint, run_id, user, note=''):
             raise PublicationError('Only a completed assessment can be published.')
         if now is not None and str(now.run_id) == str(run_id):
             return now, False
-        return CapabilityPublication.objects.create(sprint=sprint, run=execution.run, published_by=user,
-                                                    note=note), True
+        row = CapabilityPublication.objects.create(sprint=sprint, run=execution.run, published_by=user, note=note)
+        transaction.on_commit(lambda: _save_past_cases(execution.run_id))
+        return row, True
+
+
+def _save_past_cases(run_id):
+    """Past cases (past_cases.save_for_run): a published run joins the record once, unless its college is a test or
+    demo college. Never fails publishing."""
+    import logging
+    from apps.scoring.models import CapabilityRun
+    from .past_cases import save_for_run
+    try:
+        save_for_run(CapabilityRun.objects.select_related('sprint__institution').get(pk=run_id))
+    except Exception:
+        logging.getLogger(__name__).exception('past cases were not saved for run %s', run_id)
 
 
 def history(sprint_id, limit=20):

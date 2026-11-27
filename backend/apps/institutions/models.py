@@ -75,6 +75,9 @@ class Institution(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
+    # A test or demo college (past cases, 27 Nov 2026): its runs never add to the record of past cases, whatever is
+    # published from it. Set when the record is created; VISTAS, the demo and calibration college, is one.
+    is_test = models.BooleanField(default=False, help_text='A test or demo college: its runs add no past cases.')
 
     class Meta:
         ordering = ['name']

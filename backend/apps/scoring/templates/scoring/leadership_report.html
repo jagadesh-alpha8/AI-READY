@@ -35,5 +35,6 @@ body{font:15px/1.6 system-ui,sans-serif;color:#19323c;max-width:1050px;margin:40
 {% for pillar in view.pillars %}<h3>{{ pillar.title }}</h3><div class="detail-grid">{% for area in pillar.areas %}<article class="card"><strong>{{ area.title }}</strong><p>{{ area.score }}{% if area.documented_score %} ({{ area.documented_score|lower }}){% endif %}. {{ area.finding }}</p>{% if area.explanation %}<p>{{ area.explanation }}</p>{% endif %}<p class="stage">{% for stage in area.stages %}{{ stage.title }}: {{ stage.status }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</p><p>{{ area.next_step }}</p></article>{% endfor %}</div>{% endfor %}
 <h2>Scope, evidence and interpretation</h2><ul>{% for limitation in view.limitations %}<li>{{ limitation }}</li>{% endfor %}</ul>
 <p>Method used: {{ view.methodology }}. {{ view.methodology_notice }}</p>
+{% if view.standard %}<p>{% if view.standard.name %}Scored under {{ view.standard.name }}.{% endif %}{% if view.standard.older %} {{ view.standard.line }}{% endif %}</p>{% endif %}
 <p>The separate supporting-evidence export contains original source references, all requirement decisions and conditional tier calculations. It uses the same saved assessment and selected advice version.</p>
 </body></html>

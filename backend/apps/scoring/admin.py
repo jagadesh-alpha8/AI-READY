@@ -111,3 +111,30 @@ class DepthPastCaseAdmin(admin.ModelAdmin):
     @admin.action(description='Reject')
     def reject(self, request, queryset):
         self._review(request, queryset, DepthPastCase.Status.REJECTED)
+
+
+from .models import DriftLedger, PartCase, PastCaseRelease  # noqa: E402
+
+
+@admin.register(PartCase)
+class PartCaseAdmin(admin.ModelAdmin):
+    """Part cases (capability/past_cases.py). Internal: never shown to a college. A person marks the sampled cases by
+    setting their finding (person_finding), which makes them anchors for the replay before each release."""
+    list_display = ['condition_id', 'part_id', 'source', 'final_finding', 'audit_mark', 'sampled', 'person_finding',
+                    'release', 'state', 'created_at']
+    list_filter = ['source', 'state', 'audit_mark', 'sampled', 'release']
+    search_fields = ['condition_id', 'run_ref']
+    fields = ['condition_id', 'part_id', 'run_ref', 'institution', 'source', 'passages_kind', 'passages', 'passes',
+              'own_finding', 'final_finding', 'reason', 'audit_mark', 'audit_finding', 'audit_reason', 'audit_model',
+              'sampled', 'person_finding', 'review_note', 'reviewed_by', 'reviewed_at', 'release', 'state',
+              'withdrawn_reason', 'versions']
+    readonly_fields = [f for f in fields if f not in ('person_finding', 'review_note')]
+
+    def save_model(self, request, obj, form, change):
+        if 'person_finding' in form.changed_data:
+            obj.reviewed_by, obj.reviewed_at = request.user, timezone.now()
+        super().save_model(request, obj, form, change)
+
+
+admin.site.register(PastCaseRelease)
+admin.site.register(DriftLedger)

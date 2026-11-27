@@ -5,6 +5,9 @@
 <li>A practice counts when a passage in your documents shows it, and counts in part when the passage shows part of it. The detailed report names the document and page for each finding.</li>
 <li>Follow-up questions let you confirm how far each practice goes. An answer counts when a document supports it.</li>
 <li>An area's score is the share of its practices shown. The overall score combines the nine areas.</li></ol>
+{% if v.standard %}<h2>Standard used</h2>
+<p>{% if v.standard.name %}Scored under {{ v.standard.name }}.{% endif %}{% if v.standard.older %} {{ v.standard.line }}{% endif %}</p>
+{% if v.standard.older and v.standard.changes %}<ul class="limits">{% for c in v.standard.changes %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}{% endif %}
 <h2>Stage 1 and final</h2>
 <p>The Stage 1 result comes from your documents alone.{% if v.held_share_text and v.held_points %} {{ v.held_share_text|capfirst }} of the credit for each well-evidenced practice is to be confirmed by your follow-up answers.{% endif %} The final result is published once the questions are closed. An answer can raise a score, and it can also lower one.</p>
 </div><div>

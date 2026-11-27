@@ -649,7 +649,21 @@ class DepthJudgment(models.Model):
         ordering = ['run_ref', 'condition_id', '-created_at']
 
 
-class DepthPastCase(models.Model):
+class PastCaseBase(models.Model):
+    """What every past case has (depth cases and part cases, capability/past_cases.py): the requirement, who looked at
+    it and when. One pattern for both kinds of case, so the review screens and their rules are shared."""
+    condition_id = models.CharField(max_length=30, db_index=True)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+                                    related_name='+')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        abstract = True
+
+
+class DepthPastCase(PastCaseBase):
     """A judged condition kept as a reference for later judgments of the same condition. Proposed automatically;
     used only once a person approves it (decision 4 names who). Tied to the spec version it was judged under."""
     class Status(models.TextChoices):
@@ -659,20 +673,109 @@ class DepthPastCase(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     judgment = models.OneToOneField(DepthJudgment, on_delete=models.PROTECT, related_name='past_case')
-    condition_id = models.CharField(max_length=30, db_index=True)
     level = models.CharField(max_length=15)
     dimension_findings = models.JSONField(default=list)
     reasoning = models.TextField()
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PROPOSED)
-    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
-                                    related_name='+')
-    reviewed_at = models.DateTimeField(null=True, blank=True)
-    review_note = models.TextField(blank=True)
     spec_version = models.CharField(max_length=30)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['condition_id', '-created_at']
+
+
+class PastCaseRelease(models.Model):
+    """A numbered set of part cases (past cases design, "Released in numbered sets"). A run freezes the release that
+    was current when it started (inputs.past_case_release); its follow-up stage uses the same one."""
+    number = models.PositiveIntegerField(unique=True)
+    note = models.TextField(blank=True)
+    case_count = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['number']
+
+
+class PartCase(PastCaseBase):
+    """One judged part of one requirement from a published run (capability/past_cases.py): the passages, each pass's
+    finding, the reason and the versions that produced it. Saved automatically, never from a test or demo college.
+    Internal: nothing in it reaches a reader at another college. The AI audit marks it against the rubric wording
+    alone; a person may mark it (the random sample), which makes it an anchor for the replay before each release."""
+    class Source(models.TextChoices):
+        STAGE1 = 'stage1', 'Stage 1'
+        REJUDGE = 'rejudge', 'Follow-up re-judge'
+
+    class State(models.TextChoices):
+        ACTIVE = 'active', 'In the record'
+        WITHDRAWN = 'withdrawn', 'Taken out'
+
+    class Audit(models.TextChoices):
+        AGREES = 'agrees', 'Agrees'
+        DISAGREES = 'disagrees', 'Disagrees'
+        UNSURE = 'unsure', 'Unsure'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    version = models.CharField(max_length=30)
+    run_ref = models.CharField(max_length=64, db_index=True)
+    institution = models.ForeignKey('institutions.Institution', on_delete=models.PROTECT, related_name='part_cases')
+    part_id = models.CharField(max_length=10)
+    parts_hash = models.CharField(max_length=64)
+    source = models.CharField(max_length=10, choices=Source.choices)
+    passages = models.JSONField(default=list, help_text='The passages cited, or for a part not found the tagged '
+                                                        'passages the judge was shown, as text.')
+    passages_kind = models.CharField(max_length=10, help_text='cited or tagged')
+    passes = models.JSONField(default=list, help_text="Each pass's finding and credited_as.")
+    own_finding = models.CharField(max_length=15, help_text="The judge's own finding (the passes' majority).")
+    final_finding = models.CharField(max_length=15, help_text='The finding after any ruling; the same until rulings exist.')
+    ruling = models.CharField(max_length=64, blank=True)
+    reason = models.TextField(blank=True)
+    part_credit = models.FloatField(default=0)
+    requirement_credit = models.FloatField(default=0)
+    versions = models.JSONField(default=dict)
+    rejudge_settings = models.JSONField(default=dict, blank=True)
+    statement = models.JSONField(default=dict, blank=True, help_text='The college statement the re-judge was shown.')
+    release = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    state = models.CharField(max_length=10, choices=State.choices, default=State.ACTIVE)
+    withdrawn_reason = models.TextField(blank=True)
+    audit_mark = models.CharField(max_length=10, choices=Audit.choices, blank=True)
+    audit_finding = models.CharField(max_length=15, blank=True)
+    audit_reason = models.TextField(blank=True)
+    audit_model = models.CharField(max_length=150, blank=True)
+    audit_version = models.CharField(max_length=30, blank=True)
+    audit_at = models.DateTimeField(null=True, blank=True)
+    sampled = models.BooleanField(default=False, help_text='In the random sample a person marks (about 20 a college).')
+    person_finding = models.CharField(max_length=15, blank=True, help_text="A person's finding: makes this an anchor.")
+
+    class Meta:
+        ordering = ['condition_id', 'part_id', '-created_at']
+        constraints = [models.UniqueConstraint(fields=['run_ref', 'condition_id', 'part_id', 'source'],
+                                               name='one_case_per_run_part')]
+
+
+class DriftLedger(models.Model):
+    """One release's replay of the anchor set (past cases design, "Keeping it from drifting"): how much of it the
+    pipeline still gets right, and the signed move split into explained (parts a named change touched) and
+    unexplained, with the unexplained moves' running total against its limit (twice the replay's repeat noise)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    label = models.CharField(max_length=120, help_text='The release or standard version replayed.')
+    standard = models.JSONField(default=dict, blank=True)
+    anchors = models.PositiveIntegerField()
+    still_right = models.FloatField()
+    signed_move = models.FloatField()
+    explained_move = models.FloatField(default=0)
+    unexplained_move = models.FloatField(default=0)
+    running_total = models.FloatField(default=0)
+    noise = models.FloatField(null=True, blank=True)
+    limit = models.FloatField(null=True, blank=True)
+    passed = models.BooleanField()
+    explained_by = models.JSONField(default=list, blank=True, help_text='The named changes and the parts they touched.')
+    results = models.JSONField(default=list, help_text='Per anchor: the finding now, the mark, the move.')
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
 
 
 class AdditionalEvidence(models.Model):

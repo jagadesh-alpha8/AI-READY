@@ -210,11 +210,14 @@ class CapabilityReportView(RunView):
         enriched = {a['condition_id']: a for a in (completed.payload['advice'] if completed else [])}
         actions = [{**a, 'advice': enriched.get(a['id'])} for a in plan_actions]
         payload['report_view'] = build_report_view(payload, actions)
+        from .standard import for_run as standard_for
+        payload['standard'] = payload['report_view']['standard'] = standard_for(run.inputs)
         if audience in {'summary', 'detailed'}:
             from .presentation import build
             from .quote_context import for_run as sentences_for
             try:
                 view = build(payload, sentences_for(run, None, event.pk))
+                view['standard'] = payload['standard']
                 payload['presentation'] = view
             except Exception:   # a run shaped in a way the new reports don't expect: serve the older report instead
                 logger.exception('presentation failed for run %s; serving the older %s report', run.pk, audience)

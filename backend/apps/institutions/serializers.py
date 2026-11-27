@@ -128,7 +128,7 @@ class InstitutionSerializer(serializers.ModelSerializer):
             'website_url', 'location', 'city', 'state', 'country', 'accreditation_details',
             'accreditation_status', 'contact_email', 'contact_phone', 'is_active', 'sprint_count',
             'student_count', 'faculty_count', 'priorities',
-            'digital_maturity_level', 'current_ai_usage',
+            'digital_maturity_level', 'current_ai_usage', 'is_test',
             'coordinator_name', 'coordinator_email', 'coordinator',
             'created_by', 'created_at', 'updated_at',
         ]

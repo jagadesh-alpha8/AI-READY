@@ -143,6 +143,10 @@ def create_run(*, institution_id, sprint_id, population=None, reference_period=N
         inputs['evidence_map'] = evidence_map   # the tags for this run's pages, frozen (apps/evidence_map/packet.py)
     from .reserve import frozen_policy
     inputs['depth_policy'] = frozen_policy()   # credit held for follow-up answers (reserve.py)
+    from .past_cases import current_release
+    from .standard import frozen as frozen_standard
+    inputs['past_case_release'] = current_release()   # its follow-up stage uses the same release
+    inputs['standard'] = frozen_standard()            # the named standard version this run is scored under
     run = CapabilityRun.objects.create(sprint=sprint, inputs=inputs, inputs_hash=digest(inputs))
     CapabilityRunEvent.objects.create(run=run, state='queued')
     return run

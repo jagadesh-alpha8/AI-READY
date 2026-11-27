@@ -335,9 +335,14 @@ export interface NextSteps {
   checklist: Record<string, ChecklistItem[]>;
 }
 
+/** The named standard version a result was scored under (standard.py). older: a newer standard exists. */
+export interface StandardInfo {
+  name: string | null; current: string; older: boolean; pending: boolean; line: string | null; changes: string[];
+}
 export interface Run extends Job {
   /** The version marker (also the ETag): changes whenever anything in this response would. */
   version?: string;
+  standard?: StandardInfo | null;
   /** The next steps and checklist, finished on the server; null for a run not completed. */
   next_steps?: NextSteps | null;
   error: { error_code: string; next_action: string } | null;

@@ -249,5 +249,9 @@ def render_leadership_pdf(view):
     pdf.paragraph('The printable HTML provides readable subarea findings and full selected action instructions. The supporting-evidence export contains all original requirement decisions, source references, conditional calculations and remaining actions.')
     pdf.paragraph('Source detail and the leadership report use the same saved assessment and selected recommendation version. No model is called when exporting either report.')
     pdf.paragraph('Method used: ' + view['methodology'])
+    standard = view.get('standard') or {}
+    if standard.get('name') or standard.get('older'):
+        pdf.paragraph(' '.join(t for t in ((f"Scored under {standard['name']}." if standard.get('name') else ''),
+                                           standard.get('line') or '' if standard.get('older') else '') if t))
     pdf.paragraph(view['methodology_notice'])
     return bytes(pdf.output())

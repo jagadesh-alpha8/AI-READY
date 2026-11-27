@@ -8,6 +8,20 @@ import { Icon, Stars } from './Icon';
 import { AreaBars, FocusCards, LevelRing, NextLevel, StrengthCards } from './ResultParts';
 import { NoResult } from './NoResult';
 import { useResultView } from './useResult';
+import type { StandardInfo } from '../types/capability';
+
+/** The standard version this result was scored under, and the older-version line once a newer one exists. */
+function StandardLine({ standard }: { standard?: StandardInfo | null }) {
+  if (!standard || (!standard.name && !standard.older)) return null;
+  return (
+    <p className="muted" style={{ marginTop: 10 }}>
+      {standard.name && `Scored under ${standard.name}.`}{standard.older && standard.line ? ` ${standard.line}` : ''}
+      {standard.older && standard.changes.length > 0 && (
+        <details><summary>See what changed</summary><ul>{standard.changes.map((c) => <li key={c}>{c}</li>)}</ul></details>
+      )}
+    </p>
+  );
+}
 
 /** Results › Summary: the verdict, the nine areas, strengths, focus and the next level, in plain words. */
 export function ResultsSummary() {
@@ -37,6 +51,7 @@ function Body({ sprint }: { sprint: Sprint }) {
               <div className="ws-row"><Stars stars={view.level.stars} size={22} /><h3 style={{ margin: 0 }}>{view.level.name}</h3></div>
               <p style={{ marginTop: 10 }}>{view.level.meaning}</p>
               <p className="muted" style={{ marginTop: 10 }}>{view.summary}</p>
+              <StandardLine standard={cap.run.data?.standard} />
             </div>
           </div>
         </section>
