@@ -500,3 +500,22 @@ class FixedWordingTests(SimpleTestCase):
                 sentence = practice_label(cid)[1].rstrip('.')
                 self.assertIn(sentence[1:], line, cid)
                 self.assertNotIn(conditions[cid]['text'].rstrip('.')[1:], line, cid)
+
+
+class TopicNameTests(SimpleTestCase):
+    def test_fixed_wording_names_the_topic_as_the_reports_do(self):
+        from .capability.depth import topic_title
+        from .capability.report_projection import AREA_TITLES
+        rubric = release()
+        rows = reserve.stamp(records({}, rubric), Fraction(1, 4))
+        questions, _, _ = depth.plan_all(rows, rubric, depth._no_model, share=Fraction(1, 4),
+                                         min_credit=Fraction(1, 2), link=False)
+        names = {i['code']: i['name'] for i in rubric['indicators']}
+        for q in questions:
+            if q['kind'] != 'missing':
+                continue
+            code = q['condition_ids'][0].rsplit('.', 1)[0]
+            self.assertTrue(q['text'].startswith(f'For {topic_title(code)}, '), q['text'][:80])
+            self.assertNotIn(names[code], q['text'].split('\n')[0])
+        self.assertEqual(topic_title('AIQIF-C6.3'), 'security and recovery')
+        self.assertEqual(topic_title('AIQIF-C1.1'), AREA_TITLES['AIQIF-C1.1'])   # "AI strategy ..." keeps its capitals

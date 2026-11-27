@@ -164,3 +164,38 @@
 .ws .ws-answer-list li { background: #fff; border: 1px solid #e5e9e5; border-radius: 6px; padding: 16px 18px; display: grid; gap: 6px; }
 .ws .ws-answer-list p { margin: 0; font-size: 14px; }
 .ws .ws-answer-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+
+/* Follow-up questions in the merged design (27 Nov 2026): the list on the left, one question on the right. */
+.ws .fu-rules { background: #f4f8ed; border: 1px solid #dce5d5; border-radius: 6px; padding: 12px 16px; margin-bottom: 18px; font-size: 14px; }
+.ws .fu-rules summary { cursor: pointer; }
+.ws .fu-rules p, .ws .fu-rules ul { margin: 10px 0 0; font-size: 13.5px; }
+.ws .fu-grid { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.ws .fu-list { background: white; border: 1px solid var(--line); border-radius: 6px; padding: 18px 16px; position: sticky; top: 16px; max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
+.ws .fu-list-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ws .fu-list-head h2 { font-size: 15px; }
+.ws .fu-list > p { font-size: 12.5px; margin: 4px 0 10px; }
+.ws .fu-list ol { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: grid; gap: 4px; }
+.ws .fu-list li button { width: 100%; text-align: left; background: white; border: 1px solid transparent; border-radius: 5px; padding: 9px 10px; display: grid; gap: 4px; }
+.ws .fu-list li button:hover { background: var(--canvas); }
+.ws .fu-list li button.on { border-color: var(--olive); background: #f3f8ec; }
+.ws .fu-list .q { font-size: 13px; line-height: 1.4; color: var(--ink); }
+.ws .fu-list .m { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ws .fu-list .m small { font-size: 11.5px; }
+.ws .fu-little { margin: 8px 0 6px; padding: 10px 12px; border-top: 1px dashed #c9d1ca; background: #f4f8ed; border-radius: 5px; font-size: 12.5px; line-height: 1.45; color: var(--green); font-weight: 600; }
+.ws .fu-main { display: grid; gap: 18px; min-width: 0; }
+.ws .fu-card { padding: 24px 26px; }
+.ws .fu-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.ws .fu-q { font-size: 20px !important; line-height: 1.4; margin: 12px 0 10px !important; }
+.ws .fu-q-rest { display: grid; gap: 4px; margin: 0 0 14px; }
+.ws .fu-q-rest p { font-size: 14px; color: var(--ink) !important; line-height: 1.5; }
+.ws .fu-label { font-size: 14px; margin: 18px 0 8px; }
+.ws .fu-field { margin-top: 16px; display: grid; gap: 8px; }
+.ws .fu-field textarea { width: 100%; }
+.ws .fu-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.ws .fu-actions .btn.primary { background: var(--olive); border-color: var(--olive); color: var(--green); font-weight: 650; }
+.ws .fu-nav { display: flex; justify-content: space-between; margin-top: 14px; }
+.ws .fu-answer { border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 6px; }
+.ws .fu-answer p { margin: 0; font-size: 14px; }
+@media (max-width: 1000px) { .ws .fu-grid { grid-template-columns: 1fr; } .ws .fu-list { position: static; max-height: 360px; } }
+.ws .fu-card .upload-zone { padding: 16px; min-height: 0; }
+.ws .fu-card .upload-zone .upload-icon { display: none; }
