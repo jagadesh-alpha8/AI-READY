@@ -820,6 +820,16 @@ def publish_final(result, *, service=None, user=None, inference=None):
                         'new_sources': sorted(s['id'] for s in new_sources)})
     key = 'second-layer-' + signature[:48]
     sprint = provisional_run.sprint
+    lines = result.get('document_lines') or {}
+    if lines and service is not None and hasattr(service, 'extract_structured_data'):
+        # The college reads these lines, so the writer words them from its own pages (compact.write_lines): each is
+        # checked, else its template stands. Outside the transaction: a model call never holds the run's lock.
+        from .compact import write_lines
+
+        def call(system_prompt, user_content, response_schema, schema_name):
+            return service.extract_structured_data(system_prompt=system_prompt, user_content=user_content,
+                                                   response_schema=response_schema, schema_name=schema_name)
+        write_lines(lines, call)
     with transaction.atomic():
         CapabilityRun.objects.select_for_update().get(pk=provisional_run.pk)
         existing = CapabilityExecution.objects.filter(sprint=sprint, idempotency_key=key).select_related('run').first()
@@ -858,7 +868,7 @@ def publish_final(result, *, service=None, user=None, inference=None):
         publish(institution_id=sprint.institution_id, run_id=run.pk,
                 evaluation={'records': result['records'], 'traces': traces},
                 inference=inference or _inference(service, event))
-        save_document_lines(result.get('document_lines') or {})
+        save_document_lines(lines)
     return run
 
 

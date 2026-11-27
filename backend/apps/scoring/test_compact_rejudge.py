@@ -260,3 +260,41 @@ class LoweringLineTests(SimpleTestCase):
         self.assertIn('Minutes.pdf (page 4)', out[0]['text'])
         self.assertIn('50% from page 12 of SSR.pdf', out[0]['text'])
         self.assertIn('send the document that settles it', out[0]['text'])
+
+
+class WriterTests(SimpleTestCase):
+    def rows(self):
+        line = {'document_id': 'd', 'requirement': CID, 'kind': 'read_again', 'text': 'Template line.', 'staff': {},
+                'brief': {'kind': 'read_again', 'asked': True, 'requirement': 'A responsible owner is assigned.',
+                          'shown': ['A digital priority is identified'], 'still_needed': ['A named owner'],
+                          'document': 'Minutes 2024.pdf',
+                          'quotations': [{'page': 3, 'quote': 'the e-governance plan for 2024'}],
+                          'pages_read': None, 'lowered': None}}
+        return {'response:r1': [line]}
+
+    def test_a_checked_line_replaces_the_template(self):
+        rows = self.rows()
+        good = ('Your Minutes 2024.pdf, page 3, shows "the e-governance plan for 2024". To count this in full we '
+                'still need to see who is responsible for it; that was not found in the documents you sent.')
+        counts = compact.write_lines(rows, lambda *a: {'lines': [{'id': '0', 'text': good}]})
+        self.assertEqual(counts['written'], 1)
+        self.assertTrue(rows['response:r1'][0]['written'])
+        self.assertNotIn('brief', compact.college_view(rows['response:r1'])[0])
+
+    def test_a_line_that_breaks_a_rule_keeps_the_template(self):
+        for bad in ('Your Minutes 2024.pdf shows AIQIF-C1.1.F2 is met.',
+                    'Your Minutes 2024.pdf shows "a policy approved by the board".',
+                    'Your Minutes 2024.pdf, page 9, shows the plan.',
+                    'Your document shows the plan.'):
+            rows = self.rows()
+            compact.write_lines(rows, lambda *a, t=bad: {'lines': [{'id': '0', 'text': t}]})
+            self.assertEqual(rows['response:r1'][0]['text'], 'Template line.', bad)
+            self.assertFalse(rows['response:r1'][0]['written'])
+
+    def test_a_failed_call_keeps_every_template(self):
+        rows = self.rows()
+
+        def fail(*a):
+            raise TimeoutError
+        self.assertEqual(compact.write_lines(rows, fail)['call_failed'], 1)
+        self.assertEqual(rows['response:r1'][0]['text'], 'Template line.')

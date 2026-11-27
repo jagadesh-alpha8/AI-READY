@@ -485,6 +485,8 @@ def lines(route, cid, *, asked, audit_row, final_record, documents, names, plan,
     showing = '; '.join(_wording(cid, shown))
     tail = 'the question still needs' if asked else 'that part of your assessment still needs'
     decision = (audit_row or {}).get('decision', '')
+    req = f'"{(plan.get("requirement_text") or cid).rstrip(".")}"'
+    plan.setdefault('lowered', {})[cid] = (audit_row or {}).get('lowered_parts') or []
     for doc in documents:
         name = names.get(doc) or 'this document'
         staff = {'requirement': cid, 'page_states': {p: s for p, s in (plan.get('states') or {}).items()
@@ -499,7 +501,7 @@ def lines(route, cid, *, asked, audit_row, final_record, documents, names, plan,
         if plan.get('already'):
             counted = '; '.join(_wording(cid, plan.get('cited_parts') or [])) or 'this requirement'
             out.append({'document_id': doc, 'requirement': cid, 'kind': 'already_counted',
-                        'text': f'Already counted for {cid}: {name} was credited for: {counted}. Still needed: {still}.',
+                        'text': f'Already counted for {req}: {name} was credited for: {counted}. Still needed: {still}.',
                         'staff': staff})
             continue
         line = {'document_id': doc, 'requirement': cid, 'staff': staff}
@@ -508,7 +510,7 @@ def lines(route, cid, *, asked, audit_row, final_record, documents, names, plan,
         numbers = plan.get('page_numbers') or {}
         if decision.startswith('not re-judged'):
             line.update(kind='not_checked', text=(
-                f'We could not finish checking {name} for {cid} this time. InGage will check it again before your '
+                f'We could not finish checking {name} for {req} this time. InGage will check it again before your '
                 'final result.'))
         elif (audit_row or {}).get('lowered_parts'):
             before = (audit_row or {}).get('previous_credit')
@@ -521,20 +523,20 @@ def lines(route, cid, *, asked, audit_row, final_record, documents, names, plan,
                               for c in p.get('citations') or [] if numbers.get(c.get('source_id'))})
             line.update(kind='lowered', text=(
                 f'{name}' + (f' (page {", ".join(str(n) for n in here)})' if here else '')
-                + f' shows something different from what we counted before for {cid}: '
+                + f' shows something different from what we counted before for {req}: '
                 f'{"; ".join(_wording(cid, lowered))}. We had counted it at {round(100 * (before or 0))}%'
                 + (f' from {", ".join(earlier)}' if earlier else ' from your earlier documents')
                 + '. We now use what the documents show. If this is not right, send the document that settles it.'))
         elif decision == 'replaced' and rose:
             line.update(kind='counted' if asked else 'also_counted', text=(
-                f'{"Counted" if asked else "Also counted"} for {cid}: {name} shows '
+                f'{"Counted" if asked else "Also counted"} for {req}: {name} shows '
                 f'{"; ".join(_wording(cid, rose))}.' + (f' Still needed: {still}.' if missing else '')))
         elif missing:
             line.update(kind='read_again', text=(
-                f'Read again for {cid}: {name} ' + (f'shows {showing}, and ' if showing else 'did not show more, and ')
+                f'Read again for {req}: {name} ' + (f'shows {showing}, and ' if showing else 'did not show more, and ')
                 + f'{tail}: {still}. That was not found in the documents you sent.'))
         else:
-            line.update(kind='read_again', text=f'Read again for {cid}: {name} shows everything this asks for.')
+            line.update(kind='read_again', text=f'Read again for {req}: {name} shows everything this asks for.')
         if doc in (plan.get('pages') or {}).get('partial', []):
             pages = ', '.join(str(n) for n in (plan['pages']['read'] or {}).get(doc, []))
             out.append({'document_id': doc, 'requirement': cid, 'kind': 'partly_read', 'staff': staff,
@@ -549,15 +551,139 @@ def lines(route, cid, *, asked, audit_row, final_record, documents, names, plan,
         else:
             out.append({'document_id': None, 'requirement': cid, 'kind': 'no_document', 'staff': {},
                         'text': 'We have noted this. We can count it once a document shows it.'})
+    for line in out:
+        line['brief'] = brief(line, cid, plan=plan, final_record=final_record, names=names, asked=asked,
+                              shown=shown, missing=missing)
     if plan.get('why') == 'reused':
         for line in out:
             line['text'] = 'We have already taken a second look at this document for this question. ' + line['text']
     return out
 
 
+def brief(line, cid, *, plan, final_record, names, asked, shown, missing):
+    """What the writer may use for one line: the requirement's text and its parts' wording (shown and still needed),
+    what happened to the document, and the passages of that document the final finding cites, with page numbers.
+    Never another college's text, and never the whole document."""
+    from .layer2 import _pass_citations
+    doc = line.get('document_id')
+    numbers = plan.get('page_numbers') or {}
+    owner = plan.get('page_documents') or {}
+    quotes = []
+    for part in (final_record or {}).get('parts') or []:
+        for cites in _pass_citations(part):
+            for c in cites or []:
+                if doc and owner.get(c.get('source_id')) == doc and c.get('quote'):
+                    row = {'page': numbers.get(c.get('source_id')), 'quote': ' '.join(str(c['quote']).split())[:400]}
+                    if row not in quotes:
+                        quotes.append(row)
+    pages = plan.get('pages') or {}
+    return {'kind': line.get('kind'), 'asked': asked, 'requirement': plan.get('requirement_text') or '',
+            'shown': _wording(cid, shown), 'still_needed': _wording(cid, missing),
+            'document': names.get(doc) if doc else None, 'quotations': quotes[:6],
+            'pages_read': (pages.get('read') or {}).get(doc) if doc in (pages.get('partial') or []) else None,
+            'lowered': _wording(cid, (plan.get('lowered') or {}).get(cid) or []) or None}
+
+
+WRITER_VERSION = 'document-lines-1'
+WRITER_PROMPT = """You write the short lines a college reads on its follow-up page after its final AI-readiness result:
+for each document it sent, what that document did for one practice. The college is our customer. Write to it as
+"you" and "your", plainly and warmly, and be specific about its own document.
+
+Each line you receive has: kind (what happened: counted, also_counted for a practice it was not asked about,
+already_counted, read_again, lowered, partly_read, could_not_read, could_not_find, no_document, not_checked), the
+practice, the parts of it the documents show and the parts still needed (written for assessors: say what they mean in
+everyday words, never copy them), the document's name, quotations from that document with their page numbers, and for
+partly_read the pages that were read.
+
+Rules:
+1. Use only what is in the line. Never mention a document, page, number, activity or name that is not in it.
+2. Name the document and, where given, the page. You may quote a few words from a quotation in double quotes, exactly
+   as given; otherwise say it in your own words.
+3. Never say or imply more than the kind says. read_again: say what the document shows, then what is still needed,
+   "not found in the documents you sent", never "you do not have". lowered: say plainly and kindly what the document
+   shows, that we now use it, and what would settle it.
+4. No scores, percentages or credit; no requirement codes; nothing about how the assessment works inside.
+5. One or two sentences, at most 60 words."""
+
+
+def writer_schema(ids):
+    return {'type': 'object', 'additionalProperties': False, 'required': ['lines'],
+            'properties': {'lines': {'type': 'array', 'items': {
+                'type': 'object', 'additionalProperties': False, 'required': ['id', 'text'],
+                'properties': {'id': {'type': 'string', 'enum': sorted(ids)}, 'text': {'type': 'string'}}}}}}
+
+
+_CODE = re.compile(r'\bAIQIF|\b[A-Z]\d\.\d\.[A-Z]\d\b')
+_QUOTED = re.compile(r'"([^"]{3,})"|“([^”]{3,})”')
+_NUMBER = re.compile(r'\d+')
+_BANNED = ('you do not have', "you don't have", '%', 'percent', 'credit', 'score', 'model', 'packet', 'rubric')
+
+
+def check_line(text, line):
+    """Problems with a written line ([] when it may be shown): codes, quotations not in its passages, numbers not in
+    its input, banned phrases, length."""
+    problems = []
+    b = line.get('brief') or {}
+    source = json.dumps(b, ensure_ascii=False)
+    plain = ' '.join((text or '').split())
+    if not plain:
+        return ['empty']
+    if len(plain.split()) > 70:
+        problems.append('longer than 70 words')
+    if _CODE.search(plain):
+        problems.append('a requirement code')
+    lowered = plain.lower()
+    problems += [f'says "{w}"' for w in _BANNED if w in lowered]
+    quotes = ' '.join(' '.join(q['quote'].split()) for q in b.get('quotations') or [])
+    for a, c in _QUOTED.findall(plain):
+        if ' '.join((a or c).split()) not in quotes:
+            problems.append(f'quotes "{a or c}", which is not in the document\'s passages')
+    for n in _NUMBER.findall(plain):
+        if n not in source:
+            problems.append(f'the number {n} is not in the input')
+    if b.get('document') and b['document'].rsplit('.', 1)[0].lower()[:12] not in lowered and b.get('kind') not in (
+            'no_document', 'could_not_find'):
+        problems.append('does not name the document')
+    return problems
+
+
+def write_lines(by_route, model):
+    """Rewrite each line with the writer (one call per answer or submission, all its lines), keeping each written
+    line only when check_line passes; the template stays otherwise (and says so on the line: written: False). A
+    failed call keeps every template. by_route: {route: [line]}, changed in place; returns counts."""
+    from collections import Counter
+    counts = Counter()
+    for route, rows in by_route.items():
+        wanted = [(str(n), row) for n, row in enumerate(rows) if row.get('brief')]
+        if not wanted:
+            continue
+        content = json.dumps({'lines': [{'id': i, **row['brief']} for i, row in wanted]}, ensure_ascii=False)
+        try:
+            answer = model(WRITER_PROMPT, content, writer_schema([i for i, _ in wanted]), 'document_lines') or {}
+        except Exception as exc:   # never blocks publishing: the templates stand
+            counts['call_failed'] += 1
+            for _, row in wanted:
+                row['written'] = False
+                row.setdefault('staff', {})['writer'] = f'call failed ({type(exc).__name__})'
+            continue
+        written = {str(r.get('id')): r.get('text') for r in answer.get('lines') or []}
+        for i, row in wanted:
+            text = written.get(i)
+            problems = check_line(text, row) if text else ['missing']
+            if problems:
+                row['written'] = False
+                row.setdefault('staff', {})['writer'] = problems
+                counts['template'] += 1
+            else:
+                row['text'], row['written'] = ' '.join(text.split()), True
+                row.setdefault('staff', {})['writer'] = WRITER_VERSION
+                counts['written'] += 1
+    return counts
+
+
 def college_view(lines_):
-    """The lines without staff detail."""
-    return [{k: v for k, v in line.items() if k != 'staff'} for line in lines_ or []]
+    """The lines without staff detail or the writer's input."""
+    return [{k: v for k, v in line.items() if k not in ('staff', 'brief')} for line in lines_ or []]
 
 
 def description(settings_):
@@ -703,6 +829,7 @@ def rejudge(*, export, service, result, records, traces, routes, run, run_ref, r
         from .layer2_service import _uuid
         ids = {i for i in (_uuid(d) for r in routes for d in r.get('documents') or []) if i}
         names = {str(d.pk): d.original_filename or d.title for d in Document.objects.filter(pk__in=ids)}
+    requirement_texts = {c['id']: c['text'] for i in rubric['indicators'] for c in i['conditions']}
     manifest_names = {str(m.get('document_id')): m.get('filename')
                       for m in ((run.inputs or {}).get('manifest') or [] if run is not None else [])}
     versions = {'credit_rule': rule, 'parts_prompt_hash': metadata()['parts_prompt_hash'], 'packet': PACKET_VERSION,
@@ -737,7 +864,8 @@ def rejudge(*, export, service, result, records, traces, routes, run, run_ref, r
                     'page_numbers': {p['id']: p.get('page_number') for p in all_pages},
                     'files': {p['id']: manifest_names.get(str(p.get('document_id'))) or names.get(str(p.get('document_id')))
                               or 'your documents' for p in all_pages},
-                    'previous_parts': record.get('parts') or []}
+                    'previous_parts': record.get('parts') or [],
+                    'requirement_text': requirement_texts.get(cid, '')}
             plans[cid] = plan
             if not (sent or pointed):
                 plan['skipped'] = 'nothing readable to judge'
