@@ -68,7 +68,7 @@ def serialize_question(question):
     return out
 
 
-def serialize_response(response):
+def serialize_response(response, staff=False):
     check = response.support_check or {}
     return {'id': str(response.pk), 'question_id': str(response.question_id),
             'parent_id': str(response.parent_id) if response.parent_id else None, 'kind': response.kind,
@@ -77,14 +77,22 @@ def serialize_response(response):
             'dimensions': [{'dimension_id': d['dimension_id'], 'support': d['support'], 'note': d.get('note', '')}
                            for d in check.get('dimensions', [])],
             'passages_found': len(response.windows or []),
-            'search': check.get('search', {}), 'created_at': response.created_at}
+            'search': check.get('search', {}), 'created_at': response.created_at,
+            'document_lines': _lines(response.document_lines, staff)}
 
 
-def serialize_additional(item):
+def _lines(rows, staff):
+    """What each document did (compact.lines): staff see the detail behind each line, a college the line only."""
+    from .compact import college_view
+    return list(rows or []) if staff else college_view(rows)
+
+
+def serialize_additional(item, staff=False):
     return {'id': str(item.pk), 'document_ids': item.document_ids, 'note': item.note, 'picked': item.picked,
             'routed_indicators': item.routing.get('indicators', []), 'unknown_picks': item.routing.get('unknown', []),
             'over_cap': item.routing.get('dropped', []), 'search': item.routing.get('search', {}), 'status': item.status,
-            'passages_found': len(item.windows or []), 'created_at': item.created_at}
+            'passages_found': len(item.windows or []), 'created_at': item.created_at,
+            'document_lines': _lines(item.document_lines, staff)}
 
 
 class _RunScoped(APIView):
@@ -163,8 +171,15 @@ def questionnaire_notice(run):
                       'Please answer as accurately as you can. If a document you send shows something different from '
                       'what we credited, we adjust that part of the score, up or down. Accurate answers also make '
                       'your improvement plan more useful.'],
+            # The compact re-judge description (compact.description), worded from the run's frozen settings.
+            'how_we_use': _how_we_use(run),
             **({'closed_text': 'The follow-up stage is closed and your final AI-READY Score has been published.'}
                if closed else {})}
+
+
+def _how_we_use(run):
+    from .compact import description, frozen_settings
+    return description(frozen_settings(str(run.pk)))
 
 
 class QuestionsView(_RunScoped):
@@ -186,7 +201,9 @@ class QuestionsView(_RunScoped):
             latest = {}
             for r in DepthResponse.objects.filter(question__run_ref=run_ref, parent__isnull=True).order_by('created_at'):
                 latest[r.question_id] = r
-            body['questions'] = [{**serialize_question(q), 'response': serialize_response(latest[q.pk])
+            from .publication import is_staff
+            staff = is_staff(request.user)
+            body['questions'] = [{**serialize_question(q), 'response': serialize_response(latest[q.pk], staff)
                                   if q.pk in latest else None} for q in questions]
         return Response(body)
 
@@ -213,7 +230,8 @@ class ResponseView(_RunScoped):
     def get(self, request, sprint_id, run_id, response_id):
         execution = self.execution(request, sprint_id, run_id)
         response = get_object_or_404(DepthResponse, pk=response_id, question__run_ref=str(execution.run_id))
-        return Response(serialize_response(response))
+        from .publication import is_staff
+        return Response(serialize_response(response, is_staff(request.user)))
 
 
 class FollowUpView(_RunScoped):
@@ -228,7 +246,9 @@ class AdditionalEvidenceView(_RunScoped):
     def get(self, request, sprint_id, run_id):
         execution = self.execution(request, sprint_id, run_id)
         items = AdditionalEvidence.objects.filter(run_ref=str(execution.run_id))
-        return Response({'results': [serialize_additional(i) for i in items]})
+        from .publication import is_staff
+        staff = is_staff(request.user)
+        return Response({'results': [serialize_additional(i, staff) for i in items]})
 
     def post(self, request, sprint_id, run_id):
         execution = self.execution(request, sprint_id, run_id)

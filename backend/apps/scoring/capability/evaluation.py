@@ -726,8 +726,11 @@ def _tag_semantic_version():
 
 def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, population, reference_period, scope,
              structure=None, fixed_context=None, lane_version=None, ceiling=None, judgment='conditions',
-             diagnostics=None, keyword_chars=None, window_cache=None, evidence_map=None):
+             diagnostics=None, keyword_chars=None, window_cache=None, evidence_map=None, statement=None):
     """Build one indicator's frozen packet and request payload (local work, no model call).
+
+    statement: the college's own words about what it sent (compact re-judge, typed answer shown), put in the request
+    beside the passages, never as one, so it cannot be quoted (layer2 compact.statement_block).
 
     fixed_context: a packet given whole (the second assessment layer: a provisional packet plus new windows, see
     layer2.py). Retrieval and the extracted-evidence lane are skipped; the packet already holds what they added.
@@ -837,9 +840,11 @@ def _prepare(indicator, *, sources, semantic_ranker, gemini, reviewed_evidence, 
     def payload_for(packet, diagnostics=None):
         """(payload, reviewed-evidence context) for a packet; reused by the targeted extra search."""
         reviewed = for_context(reviewed_evidence, packet, diagnostics=diagnostics, aliases=aliases)
-        return json.dumps({'reviewed_evidence': reviewed, 'indicator': indicator, 'population': population,
-                           'reference_period': reference_period, 'scope': context_scope(scope, packet),
-                           'sources': packet}, sort_keys=True), reviewed
+        body = {'reviewed_evidence': reviewed, 'indicator': indicator, 'population': population,
+                'reference_period': reference_period, 'scope': context_scope(scope, packet), 'sources': packet}
+        if statement:
+            body['college_statement'] = statement
+        return json.dumps(body, sort_keys=True), reviewed
     payload, review_context = payload_for(context, attachment_audit)
     issue = ''
     if review_context and len(json.dumps(review_context)) > 32000:
@@ -1209,7 +1214,7 @@ def _trace(job, outcome, *, gemini, retrieval_policy, sources, compact=False):
             'error': outcome['issue']}
 
 
-def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions', tie_break=False, fixed_contexts=None, quote_repair=False, evidence_map=None):
+def evaluate(sources, *, service, population, reference_period, max_calls=36, rubric=None, on_indicator=None, strict_errors=False, scope=None, reviewed_evidence=None, retrieval_policy=None, recover_provider_errors=False, agreement_passes=1, concurrency=1, judgment='conditions', tie_break=False, fixed_contexts=None, quote_repair=False, evidence_map=None, statements=None):
     """Assess every indicator. Packets are built in rubric order; with concurrency > 1 the model work for up to
     that many indicators runs at once. Records, traces and on_indicator calls stay in rubric order, so results
     do not depend on concurrency; only request numbering in the billing ledger interleaves.
@@ -1217,7 +1222,8 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     fixed_contexts: {indicator code: packet} for every indicator of the rubric, used instead of retrieval (the second
     assessment layer re-judges chosen requirements on their provisional packet plus new windows; layer2.py). The
     targeted extra search is not combined with it; the run's retrieval policy may be passed for page aliases and the
-    trace, and no embedding ranker is built."""
+    trace, and no embedding ranker is built. statements: {indicator code: college statement} beside a fixed packet
+    (_prepare's statement)."""
     rubric = rubric or release()
     if fixed_contexts is not None:
         missing = [i['code'] for i in rubric['indicators'] if i['code'] not in fixed_contexts]
@@ -1334,10 +1340,13 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
     def fixed(indicator):
         return None if fixed_contexts is None else fixed_contexts[indicator['code']]
 
+    def stated(indicator):
+        return (statements or {}).get(indicator['code'])
+
     if concurrency == 1:
         for indicator in rubric['indicators']:
             with ranker_guard:
-                job = _prepare(indicator, **prepare, fixed_context=fixed(indicator))
+                job = _prepare(indicator, **prepare, fixed_context=fixed(indicator), statement=stated(indicator))
             emit(job, run(job))
     else:
         from concurrent.futures import ThreadPoolExecutor
@@ -1353,7 +1362,7 @@ def evaluate(sources, *, service, population, reference_period, max_calls=36, ru
             futures = []
             for indicator in rubric['indicators']:
                 with ranker_guard:
-                    job = _prepare(indicator, **prepare, fixed_context=fixed(indicator))  # local encoder: sequential
+                    job = _prepare(indicator, **prepare, fixed_context=fixed(indicator), statement=stated(indicator))  # local encoder: sequential
                 # Each worker runs in a copy of this context: usage attribution and the router lease are ContextVars.
                 futures.append((job, executor.submit(contextvars.copy_context().run, run_in_thread, job)))
             for job, future in futures:

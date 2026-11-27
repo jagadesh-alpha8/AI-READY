@@ -132,6 +132,9 @@ class DocumentUploadSerializer(serializers.Serializer):
                     f"This exact file was already uploaded to this sprint as "
                     f"'{duplicate.original_filename or duplicate.title}' (document {duplicate.id})."
                 ),
+                # The follow-up page attaches the copy already held instead (compact re-judge: uploading a document
+                # again asks for a second look, matched to the pages we hold by their text).
+                'duplicate_document_id': str(duplicate.id),
             })
 
         attrs['checksum'] = checksum

@@ -613,6 +613,9 @@ class DepthResponse(models.Model):
     windows = models.JSONField(default=list, blank=True, help_text='Passages the search found for the answer.')
     support_check = models.JSONField(default=dict, blank=True, help_text='The answer checked against those passages.')
     follow_up_text = models.TextField(blank=True, help_text='The one follow-up question the check asked, if any.')
+    document_lines = models.JSONField(default=list, blank=True,
+                                      help_text='What each document did, written when the final result is published '
+                                                '(compact.py). Lines with "staff" detail are shown to staff only.')
     submitted_via = models.CharField(max_length=20, default='file', help_text='file, college, consultant')
     submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name='+')
@@ -688,12 +691,55 @@ class AdditionalEvidence(models.Model):
     routing = models.JSONField(default=dict, blank=True)
     windows = models.JSONField(default=list, blank=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    document_lines = models.JSONField(default=list, blank=True, help_text='What each document did (compact.py).')
     submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name='+')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['run_ref', 'created_at']
+
+
+class FollowUpSettings(models.Model):
+    """The compact re-judge settings a run's follow-up stage uses (capability/compact.py), frozen the first time the
+    stage reads them, so a release that switches a default never changes an open follow-up (compact re-judge design,
+    27 Nov: decision 4 and "Versioning"). packet: whole or compact; other_requirements: a sent document is also judged
+    for requirements the map tagger says it bears on; typed_answer: shown to the judge as the college's statement, or
+    hidden."""
+    run_ref = models.CharField(max_length=64, unique=True)
+    version = models.CharField(max_length=40)
+    packet = models.CharField(max_length=20)
+    other_requirements = models.BooleanField(default=False)
+    typed_answer = models.CharField(max_length=10)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class RejudgeLook(models.Model):
+    """One requirement's compact re-judge on a set of pages (compact.py, "One second look, no re-rolls"): the same
+    pages for the same requirement under the same versions reuse this judgment, so sending a document again is not a
+    free draw. `twin` is the judge's record for the requirement; the merge is rerun from it, so the final finding is
+    the same each time. One fresh look runs by itself when `flags` show the stored result was not a clean reading (a
+    split between passes, a partial read, a tagger failure) and the college sends or points at the same pages again,
+    or when staff order it with a reason; at most one per look."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run_ref = models.CharField(max_length=64, db_index=True)
+    condition_id = models.CharField(max_length=30)
+    look_key = models.CharField(max_length=64)
+    versions = models.JSONField(default=dict)
+    answer_hash = models.CharField(max_length=64, blank=True)
+    statement = models.JSONField(default=dict, blank=True, help_text='The college statement shown, if any (internal).')
+    twin = models.JSONField(default=dict)
+    pages = models.JSONField(default=dict, help_text='The packet: pages per group, pages read per document.')
+    flags = models.JSONField(default=dict, blank=True)
+    routes = models.JSONField(default=list, blank=True, help_text='The answers and submissions seen for these pages.')
+    fresh_looks = models.PositiveSmallIntegerField(default=0)
+    answer_rejudges = models.PositiveSmallIntegerField(default=0)
+    fresh_look_ordered = models.TextField(blank=True, help_text='Staff ordered a fresh look, with this reason.')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['run_ref', 'condition_id', 'look_key'], name='one_look_per_pages')]
 
 
 class SecondLayerBudget(models.Model):
