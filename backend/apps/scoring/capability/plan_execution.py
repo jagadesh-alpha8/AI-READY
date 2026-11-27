@@ -1,30 +1,70 @@
-"""Explicit, metered scenario lifecycle. Never writes actual assessment/advice events."""
+"""Explicit, metered plan checks. Never writes actual assessment/advice events.
+
+A sprint allows PLAN_EVALUATIONS_PER_SPRINT checks (usage()); a check that fails or stops on our side is not
+counted, one the college cancels is."""
+import logging
 from datetime import timedelta
 from celery import shared_task
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 
 from apps.extraction.exceptions import ProviderQuotaExhausted
 from apps.scoring.capability.model_choice import scoring_service as get_ai_service
 from apps.extraction.services.router_pool import get_router_pool, use_lease
 from apps.extraction.usage import usage_scope
+from apps.sprints.models import Sprint
 from apps.scoring.models import (CapabilityRun, InstitutionalPlanVersion, PlanScenario,
                                   PlanScenarioEvent, PlanScenarioExecution)
 from . import action_plan, reserve
 from .reserve import scored_credits
 from .engine import ENGINE_VERSION, LEGACY_ENGINE_VERSION, assess, documented, validate_release
-from .evaluation import select_context
 from .execution import policy, AssessmentConflict, AssessmentDisabled, BudgetExceeded, ExecutionStopped
 from .provider import MeteredService, UnpricedModel, UsageUnavailable
-from .plan_mapping import VERSION, PROMPTS, SCHEMAS, run_pipeline
+from .plan_mapping import VERSION, PROMPTS, SCHEMAS, PlanError, run_pipeline
 from .scenarios import VERSION as SCENARIO_VERSION
 from .storage import digest
+
+logger = logging.getLogger(__name__)
 
 
 def enabled():
     return settings.CAPABILITY_PLANS_ENABLED
+
+
+#: Statuses that use up one of a sprint's plan checks: running or done, or stopped by the college. A check that
+#: failed (our side: the AI service, a spending limit, a plan with no actions) is not counted.
+COUNTED = ('queued', 'running', 'completed', 'cancelled')
+
+
+def limit():
+    return max(0, int(getattr(settings, 'PLAN_EVALUATIONS_PER_SPRINT', 10)))
+
+
+def usage(sprint_id):
+    used = PlanScenarioExecution.objects.filter(run__sprint_id=sprint_id, status__in=COUNTED).count()
+    return {'used': used, 'limit': limit(), 'remaining': max(0, limit() - used)}
+
+
+class PlanLimitReached(APIException):
+    status_code = 429
+    default_code = 'plan_check_limit'
+
+
+#: What a college is told when a check ends without a result.
+MESSAGES = {
+    'budget_exhausted': 'This check reached its spending limit before it finished. It is not counted against your '
+                        'plan checks. A shorter plan may get through; otherwise ask InGage.',
+    'provider_quota_exhausted': 'The AI service is out of credit. This check is not counted. Ask InGage.',
+    'model_pricing_required': 'The AI model is not set up for checks yet. This check is not counted. Ask InGage.',
+    'usage_telemetry_missing': 'The AI service did not report its usage. This check is not counted; try again.',
+    'inference_disabled': 'Plan checks were switched off while this one ran. It is not counted.',
+    'inference_stopped': 'This check was stopped.',
+    'cancelled_by_user': 'You stopped this check. It counts as one of your plan checks.',
+    'dispatch_failed': 'This check could not be started. It is not counted; try again.',
+    'plan_validation_or_generation_failed': 'The check could not be completed. It is not counted; try again later.',
+}
 
 
 def validate_baseline(run, event):
@@ -88,21 +128,30 @@ def start(*, run, user, key, plan_text):
     if event is None:
         raise ValidationError('A plan evaluation requires a completed assessment.')
     baseline = validate_baseline(run, event)
+    if run.inputs['rubric'].get('aggregation') != 'independent_conditions':
+        raise ValidationError('This assessment was scored before part credit. Run a new assessment to check a plan.')
+    # One sprint's checks are counted under its lock, so two requests can't both take the last one.
+    Sprint.objects.select_for_update().get(pk=run.sprint_id)
     if PlanScenarioExecution.objects.filter(run=run, status__in=['queued', 'running']).exists():
-        raise AssessmentConflict('Plan evaluation is already active for this baseline.')
+        raise AssessmentConflict('A plan check is already running for this assessment. Wait for it to finish.')
+    used = usage(run.sprint_id)
+    if used['remaining'] <= 0:
+        raise PlanLimitReached(f"Usage limit reached: this assessment allows {used['limit']} plan checks and all "
+                               f"{used['limit']} have been used.")
     budget = policy()
-    budget.update(prompt_version=VERSION, prompt_hash=digest(PROMPTS), schema_hash=digest(SCHEMAS))
+    # A check makes a handful of calls (plan_mapping's docstring); its own ceiling, not the assessment's.
+    budget.update(prompt_version=VERSION, prompt_hash=digest(PROMPTS), schema_hash=digest(SCHEMAS),
+                  stage='plan_review', stored_judgments=False,
+                  max_http_calls=int(getattr(settings, 'PLAN_REVIEW_MAX_CALLS', 30)),
+                  max_cost_usd=str(getattr(settings, 'PLAN_REVIEW_MAX_COST_USD', '5')))
     plan = InstitutionalPlanVersion.objects.create(run=run, origin='submitted', text=plan_text, text_hash=digest(plan_text))
-    # Bounded source context is explicit, frozen and labelled a subset; no facts are invented.
-    asset_sources = select_context({'code': 'plan-assets', 'name': plan_text, 'conditions': []}, run.inputs['sources'])
     inputs = {'version': VERSION, 'scenario_version': SCENARIO_VERSION, 'plan_text': plan_text,
         'plan_hash': plan.text_hash, 'run_inputs_hash': run.inputs_hash, 'assessment_event_id': event.pk,
         'assessment_hash': digest(event.payload), 'baseline_decisions': baseline,
         'rubric': run.inputs['rubric'], 'rubric_snapshot_hash': digest(run.inputs['rubric']),
         'engine_version': run.inputs['engine_version'], 'scope': run.inputs.get('scope'),
         'population': run.inputs['population'], 'reference_period': run.inputs['reference_period'],
-        'profile': run.inputs['profile'], 'asset_sources': asset_sources,
-        'asset_context_is_subset': True, 'execution_policy': budget, **baseline_view(run, event),
+        'profile': run.inputs['profile'], 'execution_policy': budget, **baseline_view(run, event),
         'prompt_hash': digest(PROMPTS), 'schema_hash': digest(SCHEMAS)}
     scenario = PlanScenario.objects.create(plan=plan, run=run, assessment_event=event, inputs=inputs, inputs_hash=digest(inputs))
     execution = PlanScenarioExecution.objects.create(scenario=scenario, run=run, requested_by=user,
@@ -141,26 +190,6 @@ def validate_identity(scenario, completed=None):
             raise AssessmentConflict('Saved improved plan does not match this scenario.')
 
 
-ASSET_CHARS = 18000
-
-
-def ranked_assets(scenario):
-    """The documents most related to the plan, searched with the plan's own text by the run's own ranker, or None
-    when the run used keyword retrieval or this worker can't load its embedding model (the keyword subset frozen at
-    start is used then). Runs in the worker, not the request: building the ranker loads the model."""
-    from .layer2 import search_with_answer
-    from .layer2_service import ranker_for_run
-    try:
-        ranker, mode, _ = ranker_for_run(scenario.run)
-    except Exception:
-        return None
-    if ranker is None or mode != 'hybrid':
-        return None
-    windows = search_with_answer(scenario.inputs['plan_text'], [], scenario.run.inputs['sources'],
-                                 corpus_limit=ASSET_CHARS, ranker=ranker)
-    return windows or None
-
-
 def dispatch(scenario_id, task_id):
     try:
         evaluate_institutional_plan.apply_async(args=[scenario_id, task_id], task_id=task_id, retry=False)
@@ -169,7 +198,7 @@ def dispatch(scenario_id, task_id):
 
 
 @transaction.atomic
-def finish(scenario_id, status, error_code):
+def finish(scenario_id, status, error_code, message=None):
     execution = PlanScenarioExecution.objects.select_for_update().get(scenario_id=scenario_id)
     if execution.status not in {'queued', 'running'}:
         return False
@@ -177,7 +206,8 @@ def finish(scenario_id, status, error_code):
     execution.heartbeat_at = timezone.now()
     execution.save(update_fields=['status', 'heartbeat_at'])
     PlanScenarioEvent.objects.create(scenario_id=scenario_id, payload={'kind': 'terminal', 'status': status,
-        'error_code': error_code, 'next_action': 'The actual assessment is unchanged. Check limits/configuration or revise the plan, then explicitly request a new evaluation.'})
+        'error_code': error_code, 'next_action': message or MESSAGES.get(error_code, MESSAGES[
+            'plan_validation_or_generation_failed'])})
     return True
 
 
@@ -199,6 +229,7 @@ def claim(scenario_id, task_id):
 class ScenarioMeter(MeteredService):
     execution_model = PlanScenarioExecution
     execution_key = 'scenario_id'
+    reuses_answers = False
 
     def __init__(self, service, execution):
         super().__init__(service, execution, execution_policy=execution.scenario.inputs['execution_policy'], ledger_id=execution.scenario_id)
@@ -244,13 +275,16 @@ def evaluate_institutional_plan(scenario_id, task_id):
             lease = pool.acquire()
         with use_lease(lease):
             service = ScenarioMeter(get_ai_service(), execution)
-            ranked = ranked_assets(scenario)
-            if ranked is not None:
-                stage(scenario_id, 'asset_retrieval', {'mode': 'hybrid', 'windows': [
-                    {k: w.get(k) for k in ('id', 'text_offset')} | {'chars': len(w.get('text') or '')} for w in ranked]})
-                inputs = {**inputs, 'asset_sources': ranked}
+            records = scenario.assessment_event.payload['records']
+            target = None
+            try:   # the college's own passages, from the run's saved record (next_steps.build_target)
+                from .next_steps import build_target
+                target = build_target(scenario.run)
+            except Exception:
+                logger.warning('plan_review.no_passages run=%s', scenario.run_id, exc_info=True)
             with usage_scope(sprint=scenario.run.sprint, stage='institutional_plan_evaluation', capability_run=scenario.run, plan_scenario=scenario):
-                comparison = run_pipeline(inputs, service, lambda label, value: stage(scenario_id, label, value))
+                comparison = run_pipeline(inputs, service, lambda label, value: stage(scenario_id, label, value),
+                                          records=records, target=target)
             with transaction.atomic():
                 locked = PlanScenarioExecution.objects.select_for_update().get(scenario_id=scenario_id)
                 if locked.status != 'running' or not enabled():
@@ -268,8 +302,12 @@ def evaluate_institutional_plan(scenario_id, task_id):
                 locked.status = 'completed'
                 locked.heartbeat_at = timezone.now()
                 locked.save(update_fields=['status', 'heartbeat_at'])
+    except PlanError as exc:
+        finish(scenario_id, 'failed', 'plan_not_checkable', str(exc))
     except ExecutionStopped:
-        finish(scenario_id, 'cancelled', 'inference_stopped')
+        # A check the college cancelled is already closed (finish does nothing then); one still running was stopped
+        # by plan checks being switched off, which is not the college's doing and is not counted.
+        finish(scenario_id, 'failed', 'inference_disabled')
     except BudgetExceeded:
         finish(scenario_id, 'failed', 'budget_exhausted')
     except UnpricedModel:
@@ -281,6 +319,7 @@ def evaluate_institutional_plan(scenario_id, task_id):
             pool.mark_exhausted(lease.router, 'Plan provider quota exhausted')
         finish(scenario_id, 'failed', 'provider_quota_exhausted')
     except Exception:
+        logger.exception('plan_review.failed scenario=%s', scenario_id)
         finish(scenario_id, 'failed', 'plan_validation_or_generation_failed')
     finally:
         if pool is not None and lease is not None:
