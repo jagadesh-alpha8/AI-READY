@@ -37,7 +37,8 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
     return { data: res.data.count };
   }, `ws-conf:${sprint.id}`);
   const [confirming, setConfirming] = useState(false);
-  const [key] = useState(newKey);
+  // A fresh key each time the dialog opens: one run per confirmation, and a second run is never mistaken for the first.
+  const [key, setKey] = useState(newKey);
   const [msg, setMsg] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
   if (cap.loading && !cap.runs.data) return <Loading label="Loading your assessment…" />;
@@ -57,6 +58,8 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
   const preparing = cap.shown.preparing;   // a college: a result exists, InGage hasn't published it yet
   const finalWaiting = !final && !!progress?.final_run_id;   // the final result exists, not published yet
   const failed = cap.newest?.status === 'failed' && !cap.running;
+  // Staff see the newest result before it is published: it is a draft until the college sees it.
+  const draft = staff && cap.shown.preview;
 
   const steps: { title: string; text: string; state: StepState; link?: { to: string; label: string } }[] = [
     {
@@ -78,8 +81,8 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
       link: hasResult && !final ? { to: pathOf('questionnaire'), label: open ? 'Answer' : 'Review' } : undefined,
     },
     {
-      title: 'Final result', state: final ? 'done' : 'waiting',
-      text: final ? `Published: ${whole(score)} out of 100.` : finalWaiting ? 'Being prepared: your final result appears as soon as its reports are written.'
+      title: 'Final result', state: final ? (draft ? 'current' : 'done') : 'waiting',
+      text: final ? (draft ? `Draft: ${whole(score)} out of 100, not published yet.` : `Published: ${whole(score)} out of 100.`) : finalWaiting ? 'Being prepared: your final result appears as soon as its reports are written.'
         : 'Published when you finish the follow-up questions.',
       link: final ? { to: pathOf('areas'), label: 'See result' } : undefined,
     },
@@ -129,7 +132,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
             <>
               <div className="ws-row" style={{ justifyContent: 'space-between' }}>
                 <h2>{final ? 'Your final result' : 'Your Stage 1 result'}</h2>
-                <span className="tag">{final ? 'Final' : 'From your documents'}</span>
+                {draft ? <span className="tag amber">Draft, not published</span> : <span className="tag">{final ? 'Final' : 'From your documents'}</span>}
               </div>
               <div className="ws-row" style={{ marginTop: 16, gap: 18 }}>
                 <span className="ws-big-number">{whole(score)}</span>
@@ -139,7 +142,9 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
               <div className="ws-row" style={{ marginTop: 18 }}>
                 <Link className="primary-action" to={pathOf(final ? 'areas' : open ? 'questionnaire' : 'areas')}>{final ? 'See your result' : open ? 'Answer the follow-up questions' : 'See your result'}</Link>
                 <Link className="secondary-button" to={pathOf('reports')}>Reports</Link>
+                {staff && canRun && <button className="secondary-button" onClick={() => { setKey(newKey()); setConfirming(true); }}>Run the assessment again</button>}
               </div>
+              {staff && failed && <Notice tone="error">The last run could not finish. The result above is from an earlier run.</Notice>}
             </>
           ) : (
             <>
@@ -147,7 +152,7 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
               <p className="muted" style={{ marginTop: 8 }}>We read every document you sent against 216 practices in nine areas of AI readiness, and name the document and page behind each finding. You get your Stage 1 result, then follow-up questions to complete it.</p>
               {failed && <Notice tone="error">The last attempt could not finish, so nothing was published. You can run it again.</Notice>}
               {disagree > 0 && <Notice tone="info">{disagreeText}<Link to={pathOf('gaps')}>Settle them</Link></Notice>}
-              {canRun ? <button className="primary-action" style={{ marginTop: 16 }} disabled={processed === 0} onClick={() => setConfirming(true)}>Run the assessment</button>
+              {canRun ? <button className="primary-action" style={{ marginTop: 16 }} disabled={processed === 0} onClick={() => { setKey(newKey()); setConfirming(true); }}>Run the assessment</button>
                 : !cap.enabled ? <p className="muted" style={{ marginTop: 12 }}>Assessments are switched off on this server for now.</p> : null}
               {processed === 0 && <p className="muted" style={{ marginTop: 10 }}>Send your documents first.</p>}
             </>
@@ -170,7 +175,9 @@ function AssessmentBody({ sprint }: { sprint: Sprint }) {
       {confirming && (
         <ActionDialog
           title="Run the assessment?"
-          description={`${disagreeText}We read the documents you have sent so far. Documents you send later can be added through the follow-up questions.`}
+          description={hasResult && staff
+            ? `${disagreeText}This starts a new run on the documents as they are now. What the college sees changes only when a result is published.`
+            : `${disagreeText}We read the documents you have sent so far. Documents you send later can be added through the follow-up questions.`}
           fields={[]}
           confirmLabel="Run the assessment"
           onSubmit={async () => {

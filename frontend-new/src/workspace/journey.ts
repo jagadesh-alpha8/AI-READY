@@ -20,7 +20,8 @@ export function useJourney(sprint: Sprint | null): Journey {
     !!sprint && stage1 && !!shown.provisionalId);
   const progress = questions.data?.progress;
   const closed = !!progress?.closed || !!progress?.final_run_id;
-  const current = journeyOf(sprint, { shown: !!shown.id, final, making: isActive(list[0] || null) || shown.preparing }, closed);
+  const current = journeyOf(sprint, { shown: !!shown.id, final, making: isActive(list[0] || null) || shown.preparing,
+    draft: shown.preview }, closed);
   return {
     current, stepNumber: Math.min(current + 1, JOURNEY.length), stage1, final, closed,
     open: progress ? progress.open : null, loading: runs.loading, shown, autoPublish: !!runs.data?.auto_publish,
